@@ -55,7 +55,7 @@ export const paymentSchema = basePaymentSchema.extend({
   /** payment.get only: while an open payment waits for confirmations (svc-pay router `payment.get`). */
   confirmations: payPaymentConfirmationsSchema.nullable().optional(),
 });
-export const settlementSchema = baseSettlementSchema.extend({
+const settlementSchema = baseSettlementSchema.extend({
   createdAt: timestamp.nullable().optional(),
   sentAt: timestamp.nullable().optional(),
   settledAt: timestamp.nullable().optional(),
@@ -86,8 +86,6 @@ export const kybEventSchema = z.object({
   at: timestamp,
 });
 export type KybEvent = z.infer<typeof kybEventSchema>;
-export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
-export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
 
 /** svc-pay `merchant.onboardingDraft`: the business step's saved fields, or null when nothing is saved. */
 const onboardingDraftFieldsSchema = z.object({

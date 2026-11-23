@@ -8,7 +8,11 @@ import {
   payVersionSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts/merchant-control';
-import { tierDefinitionSchema, controlPricingRuleSchema } from '@intafaced/contracts/pay-founder-admin-procedures';
+import {
+  tierDefinitionSchema,
+  controlPricingRuleSchema,
+  founderApprovalDecideInputSchema,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export type ControlPricingRuleInput = z.infer<typeof controlPricingRuleSchema>;
 
@@ -59,16 +63,6 @@ export const controlConfigureResultSchema = z
 export type ControlConfigureResult = z.infer<typeof controlConfigureResultSchema>;
 
 // ── merchant-facing extras ──────────────────────────────────────────────────
-
-/** A founder decision on an above-founder-threshold payout; the first and the second founder both call this. */
-export const founderApprovalDecideInputSchema = z
-  .object({
-    approvalId: z.string().guid(),
-    decision: z.enum(['approve', 'reject']),
-    expectedPayloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-    reason: payReasonSchema,
-  })
-  .strict();
 
 export { payoutApprovalSchema };
 export { tierDefinitionSchema };

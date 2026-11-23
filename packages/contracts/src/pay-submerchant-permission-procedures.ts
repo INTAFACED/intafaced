@@ -72,3 +72,54 @@ export const PAY_SUBMERCHANT_PERMISSION_HISTORY = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Delegate an area the caller already holds to a node between them and the
+ * subject.
+ *
+ * `reason` is required and stored. "Why does this node hold refund
+ * authority over that one" has to be answerable from the database — the
+ * same rule merchant status changes carry, and a stronger one here,
+ * because a permission is what a later incident is reconstructed from.
+ */
+export const PAY_SUBMERCHANT_PERMISSION_GRANT = defineProcedure({
+  ...base,
+  name: 'pay.submerchantPermission.grant',
+  kind: 'mutation',
+  path: 'submerchantPermission.grant',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    granteeMerchantId: z.string().guid(),
+    subjectMerchantId: z.string().guid(),
+    area: areaSchema,
+    /** `min(3)`: one character satisfies "not blank" and answers nothing. */
+    reason: z.string().trim().min(3).max(500),
+  }),
+  output: permissionEventView,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Take it back — a new journal row, never an edit. Same authority as `grant`. */
+export const PAY_SUBMERCHANT_PERMISSION_REVOKE = defineProcedure({
+  ...base,
+  name: 'pay.submerchantPermission.revoke',
+  kind: 'mutation',
+  path: 'submerchantPermission.revoke',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    granteeMerchantId: z.string().guid(),
+    subjectMerchantId: z.string().guid(),
+    area: areaSchema,
+    reason: z.string().trim().min(3).max(500),
+  }),
+  output: permissionEventView,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

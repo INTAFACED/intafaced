@@ -1,17 +1,12 @@
-import { merchantLimitIncreaseResultSchema, merchantTierListSchema, type PayCap } from '@intafaced/contracts/merchant-control';
+import { type PayCap } from '@intafaced/contracts/merchant-control';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import {
-  payDestinationAddOutputSchema,
-  payExportJobSchema,
-  payPayoutListItemSchema,
-  payRefundItemSchema,
-} from '@intafaced/contracts/pay-portal-reads';
+import { payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import { pageOrArray } from '../ui/page';
 import { feeRatesReadSchema } from './fee-rate-schema';
-import { PAY_PAYMENT_REFUNDS_GET } from '@intafaced/contracts/pay-payment-procedures';
+import { PAY_PAYMENT_REFUNDS_GET, PAY_PAYMENT_REFUNDS_LIST, PAY_PAYMENT_LIST } from '@intafaced/contracts/pay-payment-procedures';
 import {
   PAY_MERCHANT_CONTROL_GET,
   PAY_MERCHANT_CONTROL_RESERVE,
@@ -23,6 +18,8 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_OPEN,
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_LIMITS_REQUEST_INCREASE,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from '@intafaced/contracts/pay-merchant-control-procedures';
 import {
   PAY_SETTLEMENT_LINES,
@@ -30,6 +27,7 @@ import {
   PAY_SETTLEMENT_LIFECYCLE,
   PAY_SETTLEMENT_PAYOUT,
   PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_LIST,
 } from '@intafaced/contracts/pay-settlement-procedures';
 import {
   PAY_MERCHANT_STATEMENT_LIST,
@@ -37,6 +35,7 @@ import {
   PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
   PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
   PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD,
 } from '@intafaced/contracts/pay-merchant-procedures';
 import {
   PAY_CONVERSION_LIST,
@@ -53,7 +52,7 @@ const tolerantPage = <T extends z.ZodTypeAny>(item: T) => z.union([z.array(item)
 export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalTools) => ({
   // ---- reads that were here first ------------------------------------------------------------------
   settlements: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
-    const page = await query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.settlementSchema), signal);
+    const page = await queryRecord(PAY_SETTLEMENT_LIST, { merchantId, limit, ...(status ? { status } : {}) }, signal);
     return page.ok ? { ok: true as const, data: page.data.items } : page;
   },
   settlement: (settlementId: string, signal?: AbortSignal) => queryRecord(PAY_SETTLEMENT_GET, { settlementId }, signal),
@@ -79,7 +78,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
 
   // ---- pages (a server cursor each) ----------------------------------------------------------------
   settlementPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal) =>
-    query('settlement.list', { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, p.page(p.settlementSchema), signal),
+    queryRecord(PAY_SETTLEMENT_LIST, { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   settlementLines: (settlementId: string, cursor: string | undefined, signal?: AbortSignal) =>
     queryRecord(PAY_SETTLEMENT_LINES, { settlementId, limit: 25, ...(cursor ? { cursor } : {}) }, signal),
   /** RC-merchant-10: captured payments the rail has not made available yet, with the day it named. */
@@ -91,12 +90,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
   statementPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal, limit = 50) =>
     queryRecord(PAY_MERCHANT_STATEMENT_LIST, { merchantId, limit, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   refundPage: (merchantId: string, q: ListQuery & { paymentId?: string }, cursor: string | undefined, signal?: AbortSignal) =>
-    query(
-      'payment.refunds.list',
-      { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) },
-      p.page(payRefundItemSchema),
-      signal,
-    ),
+    queryRecord(PAY_PAYMENT_REFUNDS_LIST, { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   refundGet: (refundEventId: string, signal?: AbortSignal) => queryRecord(PAY_PAYMENT_REFUNDS_GET, { refundEventId }, signal),
   destinationPage: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST, { merchantId, limit: 50, ...(cursor ? { cursor } : {}) }, signal),
@@ -105,7 +99,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
    * fresh confirmation (`setPayoutDestination`), and then only after the hold.
    */
   destinationAdd: (input: { merchantId: string; railId: string; kind: string; ref: string }) =>
-    mutate('merchant.payoutDestinations.add', input, payDestinationAddOutputSchema),
+    mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD, input),
   /** Owner only. A held destination goes back to unverified; nothing is paid to it until it is verified again. */
   destinationCancelHold: (input: { merchantId: string; destinationId: string }) =>
     mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD, input),
@@ -123,7 +117,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
     ),
   /** The payments that can be refunded, found by the words a merchant remembers (customer, reference), not by an id. */
   refundablePayments: (merchantId: string, search: string, signal?: AbortSignal) =>
-    query('payment.list', { merchantId, limit: 10, ...(search ? { search } : {}) }, p.page(p.paymentSchema), signal),
+    queryRecord(PAY_PAYMENT_LIST, { merchantId, limit: 10, ...(search ? { search } : {}) }, signal),
 
   // ---- payout: ask, or send ------------------------------------------------------------------------
   /** Asks for a second person's approval. The service answers `approval_not_required` below the approval limit. */
@@ -135,11 +129,10 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
   // ---- limits, tiers, pricing history --------------------------------------------------------------
   limitOpen: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_LIMITS_OPEN, { merchantId }, signal),
   limitRequestIncrease: (input: { merchantId: string; requestId: string; caps: PayCap[]; reason: string }) =>
-    mutate('merchantControl.limits.requestIncrease', input, merchantLimitIncreaseResultSchema),
+    mutateRecord(PAY_MERCHANT_CONTROL_LIMITS_REQUEST_INCREASE, input),
   limitWithdraw: (input: { merchantId: string; requestId: string; reason: string }) =>
     mutateRecord(PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW, input),
-  tiersList: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantControl.tiers.list', { merchantId }, merchantTierListSchema, signal),
+  tiersList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TIERS_LIST, { merchantId }, signal),
   pricingHistory: (merchantId: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_CONTROL_PRICING_HISTORY, { merchantId, limit: 50 }, signal),
 

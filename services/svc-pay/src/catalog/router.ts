@@ -2,11 +2,7 @@ import type { Sql } from 'postgres';
 import {
   catalogCopyInputSchema,
   catalogCopySchema,
-  priceChoicesInputSchema,
-  priceChoicesSchema,
   priceCreateInputSchema,
-  priceQuoteInputSchema,
-  priceQuoteSchema,
   priceReplaceInputSchema,
   priceReplaceSchema,
   priceSchema,
@@ -18,8 +14,6 @@ import {
   productImageUploadInputSchema,
   productImportInputSchema,
   productImportSchema,
-  productListInputSchema,
-  productListSchema,
   productSchema,
 } from '@intafaced/contracts/merchant-catalog';
 import {
@@ -27,8 +21,6 @@ import {
   productAvailabilitySetInputSchema,
   storeCreateInputSchema,
   storeIdInputSchema,
-  storeListInputSchema,
-  storeListSchema,
   storeSchema,
 } from '@intafaced/contracts/merchant-stores';
 import { router } from '@intafaced/contracts/trpc';
@@ -52,9 +44,13 @@ import {
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_QUOTE,
+  PAY_MERCHANT_CATALOG_PRICES_CHOICES,
 } from '@intafaced/contracts/pay-merchant-catalog-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
+import { PAY_MERCHANT_STORES_LIST } from '@intafaced/contracts/pay-merchant-stores-procedures';
 
 export interface CatalogMountDeps {
   readonly sql: Sql;
@@ -88,10 +84,11 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
   return router({
     merchantCatalog: router({
       products: router({
-        list: read
-          .input(productListInputSchema)
-          .output(productListSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         get: mountRecord(
           PAY_MERCHANT_CATALOG_PRODUCTS_GET,
           ({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId)),
@@ -146,14 +143,16 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           ({ ctx, input }) => wrapOps(async () => need().prices.usage(await callerOf(ctx), input.priceId)),
           payRefusal,
         ),
-        choices: read
-          .input(priceChoicesInputSchema)
-          .output(priceChoicesSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.choices(await callerOf(ctx), input))),
-        quote: read
-          .input(priceQuoteInputSchema)
-          .output(priceQuoteSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input))),
+        choices: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_CHOICES,
+          ({ ctx, input }) => wrapOps(async () => need().prices.choices(await callerOf(ctx), input)),
+          payRefusal,
+        ),
+        quote: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_QUOTE,
+          ({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input)),
+          payRefusal,
+        ),
       }),
       availability: router({
         get: mountRecord(
@@ -189,10 +188,11 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
     }),
     // M-adv-org-access-05: the business's stores, where its products are sold (`merchantCatalog.availability`).
     merchantStores: router({
-      list: read
-        .input(storeListInputSchema)
-        .output(storeListSchema)
-        .query(({ ctx, input }) => wrapOps(async () => need().stores.list(await callerOf(ctx), input))),
+      list: mountRecord(
+        PAY_MERCHANT_STORES_LIST,
+        ({ ctx, input }) => wrapOps(async () => need().stores.list(await callerOf(ctx), input)),
+        payRefusal,
+      ),
       create: write
         .input(storeCreateInputSchema)
         .output(z.object({ store: storeSchema, replayed: z.boolean() }).strict())

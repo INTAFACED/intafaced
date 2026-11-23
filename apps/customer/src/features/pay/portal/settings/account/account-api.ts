@@ -12,6 +12,8 @@ import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
 
 const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
@@ -88,7 +90,7 @@ export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: P
   permHistory: (subjectMerchantId: string, signal?: AbortSignal) =>
     queryRecord(PAY_SUBMERCHANT_PERMISSION_HISTORY, { subjectMerchantId, limit: 50 }, signal),
   permGrant: (input: { granteeMerchantId: string; subjectMerchantId: string; area: string; reason: string }) =>
-    mutate('submerchantPermission.grant', input, s.permissionEventSchema),
+    mutateRecord(PAY_SUBMERCHANT_PERMISSION_GRANT, input),
   permRevoke: (input: { granteeMerchantId: string; subjectMerchantId: string; area: string; reason: string }) =>
-    mutate('submerchantPermission.revoke', input, s.permissionEventSchema),
+    mutateRecord(PAY_SUBMERCHANT_PERMISSION_REVOKE, input),
 });

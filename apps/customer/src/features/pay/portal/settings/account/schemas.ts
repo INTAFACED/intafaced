@@ -159,7 +159,7 @@ const grantSchema = z.object({
   grantedAt: timestamp,
 });
 export type Grant = z.infer<typeof grantSchema>;
-export const permissionEventSchema = z.object({
+const permissionEventSchema = z.object({
   id: z.string(),
   seq: z.string(),
   granteeMerchantId: z.string(),

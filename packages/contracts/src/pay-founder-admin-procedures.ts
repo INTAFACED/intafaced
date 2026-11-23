@@ -18,6 +18,8 @@ import {
   payRiskTierIdSchema,
   payTimestampSchema,
   payVersionSchema,
+  payReasonSchema,
+  payoutApprovalSchema,
 } from './merchant-control.js';
 import { payCustodyOpenItemsInputSchema, payCustodyOpenItemsReplySchema } from './pay-custody-deposit.js';
 import { depositFreezeViewSchema } from './pay-deposit-freezes.js';
@@ -40,6 +42,8 @@ import {
   founderRiskSummaryInputSchema,
   founderRiskSummarySchema,
   founderTreasuryExposureSchema,
+  founderControlAuditListInputSchema,
+  founderControlAuditListSchema,
 } from './founder-admin.js';
 import {
   merchantMetricsInputSchema,
@@ -52,6 +56,10 @@ import {
   categoryPolicyHistoryInputSchema,
   categoryPolicyListInputSchema,
   categoryPolicyViewSchema,
+  categoryPolicyPreviewInputSchema,
+  categoryPolicyPreviewSchema,
+  categoryPolicySetInputSchema,
+  businessCategorySchema,
 } from './business-category.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
 import { payPageSchema } from './pay-merchant-reads.js';
@@ -845,6 +853,311 @@ export const PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST = defineProcedure({
   output: z.array(heldDepositViewSchema),
   samples: [
     { verdict: 'accept', input: { userId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** A founder decision on an above-founder-threshold payout; the first and the second founder both call this. */
+export const founderApprovalDecideInputSchema = z
+  .object({
+    approvalId: z.string().guid(),
+    decision: z.enum(['approve', 'reject']),
+    expectedPayloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    reason: payReasonSchema,
+  })
+  .strict();
+
+export const venueIdSchema = z
+  .string()
+  .max(40)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'venue ids are lowercase words joined by hyphens');
+
+/**
+ * The registries hold routing data and never a credential. Strict input schemas
+ * already reject an unknown `secret` or `apiKey` field. This guard covers the
+ * remaining door: a secret pasted into a free-text field (display name, reason).
+ * It is a tripwire, not a vault: it errs towards refusing.
+ */
+export const PATTERNS: readonly RegExp[] = [
+  /-----BEGIN [A-Z ]*(PRIVATE KEY|CERTIFICATE|PGP)/i,
+  /\b0x[0-9a-fA-F]{64}\b/,
+  /\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{8,}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/,
+  /\b(?:api[ _-]?key|api[ _-]?secret|secret|passphrase|password|private[ _-]?key|token|bearer)\b\s*[:=]/i,
+  /\bbearer\s+[A-Za-z0-9._~+/-]{16,}/i,
+  // Any single unbroken token of 32+ key-like characters mixing letters and digits.
+  /(?=[A-Za-z0-9+/=_-]*[A-Za-z])(?=[A-Za-z0-9+/=_-]*\d)[A-Za-z0-9+/=_-]{32,}/,
+];
+
+export function looksLikeSecret(value: string): boolean {
+  return PATTERNS.some((p) => p.test(value));
+}
+
+export const noSecret = (value: string) => !looksLikeSecret(value);
+
+export const NO_SECRET_MESSAGE = 'registries.secret_like_value: credentials are never stored in a registry';
+
+/** Human text: names and reasons. Letters, digits and light punctuation only. */
+export const displayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[\p{L}\p{N} ._()&/+-]+$/u, 'letters, digits, spaces and . _ ( ) & / + - only')
+  .refine(noSecret, NO_SECRET_MESSAGE);
+
+/**
+ * Wire shapes for `founderAdmin.registries.*`.
+ *
+ * EVERY input object is `.strict()`: an unknown field such as `apiKey` or
+ * `secret` is a parse error, not something silently dropped, and no schema here
+ * names a credential field. Free text additionally passes the secret tripwire.
+ */
+export const VENUE_MODES = ['disabled', 'testnet', 'live'] as const;
+
+export const venueModeSchema = z.enum(VENUE_MODES);
+
+/** `BASE/QUOTE`, e.g. `USDT/USD`. */
+export const pairSchema = z.string().regex(/^[A-Z0-9]{2,16}\/[A-Z0-9]{2,16}$/, 'pairs look like BASE/QUOTE');
+
+export const versionSchema = z.number().int().min(1).max(2_147_483_647);
+
+export const reasonSchema = z.string().trim().min(3).max(500).refine(noSecret, NO_SECRET_MESSAGE);
+
+export const approvalFields = {
+  /** Identity-issued second-founder approval, bound to the exact change (see `preview`). */
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};
+
+export const venueSaveInputSchema = z
+  .object({
+    venueId: venueIdSchema,
+    displayName: displayNameSchema,
+    mode: venueModeSchema,
+    priority: z.number().int().min(0).max(100_000),
+    enabled: z.boolean(),
+    /** Blank (null) means "not configured": the venue is never routed to. */
+    minOrder: payAmountStringSchema.nullable(),
+    maxOrder: payAmountStringSchema.nullable(),
+    supportedPairs: z.array(pairSchema).max(200),
+    /** null creates the entry; otherwise the version this edit is based on. */
+    expectedVersion: versionSchema.nullable(),
+    reason: reasonSchema,
+    ...approvalFields,
+  })
+  .strict();
+
+export const networkIdSchema = z
+  .string()
+  .max(40)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'network ids are lowercase words joined by hyphens');
+
+export const assetCodeSchema = payAssetCodeSchema.regex(/^[A-Z0-9]{1,16}$/, 'asset codes are upper-case letters and digits');
+
+export const FEE_ESTIMATE_SOURCES = ['fixed', 'venue_quote', 'chain_estimate'] as const;
+
+export const feeEstimateSourceSchema = z.enum(FEE_ESTIMATE_SOURCES);
+
+export const networkSaveInputSchema = z
+  .object({
+    networkId: networkIdSchema,
+    displayName: displayNameSchema,
+    assetCodes: z.array(assetCodeSchema).max(100),
+    confirmationsRequired: z.number().int().min(1).max(100_000).nullable(),
+    enabled: z.boolean(),
+    feeEstimateSource: feeEstimateSourceSchema.nullable(),
+    /** Only with source `fixed`. */
+    feeEstimateAmount: payAmountStringSchema.nullable(),
+    expectedVersion: versionSchema.nullable(),
+    reason: reasonSchema,
+    ...approvalFields,
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.feeEstimateSource === 'fixed' && v.feeEstimateAmount === null) {
+      ctx.addIssue({ code: 'custom', path: ['feeEstimateAmount'], message: 'a fixed fee source needs an amount' });
+    }
+    if (v.feeEstimateSource !== 'fixed' && v.feeEstimateAmount !== null) {
+      ctx.addIssue({ code: 'custom', path: ['feeEstimateAmount'], message: 'an amount belongs only to the fixed fee source' });
+    }
+  });
+
+export const merchantIdSchema = z.string().guid();
+
+export const walletRouteSaveInputSchema = z
+  .object({
+    assetCode: assetCodeSchema,
+    networkId: networkIdSchema,
+    payoutAllowed: z.boolean(),
+    /** Empty allow list means "no per-merchant restriction"; deny always wins. */
+    merchantAllow: z.array(merchantIdSchema).max(1000),
+    merchantDeny: z.array(merchantIdSchema).max(1000),
+    maxSinglePayout: payAmountStringSchema.nullable(),
+    expectedVersion: versionSchema.nullable(),
+    reason: reasonSchema,
+    ...approvalFields,
+  })
+  .strict();
+
+export const registryPreviewInputSchema = z.discriminatedUnion('registry', [
+  z.object({ registry: z.literal('venue'), change: venueSaveInputSchema }).strict(),
+  z.object({ registry: z.literal('network'), change: networkSaveInputSchema }).strict(),
+  z.object({ registry: z.literal('wallet_route'), change: walletRouteSaveInputSchema }).strict(),
+]);
+
+export const registryPreviewSchema = z
+  .object({
+    needsDualControl: z.boolean(),
+    reasons: z.array(z.string()),
+    /** What the second founder's approval must be issued for. */
+    actionType: z.string(),
+    payloadHash: z.string(),
+  })
+  .strict();
+
+/** The approver names the hash they read, so an approval can never ride a different payload. */
+export const decideInputSchema = z.object({ taskId: id, payloadHash: hash }).strict();
+
+export const depositActionInputSchema = z.object({ depositId: z.string().uuid(), reason: reasonSchema }).strict();
+
+export const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
+
+export const PAY_FOUNDER_ADMIN_CATEGORY_POLICY_PREVIEW = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.categoryPolicy.preview',
+  kind: 'query',
+  path: 'founderAdmin.categoryPolicy.preview',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: categoryPolicyPreviewInputSchema,
+  output: categoryPolicyPreviewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CATEGORY_POLICY_SET = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.categoryPolicy.set',
+  kind: 'mutation',
+  path: 'founderAdmin.categoryPolicy.set',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: categoryPolicySetInputSchema,
+  output: businessCategorySchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CONTROL_APPROVALS_DECIDE = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.control.approvals.decide',
+  kind: 'mutation',
+  path: 'founderAdmin.control.approvals.decide',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderApprovalDecideInputSchema,
+  output: payoutApprovalSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** What a change would need (dual control or not) and the hash the second founder's approval must bind to. */
+export const PAY_FOUNDER_ADMIN_REGISTRIES_PREVIEW = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.registries.preview',
+  kind: 'query',
+  path: 'founderAdmin.registries.preview',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: registryPreviewInputSchema,
+  output: registryPreviewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CUSTODY_TASKS_APPROVE = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.custody.tasks.approve',
+  kind: 'mutation',
+  path: 'founderAdmin.custody.tasks.approve',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: decideInputSchema,
+  output: taskViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CUSTODY_TASKS_REJECT = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.custody.tasks.reject',
+  kind: 'mutation',
+  path: 'founderAdmin.custody.tasks.reject',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: decideInputSchema,
+  output: taskViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_MARK_COUNTERPARTY_PENDING = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.depositTravelRule.markCounterpartyPending',
+  kind: 'mutation',
+  path: 'founderAdmin.depositTravelRule.markCounterpartyPending',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: depositActionInputSchema,
+  output: heldDepositViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_RELEASE = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.depositTravelRule.release',
+  kind: 'mutation',
+  path: 'founderAdmin.depositTravelRule.release',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: depositActionInputSchema,
+  output: releaseResultSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.control.audit.list',
+  kind: 'query',
+  path: 'founderAdmin.control.audit.list',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderControlAuditListInputSchema,
+  output: founderControlAuditListSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });

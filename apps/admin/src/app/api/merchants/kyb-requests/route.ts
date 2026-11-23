@@ -2,11 +2,11 @@ import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { kybRequestFileBytesSchema, kybRequestResultSchema } from '@intafaced/contracts/kyb-information-requests';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { payCall, type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
+import { type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
 import { isUuid } from '@/lib/founder-ops/read-model';
 import { KYB_CLOSE_NOTE_MAX, KYB_REASON_MIN, KYB_REQUEST_TEXT_MAX, kybRequestKey, reasonLength } from '@/lib/merchants/kyb-review-model';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { PAY_KYB_REQUESTS_FILE } from '@intafaced/contracts/pay-kyb-procedures';
+import { PAY_KYB_REQUESTS_FILE, PAY_KYB_REQUESTS_CREATE, PAY_KYB_REQUESTS_CLOSE } from '@intafaced/contracts/pay-kyb-procedures';
 
 /**
  * Merchants panel BFF: information requests to a business (compliance, J-merchant-02 step 4).
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       if (!due || Number.isNaN(due.getTime())) throw bad();
       const dueAt = due.toISOString();
       const requestKey = await kybRequestKey(merchantId, text, dueAt);
-      const result = await payCall(ctx, 'kyb.requests.create', 'POST', { merchantId, requestKey, text, dueAt }, parseResult);
+      const result = await payRecordRead(ctx, PAY_KYB_REQUESTS_CREATE, { merchantId, requestKey, text, dueAt }, parseResult);
       if (result.kind !== 'ok') return fromFailure(result, { notFoundCode: 'pay.merchant_not_found' });
       return json({ ok: true, request: result.data.request });
     }
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
     if (body.action === 'close') {
       const note = words(body.note, KYB_CLOSE_NOTE_MAX);
-      const result = await payCall(ctx, 'kyb.requests.close', 'POST', { requestId, note }, parseResult);
+      const result = await payRecordRead(ctx, PAY_KYB_REQUESTS_CLOSE, { requestId, note }, parseResult);
       if (result.kind !== 'ok') return fromFailure(result, { notFoundCode: 'pay.kyb_request_not_found' });
       return json({ ok: true, request: result.data.request });
     }

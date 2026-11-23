@@ -1,9 +1,3 @@
-import {
-  businessCategorySchema,
-  categoryPolicyPreviewInputSchema,
-  categoryPolicyPreviewSchema,
-  categoryPolicySetInputSchema,
-} from '@intafaced/contracts/business-category';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from '../action-approval-consume.js';
@@ -14,6 +8,8 @@ import { CategoryPolicyError, CategoryPolicyService } from './category.js';
 import {
   PAY_FOUNDER_ADMIN_CATEGORY_POLICY_LIST,
   PAY_FOUNDER_ADMIN_CATEGORY_POLICY_HISTORY,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_PREVIEW,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_SET,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -72,13 +68,13 @@ export function createCategoryPolicyRouter(deps: CategoryPolicyMountDeps & { fou
       refusalOf: payRefusal,
       founder,
     }),
-    preview: founder
-      .input(categoryPolicyPreviewInputSchema)
-      .output(categoryPolicyPreviewSchema)
-      .query(({ input }) => wrap(() => service.preview(input))),
-    set: founder
-      .input(categoryPolicySetInputSchema)
-      .output(businessCategorySchema)
-      .mutation(({ ctx, input }) => wrap(() => service.set(actorOf(ctx), input))),
+    preview: mountRecord(PAY_FOUNDER_ADMIN_CATEGORY_POLICY_PREVIEW, ({ input }) => wrap(() => service.preview(input)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
+    set: mountRecord(PAY_FOUNDER_ADMIN_CATEGORY_POLICY_SET, ({ ctx, input }) => wrap(() => service.set(actorOf(ctx), input)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
   });
 }

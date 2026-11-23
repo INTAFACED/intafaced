@@ -5,7 +5,6 @@ import {
   TASK_KINDS,
   CONFIG_SCOPES,
   payload,
-  hash,
   TASK_STATUSES,
   stamp,
   taskViewSchema,
@@ -13,6 +12,7 @@ import {
   APPROVER_ROLES,
   approverViewSchema,
   taskDetailSchema,
+  decideInputSchema,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 const clientRef = z.string().min(1).max(64);
@@ -28,8 +28,6 @@ export type InitiateInput = z.infer<typeof initiateInputSchema>;
 export const configProposeInputSchema = z.object({ scope: z.enum(CONFIG_SCOPES), title, payload, clientRef }).strict();
 export type ConfigProposeInput = z.infer<typeof configProposeInputSchema>;
 
-/** The approver names the hash they read, so an approval can never ride a different payload. */
-export const decideInputSchema = z.object({ taskId: id, payloadHash: hash }).strict();
 export type ListInput = z.infer<typeof listInputSchema>;
 export type PendingInput = z.infer<typeof pendingInputSchema>;
 
@@ -71,3 +69,4 @@ export const settleResultSchema = z.object({
 });
 export type SettleResult = z.infer<typeof settleResultSchema>;
 export { taskViewSchema, approverViewSchema };
+export { decideInputSchema };

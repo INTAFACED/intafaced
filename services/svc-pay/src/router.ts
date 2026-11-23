@@ -30,14 +30,7 @@ import {
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
-import { payPageSchema, paySettlementDetailViewSchema, paySettlementViewSchema } from '@intafaced/contracts/pay-merchant-reads';
-import {
-  payCheckoutSettingsGetInputSchema,
-  payCheckoutSettingsSchema,
-  payDestinationAddOutputSchema,
-  payRefundItemSchema,
-  payRefundListInputSchema,
-} from '@intafaced/contracts/pay-portal-reads';
+import { paySettlementDetailViewSchema, paySettlementViewSchema } from '@intafaced/contracts/pay-merchant-reads';
 import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
@@ -89,7 +82,6 @@ import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-ac
 import { logPaymentFactsReadFailure } from './payment-facts-log.js';
 import { projectPricingSnapshot, projectTeamHistoryEvent } from './team-read-projection.js';
 import type { MerchantReadPermission, MerchantTeamRead } from './merchant-team-read.js';
-import { merchantNameInputSchema } from './merchant-names.js';
 import { areaForSurface, type PayfacSurface } from './payfac-permissions.js';
 import { assertRoutingInputsPresent, RoutingInputError } from './routing-inputs.js';
 import {
@@ -116,7 +108,6 @@ import {
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
-import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { ownMerchantRead } from './own-merchant-read.js';
 import { OnboardingDraftStore } from './onboarding-draft.js';
 import { assetIdSchema, amountSchema, paymentView } from '@intafaced/contracts/pay-call-schemas';
@@ -130,6 +121,7 @@ import {
   PAY_PAYMENT_CREATE,
   PAY_PAYMENT_REFUNDS_GET,
   PAY_PAYMENT_REFUND,
+  PAY_PAYMENT_REFUNDS_LIST,
 } from '@intafaced/contracts/pay-payment-procedures';
 import {
   PAY_MERCHANT_STARTER_FEE,
@@ -148,6 +140,10 @@ import {
   PAY_MERCHANT_ONBOARDING_DRAFT,
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD,
+  PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
+  PAY_MERCHANT_CREATE,
+  PAY_MERCHANT_SET_PAYOUT_DESTINATION,
 } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
@@ -484,19 +480,9 @@ export function createPayRouter(
        * Door is pay:onboard. Client mode and pricing are ignored: the server
        * starter fee and gateway mode are the only account this door opens.
        */
-      create: scopedProcedure('pay:onboard', { module: 'pay' })
-        .input(
-          z.object({
-            mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
-            pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
-            settlementPrefs: z.record(z.string(), z.unknown()).optional(),
-            /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
-            displayName: merchantNameInputSchema.optional(),
-            legalName: merchantNameInputSchema.optional(),
-          }),
-        )
-        .output(z.object({ id: z.string().guid(), userId: z.string().guid(), mode: z.string(), feeBps: z.number().nullable() }))
-        .mutation(({ ctx, input }) =>
+      create: mountRecord(
+        PAY_MERCHANT_CREATE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -518,7 +504,8 @@ export function createPayRouter(
             if (portalSql) await new OnboardingDraftStore(portalSql).clear(userId).catch(() => undefined);
             return { id: merchant.id, userId: merchant.userId, mode: merchant.mode, feeBps: merchant.pricing.feeBps ?? null };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Verify (or save and verify) the stored payout destination, or change a
@@ -527,26 +514,11 @@ export function createPayRouter(
        * `activatesAt` (verified + PAY_DESTINATION_HOLD_SECONDS), then active.
        * A change stays pending until the hold passes. Blank hold refuses.
        */
-      setPayoutDestination: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().guid(),
-            railId: z.string().min(1),
-            kind: z.string().min(1),
-            ref: z.string().min(1),
-            stepUpApprovalId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(
-          z.object({
-            kind: z.string(),
-            ref: z.string(),
-            railId: z.string(),
-            status: z.enum(['held', 'active', 'pending']),
-            activatesAt: z.string().nullable(),
-          }),
-        )
-        .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
+      setPayoutDestination: mountRecord(
+        PAY_MERCHANT_SET_PAYOUT_DESTINATION,
+        ({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input)),
+        payRefusal,
+      ),
 
       /** Current merchant for the principal — null when not yet onboarded. */
       me: mountRecord(
@@ -724,10 +696,9 @@ export function createPayRouter(
        * `feeRouting` is null unless the caller sees full pricing. `checkoutConfig` stays.
        */
       checkoutSettings: router({
-        get: ownMerchantRead()
-          .input(payCheckoutSettingsGetInputSchema)
-          .output(payCheckoutSettingsSchema)
-          .query(({ ctx, input }) =>
+        get: mountRecord(
+          PAY_MERCHANT_CHECKOUT_SETTINGS_GET,
+          ({ ctx, input }) =>
             wrap(async () => {
               const audience = await assertRead(
                 ctx.principal?.userId,
@@ -739,7 +710,8 @@ export function createPayRouter(
               if (settings.status !== 'configured' || seesFullPricing(audience)) return settings;
               return { ...settings, feeRouting: null };
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       /**
@@ -874,17 +846,11 @@ export function createPayRouter(
          * one. A verified destination on the rail is refused
          * (`pay.payout_destination_verified_locked`).
          */
-        add: scopedProcedure('pay:write', { module: 'pay' })
-          .input(
-            z.object({
-              merchantId: z.string().guid(),
-              railId: z.string().min(1),
-              kind: z.string().min(1),
-              ref: z.string().min(1),
-            }),
-          )
-          .output(payDestinationAddOutputSchema)
-          .mutation(({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input))),
+        add: mountRecord(
+          PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD,
+          ({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input)),
+          payRefusal,
+        ),
         /**
          * The owner sends a held destination back to unverified (J-merchant-02 #5, the lead's ruling of 2026-10-30).
          * Owner only, interactive, never an API key; no step-up, since it only lowers risk. Idempotent: an
@@ -1108,15 +1074,15 @@ export function createPayRouter(
 
       /** Account-wide refund projection. The write stays on `payment.refund`. */
       refunds: router({
-        list: ownMerchantRead()
-          .input(payRefundListInputSchema)
-          .output(payPageSchema(payRefundItemSchema))
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_PAYMENT_REFUNDS_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
               return pay.listRefunds(input);
             }),
-          ),
+          payRefusal,
+        ),
 
         get: mountRecord(
           PAY_PAYMENT_REFUNDS_GET,

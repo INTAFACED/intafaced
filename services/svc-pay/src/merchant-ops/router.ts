@@ -49,7 +49,11 @@ import {
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_DISPUTES_FUNDS,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -197,11 +201,12 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           }),
         ),
         /** M-disp-01: where the money is. Reads the chargeback posts by their dispute keys; posts nothing. */
-        funds: read
-          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
-          .query(({ ctx, input }) =>
+        funds: mountRecord(
+          PAY_MERCHANT_OPS_DISPUTES_FUNDS,
+          ({ ctx, input }) =>
             wrapOps(async () => readDisputeFunds(await callerOf(ctx), need().disputeStore, deps.disputeFundsLedger, input.disputeId)),
-          ),
+          payRefusal,
+        ),
         get: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.get(await callerOf(ctx), input.disputeId))),

@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { merchantStarterFeeSchema } from './merchant-portal.js';
-import { assetIdSchema, amountSchema, onboardingDraftSchema, onboardingDraftSaveInputSchema } from './pay-call-schemas.js';
+import {
+  assetIdSchema,
+  amountSchema,
+  onboardingDraftSchema,
+  onboardingDraftSaveInputSchema,
+  MAX_FEE_BPS,
+  merchantNameInputSchema,
+} from './pay-call-schemas.js';
 import {
   payLinkListInputSchema,
   payLinkListPageSchema,
@@ -18,6 +25,9 @@ import {
   payDestinationCancelHoldInputSchema,
   payDestinationCancelHoldOutputSchema,
   payDestinationRemoveOutputSchema,
+  payDestinationAddOutputSchema,
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
 } from './pay-portal-reads.js';
 import { payPageSchema } from './pay-merchant-reads.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
@@ -325,6 +335,111 @@ export const PAY_MERCHANT_SUBMIT_KYB = defineProcedure({
   }),
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', kybRef: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * J-merchant-02 #5: save a destination unverified. Owner or admin in an
+ * interactive session, never an API key; no step-up, because nothing
+ * is paid to it until `merchant.setPayoutDestination` verifies it with
+ * one. A verified destination on the rail is refused
+ * (`pay.payout_destination_verified_locked`).
+ */
+export const PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD = defineProcedure({
+  ...base,
+  name: 'pay.merchant.payoutDestinations.add',
+  kind: 'mutation',
+  path: 'merchant.payoutDestinations.add',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    merchantId: z.string().guid(),
+    railId: z.string().min(1),
+    kind: z.string().min(1),
+    ref: z.string().min(1),
+  }),
+  output: payDestinationAddOutputSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CHECKOUT_SETTINGS_GET = defineProcedure({
+  ...base,
+  name: 'pay.merchant.checkoutSettings.get',
+  kind: 'query',
+  path: 'merchant.checkoutSettings.get',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payCheckoutSettingsGetInputSchema,
+  output: payCheckoutSettingsSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Ownership: userId is always the authenticated principal. Body userId
+ * was dropped so a caller with pay:write cannot create a merchant under
+ * another account (full audit L2-1).
+ * Door is pay:onboard. Client mode and pricing are ignored: the server
+ * starter fee and gateway mode are the only account this door opens.
+ */
+export const PAY_MERCHANT_CREATE = defineProcedure({
+  ...base,
+  name: 'pay.merchant.create',
+  kind: 'mutation',
+  path: 'merchant.create',
+  access: { caller: 'scope', scope: 'pay:onboard', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
+    pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
+    settlementPrefs: z.record(z.string(), z.unknown()).optional(),
+    /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
+    displayName: merchantNameInputSchema.optional(),
+    legalName: merchantNameInputSchema.optional(),
+  }),
+  output: z.object({ id: z.string().guid(), userId: z.string().guid(), mode: z.string(), feeBps: z.number().nullable() }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Verify (or save and verify) the stored payout destination, or change a
+ * verified one. Step-up, owner or admin, never an API key. A payout
+ * cannot call this. A newly verified destination is `held` until
+ * `activatesAt` (verified + PAY_DESTINATION_HOLD_SECONDS), then active.
+ * A change stays pending until the hold passes. Blank hold refuses.
+ */
+export const PAY_MERCHANT_SET_PAYOUT_DESTINATION = defineProcedure({
+  ...base,
+  name: 'pay.merchant.setPayoutDestination',
+  kind: 'mutation',
+  path: 'merchant.setPayoutDestination',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    merchantId: z.string().guid(),
+    railId: z.string().min(1),
+    kind: z.string().min(1),
+    ref: z.string().min(1),
+    stepUpApprovalId: z.string().max(128).nullish(),
+  }),
+  output: z.object({
+    kind: z.string(),
+    ref: z.string(),
+    railId: z.string(),
+    status: z.enum(['held', 'active', 'pending']),
+    activatesAt: z.string().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });

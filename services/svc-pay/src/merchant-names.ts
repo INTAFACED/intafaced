@@ -1,35 +1,6 @@
-import { z } from 'zod';
-
-/**
- * Merchant names (migration 0071). One rule, used by the onboarding input, the
- * service and (by shape) the database CHECKs: after trimming spaces a name is
- * 1..120 characters and holds no control character (C0, DEL or C1) and no invisible
- * formatting character (bidi marks and overrides, line and paragraph separators,
- * zero-width space, word joiner, byte-order mark), so it cannot carry a newline, tab,
- * terminal escape or text-direction trick into a table, a CSV export or a log line.
- * U+200D (zero-width joiner) stays allowed because emoji sequences need it. The same
- * character class is written in 0071 (both CHECKs) and in the customer form.
- */
-export const MERCHANT_NAME_MAX = 120;
+import { MERCHANT_NAME_MAX, cleanMerchantName, merchantNameInputSchema } from '@intafaced/contracts/pay-call-schemas';
 
 // eslint-disable-next-line no-control-regex -- the point of this pattern is to match control characters
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
-
-/** The trimmed name when it is valid, otherwise null. Never throws. */
-export function cleanMerchantName(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || [...trimmed].length > MERCHANT_NAME_MAX || CONTROL_CHARACTER.test(trimmed)) return null;
-  return trimmed;
-}
-
-/** For the onboarding input: refuse a bad name loudly rather than store a changed one. */
-export const merchantNameInputSchema = z
-  .string()
-  .transform((v) => v.trim())
-  .refine((v) => cleanMerchantName(v) !== null, {
-    message: `A name must be 1 to ${MERCHANT_NAME_MAX} characters with no control characters`,
-  });
 
 export interface MerchantNames {
   displayName: string | null;
@@ -59,3 +30,4 @@ export function resolveMerchantNames(input: {
   const displayName = cleanMerchantName(input.displayName) ?? legalName;
   return { displayName, legalName };
 }
+export { MERCHANT_NAME_MAX, cleanMerchantName, merchantNameInputSchema };

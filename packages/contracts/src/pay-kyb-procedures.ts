@@ -15,6 +15,10 @@ import {
   kybRequestFileInputSchema,
   kybRequestsListInputSchema,
   kybRequestsViewSchema,
+  kybRequestCreateInputSchema,
+  kybRequestResultSchema,
+  kybRequestCloseInputSchema,
+  kybRequestAnswerInputSchema,
 } from './kyb-information-requests.js';
 import { kybEntityTypesViewSchema } from './kyb-entity-types.js';
 import {
@@ -22,6 +26,9 @@ import {
   kybApplicationViewSchema,
   kybApplicationRestartInputSchema,
   kybApplicationSubmitInputSchema,
+  kybApplicationStartInputSchema,
+  kybApplicationChangeTypeInputSchema,
+  kybApplicationSaveSectionInputSchema,
 } from './kyb-application.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -261,5 +268,101 @@ export const PAY_KYB_DOCUMENTS_REVIEW = defineProcedure({
         reason: '',
       },
     },
+  ],
+});
+
+/** For compliance: ask a merchant for more, with a due date in the future. The request key makes it idempotent. */
+export const PAY_KYB_REQUESTS_CREATE = defineProcedure({
+  ...base,
+  name: 'pay.kyb.requests.create',
+  kind: 'mutation',
+  path: 'kyb.requests.create',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'pay' },
+  refusals: {},
+  input: kybRequestCreateInputSchema,
+  output: kybRequestResultSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** For compliance: close an open or answered request with a note the business reads. */
+export const PAY_KYB_REQUESTS_CLOSE = defineProcedure({
+  ...base,
+  name: 'pay.kyb.requests.close',
+  kind: 'mutation',
+  path: 'kyb.requests.close',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'pay' },
+  refusals: {},
+  input: kybRequestCloseInputSchema,
+  output: kybRequestResultSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Start the merchant's draft for a published entity type and a country it is offered in. Same type again returns the same draft. */
+export const PAY_KYB_APPLICATION_START = defineProcedure({
+  ...base,
+  name: 'pay.kyb.application.start',
+  kind: 'mutation',
+  path: 'kyb.application.start',
+  access: { caller: 'scope', scope: 'pay:onboard', module: 'pay' },
+  refusals: {},
+  input: kybApplicationStartInputSchema,
+  output: kybApplicationViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Change the draft's entity type or country: the sections clear and what is needed is listed again for the new type. */
+export const PAY_KYB_APPLICATION_CHANGE_TYPE = defineProcedure({
+  ...base,
+  name: 'pay.kyb.application.changeType',
+  kind: 'mutation',
+  path: 'kyb.application.changeType',
+  access: { caller: 'scope', scope: 'pay:onboard', module: 'pay' },
+  refusals: {},
+  input: kybApplicationChangeTypeInputSchema,
+  output: kybApplicationViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Save one section; names the version it read. A stale version is a conflict. */
+export const PAY_KYB_APPLICATION_SAVE_SECTION = defineProcedure({
+  ...base,
+  name: 'pay.kyb.application.saveSection',
+  kind: 'mutation',
+  path: 'kyb.application.saveSection',
+  access: { caller: 'scope', scope: 'pay:onboard', module: 'pay' },
+  refusals: {},
+  input: kybApplicationSaveSectionInputSchema,
+  output: kybApplicationViewSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The business answers an open request once: a note, a file (scanned before it is kept), or both. */
+export const PAY_KYB_REQUESTS_ANSWER = defineProcedure({
+  ...base,
+  name: 'pay.kyb.requests.answer',
+  kind: 'mutation',
+  path: 'kyb.requests.answer',
+  access: { caller: 'scope', scope: 'pay:onboard', module: 'pay' },
+  refusals: {},
+  input: kybRequestAnswerInputSchema,
+  output: kybRequestResultSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
   ],
 });

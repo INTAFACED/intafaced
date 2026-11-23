@@ -5,13 +5,9 @@ import {
   merchantControlApprovalListInputSchema,
   merchantControlApprovalPageSchema,
   merchantControlApprovalDecideInputSchema,
-  merchantTierListInputSchema,
-  merchantTierListSchema,
-  merchantLimitIncreaseInputSchema,
-  merchantLimitIncreaseResultSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts/merchant-control';
-import { router, scopedProcedure, anyScopeProcedure } from '@intafaced/contracts/trpc';
+import { router, anyScopeProcedure } from '@intafaced/contracts/trpc';
 import type { Principal } from '@intafaced/auth';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
@@ -35,6 +31,8 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_OPEN,
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_LIMITS_REQUEST_INCREASE,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
 } from '@intafaced/contracts/pay-merchant-control-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -68,7 +66,6 @@ async function assertLimitAsk(control: ControlService, principal: Principal, mer
 
 export function createMerchantControlRouter(control?: ControlService) {
   const read = ownMerchantRead();
-  const write = scopedProcedure('pay:write', { module: 'pay' });
   /**
    * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
    * role table, while the owner grant law gives `pay:write` to the owner alone. So deciding is a team member's write
@@ -162,17 +159,17 @@ export function createMerchantControlRouter(control?: ControlService) {
         payRefusal,
       ),
       tiers: router({
-        list: read
-          .input(merchantTierListInputSchema)
-          .output(merchantTierListSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_MERCHANT_CONTROL_TIERS_LIST,
+          ({ ctx, input }) =>
             guarded(async () => {
               const principal = principalOf(ctx);
               await control.assertCanView(principal, input.merchantId);
               const role = await control.roleOnMerchant(principal, input.merchantId);
               return projectTierList(await control.merchantTierList(input.merchantId), role);
             }),
-          ),
+          payRefusal,
+        ),
       }),
       pricing: router({
         preview: mountRecord(
@@ -204,16 +201,16 @@ export function createMerchantControlRouter(control?: ControlService) {
             }),
           payRefusal,
         ),
-        requestIncrease: write
-          .input(merchantLimitIncreaseInputSchema)
-          .output(merchantLimitIncreaseResultSchema)
-          .mutation(({ ctx, input }) =>
+        requestIncrease: mountRecord(
+          PAY_MERCHANT_CONTROL_LIMITS_REQUEST_INCREASE,
+          ({ ctx, input }) =>
             guarded(async () => {
               const principal = principalOf(ctx);
               await assertLimitAsk(control, principal, input.merchantId);
               return control.requestLimitIncrease(principal, input);
             }),
-          ),
+          payRefusal,
+        ),
         withdraw: mountRecord(
           PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
           ({ ctx, input }) =>

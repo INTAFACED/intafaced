@@ -1,6 +1,6 @@
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
-import { payCall, type PayCallContext, payRecordCall } from '@/lib/merchants/pay-call';
+import { payCall, type PayCallContext, payRecordCall, payRecordRead } from '@/lib/merchants/pay-call';
 import {
   acceptChange,
   asNetwork,
@@ -19,6 +19,7 @@ import {
   IDENTITY_ACTION_APPROVAL_PROPOSE,
   IDENTITY_ACTION_APPROVAL_APPROVE,
 } from '@intafaced/contracts/identity-action-approval-records';
+import { PAY_FOUNDER_ADMIN_REGISTRIES_PREVIEW } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: registry preview, second-founder approval and save.
@@ -44,7 +45,7 @@ const withoutApproval = (change: Record<string, unknown>): Record<string, unknow
 const viewParser = (kind: RegistryKind) => (kind === 'venue' ? asVenue : kind === 'network' ? asNetwork : asWalletRoute);
 
 async function previewOf(ctx: PayCallContext, kind: RegistryKind, change: Record<string, unknown>) {
-  return payCall(ctx, 'founderAdmin.registries.preview', 'GET', { registry: kind, change: withoutApproval(change) }, asPreview);
+  return payRecordRead(ctx, PAY_FOUNDER_ADMIN_REGISTRIES_PREVIEW, { registry: kind, change: withoutApproval(change) }, asPreview);
 }
 
 export async function GET(request: Request) {

@@ -1,19 +1,18 @@
-import {
-  businessCategorySchema,
-  categoryPolicyPreviewInputSchema,
-  categoryPolicyPreviewSchema,
-  type CategoryPolicyPreviewInput,
-} from '@intafaced/contracts/business-category';
+import { categoryPolicyPreviewInputSchema, type CategoryPolicyPreviewInput } from '@intafaced/contracts/business-category';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { parseWith, payCall, type PayCallContext, payRecordCall } from '@/lib/merchants/pay-call';
+import { type PayCallContext, payRecordCall } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
 import {
   IDENTITY_ACTION_APPROVAL_REJECT,
   IDENTITY_ACTION_APPROVAL_PROPOSE,
   IDENTITY_ACTION_APPROVAL_APPROVE,
 } from '@intafaced/contracts/identity-action-approval-records';
+import {
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_PREVIEW,
+  PAY_FOUNDER_ADMIN_CATEGORY_POLICY_SET,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: the business category table (RC-merchant-08, J-merchant-02 step 7).
@@ -45,7 +44,7 @@ function changeOf(raw: unknown): CategoryPolicyPreviewInput {
 }
 
 const previewOf = (ctx: PayCallContext, change: CategoryPolicyPreviewInput) =>
-  payCall(ctx, 'founderAdmin.categoryPolicy.preview', 'GET', change, parseWith(categoryPolicyPreviewSchema));
+  payRecordCall(ctx, PAY_FOUNDER_ADMIN_CATEGORY_POLICY_PREVIEW, change);
 
 export async function GET(request: Request) {
   const disabled = moduleDisabledResponse('merchants');
@@ -121,13 +120,7 @@ export async function POST(request: Request) {
     }
 
     if (body.action === 'save') {
-      const saved = await payCall(
-        ctx,
-        'founderAdmin.categoryPolicy.set',
-        'POST',
-        { ...change, approvalId, operationId },
-        parseWith(businessCategorySchema),
-      );
+      const saved = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_CATEGORY_POLICY_SET, { ...change, approvalId, operationId });
       if (saved.kind !== 'ok') return fromFailure(saved);
       return json({ ok: true, saved: saved.data });
     }

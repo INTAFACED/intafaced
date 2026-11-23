@@ -12,6 +12,12 @@ import {
   productImageGetInputSchema,
   productImageRulesSchema,
   productSchema,
+  productListInputSchema,
+  productListSchema,
+  priceQuoteInputSchema,
+  priceQuoteSchema,
+  priceChoicesInputSchema,
+  priceChoicesSchema,
 } from './merchant-catalog.js';
 import { productAvailabilitySchema } from './merchant-stores.js';
 
@@ -121,6 +127,51 @@ export const PAY_MERCHANT_CATALOG_AVAILABILITY_GET = defineProcedure({
   output: productAvailabilitySchema,
   samples: [
     { verdict: 'accept', input: { productId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CATALOG_PRODUCTS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantCatalog.products.list',
+  kind: 'query',
+  path: 'merchantCatalog.products.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: productListInputSchema,
+  output: productListSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CATALOG_PRICES_QUOTE = defineProcedure({
+  ...base,
+  name: 'pay.merchantCatalog.prices.quote',
+  kind: 'query',
+  path: 'merchantCatalog.prices.quote',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: priceQuoteInputSchema,
+  output: priceQuoteSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CATALOG_PRICES_CHOICES = defineProcedure({
+  ...base,
+  name: 'pay.merchantCatalog.prices.choices',
+  kind: 'query',
+  path: 'merchantCatalog.prices.choices',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: priceChoicesInputSchema,
+  output: priceChoicesSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -1,6 +1,10 @@
 import 'server-only';
-import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
+import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { freezeDetail, readFreezeAnswer, readUnfreezeAnswer, unfreezeDetail, type DepositFreezeRequest } from './model';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_FREEZE,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_UNFREEZE,
+} from '@intafaced/contracts/pay-founder-admin-deposit-freezes-procedures';
 
 /**
  * svc-pay deposit address freezes (`founderAdmin.depositFreezes.*`), written as the signed-in founder. svc-pay checks the caller is
@@ -9,7 +13,7 @@ import { freezeDetail, readFreezeAnswer, readUnfreezeAnswer, unfreezeDetail, typ
  */
 
 export async function freezeDepositAddress(ctx: FounderCallContext, request: DepositFreezeRequest): Promise<ExecuteReply> {
-  const result = await founderCall(ctx, 'pay', 'founderAdmin.depositFreezes.freeze', 'POST', request, readFreezeAnswer);
+  const result = await founderRecordRead(ctx, PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_FREEZE, request, readFreezeAnswer);
   if (result.kind !== 'ok') return failureRefusal('svc-pay', 'pay', result);
   const answer = result.data;
   if (answer.userId !== request.userId || answer.networkId !== request.networkId || answer.address !== request.address.toLowerCase())
@@ -20,11 +24,9 @@ export async function freezeDepositAddress(ctx: FounderCallContext, request: Dep
 export function depositUnfreezeExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'pay.deposit_address.unfreeze') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
+    const result = await founderRecordRead(
       ctx,
-      'pay',
-      'founderAdmin.depositFreezes.unfreeze',
-      'POST',
+      PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_UNFREEZE,
       {
         userId: request.userId,
         networkId: request.networkId,

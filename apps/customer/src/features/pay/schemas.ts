@@ -37,7 +37,7 @@ import {
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { decimalSchema } from '../../shared/money';
+import { asset, amount } from '@intafaced/contracts/pay-call-schemas';
 
 /** A list procedure now returns `{ items, nextCursor }`. Callers that still render an array keep the items. */
 export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
@@ -47,8 +47,6 @@ export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
 // Browser projections of the mounted service outputs. No service/server roots are imported.
 // Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.
 export const id = z.string().guid();
-export const asset = z.string().min(1).max(16);
-export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
 export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
 export const sendInput = z.object({
   transferId: z.string().min(8).max(64),
@@ -375,3 +373,4 @@ export type OfferUpdateInput = {
 
 /** P-ads-merchant-07: a share link to the person's own ad, as svc-p2p lists it (never its token). */
 export type ShareLink = ProcedureOutput<typeof P2P_OFFERS_SHARE_LINKS_LIST>[number];
+export { asset, amount };

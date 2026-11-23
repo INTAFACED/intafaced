@@ -13,6 +13,10 @@ import {
   payControlUsageSchema,
   payoutApprovalSchema,
   payPricingQuoteSchema,
+  merchantLimitIncreaseInputSchema,
+  merchantLimitIncreaseResultSchema,
+  merchantTierListInputSchema,
+  merchantTierListSchema,
 } from './merchant-control.js';
 import { approvalCancelInputSchema, approvalRequestInputSchema, pricingPreviewInputSchema, usageInputSchema } from './pay-call-schemas.js';
 
@@ -174,6 +178,36 @@ export const PAY_MERCHANT_CONTROL_PRICING_HISTORY = defineProcedure({
   output: merchantPricingHistorySchema,
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CONTROL_LIMITS_REQUEST_INCREASE = defineProcedure({
+  ...base,
+  name: 'pay.merchantControl.limits.requestIncrease',
+  kind: 'mutation',
+  path: 'merchantControl.limits.requestIncrease',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: merchantLimitIncreaseInputSchema,
+  output: merchantLimitIncreaseResultSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CONTROL_TIERS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantControl.tiers.list',
+  kind: 'query',
+  path: 'merchantControl.tiers.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantTierListInputSchema,
+  output: merchantTierListSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });

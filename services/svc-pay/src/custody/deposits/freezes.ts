@@ -17,14 +17,17 @@ import {
 import { requireDualControl, DualControlError } from '../../dual-control.js';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
-import { reasonSchema } from '../../registries/schemas.js';
 import {
-  userIdSchema,
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../../record-refusal.js';
+import { depositFreezeInputSchema, depositUnfreezeInputSchema } from '@intafaced/contracts/pay-call-schemas';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_FREEZE,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_UNFREEZE,
+} from '@intafaced/contracts/pay-founder-admin-deposit-freezes-procedures';
 
 /**
  * Compliance freezes on customer deposit addresses (W-compliance-notices-03, J-wallet-03 #4). Founder-only and audited: every
@@ -61,26 +64,8 @@ export class DepositFreezeError extends Error {
   }
 }
 
-const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
-const addressSchema = z.string().min(1).max(256).regex(/^\S+$/);
-
-const depositFreezeInputSchema = z
-  .object({ userId: userIdSchema, networkId: networkIdSchema, address: addressSchema, reason: reasonSchema })
-  .strict();
 export type DepositFreezeInput = z.infer<typeof depositFreezeInputSchema>;
 
-const depositUnfreezeInputSchema = z
-  .object({
-    userId: userIdSchema,
-    networkId: networkIdSchema,
-    address: addressSchema,
-    /** The open freeze this unfreeze lifts; a freeze lifted and placed again since needs a new approval. */
-    freezeId: z.string().uuid(),
-    reason: reasonSchema,
-    approvalId: z.string().max(128).nullish(),
-    operationId: z.string().max(128).nullish(),
-  })
-  .strict();
 export type DepositUnfreezeInput = z.infer<typeof depositUnfreezeInputSchema>;
 
 // The output shapes live in contracts, so the admin console reads what this declares (one file, no copy).
@@ -303,17 +288,18 @@ export function createDepositFreezesRouter(deps: DepositFreezesMountDeps & { fou
       refusalOf: payRefusal,
       founder,
     }),
-    freeze: founder
-      .input(depositFreezeInputSchema)
-      .output(depositFreezeResultSchema)
-      .mutation(({ ctx, input }) => wrap(() => service.freeze(actorOf(ctx), input))),
+    freeze: mountRecord(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_FREEZE, ({ ctx, input }) => wrap(() => service.freeze(actorOf(ctx), input)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
     previewUnfreeze: founder
       .input(depositUnfreezeInputSchema)
       .output(depositUnfreezePreviewSchema)
       .query(({ input }) => wrap(async () => service.previewUnfreeze(input))),
-    unfreeze: founder
-      .input(depositUnfreezeInputSchema)
-      .output(depositUnfreezeResultSchema)
-      .mutation(({ ctx, input }) => wrap(() => service.unfreeze(actorOf(ctx), input))),
+    unfreeze: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_UNFREEZE,
+      ({ ctx, input }) => wrap(() => service.unfreeze(actorOf(ctx), input)),
+      { refusalOf: payRefusal, founder },
+    ),
   });
 }

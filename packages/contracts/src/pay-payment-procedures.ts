@@ -11,7 +11,7 @@ import {
 import { amountSchema, assetIdSchema, paymentView } from './pay-call-schemas.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
 import { paymentListPrivacySchema, paymentViewListSchema } from './pay-payment-views.js';
-import { payRefundGetInputSchema, payRefundItemSchema } from './pay-portal-reads.js';
+import { payRefundGetInputSchema, payRefundItemSchema, payRefundListInputSchema } from './pay-portal-reads.js';
 import { limitInput, cursorInput } from './pay-founder-admin-procedures.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -212,5 +212,20 @@ export const PAY_PAYMENT_REFUND = defineProcedure({
     { verdict: 'accept', input: { paymentId: '11111111-1111-4111-8111-111111111111', amount: '1', refundId: 'USDC' } },
     { verdict: 'refuse', input: 42 },
     { verdict: 'refuse', by: 'refund_id_holds', input: { paymentId: '11111111-1111-4111-8111-111111111111', amount: '1', refundId: ' ' } },
+  ],
+});
+
+export const PAY_PAYMENT_REFUNDS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.payment.refunds.list',
+  kind: 'query',
+  path: 'payment.refunds.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payRefundListInputSchema,
+  output: payPageSchema(payRefundItemSchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
   ],
 });

@@ -6,22 +6,16 @@ import {
   founderApprovalQueueSchema,
   founderApprovalDestinationInputSchema,
   founderApprovalDestinationSchema,
-  founderControlAuditListInputSchema,
-  founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
 } from '@intafaced/contracts/founder-admin';
-import {
-  founderLimitRequestCloseInputSchema,
-  founderLimitRequestCloseResultSchema,
-  payoutApprovalSchema,
-} from '@intafaced/contracts/merchant-control';
+import { founderLimitRequestCloseInputSchema, founderLimitRequestCloseResultSchema } from '@intafaced/contracts/merchant-control';
 import { router } from '@intafaced/contracts/trpc';
 import type { ChangeOutcome } from '../control/changes.js';
 import { toContractApproval } from '../control/approvals.js';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
-import { controlConfigureInputSchema, controlConfigureResultSchema, founderApprovalDecideInputSchema } from '../control/schemas.js';
+import { controlConfigureInputSchema, controlConfigureResultSchema } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import type { founderProcedure } from './founder-procedure.js';
 import {
@@ -30,6 +24,8 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_CONTROL_APPROVALS_DECIDE,
+  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -162,12 +158,11 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         ),
     }),
     approvals: router({
-      decide: founder
-        .input(founderApprovalDecideInputSchema)
-        .output(payoutApprovalSchema)
-        .mutation(({ ctx, input }) =>
-          guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
-        ),
+      decide: mountRecord(
+        PAY_FOUNDER_ADMIN_CONTROL_APPROVALS_DECIDE,
+        ({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.founderDecide(founderIdOf(ctx), input))),
+        { refusalOf: payRefusal, founder },
+      ),
     }),
     /** Open limit-increase asks. Reading them does not change caps. Closing one does not either. */
     limitRequests: router({
@@ -182,10 +177,10 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .mutation(({ ctx, input }) => guarded(() => control.closeLimitRequest(founderIdOf(ctx), input))),
     }),
     audit: router({
-      list: founder
-        .input(founderControlAuditListInputSchema)
-        .output(founderControlAuditListSchema)
-        .query(({ input }) => guarded(() => control.listAudit(input))),
+      list: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST, ({ input }) => guarded(() => control.listAudit(input)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
     }),
   });
 }

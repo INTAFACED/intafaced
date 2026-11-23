@@ -10,14 +10,21 @@ import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../../schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
-import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
+import {
+  PAY_PAYMENT_VIEWS_LIST,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_REFUNDS_LIST,
+  PAY_PAYMENT_LIST,
+  PAY_PAYMENT_GET,
+} from '@intafaced/contracts/pay-payment-procedures';
 import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import { PAY_SUBSCRIPTION_PRODUCT_READY, PAY_SUBSCRIPTION_CYCLES } from '@intafaced/contracts/pay-subscription-procedures';
-import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_LIST_LINKS, PAY_MERCHANT_CHECKOUT_SETTINGS_GET } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_CONTROL_TIERS_LIST } from '@intafaced/contracts/pay-merchant-control-procedures';
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query(
       'subscription.list',
@@ -112,7 +119,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
   customer: (customerRef: string, signal?: AbortSignal) =>
     query('merchantOps.customers.get', { customerRef, recentPaymentsLimit: PAGE_SIZE }, p.customerDetailSchema, signal),
   payments: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
-    const page = await query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.paymentSchema), signal);
+    const page = await queryRecord(PAY_PAYMENT_LIST, { merchantId, limit, ...(status ? { status } : {}) }, signal);
     return page.ok ? { ok: true as const, data: page.data.items } : page;
   },
   paymentPage: (
@@ -121,9 +128,8 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     cursor: string | undefined,
     signal?: AbortSignal,
   ) =>
-    list(
-      'payment.list',
-      p.paymentSchema,
+    listRecord(
+      PAY_PAYMENT_LIST,
       {
         merchantId,
         ...(cursor ? { cursor } : {}),
@@ -132,7 +138,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
       signal,
     ),
   paymentRefundRows: (paymentId: string, merchantId: string, signal?: AbortSignal) =>
-    list('payment.refunds.list', pay.paymentRefundRowSchema, { merchantId, paymentId, limit: 200 }, signal),
+    listRecord(PAY_PAYMENT_REFUNDS_LIST, { merchantId, paymentId, limit: 200 }, signal),
   /**
    * Refunds issued inside a window, worked out from the refunds list itself (the day the refund was made), not from the
    * day the payment was taken. Reads at most `REFUND_PAGES` pages and says when it stopped early.
@@ -141,8 +147,8 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     const rows: pay.PaymentRefundRow[] = [];
     let cursor: string | undefined;
     for (let pages = 0; pages < REFUND_PAGES; pages += 1) {
-      const next = await query(
-        'payment.refunds.list',
+      const next = await queryRecord(
+        PAY_PAYMENT_REFUNDS_LIST,
         {
           merchantId,
           limit: 200,
@@ -150,7 +156,6 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
           ...(window.to ? { to: window.to } : {}),
           ...(cursor ? { cursor } : {}),
         },
-        p.page(pay.paymentRefundRowSchema),
         signal,
       );
       if (!next.ok) return next;
@@ -162,9 +167,8 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
   },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
     list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
-  checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
-    query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
-  ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),
+  checkoutSettings: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CHECKOUT_SETTINGS_GET, { merchantId }, signal),
+  ownTier: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TIERS_LIST, { merchantId }, signal),
   invoices: (
     filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
     cursor: string | undefined,
@@ -193,7 +197,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
   voidInvoice: (input: { requestId: string; invoiceId: string }) => mutate('merchantOps.invoices.void', input, pay.invoiceSchema),
   markInvoicePaid: (input: { requestId: string; invoiceId: string; paymentId: string }) =>
     mutate('merchantOps.invoices.markPaidByPayment', input, pay.invoiceSchema),
-  payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
+  payment: (paymentId: string, signal?: AbortSignal) => queryRecord(PAY_PAYMENT_GET, { paymentId }, signal),
   /** The caller's own saved views and the team's shared ones (M-adv-payments-core-01). */
   paymentViews: (signal?: AbortSignal) => queryRecord(PAY_PAYMENT_VIEWS_LIST, { limit: 200 }, signal),
   createPaymentView: (input: {

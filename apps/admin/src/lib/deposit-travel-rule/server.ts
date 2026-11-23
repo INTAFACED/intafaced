@@ -1,6 +1,10 @@
 import 'server-only';
-import { type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
+import { type ExecuteReply, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { readReleaseAnswer, readWaitAnswer, travelRuleDetail, type TravelRuleRequest } from './model';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_MARK_COUNTERPARTY_PENDING,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_RELEASE,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * svc-pay's inbound travel rule on deposits (`founderAdmin.depositTravelRule.*`), written as the signed-in founder. svc-pay checks
@@ -9,12 +13,12 @@ import { readReleaseAnswer, readWaitAnswer, travelRuleDetail, type TravelRuleReq
 export async function actOnTravelRule(ctx: FounderCallContext, request: TravelRuleRequest): Promise<ExecuteReply> {
   const input = { depositId: request.depositId, reason: request.reason };
   if (request.action === 'wait') {
-    const result = await founderCall(ctx, 'pay', 'founderAdmin.depositTravelRule.markCounterpartyPending', 'POST', input, readWaitAnswer);
+    const result = await founderRecordRead(ctx, PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_MARK_COUNTERPARTY_PENDING, input, readWaitAnswer);
     if (result.kind !== 'ok') return failureRefusal('svc-pay', 'pay', result);
     if (result.data.depositId !== request.depositId) return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
     return { ok: true, detail: travelRuleDetail('wait', result.data) };
   }
-  const result = await founderCall(ctx, 'pay', 'founderAdmin.depositTravelRule.release', 'POST', input, readReleaseAnswer);
+  const result = await founderRecordRead(ctx, PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_RELEASE, input, readReleaseAnswer);
   if (result.kind !== 'ok') return failureRefusal('svc-pay', 'pay', result);
   if (result.data.depositId !== request.depositId) return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
   return { ok: true, detail: travelRuleDetail('release', result.data) };

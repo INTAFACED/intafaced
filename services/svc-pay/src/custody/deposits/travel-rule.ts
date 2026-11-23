@@ -22,7 +22,11 @@ import { reasonSchema } from '../../registries/schemas.js';
 import type { MessageCipher } from '../../travel-rule/cipher.js';
 import { fieldSchema, heldDepositViewSchema } from '@intafaced/contracts/pay-call-schemas';
 import { asAssetId } from '@intafaced/contracts/asset-id';
-import { PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
+import {
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_MARK_COUNTERPARTY_PENDING,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_RELEASE,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../../record-refusal.js';
 
@@ -103,9 +107,6 @@ const inboundRuleViewSchema = z
 export type InboundRuleView = z.infer<typeof inboundRuleViewSchema>;
 
 export type HeldDepositView = z.infer<typeof heldDepositViewSchema>;
-
-const depositActionInputSchema = z.object({ depositId: z.string().uuid(), reason: reasonSchema }).strict();
-const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
 
 interface RecordRow {
   deposit_id: string;
@@ -413,14 +414,16 @@ export function createDepositTravelRuleRouter(deps: DepositTravelRuleDeps & { fo
       ({ input }) => wrap(() => service.listForUser(input.userId, input.limit)),
       { refusalOf: payRefusal, founder },
     ),
-    markCounterpartyPending: founder
-      .input(depositActionInputSchema)
-      .output(heldDepositViewSchema)
-      .mutation(({ ctx, input }) => wrap(() => service.markCounterpartyPending(actorOf(ctx), input.depositId, input.reason))),
-    release: founder
-      .input(depositActionInputSchema)
-      .output(releaseResultSchema)
-      .mutation(({ ctx, input }) => wrap(() => service.release(actorOf(ctx), input.depositId, input.reason))),
+    markCounterpartyPending: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_MARK_COUNTERPARTY_PENDING,
+      ({ ctx, input }) => wrap(() => service.markCounterpartyPending(actorOf(ctx), input.depositId, input.reason)),
+      { refusalOf: payRefusal, founder },
+    ),
+    release: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_RELEASE,
+      ({ ctx, input }) => wrap(() => service.release(actorOf(ctx), input.depositId, input.reason)),
+      { refusalOf: payRefusal, founder },
+    ),
   });
 }
 

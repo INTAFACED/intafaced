@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import {
-  priceChoicesSchema,
-  priceQuoteSchema,
   priceReplaceSchema,
   priceSchema,
   catalogCopySchema,
@@ -26,7 +24,12 @@ import {
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_QUOTE,
+  PAY_MERCHANT_CATALOG_PRICES_CHOICES,
 } from '@intafaced/contracts/pay-merchant-catalog-procedures';
+import { PAY_MERCHANT_STORES_LIST } from '@intafaced/contracts/pay-merchant-stores-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 // The product catalogue and its prices (J-merchant-03 steps 1 to 6, M-catalogue-01 and -02, M-adv-payments-core-20 and -21): svc-pay `merchantCatalog.*`, parsed with the
 // service's own schemas. The business is the signed-in person's own; the service resolves it and checks the role.
@@ -40,12 +43,11 @@ const created = z.object({ product: productSchema, replayed: z.boolean() }).stri
 const priceCreated = z.object({ price: priceSchema, replayed: z.boolean() }).strict();
 const storeCreated = z.object({ store: storeSchema, replayed: z.boolean() }).strict();
 
-export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
+export const catalogApi = ({ mutate, queryRecord, listRecord }: PortalTools) => ({
   /** One catalogue's products: live, or test when `mode` says so. */
   products: (status: string, cursor: string | undefined, signal?: AbortSignal, mode: CatalogMode = 'live') =>
-    list(
-      'merchantCatalog.products.list',
-      productSchema,
+    listRecord(
+      PAY_MERCHANT_CATALOG_PRODUCTS_LIST,
       { ...(mode === 'test' ? { mode } : {}), ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) },
       signal,
     ),
@@ -60,7 +62,7 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
   createPrice: (input: PriceCreateInput) => mutate('merchantCatalog.prices.create', input, priceCreated),
   setDefaultPrice: (input: { productId: string; priceId: string }) => mutate('merchantCatalog.prices.setDefault', input, priceSchema),
   quotePrice: (input: { priceId: string; amount?: string; storeId?: string; channel?: SaleChannel }, signal?: AbortSignal) =>
-    query('merchantCatalog.prices.quote', input, priceQuoteSchema, signal),
+    queryRecord(PAY_MERCHANT_CATALOG_PRICES_QUOTE, input, signal),
   archiveProduct: (productId: string) => mutate('merchantCatalog.products.archive', { productId }, productSchema),
   unarchiveProduct: (productId: string) => mutate('merchantCatalog.products.unarchive', { productId }, productSchema),
   deleteProduct: (productId: string) => mutate('merchantCatalog.products.delete', { productId }, productDeletedSchema),
@@ -74,7 +76,7 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
   copyCatalog: (from: CatalogMode, to: CatalogMode) => mutate('merchantCatalog.copy', { from, to }, catalogCopySchema),
   /** Active monthly fixed prices with one asset and amount: the ones a subscription on a mandate with those terms can start on. */
   monthlyPriceChoices: (assetId: string, amount: string, signal?: AbortSignal) =>
-    query('merchantCatalog.prices.choices', { billing: 'monthly', kind: 'fixed', assetId, amount, limit: 100 }, priceChoicesSchema, signal),
+    queryRecord(PAY_MERCHANT_CATALOG_PRICES_CHOICES, { billing: 'monthly', kind: 'fixed', assetId, amount, limit: 100 }, signal),
   /**
    * Active one-time fixed prices of active products: the ones a payment link can sell (M-catalogue-03). Every page up to
    * `LINK_PRICE_PAGES` of 100, newest first; `more` says older ones were left out.
@@ -83,10 +85,9 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
     const items: PricedProduct[] = [];
     let cursor: string | null = null;
     for (let read = 0; read < LINK_PRICE_PAGES; read += 1) {
-      const page: ApiResult<z.infer<typeof priceChoicesSchema>> = await query(
-        'merchantCatalog.prices.choices',
+      const page: ApiResult<ProcedureOutput<typeof PAY_MERCHANT_CATALOG_PRICES_CHOICES>> = await queryRecord(
+        PAY_MERCHANT_CATALOG_PRICES_CHOICES,
         { billing: 'one_time', kind: 'fixed', limit: 100, ...(cursor ? { cursor } : {}) },
-        priceChoicesSchema,
         signal,
       );
       if (!page.ok) return page;
@@ -98,7 +99,7 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
   },
   /** The business's stores (M-adv-org-access-05): open ones, or archived ones when `status` says so. */
   stores: (status: string, cursor: string | undefined, signal?: AbortSignal) =>
-    list('merchantStores.list', storeSchema, { ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) }, signal),
+    listRecord(PAY_MERCHANT_STORES_LIST, { ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) }, signal),
   createStore: (input: StoreCreateInput) => mutate('merchantStores.create', input, storeCreated),
   archiveStore: (storeId: string) => mutate('merchantStores.archive', { storeId }, storeSchema),
   reopenStore: (storeId: string) => mutate('merchantStores.reopen', { storeId }, storeSchema),

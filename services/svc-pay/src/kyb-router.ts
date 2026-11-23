@@ -1,18 +1,6 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
-import {
-  kybApplicationChangeTypeInputSchema,
-  kybApplicationSaveSectionInputSchema,
-  kybApplicationStartInputSchema,
-  kybApplicationViewSchema,
-} from '@intafaced/contracts/kyb-application';
 import { kybRequirementsReadInputSchema, kybRequirementsViewSchema } from '@intafaced/contracts/kyb-entity-types';
-import {
-  kybRequestAnswerInputSchema,
-  kybRequestCloseInputSchema,
-  kybRequestCreateInputSchema,
-  kybRequestResultSchema,
-} from '@intafaced/contracts/kyb-information-requests';
 import { kybDecisionBindingSchema } from '@intafaced/contracts/merchant-portal';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { DualControlError } from './dual-control.js';
@@ -47,6 +35,12 @@ import {
   PAY_KYB_DOCUMENTS_UPLOAD,
   PAY_KYB_REQUESTS_LIST,
   PAY_KYB_DOCUMENTS_REVIEW,
+  PAY_KYB_REQUESTS_CREATE,
+  PAY_KYB_REQUESTS_CLOSE,
+  PAY_KYB_APPLICATION_START,
+  PAY_KYB_APPLICATION_CHANGE_TYPE,
+  PAY_KYB_APPLICATION_SAVE_SECTION,
+  PAY_KYB_REQUESTS_ANSWER,
 } from '@intafaced/contracts/pay-kyb-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from './record-refusal.js';
@@ -239,15 +233,15 @@ export function createKybPspRouter(
 
       application: router({
         /** Start the merchant's draft for a published entity type and a country it is offered in. Same type again returns the same draft. */
-        start: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationStartInputSchema)
-          .output(kybApplicationViewSchema)
-          .mutation(({ ctx, input }) =>
+        start: mountRecord(
+          PAY_KYB_APPLICATION_START,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
               return applicationService().start({ ...input, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
 
         /** The merchant's open draft, or its latest submitted application; null when none was started. */
         current: mountRecord(
@@ -261,15 +255,15 @@ export function createKybPspRouter(
         ),
 
         /** Save one section; names the version it read. A stale version is a conflict. */
-        saveSection: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationSaveSectionInputSchema)
-          .output(kybApplicationViewSchema)
-          .mutation(({ ctx, input }) =>
+        saveSection: mountRecord(
+          PAY_KYB_APPLICATION_SAVE_SECTION,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().saveSection({ ...input, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Clear the draft's sections (needs `confirm: true`). The history of earlier saves is kept. */
         restart: mountRecord(
@@ -283,15 +277,15 @@ export function createKybPspRouter(
         ),
 
         /** Change the draft's entity type or country: the sections clear and what is needed is listed again for the new type. */
-        changeType: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationChangeTypeInputSchema)
-          .output(kybApplicationViewSchema)
-          .mutation(({ ctx, input }) =>
+        changeType: mountRecord(
+          PAY_KYB_APPLICATION_CHANGE_TYPE,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().changeType({ ...input, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Submit once every required section is complete (`pay.kyb_incomplete` names the rest). Moves KYB to pending. */
         submit: mountRecord(
@@ -387,10 +381,9 @@ export function createKybPspRouter(
         ),
 
         /** The business answers an open request once: a note, a file (scanned before it is kept), or both. */
-        answer: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybRequestAnswerInputSchema)
-          .output(kybRequestResultSchema)
-          .mutation(({ ctx, input }) =>
+        answer: mountRecord(
+          PAY_KYB_REQUESTS_ANSWER,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedRequest(ctx.principal.userId, input.requestId);
               const request = await requestService().answer({
@@ -401,7 +394,8 @@ export function createKybPspRouter(
               });
               return { request };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** For compliance: one merchant's requests. */
         reviewList: mountRecord(
@@ -415,26 +409,26 @@ export function createKybPspRouter(
         ),
 
         /** For compliance: ask a merchant for more, with a due date in the future. The request key makes it idempotent. */
-        create: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestCreateInputSchema)
-          .output(kybRequestResultSchema)
-          .mutation(({ ctx, input }) =>
+        create: mountRecord(
+          PAY_KYB_REQUESTS_CREATE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return { request: await requestService().create({ ...input, actorId: ctx.principal.userId }) };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** For compliance: close an open or answered request with a note the business reads. */
-        close: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestCloseInputSchema)
-          .output(kybRequestResultSchema)
-          .mutation(({ ctx, input }) =>
+        close: mountRecord(
+          PAY_KYB_REQUESTS_CLOSE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return { request: await requestService().close({ ...input, actorId: ctx.principal.userId }) };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** For compliance: the decrypted bytes of an answer's file. Each read is recorded. */
         file: mountRecord(

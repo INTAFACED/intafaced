@@ -3,7 +3,6 @@ import {
   founderChangeConfirmInputSchema,
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
-  payoutApprovalSchema,
   payReasonSchema,
 } from '@intafaced/contracts';
 import { readAdminJson } from '@/lib/admin-json';
@@ -11,9 +10,12 @@ import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } f
 import { fromFailure, json } from '@/lib/merchants/bff';
 import { asList } from '@/lib/merchants/registry-model';
 import { asTier } from '@/lib/merchants/control-model';
-import { parseWith, payCall, type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext, payRecordRead, payRecordCall } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
+import {
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_APPROVALS_DECIDE,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: merchant control changes (two founders) and payout approvals (two founders).
@@ -123,13 +125,12 @@ export async function POST(request: Request) {
         !SHA.test(body.expectedPayloadHash)
       )
         throw bad();
-      const result = await payCall(
-        ctx,
-        'founderAdmin.control.approvals.decide',
-        'POST',
-        { approvalId: body.approvalId.toLowerCase(), decision, expectedPayloadHash: body.expectedPayloadHash, reason: reason.data },
-        parseWith(payoutApprovalSchema),
-      );
+      const result = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_CONTROL_APPROVALS_DECIDE, {
+        approvalId: body.approvalId.toLowerCase(),
+        decision,
+        expectedPayloadHash: body.expectedPayloadHash,
+        reason: reason.data,
+      });
       if (result.kind !== 'ok') return fromFailure(result, { notFoundCode: 'pay.approval_not_found' });
       return json({ ok: true, approval: result.data });
     }

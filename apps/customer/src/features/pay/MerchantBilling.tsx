@@ -14,7 +14,7 @@ import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation } from './BusinessPay';
+import { validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
 import {
   PAY_SUBSCRIPTION_LIST,
@@ -25,6 +25,7 @@ import {
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
 } from '@intafaced/contracts/pay-subscription-procedures';
+import { PAY_MANDATE_LIST, PAY_MANDATE_CANCEL, PAY_MANDATE_CREATE } from '@intafaced/contracts/pay-mandate-procedures';
 
 export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoices: boolean }) {
   const merchantId = pay.authority!.merchantId;
@@ -34,15 +35,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
   const [path, setPath] = useState('');
   const [projectedEnd, setProjectedEnd] = useState<string | null | undefined>();
   const mandates = useResource(
-    (signal) =>
-      pay
-        .query(
-          'mandate.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.mandateSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_MANDATE_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:mandates:${merchantId}:${limit}`,
   );
   const subscriptions = useResource(
@@ -237,7 +230,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                               />
                             }
                             perform={() =>
-                              pay.mutate('mandate.cancel', { mandateId: mandate.id }, s.mandateSchema, 'pay:write', `mandate:${mandate.id}`)
+                              pay.mutateRecord(PAY_MANDATE_CANCEL, { mandateId: mandate.id }, 'pay:write', `mandate:${mandate.id}`)
                             }
                             onConfirmed={refresh}
                             disabled={Boolean(pay.access('pay:write'))}
@@ -388,9 +381,9 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
               />
             }
             perform={() =>
-              validatedMutation(
+              validatedRecordMutation(
                 pay,
-                'mandate.create',
+                PAY_MANDATE_CREATE,
                 {
                   merchantId: pay.authority!.merchantId,
                   customerId: customer,
@@ -415,7 +408,6 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
                   railAdapter: z.string().max(64).optional(),
                   railMandateRef: z.string().max(256).optional(),
                 }),
-                s.mandateSchema,
                 'pay:write',
                 'mandate-create',
               )

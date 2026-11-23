@@ -1,14 +1,10 @@
-import { z } from 'zod';
-import {
-  accountControlInputSchema,
-  accountControlResultSchema,
-  accountControlLookupInputSchema,
-  accountControlStateSchema,
-  accountControlHistoryInputSchema,
-} from '@intafaced/contracts/account-controls';
+import { accountControlLookupInputSchema, accountControlStateSchema } from '@intafaced/contracts/account-controls';
 import { router, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { MerchantAccountControls, MerchantControlError } from './merchant-account-controls.js';
 import type { MerchantStateService } from './merchant-state-service.js';
+import { PAY_MERCHANT_STATE_HISTORY, PAY_MERCHANT_STATE_SET } from '@intafaced/contracts/pay-merchant-state-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from './record-refusal.js';
 
 async function mapped<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -36,10 +32,9 @@ export function createMerchantStateRouter(_state: MerchantStateService, controls
     if (!controls) throw new MerchantControlError('authority.unavailable');
     return controls;
   };
-  const change = protectedProcedure
-    .input(accountControlInputSchema)
-    .output(accountControlResultSchema)
-    .mutation(({ ctx, input }) =>
+  const change = mountRecord(
+    PAY_MERCHANT_STATE_SET,
+    ({ ctx, input }) =>
       mapped(async () => {
         const result = await available().change(ctx, input);
         /*
@@ -52,15 +47,13 @@ export function createMerchantStateRouter(_state: MerchantStateService, controls
           throw new MerchantControlError('authority.unavailable');
         return result;
       }),
-    );
+    payRefusal,
+  );
   const getState = protectedProcedure
     .input(accountControlLookupInputSchema)
     .output(accountControlStateSchema.nullable())
     .query(({ ctx, input }) => mapped(() => available().getState(ctx, input)));
-  const history = protectedProcedure
-    .input(accountControlHistoryInputSchema)
-    .output(z.array(accountControlResultSchema))
-    .query(({ ctx, input }) => mapped(() => available().history(ctx, input)));
+  const history = mountRecord(PAY_MERCHANT_STATE_HISTORY, ({ ctx, input }) => mapped(() => available().history(ctx, input)), payRefusal);
   return router({ accountControls: router({ change, getState, history }), merchantState: router({ set: change, history }) });
 }
 export type MerchantStateRouter = ReturnType<typeof createMerchantStateRouter>;

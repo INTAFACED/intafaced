@@ -63,7 +63,7 @@ export const invoiceSentSchema = z.object({ invoice: invoiceSchema, paymentLink:
 export type InvoiceSent = z.infer<typeof invoiceSentSchema>;
 
 // mirrors origin/feat/pay-portal-be-reads-money:packages/contracts/src/pay-portal-reads.ts (payment.refunds.list); import from @intafaced/contracts after merge
-export const paymentRefundRowSchema = z.object({
+const paymentRefundRowSchema = z.object({
   id,
   refundId: z.string(),
   paymentId: id,
@@ -88,7 +88,7 @@ export const activityItemSchema = z.object({
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
 /** `merchantControl.tiers.list` on main: this merchant's own tier, or "not configured". Only the name is read here. */
-export const ownTierSchema = z.union([
+const ownTierSchema = z.union([
   z.object({ status: z.literal('not_configured') }),
   z.object({ status: z.literal('configured'), ownTierId: z.string(), tiers: z.array(z.object({ id: z.string(), name: z.string() })) }),
 ]);
@@ -137,7 +137,7 @@ export type LinkRow = z.infer<typeof linkRowSchema>;
  * `merchant.checkoutSettings.get` on main (packages/contracts/src/pay-portal-reads.ts, #4871): the newest checkout
  * profile, or `not_configured`. `feeRouting` is null when this role may not see it. Nothing is filled in on the page.
  */
-export const checkoutSettingsSchema = z.discriminatedUnion('status', [
+const checkoutSettingsSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_configured') }),
   z.object({
     status: z.literal('configured'),

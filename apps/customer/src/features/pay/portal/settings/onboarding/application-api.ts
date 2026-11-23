@@ -9,6 +9,9 @@ import {
   PAY_KYB_APPLICATION_SUBMIT,
   PAY_KYB_DOCUMENTS_CHECKLIST,
   PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_APPLICATION_START,
+  PAY_KYB_APPLICATION_CHANGE_TYPE,
+  PAY_KYB_APPLICATION_SAVE_SECTION,
 } from '@intafaced/contracts/pay-kyb-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
@@ -23,15 +26,15 @@ export type Checklist = ProcedureOutput<typeof PAY_KYB_DOCUMENTS_CHECKLIST>;
 export type DocumentRow = Checklist['rows'][number];
 
 /** The business is the page's resolved one; the service checks again that the signed-in person owns it and the application. */
-export const applicationApi = ({ mutate, queryRecord, mutateRecord }: PortalTools) => ({
+export const applicationApi = ({ queryRecord, mutateRecord }: PortalTools) => ({
   kybEntityTypes: (signal?: AbortSignal) => queryRecord(PAY_KYB_ENTITY_TYPES_READ, undefined, signal),
   kybApplication: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_KYB_APPLICATION_CURRENT, { merchantId }, signal),
   kybApplicationStart: (merchantId: string, entityType: string, country: string) =>
-    mutate('kyb.application.start', { merchantId, entityType, country }, kybApplicationViewSchema),
+    mutateRecord(PAY_KYB_APPLICATION_START, { merchantId, entityType, country }),
   kybApplicationChangeType: (applicationId: string, entityType: string, country: string) =>
-    mutate('kyb.application.changeType', { applicationId, entityType, country }, kybApplicationViewSchema),
+    mutateRecord(PAY_KYB_APPLICATION_CHANGE_TYPE, { applicationId, entityType, country }),
   kybApplicationSave: (applicationId: string, section: ApplicationSection, expectedVersion: number, complete: boolean, data: Answers) =>
-    mutate('kyb.application.saveSection', { applicationId, section, expectedVersion, complete, data }, kybApplicationViewSchema),
+    mutateRecord(PAY_KYB_APPLICATION_SAVE_SECTION, { applicationId, section, expectedVersion, complete, data }),
   kybApplicationRestart: (applicationId: string) => mutateRecord(PAY_KYB_APPLICATION_RESTART, { applicationId, confirm: true }),
   kybApplicationSubmit: (applicationId: string) => mutateRecord(PAY_KYB_APPLICATION_SUBMIT, { applicationId }),
   kybDocuments: (applicationId: string, signal?: AbortSignal) => queryRecord(PAY_KYB_DOCUMENTS_CHECKLIST, { applicationId }, signal),

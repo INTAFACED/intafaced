@@ -3,6 +3,8 @@ import { payPricingSnapshotViewSchema, payMerchantFailureSchema } from './pay-me
 import { assetIdSchema as brandedAssetIdSchema } from './asset-id.js';
 import { payAmountStringSchema, payMerchantIdSchema, payAssetCodeSchema, payReasonSchema } from './merchant-control.js';
 import { PAY_TRAVEL_RULE_FIELDS, PAY_DEPOSIT_TRAVEL_RULE_STATES, PAY_DEPOSIT_WALLET_TYPES } from './pay-custody-deposit.js';
+import { userIdSchema, reasonSchema } from './pay-founder-admin-procedures.js';
+import { unsignedAmountSchema as decimalSchema } from './wire-amount.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-pay's records share, moved from the service so the records and every caller read one copy. */
@@ -475,3 +477,76 @@ export const heldDepositViewSchema = z
     lastReason: z.string().nullable(),
   })
   .strict();
+
+export const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
+
+export const addressSchema = z.string().min(1).max(256).regex(/^\S+$/);
+
+export const depositFreezeInputSchema = z
+  .object({ userId: userIdSchema, networkId: networkIdSchema, address: addressSchema, reason: reasonSchema })
+  .strict();
+
+export const depositUnfreezeInputSchema = z
+  .object({
+    userId: userIdSchema,
+    networkId: networkIdSchema,
+    address: addressSchema,
+    /** The open freeze this unfreeze lifts; a freeze lifted and placed again since needs a new approval. */
+    freezeId: z.string().uuid(),
+    reason: reasonSchema,
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  })
+  .strict();
+
+/**
+ * Merchant names (migration 0071). One rule, used by the onboarding input, the
+ * service and (by shape) the database CHECKs: after trimming spaces a name is
+ * 1..120 characters and holds no control character (C0, DEL or C1) and no invisible
+ * formatting character (bidi marks and overrides, line and paragraph separators,
+ * zero-width space, word joiner, byte-order mark), so it cannot carry a newline, tab,
+ * terminal escape or text-direction trick into a table, a CSV export or a log line.
+ * U+200D (zero-width joiner) stays allowed because emoji sequences need it. The same
+ * character class is written in 0071 (both CHECKs) and in the customer form.
+ */
+export const MERCHANT_NAME_MAX = 120;
+
+export const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+
+/** The trimmed name when it is valid, otherwise null. Never throws. */
+export function cleanMerchantName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || [...trimmed].length > MERCHANT_NAME_MAX || CONTROL_CHARACTER.test(trimmed)) return null;
+  return trimmed;
+}
+
+/** For the onboarding input: refuse a bad name loudly rather than store a changed one. */
+export const merchantNameInputSchema = z
+  .string()
+  .transform((v) => v.trim())
+  .refine((v) => cleanMerchantName(v) !== null, {
+    message: `A name must be 1 to ${MERCHANT_NAME_MAX} characters with no control characters`,
+  });
+
+export const asset = z.string().min(1).max(16);
+
+export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
+
+/**
+ * svc-pay `merchantOps.disputes.funds` (M-disp-01): where a dispute's money is, from the chargeback posts svc-pay booked
+ * under the dispute's keys as the acquiring partner reported each step. Read only. Money stays a decimal string, and a
+ * shortfall with no opening to measure against is `null` ("not recorded"), never a zero.
+ */
+export const disputeFundsSchema = z.object({
+  disputeId: z.string(),
+  assetId: asset,
+  status: z.enum(['open', 'contested', 'accepted', 'won', 'lost']),
+  disputed: amount,
+  takenAtOpening: amount,
+  openingBooked: z.boolean(),
+  notYetTaken: amount,
+  returned: amount,
+  shortfall: amount.nullable(),
+  shortfallRecovered: amount,
+});

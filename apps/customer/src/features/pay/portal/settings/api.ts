@@ -10,17 +10,15 @@ import {
   PAY_MERCHANT_ONBOARDING_DRAFT,
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
+  PAY_MERCHANT_CREATE,
+  PAY_MERCHANT_SET_PAYOUT_DESTINATION,
 } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryRecord, mutateRecord }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
   createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
-    mutate(
-      'merchant.create',
-      { mode: 'gateway', pricing: { feeBps }, settlementPrefs: { businessDetails }, ...names },
-      p.merchantCreatedSchema,
-    ),
+    mutateRecord(PAY_MERCHANT_CREATE, { mode: 'gateway', pricing: { feeBps }, settlementPrefs: { businessDetails }, ...names }),
   /** The business step's draft, kept by svc-pay for the signed-in person before an account exists (J-merchant-02 #1). */
   onboardingDraft: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_ONBOARDING_DRAFT, undefined, signal),
   /** `seq` rises with each change, so the service keeps the newest; sent keepalive so a save made while leaving lands. */
@@ -31,11 +29,13 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   setPayoutDestination: async (merchantId: string, railId: string, kind: string, ref: string, proof: DestinationProof) => {
     const approved = await confirmDestinationStepUp({ merchantId, railId, kind, ref }, proof);
     if (!approved.ok) return approved;
-    return mutate(
-      'merchant.setPayoutDestination',
-      { merchantId, railId, kind, ref, stepUpApprovalId: approved.data.stepUpApprovalId },
-      p.destinationSchema,
-    );
+    return mutateRecord(PAY_MERCHANT_SET_PAYOUT_DESTINATION, {
+      merchantId,
+      railId,
+      kind,
+      ref,
+      stepUpApprovalId: approved.data.stepUpApprovalId,
+    });
   },
   kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
   activation: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_ACTIVATION_GET, {}, signal),

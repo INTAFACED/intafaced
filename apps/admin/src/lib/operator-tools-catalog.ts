@@ -16,6 +16,7 @@ import {
 } from '@intafaced/contracts/identity-kyc-procedures';
 import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
 import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
+import { PAY_MERCHANT_STATE_HISTORY, PAY_MERCHANT_STATE_SET } from '@intafaced/contracts/pay-merchant-state-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -357,9 +358,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Merchant status history',
     summary: 'Why a merchant is suspended / closed — newest first.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.history',
-    kind: 'query',
+    ...toolOf(PAY_MERCHANT_STATE_HISTORY),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -373,9 +372,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'pay',
     label: 'Set merchant status',
     summary: 'Suspend, reinstate, close, or set pending — with a recorded reason. Actor is the token subject.',
-    edgeModule: 'pay',
-    procedure: 'merchantState.set',
-    kind: 'mutation',
+    ...toolOf(PAY_MERCHANT_STATE_SET),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,

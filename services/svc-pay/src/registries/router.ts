@@ -9,8 +9,6 @@ import {
   listInputSchema,
   networkSaveInputSchema,
   networkViewSchema,
-  registryPreviewInputSchema,
-  registryPreviewSchema,
   venueSaveInputSchema,
   venueViewSchema,
   walletRouteSaveInputSchema,
@@ -18,7 +16,10 @@ import {
   type VenueHealthView,
 } from './schemas.js';
 import { RegistryService } from './service.js';
-import { PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY } from '@intafaced/contracts/pay-founder-admin-procedures';
+import {
+  PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
+  PAY_FOUNDER_ADMIN_REGISTRIES_PREVIEW,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
 
@@ -98,10 +99,10 @@ export function createRegistriesRouter(deps: RegistriesRouterDeps) {
         .mutation(({ ctx, input }) => wrap(() => service.saveWalletRoute(actorOf(ctx), input))),
     }),
     /** What a change would need (dual control or not) and the hash the second founder's approval must bind to. */
-    preview: founder
-      .input(registryPreviewInputSchema)
-      .output(registryPreviewSchema)
-      .query(({ input }) => wrap(() => service.preview(input))),
+    preview: mountRecord(PAY_FOUNDER_ADMIN_REGISTRIES_PREVIEW, ({ input }) => wrap(() => service.preview(input)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
     history: mountRecord(
       PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
       ({ input }) => wrap(() => service.history(input.registry, input.entryKey, input.limit)),
