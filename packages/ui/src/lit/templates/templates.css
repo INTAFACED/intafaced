@@ -62,6 +62,12 @@
   inset-block-start: var(--a11y-obscured-top, calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h)));
 }
 
+/* ---- the section's tab bar (RoomProps.section), under the title row on every template ---- */
+
+.lt-room-section {
+  min-inline-size: 0;
+}
+
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
@@ -226,6 +232,11 @@
   }
   .lt-grid-settings {
     grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+  /* A settings room whose section's tab bar sits above it and that has no index of its own: sections and explanation
+     take the two columns, never the index's narrow one. */
+  .lt-grid-settings:not(:has(> [data-region='index'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
   }
   .lt-grid-reading-toc {
     grid-template-columns: 13.75rem minmax(0, 45rem);
@@ -478,7 +489,7 @@
   .lt-grid-settings > [data-region='index'] .lt-tabs {
     flex-direction: column;
   }
-  .lt-grid-settings > .lt-gate-area {
+  .lt-grid-settings:has(> [data-region='index']) > .lt-gate-area {
     grid-column: 2 / -1;
   }
   .lt-grid-settings .lt-gate-cols {
@@ -1025,12 +1036,25 @@
   border-style: dashed;
 }
 
-/* A row of tabs wraps onto a second line rather than scrolling, so on a phone or at large text every tab stays in view
-   and whole: none sits under a fade or past the edge. */
+/* A row of tabs is one line at every width (issue 10303): wrapped, a section's ten rooms stacked four rows of pills over a
+   phone's first screen. A longer row scrolls sideways, its scroll bar hidden, and fades at its far end until it is
+   scrolled there (lt-scroll-row's timeline), so a cut tab reads as "more"; Tabs scrolls the lit tab into view. */
 .lt-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: calc(var(--lit-gap-item) / 2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Room above and below for a tab's focus ring inside the scrolling box, which would clip it, without moving the row.
+     Not at the sides: a row at the screen's edge would then reach past it. */
+  padding-block: 0.25rem;
+  margin-block: -0.25rem;
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+[dir='rtl'] .lt-tabs {
+  animation-name: lt-tabs-more-rtl;
 }
 /* A row that scrolls (a room's section index: add lt-scroll-row) fades at its far end until it is scrolled there, so a
    cut link reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row that fits never
@@ -1070,10 +1094,9 @@
   color: var(--lit-text-2);
   text-decoration: none;
   border: 1px solid var(--lit-line);
-  /* A tab keeps its width and never squeezes over its neighbour: the row wraps instead (.lt-tabs). One line while it
-     fits; a label longer than the whole row (long copy, large text) wraps inside its pill. */
+  /* A tab keeps its width and its one line, never squeezing over its neighbour: the row scrolls instead (.lt-tabs). */
   flex-shrink: 0;
-  max-inline-size: 100%;
+  white-space: nowrap;
   text-align: center;
 }
 
