@@ -122,8 +122,10 @@ export function PriceCard({
 
   return (
     <section data-testid="coin-price-card" className="lt-stack" aria-label={t('{name} price', { name: asset })}>
-      <div className="lt-title-row">
-        <div data-testid="coin-price-card__figure" className="lt-stack">
+      {/* The price never breaks across lines: its block is at least as wide as the price, so on a phone the quote picker
+          moves under it instead. */}
+      <div className="lt-title-row lt-title-row-wrap">
+        <div data-testid="coin-price-card__figure" className="lt-stack" style={{ minInlineSize: 'max-content' }}>
           {ticker.status === 'loading' ? (
             <Skeleton shape="figure" />
           ) : ticker.status === 'ready' ? (

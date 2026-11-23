@@ -296,6 +296,20 @@ export function Bars({ label, bars, asset }: { label: string; bars: readonly { l
           );
         })}
       </svg>
+      {/* Each bar's name and amount under it, so the picture reads without a legend; the table below says the same to
+          assistive tech. */}
+      <div
+        className="lt-bars-key"
+        aria-hidden="true"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, bars.length)}, minmax(0, 1fr))` }}
+      >
+        {bars.map((b) => (
+          <span key={b.label} data-bar={b.label}>
+            <span className="lt-bars-name">{b.label}</span>
+            <span className="lt-bars-value">{formatMoney({ value: b.value, asset })}</span>
+          </span>
+        ))}
+      </div>
       <DataTable caption={label} asset={asset} rows={bars} />
     </figure>
   );

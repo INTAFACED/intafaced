@@ -291,6 +291,14 @@
   font-weight: var(--lit-type-hero-weight);
   letter-spacing: var(--lit-type-hero-tracking);
 }
+/* On a phone the hero figure shrinks with its room, so a price like $65,403.57 stays on one line beside its controls. */
+@container room (max-width: 599px) {
+  .lit-figure[data-size='hero'],
+  .lit-figure.lit-hero:is([data-hidden], [data-unknown]) {
+    font-size: min(var(--lit-type-hero-size), 11cqi);
+    line-height: 1.1;
+  }
+}
 .lit-figure[data-size='figure'] {
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
