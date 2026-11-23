@@ -1077,6 +1077,8 @@ async function route(
       return sim.accountSummary(account(body));
     case '/account-mode':
       return sim.accountMode(account(body));
+    case '/position-mode':
+      return sim.positionMode(account(body), str(body, 'symbol'));
     case '/vaults':
       return sim.vaults();
     case '/vault-holdings':
@@ -1534,6 +1536,9 @@ export interface StartTestVenueOptions {
   readonly cancelsPerAction?: number;
   /** The least time ahead it takes a scheduled cancel (`schedule_cancel`), in ms; default: no scheduled cancel offered. */
   readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes it declares (default: one-way only), and whether it moves an open position between accounts. */
+  readonly positionModes?: readonly ('one_way' | 'hedge')[];
+  readonly positionMoves?: boolean;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -1561,6 +1566,8 @@ export async function startTestVenueServer(
     ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
     ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
+    ...(opts.positionModes ? { positionModes: opts.positionModes } : {}),
+    ...(opts.positionMoves ? { positionMoves: true } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
