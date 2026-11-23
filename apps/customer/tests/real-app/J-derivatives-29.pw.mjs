@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
-import { pictureFromTop, signUp, verify } from './desk.mjs';
+import { signUp, verify } from './desk.mjs';
 import { personDoor } from './person-door.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -424,7 +424,7 @@ test(`${J} #8 switches the account to unified mode and signs: one signed venue a
   await expect(oneBalance).toContainText('One USDC balance, used by spot and perps');
   await expect(panel(page).getByTestId('mode-spot')).toHaveCount(0);
   expect(await ledgerOf()).toEqual(state().ledger);
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
 });
 
 test(`${J} #9 in unified mode, with the venue reporting the day's actions near the mode's limit, opens the order ticket: a warning names the venue's daily action limit, what it reports used today, and that standard mode has no such limit`, async ({

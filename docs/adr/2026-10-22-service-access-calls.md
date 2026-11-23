@@ -89,6 +89,8 @@ svc-ledger keeps serving no tRPC router (`operator-http.ts:41-48`). The read is 
 
 Amended 2026-10-23 (owner decision): the lookups (`/operator/transactions/:txId` and `/operator/trace`) take a founder's own `admin:read` with a second factor instead of `admin:treasury`, so the console looks up as the founder and the access log names the person. Every other operator route stays on `admin:treasury`. Same order: svc-ledger, then svc-edge.
 
+Amended 2026-11-06 (owner decision; his words: "I approve admin:read for the operator's customer cards and balances reads in svc-bank, with no PAN, CVC, PIN or address"): svc-bank's operator reads of one customer's cards and of their balances by coin (`ops.customerBalances`) take `admin:read`, or `admin:treasury`, never with a card's PAN, CVC or PIN or an address. A scope that grants `admin:read` (`admin:compliance`, `admin:treasury`) reads them too. The ledger entries behind those balances (`ops.customerBalanceEntries`) stay on `admin:treasury`.
+
 ### 3.10 Edge row for `GET /api/v1/announcements` (yes, after its handler)
 
 The spec pins this URL. Add `{ prefix: '/api/v1/announcements', module: 'notify', envVar: 'NOTIFY_URL', preservePath: true }` to `UPSTREAMS`. `resolve` tries the longest prefix first (`routes.ts:203`), so it wins over `/api/v1` wherever it sits in the list, and killing `notify` stops it. The svc-notify handler does not exist yet (held branch `c2a6316e8`); when it lands it mounts only `GET /api/v1/announcements`, a public read like the notices read, so the row exposes nothing else of svc-notify. Order: the svc-notify handler PR first, then the svc-edge row (security code), with the stack proof showing a 200 through Edge.

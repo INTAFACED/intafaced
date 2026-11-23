@@ -573,7 +573,7 @@ export function HomePro() {
   const launch = launchStanding(useLaunchVenue(), portfolio);
   const home = useHomeLayout();
   const tiles = shownTiles(home.layout, 'pro');
-  const started = useStartedTile(portfolio, tiles.includes('started'));
+  const started = useStartedTile(tiles.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
 

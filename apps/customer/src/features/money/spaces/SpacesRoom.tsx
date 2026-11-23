@@ -114,7 +114,7 @@ export function SpacesRoom({ open, search }: { open: (spec: ActionSpec) => void;
                                         : copyText('rooms.named.ledger.subaccount')}
                                     </p>
                                   </div>
-                                  <strong className="lt-mono">{funds(space.balance, space.assetId)}</strong>
+                                  <strong className="lt-mono lt-nowrap">{funds(space.balance, space.assetId)}</strong>
                                 </header>
                                 <dl className="lt-kv">
                                   <div>
