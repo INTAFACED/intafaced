@@ -10,13 +10,7 @@ import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
-import {
-  ownAgentTestRunSchema,
-  type OwnAgent,
-  type OwnAgentDryRunCheck,
-  type OwnAgentDryRunEffect,
-  type OwnAgentTestRun,
-} from '@intafaced/contracts/agents-own';
+import { type OwnAgent, type OwnAgentDryRunCheck, type OwnAgentDryRunEffect, type OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import {
   AGENTS_OWN_CATALOGUE,
   AGENTS_OWN_BACKGROUND_RUN,
@@ -24,6 +18,7 @@ import {
   AGENTS_OWN_TOOL_TEST,
   AGENTS_OWN_TEST_RUNS,
   AGENTS_OWN_ANALYTICS,
+  AGENTS_OWN_DRY_RUN,
 } from '@intafaced/contracts/agents-own-procedures';
 
 /**
@@ -328,7 +323,7 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
     setRefused(null);
     const input = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== ''));
     const requestId = keys.next(JSON.stringify([tool, Object.entries(input).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]));
-    const res = await api.mutate('agents', 'own.dryRun', { id: agent.id, requestId, tool, input }, ownAgentTestRunSchema);
+    const res = await api.call(AGENTS_OWN_DRY_RUN, { id: agent.id, requestId, tool, input });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);

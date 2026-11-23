@@ -593,7 +593,11 @@ function build(opts, planned) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
     }
-    const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
+    // A type is imported as one (`import { type X }`): contracts builds with verbatimModuleSyntax, which refuses a bare one.
+    const placed = closure.moved.map((m) => ({
+      name: m.binding?.kind === 'type' ? `type ${m.name}` : m.name,
+      file: movedTo.get(keyOf(m)),
+    }));
     created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
     if (target === shared && fresh.length) {
       // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
@@ -601,7 +605,7 @@ function build(opts, planned) {
       const fromRecords = new Map();
       for (const m of closure.moved) {
         const home = movedTo.get(keyOf(m));
-        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.name, home);
+        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.binding?.kind === 'type' ? `type ${m.name}` : m.name, home);
       }
       created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));
     }
