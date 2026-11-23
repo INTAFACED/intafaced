@@ -2,19 +2,13 @@ import { z } from 'zod';
 import {
   priceChoicesSchema,
   priceQuoteSchema,
-  priceReplaceSchema,
-  priceSchema,
-  catalogCopySchema,
-  productDeletedSchema,
-  productImageSchema,
-  productImportSchema,
   productSchema,
   type PriceCreateInput,
   type PricedProduct,
   type PriceReplaceInput,
   type ProductCreateInput,
 } from '@intafaced/contracts/merchant-catalog';
-import { productAvailabilitySchema, storeSchema, type SaleChannel, type StoreCreateInput } from '@intafaced/contracts/merchant-stores';
+import { storeSchema, type SaleChannel, type StoreCreateInput } from '@intafaced/contracts/merchant-stores';
 import type { ApiResult } from '../../../../shared/api';
 import type { PortalTools } from '../api-tools';
 import './refusals';
@@ -26,7 +20,19 @@ import {
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_CREATE,
+  PAY_MERCHANT_CATALOG_IMAGES_UPLOAD,
+  PAY_MERCHANT_CATALOG_PRICES_CREATE,
+  PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT,
+  PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_DELETE,
+  PAY_MERCHANT_CATALOG_PRICES_REPLACE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT,
+  PAY_MERCHANT_CATALOG_COPY,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 } from '@intafaced/contracts/pay-merchant-catalog-procedures';
+import { PAY_MERCHANT_STORES_ARCHIVE, PAY_MERCHANT_STORES_REOPEN } from '@intafaced/contracts/pay-merchant-stores-procedures';
 
 // The product catalogue and its prices (J-merchant-03 steps 1 to 6, M-catalogue-01 and -02, M-adv-payments-core-20 and -21): svc-pay `merchantCatalog.*`, parsed with the
 // service's own schemas. The business is the signed-in person's own; the service resolves it and checks the role.
@@ -36,11 +42,9 @@ type CatalogMode = 'live' | 'test';
 /** How many pages of 100 the link price picker reads: a business's newest 1,000 one-time prices. */
 export const LINK_PRICE_PAGES = 10;
 
-const created = z.object({ product: productSchema, replayed: z.boolean() }).strict();
-const priceCreated = z.object({ price: priceSchema, replayed: z.boolean() }).strict();
 const storeCreated = z.object({ store: storeSchema, replayed: z.boolean() }).strict();
 
-export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
+export const catalogApi = ({ query, mutate, list, queryRecord, listRecord, mutateRecord }: PortalTools) => ({
   /** One catalogue's products: live, or test when `mode` says so. */
   products: (status: string, cursor: string | undefined, signal?: AbortSignal, mode: CatalogMode = 'live') =>
     list(
@@ -50,28 +54,28 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
       signal,
     ),
   product: (productId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRODUCTS_GET, { productId }, signal),
-  createProduct: (input: ProductCreateInput) => mutate('merchantCatalog.products.create', input, created),
+  createProduct: (input: ProductCreateInput) => mutateRecord(PAY_MERCHANT_CATALOG_PRODUCTS_CREATE, input),
   productImageRules: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_IMAGES_RULES, {}, signal),
   uploadProductImage: (input: { requestId: string; contentType: string; dataBase64: string }) =>
-    mutate('merchantCatalog.images.upload', input, productImageSchema),
+    mutateRecord(PAY_MERCHANT_CATALOG_IMAGES_UPLOAD, input),
   productImage: (imageId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_IMAGES_GET, { imageId }, signal),
   prices: (productId: string, cursor: string | undefined, signal?: AbortSignal) =>
     listRecord(PAY_MERCHANT_CATALOG_PRICES_LIST, { productId, ...(cursor ? { cursor } : {}) }, signal),
-  createPrice: (input: PriceCreateInput) => mutate('merchantCatalog.prices.create', input, priceCreated),
-  setDefaultPrice: (input: { productId: string; priceId: string }) => mutate('merchantCatalog.prices.setDefault', input, priceSchema),
+  createPrice: (input: PriceCreateInput) => mutateRecord(PAY_MERCHANT_CATALOG_PRICES_CREATE, input),
+  setDefaultPrice: (input: { productId: string; priceId: string }) => mutateRecord(PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT, input),
   quotePrice: (input: { priceId: string; amount?: string; storeId?: string; channel?: SaleChannel }, signal?: AbortSignal) =>
     query('merchantCatalog.prices.quote', input, priceQuoteSchema, signal),
-  archiveProduct: (productId: string) => mutate('merchantCatalog.products.archive', { productId }, productSchema),
-  unarchiveProduct: (productId: string) => mutate('merchantCatalog.products.unarchive', { productId }, productSchema),
-  deleteProduct: (productId: string) => mutate('merchantCatalog.products.delete', { productId }, productDeletedSchema),
-  replacePrice: (input: PriceReplaceInput) => mutate('merchantCatalog.prices.replace', input, priceReplaceSchema),
+  archiveProduct: (productId: string) => mutateRecord(PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE, { productId }),
+  unarchiveProduct: (productId: string) => mutateRecord(PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE, { productId }),
+  deleteProduct: (productId: string) => mutateRecord(PAY_MERCHANT_CATALOG_PRODUCTS_DELETE, { productId }),
+  replacePrice: (input: PriceReplaceInput) => mutateRecord(PAY_MERCHANT_CATALOG_PRICES_REPLACE, input),
   priceUsage: (priceId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRICES_USAGE, { priceId }, signal),
   pricedProduct: (priceId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRICES_GET, { priceId }, signal),
   /** A dry run (`commit: false`) checks the file and writes nothing; a commit writes all of it or none. */
   importProducts: (input: { csv: string; commit: boolean; mode?: CatalogMode }) =>
-    mutate('merchantCatalog.products.import', input, productImportSchema),
+    mutateRecord(PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT, input),
   /** Copy every active product of one catalogue that has no copy in the other, with its active prices. */
-  copyCatalog: (from: CatalogMode, to: CatalogMode) => mutate('merchantCatalog.copy', { from, to }, catalogCopySchema),
+  copyCatalog: (from: CatalogMode, to: CatalogMode) => mutateRecord(PAY_MERCHANT_CATALOG_COPY, { from, to }),
   /** Active monthly fixed prices with one asset and amount: the ones a subscription on a mandate with those terms can start on. */
   monthlyPriceChoices: (assetId: string, amount: string, signal?: AbortSignal) =>
     query('merchantCatalog.prices.choices', { billing: 'monthly', kind: 'fixed', assetId, amount, limit: 100 }, priceChoicesSchema, signal),
@@ -100,10 +104,10 @@ export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: Por
   stores: (status: string, cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantStores.list', storeSchema, { ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) }, signal),
   createStore: (input: StoreCreateInput) => mutate('merchantStores.create', input, storeCreated),
-  archiveStore: (storeId: string) => mutate('merchantStores.archive', { storeId }, storeSchema),
-  reopenStore: (storeId: string) => mutate('merchantStores.reopen', { storeId }, storeSchema),
+  archiveStore: (storeId: string) => mutateRecord(PAY_MERCHANT_STORES_ARCHIVE, { storeId }),
+  reopenStore: (storeId: string) => mutateRecord(PAY_MERCHANT_STORES_REOPEN, { storeId }),
   /** Where one product is sold: every store of the business, each channel on or off. */
   availability: (productId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_AVAILABILITY_GET, { productId }, signal),
   setAvailability: (input: { productId: string; storeId: string; channel: SaleChannel; sold: boolean }) =>
-    mutate('merchantCatalog.availability.set', input, productAvailabilitySchema),
+    mutateRecord(PAY_MERCHANT_CATALOG_AVAILABILITY_SET, input),
 });
