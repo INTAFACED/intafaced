@@ -24,6 +24,8 @@ export interface ReversalLedger {
 const PROVEN_REFUSALS: ReadonlySet<string> = new Set([
   'ledger.tx_not_found',
   'ledger.reversal_already_reversed',
+  // The recipe refuses an original that moved a customer's balance: nothing is booked, and sending again changes nothing.
+  'ledger.invalid_entry',
   'ledger.insufficient_funds',
   'ledger.owner_identity_space',
   'ledger.custody_layer_off',

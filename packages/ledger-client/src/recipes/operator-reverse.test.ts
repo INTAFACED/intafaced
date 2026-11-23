@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { houseFees, railBoundary, userAvailable } from '../accounts.js';
+import { houseFees, merchantClearing, moduleAccount, railBoundary, userAvailable } from '../accounts.js';
 import { accountKey } from '../client.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
 import { InvalidEntryError, type EntryInput, type PostRequest } from '../types.js';
-import { recipes } from './index.js';
 import { OPERATOR_REVERSAL_MODULE, OPERATOR_REVERSAL_REASON, operatorReverse, type OperatorReverseInput } from './operator-reverse.js';
 
 // The same cases as `crates/svc-ledger/src/reversal.rs`'s tests: the Rust ledger builds the post, this is its twin.
 const ORIGINAL = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
 const CUSTOMER = '11111111-1111-4111-8111-111111111111';
 
-/** A TEST original over two assets: a deposit-shaped USDT leg pair and a fee-shaped BTC leg pair. */
+/** A TEST original over two assets, our own accounts only: a rail boundary to a fee pot in USDT, and to a module pot in BTC. */
 const LEGS: readonly EntryInput[] = [
   { account: railBoundary('local-test', 'USDT'), direction: 'credit', amount: amt('10.5') },
-  { account: userAvailable(CUSTOMER, 'USDT'), direction: 'debit', amount: amt('10.5') },
-  { account: userAvailable(CUSTOMER, 'BTC'), direction: 'credit', amount: amt('0.000000000000000001') },
-  { account: houseFees('trade', 'BTC'), direction: 'debit', amount: amt('0.000000000000000001') },
+  { account: houseFees('trade', 'USDT'), direction: 'debit', amount: amt('10.5') },
+  { account: railBoundary('local-test', 'BTC'), direction: 'credit', amount: amt('0.000000000000000001') },
+  { account: moduleAccount('bank', 'loan-reserve', 'BTC'), direction: 'debit', amount: amt('0.000000000000000001') },
 ];
 
 const input = (over: Partial<OperatorReverseInput> = {}): OperatorReverseInput => ({
@@ -77,7 +76,7 @@ describe('operatorReverse', () => {
       expect(() => operatorReverse(input({ ordinal })), ordinal).toThrow(InvalidEntryError);
     }
     // A number where the wire says string, as an untyped caller could send it.
-    const numeric: OperatorReverseInput = JSON.parse(JSON.stringify({ ...input(), ordinal: 1 }));
+    const numeric: OperatorReverseInput = { ...input(), ...(JSON.parse('{"ordinal":1}') as object) };
     expect(() => operatorReverse(numeric)).toThrow(InvalidEntryError);
     expect(operatorReverse(input({ ordinal: '1234567890123456789' })).idempotencyKey).toMatch(/:1234567890123456789$/);
   });
@@ -87,6 +86,20 @@ describe('operatorReverse', () => {
     for (const caseRef of ['', '\t ']) expect(() => operatorReverse(input({ caseRef }))).toThrow(/case reference/);
   });
 
+  it("refuses an original that moves a customer's balance: a user's account, or a merchant's clearing pot", () => {
+    for (const customer of [userAvailable(CUSTOMER, 'USDT'), merchantClearing('merchant-1', 'USDT')]) {
+      const entries: EntryInput[] = [
+        ...LEGS,
+        { account: customer, direction: 'debit', amount: amt('1') },
+        { account: railBoundary('local-test', 'USDT'), direction: 'credit', amount: amt('1') },
+      ];
+      expect(() => operatorReverse(input({ entries })), customer.ownerId).toThrow(InvalidEntryError);
+      expect(() => operatorReverse(input({ entries })), customer.ownerId).toThrow(
+        "A reversal touches only INTAFACED's own records; the original moves a customer's balance",
+      );
+    }
+  });
+
   it('refuses an original with no entries, and an original not named by a UUID', () => {
     expect(() => operatorReverse(input({ entries: [] }))).toThrow(/original transaction legs/);
     expect(() => operatorReverse(input({ originalTxId: 'not-a-uuid' }))).toThrow(/by its id/);
@@ -94,17 +107,10 @@ describe('operatorReverse', () => {
 
   it('on a book, the reversal puts every balance back where it was before the original', async () => {
     const ledger = new MemoryLedger();
-    const seed: PostRequest = recipes.deposit({
-      userId: CUSTOMER,
-      assetId: 'USDT',
-      amount: amt('10.5'),
-      rail: 'local-test',
-      railRef: 'r-1',
-    });
+    const seed: PostRequest = { idempotencyKey: 'test:operator-reverse:seed', module: 'ledger', reason: 'test.seed', entries: LEGS };
     const original = await ledger.post(seed);
     const back = await ledger.post(operatorReverse({ ...input(), originalTxId: original.id, entries: seed.entries }));
     expect(back.id).not.toBe(original.id);
-    expect(formatAmount((await ledger.balance(userAvailable(CUSTOMER, 'USDT'))).amount)).toBe('0');
-    expect(formatAmount((await ledger.balance(railBoundary('local-test', 'USDT'))).amount)).toBe('0');
+    for (const e of LEGS) expect(formatAmount((await ledger.balance(e.account)).amount), accountKey(e.account)).toBe('0');
   });
 });

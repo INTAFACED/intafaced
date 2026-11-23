@@ -7,7 +7,7 @@
 //!
 //! The cases (OPS-ledger-desk-02, J-ops-console-05 steps 1-3): one linked reversal posts and the pair nets to zero per
 //! asset; a replay of the same key is the same transaction; a second ordinal is refused naming the first; an unknown
-//! original is refused; a frozen ledger books nothing; a caller other than svc-ops is refused; the database refuses a
+//! original is refused; an original that moved a customer's balance is refused; a frozen ledger books nothing; a caller other than svc-ops is refused; the database refuses a
 //! second reversal that skipped the door's check; two keys racing book once; `/trpc/post` refuses a hand-assembled
 //! reversal; the desk's one-transaction read shows both links.
 #![allow(
@@ -25,7 +25,7 @@ use service_kit::s2s::Mode;
 use support::TestDb;
 use support::door::{Kit, Setup, migrated};
 use svc_ledger::desk::{self, Actor};
-use svc_ledger::errors::{CALLER_FORBIDDEN, FROZEN};
+use svc_ledger::errors::{CALLER_FORBIDDEN, FROZEN, INVALID_ENTRY};
 use svc_ledger::freeze;
 use svc_ledger::posting::{self, rules};
 use svc_ledger::reversal::{self, ALREADY_REVERSED, TX_NOT_FOUND};
@@ -381,4 +381,42 @@ fn the_desks_one_transaction_read_shows_both_links() {
     assert_eq!(back.get("reversedBy"), Some(&Json::Null));
     assert_eq!(s(&back, "module"), "ops");
     assert_eq!(s(&back, "reason"), "operator.reversal");
+}
+
+#[test]
+fn an_original_that_moved_a_customers_balance_is_refused_invalid_entry_with_nothing_booked() {
+    let Some(db) = migrated() else { return };
+    // The custody layer on, so the customer's deposit books and its reversal could book: only the recipe stops it.
+    let k = Kit::new(
+        &db,
+        &Setup {
+            mode: Some(Mode::Keypair),
+            services: &["svc-ops"],
+            custody_on: true,
+        },
+    );
+    let customer = account("user", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "USDT");
+    k.engine(&Json::obj([
+        ("idempotencyKey", Json::str(SEED_KEY)),
+        ("module", Json::str("ledger")),
+        ("reason", Json::str("deposit.credited")),
+        (
+            "entries",
+            Json::Array(vec![
+                leg(rail("USDT"), "credit", "10.5"),
+                leg(customer.clone(), "debit", "10.5"),
+            ]),
+        ),
+    ]));
+    let original = k.tx(SEED_KEY).unwrap().0;
+    let (status, refused) = reverse(&k, "svc-ops", &original, "1");
+    assert_eq!(status, 400, "{}", refused.compact());
+    assert_eq!(s(&refused, "code"), INVALID_ENTRY);
+    assert_eq!(
+        s(&refused, "message"),
+        "A reversal touches only INTAFACED's own records; the original moves a customer's balance"
+    );
+    assert_eq!(reversals(&k), 0);
+    assert_eq!(k.rows(&key(&original, "1")), 0);
+    assert_eq!(k.bal(&customer), "10.5");
 }

@@ -233,6 +233,7 @@
       },
       "refusals": {
         "ledger.tx_not_found": "NOT_FOUND",
+        "ledger.invalid_entry": "BAD_REQUEST",
         "ledger.reversal_already_reversed": "CONFLICT",
         "ledger.insufficient_funds": "BAD_REQUEST",
         "ledger.owner_identity_space": "BAD_REQUEST",

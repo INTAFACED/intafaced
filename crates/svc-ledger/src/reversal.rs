@@ -96,6 +96,12 @@ pub fn operator_reverse(
     if entries.is_empty() {
         return Err(invalid("A reversal needs the original transaction legs"));
     }
+    // Our own obligations only (launch money model): a customer's balance is never an operator's to move back.
+    if entries.iter().any(|e| e.account.is_customer_balance()) {
+        return Err(invalid(
+            "A reversal touches only INTAFACED's own records; the original moves a customer's balance",
+        ));
+    }
     Ok(PostRequest {
         idempotency_key,
         module: MODULE.to_owned(),
@@ -247,6 +253,10 @@ pub fn answer(store: &Store, posting: &Posting, input: &Value) -> (u16, Json) {
         text(input, "caseRef"),
     ) {
         Ok(p) => p,
+        // The recipe's refusal is the request's to fix, nothing was booked: 400 with its own message.
+        Err(Failure::Ledger { code, message }) if code == errors::INVALID_ENTRY => {
+            return (400, Json::Object(body(&message, &code)));
+        }
         Err(f) => return errors::http_error(&f),
     };
     match crate::posting::book(store, posting, &post) {
@@ -319,17 +329,17 @@ mod tests {
                 "10.5",
             ),
             leg(
-                available("user", CUSTOMER, "USDT"),
+                available("house", "fees:trade", "USDT"),
                 Direction::Debit,
                 "10.5",
             ),
             leg(
-                available("user", CUSTOMER, "BTC"),
+                available("treasury", "rail:local-test", "BTC"),
                 Direction::Credit,
                 "0.000000000000000001",
             ),
             leg(
-                available("house", "fees:trade", "BTC"),
+                available("module", "bank:loan-reserve", "BTC"),
                 Direction::Debit,
                 "0.000000000000000001",
             ),
@@ -451,6 +461,28 @@ mod tests {
             assert_eq!(
                 message(reverse("1", "w", case_ref)),
                 "A reversal needs the case reference of its approval"
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_an_original_that_moves_a_customer_balance_a_user_or_a_merchant_pot() {
+        for (owner_type, owner_id) in [("user", CUSTOMER), ("module", "pay:clearing:merchant-1")] {
+            let mut original = legs();
+            original.push(leg(
+                available(owner_type, owner_id, "USDT"),
+                Direction::Debit,
+                "1",
+            ));
+            original.push(leg(
+                available("treasury", "rail:local-test", "USDT"),
+                Direction::Credit,
+                "1",
+            ));
+            assert_eq!(
+                message(operator_reverse(ORIGINAL, &original, "1", "w", "c")),
+                "A reversal touches only INTAFACED's own records; the original moves a customer's balance",
+                "{owner_type}:{owner_id}"
             );
         }
     }

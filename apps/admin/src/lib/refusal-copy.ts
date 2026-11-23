@@ -218,6 +218,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The ledger refused: this transaction touches a customer account, and the custodial layer is switched off. Nothing posted, and this reversal request is closed.',
     next: 'Only INTAFACED’s own transactions can be reversed until the custodial layer is switched on.',
   },
+  'ledger.invalid_entry': {
+    title: 'The ledger reverses only INTAFACED’s own records',
+    body: 'The ledger refused: this transaction moved a customer’s balance, and an operator reversal touches only INTAFACED’s own accounts. Nothing posted, and this reversal request is closed.',
+    next: 'Correct a customer’s money through the journey that moved it, not through a reversal.',
+  },
   'ledger.caller_forbidden': {
     title: 'svc-ops may not book reversals in this ledger',
     body: 'The ledger refused svc-ops for this door. Nothing posted, and this reversal request is closed.',

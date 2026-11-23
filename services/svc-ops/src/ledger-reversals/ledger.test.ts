@@ -40,6 +40,12 @@ describe('what an operatorReverse answer proves', () => {
       reversedBy: null,
     });
     expect(reverseOutcomeOf(CALL, KEY, { status: 404, body: { code: 'ledger.tx_not_found' } })).toMatchObject({ kind: 'refused' });
+    // An original that moved a customer's balance: the ledger's recipe refuses it, and nothing was booked.
+    expect(reverseOutcomeOf(CALL, KEY, { status: 400, body: { code: 'ledger.invalid_entry', message: 'x' } })).toEqual({
+      kind: 'refused',
+      code: 'ledger.invalid_entry',
+      reversedBy: null,
+    });
   });
 
   it('the posting freeze, an unnamed failure and a conflict under our own key are sent again, never settled', () => {

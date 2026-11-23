@@ -1,3 +1,4 @@
+import { movesCustomerBalance } from '../custody-layer.js';
 import type { EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
 
@@ -58,6 +59,10 @@ export function operatorReverse(input: OperatorReverseInput): PostRequest {
   if (caseRef === '') throw new InvalidEntryError('A reversal needs the case reference of its approval');
   if (!Array.isArray(input.entries) || input.entries.length === 0) {
     throw new InvalidEntryError('A reversal needs the original transaction legs');
+  }
+  // Our own obligations only (launch money model): a customer's balance is never an operator's to move back.
+  if (movesCustomerBalance(input.entries)) {
+    throw new InvalidEntryError("A reversal touches only INTAFACED's own records; the original moves a customer's balance");
   }
   return {
     idempotencyKey,

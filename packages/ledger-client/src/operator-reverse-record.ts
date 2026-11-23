@@ -58,6 +58,8 @@ export const LEDGER_OPERATOR_REVERSE = defineProcedure({
   /** Plain-HTTP refusals: status and `{ message, code }` from svc-ledger's `httpError`. */
   refusals: {
     'ledger.tx_not_found': 'NOT_FOUND',
+    /** The recipe's own refusal: an original that moved a customer's balance (only our own records are reversed). */
+    'ledger.invalid_entry': 'BAD_REQUEST',
     [OPERATOR_REVERSE_ALREADY_REVERSED]: 'CONFLICT',
     'ledger.insufficient_funds': 'BAD_REQUEST',
     'ledger.owner_identity_space': 'BAD_REQUEST',
