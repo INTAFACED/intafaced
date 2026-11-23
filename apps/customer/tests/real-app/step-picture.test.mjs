@@ -23,7 +23,7 @@ const PAGE = `
   <a href="#main" id="skip">Skip to content</a>
   <header style="position:sticky;top:0;height:40px;background:rgb(255,0,0)">bar</header>
   <main id="main" style="height:3000px;background:rgb(255,255,255)">
-    <div style="height:1540px"></div><button id="open">Menu</button><input id="field" aria-label="Field">
+    <div style="height:1540px"></div><button id="open">Menu</button><input id="field" aria-label="Field"><select id="pick" aria-label="Pick"><option>a</option><option>b</option></select>
   </main>`;
 
 async function pageOf(extra = '') {
@@ -98,6 +98,49 @@ describe('step picture from the top', () => {
     await page.focus('#field');
     expect(await fromTop(page)).toBe('scrolled');
     expect(await page.evaluate(() => [window.scrollY, document.activeElement.id])).toEqual([0, 'field']);
+    await close();
+  });
+
+  it('a picked list is left unfocused, so the whole-page picture is not scrolled back to it under the bar', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf();
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await page.selectOption('#pick', 'b');
+    expect(await fromTop(page)).toBe('scrolled');
+    expect(await page.evaluate(() => [window.scrollY, document.activeElement === document.body])).toEqual([0, true]);
+    expect(await pixel(page, 200, 10)).toEqual(BAR);
+    expect(await pixel(page, 200, 1510)).toEqual([255, 255, 255]);
+    await close();
+  });
+
+  it('a focused text field, kept focused, is not drawn under the bar either', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf();
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await page.focus('#field');
+    expect(await fromTop(page)).toBe('scrolled');
+    expect(await pixel(page, 200, 10)).toEqual(BAR);
+    expect(await pixel(page, 200, 1510)).toEqual([255, 255, 255]);
+    await close();
+  });
+
+  it('a page that scrolls itself back after the scroll to the top is taken to the top again', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf();
+    await page.evaluate(() => {
+      window.scrollTo(0, 1500);
+      // An effect that brings a section back into view once, a moment after the page reached the top.
+      const back = () => {
+        if (window.scrollY !== 0) return;
+        window.removeEventListener('scroll', back);
+        setTimeout(() => window.scrollTo(0, 1500), 50);
+      };
+      window.addEventListener('scroll', back);
+    });
+    expect(await fromTop(page)).toBe('scrolled again: the page scrolled itself back');
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await pixel(page, 200, 10)).toEqual(BAR);
+    expect(await pixel(page, 200, 1510)).toEqual([255, 255, 255]);
     await close();
   });
 

@@ -408,7 +408,8 @@ const extended = base.extend({
       const take = async (page) => {
         if (taken || !page || page.isClosed()) return;
         try {
-          await fromTop(page);
+          // What readying did, kept on the test, so a picture read BROKEN says whether the page was left scrolled and why.
+          testInfo.annotations.push({ type: 'step picture', description: await fromTop(page) });
           const file = testInfo.outputPath('step-picture.png');
           await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
           await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });

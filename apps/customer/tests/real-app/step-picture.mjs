@@ -6,7 +6,7 @@
  * It leaves the page as it is when that would change the state the step ends on: while a dialog, menu, list box, tooltip,
  * popover or open popup is showing (each may close on blur or on scroll), and it keeps a focused form field focused (a
  * field may check itself on blur). It scrolls only the window: a panel scrolled inside its own container keeps its place.
- * Returns what it did, for its test. Never throws: a picture never fails a test.
+ * Returns what it did, for its test and the step's own annotation. Never throws: a picture never fails a test.
  */
 export async function fromTop(page, waitMs = 5000) {
   try {
@@ -32,11 +32,17 @@ export async function fromTop(page, waitMs = 5000) {
         const focused = document.activeElement;
         const field = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
         if (focused instanceof HTMLElement && focused !== document.body && !focused.matches(field)) focused.blur();
-        if (window.scrollX === 0 && window.scrollY === 0) return 'at top';
-        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-        // Let the page answer the scroll (a bar that changes on scroll, a frame drawn) before the picture.
-        await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
-        return 'scrolled';
+        const atTop = () => window.scrollX === 0 && window.scrollY === 0;
+        if (atTop()) return 'at top';
+        // Let the page answer the scroll (a bar that changes on scroll, a frame drawn) before the picture; a page that
+        // scrolls itself back (an effect that brings a section into view) is taken to the top again, up to three times.
+        for (let tries = 0; tries < 3; tries += 1) {
+          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+          // Ten frames, about 160 ms: room for an effect that answers the scroll to run.
+          for (let frames = 0; frames < 10; frames += 1) await new Promise((frame) => requestAnimationFrame(frame));
+          if (atTop()) return tries === 0 ? 'scrolled' : 'scrolled again: the page scrolled itself back';
+        }
+        return `left at ${window.scrollY}: the page keeps scrolling itself back`;
       },
       null,
       { timeout: waitMs },
