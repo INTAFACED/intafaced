@@ -5,7 +5,7 @@ import { AcademyRoom } from './Academy';
 import { academyRoute, academySectionRedirect } from './academy-lms';
 import { AcademyLearningRoom } from './academy-catalogue/AcademyLearningRoom';
 import { AcademyRoomsRoom } from './academy-catalogue/AcademyRoomsRoom';
-import { AcademyCertificatesRoom } from './AcademyCertificatesRoom';
+import { AcademyCertificatesRoom } from './academy-catalogue/AcademyCertificatesRoom';
 import { AcademyVideosRoom } from './academy-catalogue/AcademyVideosRoom';
 import { AcademyProgrammesRoom } from './academy-catalogue/AcademyProgrammesRoom';
 import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';

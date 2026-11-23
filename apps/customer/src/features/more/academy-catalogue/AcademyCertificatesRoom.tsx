@@ -1,18 +1,18 @@
 // volt-room: /academy/certificates
-import { copy as moreCopy, t as copyText, Text } from './copy';
+import { copy as moreCopy, t as copyText, Text } from '../copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate, SelectField } from '@intafaced/ui/lit/templates';
-import { useApi, useSession } from '../session';
-import { useResource } from '../../shared/resource';
-import { presentActionFailure } from './common';
-import { KitDetails } from './volt-action';
-import { KitRead, Section } from './volt-parts';
-import { useKitAcademyAction, type KitAcademyAction } from './academy-reader/academy-action-kit';
-import { AcademyGrantRecords } from './AcademyGrantRecords';
-import { CertificateShelf, VerifyPanel } from './AcademyCertificates';
-import { AcademyVisitor, academyCatalogue } from './academy-catalogue/frame';
-import { SignInNeeded } from './academy-catalogue/SignInNeeded';
+import { useApi, useSession } from '../../session';
+import { useResource } from '../../../shared/resource';
+import { presentActionFailure } from '../common';
+import { KitDetails } from '../volt-action';
+import { KitRead, Section } from '../volt-parts';
+import { useKitAcademyAction, type KitAcademyAction } from '../academy-reader/academy-action-kit';
+import { AcademyGrantRecords } from '../AcademyGrantRecords';
+import { CertificateShelf, VerifyPanel } from '../AcademyCertificates';
+import { AcademyVisitor, academyCatalogue } from './frame';
+import { SignInNeeded } from './SignInNeeded';
 import { replyAccepted } from '@intafaced/contracts/procedure';
 import {
   ACADEMY_CERT_DEFINITIONS,
@@ -22,10 +22,8 @@ import {
   academyCertGrantSchema,
   type AcademyCertGrant,
 } from '@intafaced/contracts/academy-learner-procedures';
-import { definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './academy-learning-state';
-import { academyLearningCopy } from './academy-learning-copy';
-// The read-next link keeps the Learning panels' style (academy-learning-link).
-import './academy-learning.css';
+import { definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from '../academy-learning-state';
+import { academyLearningCopy } from '../academy-learning-copy';
 
 /**
  * /academy/certificates on the catalogue template, like the other four tabs (intafaced issue 10317): the certificate
@@ -247,7 +245,7 @@ function Certificates({
                     ]}
                   />
                   {p.missingItemSlugs[0] && (
-                    <a className="academy-learning-link" href={lessonHref(p.missingItemSlugs[0], selected)}>
+                    <a className="lt-link" href={lessonHref(p.missingItemSlugs[0], selected)}>
                       <academyLearningCopy.Copy k="readNext" />
                     </a>
                   )}

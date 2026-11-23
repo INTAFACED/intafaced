@@ -94,7 +94,8 @@ describe('money in a review is exact, wherever it was opened from', () => {
       payment: null,
     } as DisputeDetail;
     const out = renderToString(<DisputeDetailView portal={portal} dispute={{ status: 'ready', data: dispute }} reload={noop} />);
-    expect(out).toContain(AMOUNT);
+    // Shown in words in the review, not only in a rounded figure's tooltip.
+    expect(out.replace(/title="[^"]*"/g, '')).toContain(AMOUNT);
   });
   it('wraps any review body in the exact scope', () => {
     const out = renderToString(
