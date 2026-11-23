@@ -15,6 +15,7 @@
 //     `loading` without a `disabled` naming it is left);
 //   - <Badge> becomes the kit's <Tag>, tone neutral | lime | up | down as neutral | accent | up | down (no tone: the
 //     old default, neutral); <StatusTag status="pending|failed|filled" label={…}> becomes <StatusChip>, filled as done;
+//   - a className written as a whole string in WHOLE becomes its one kit class;
 //   - a className written as a string whose every class is in CLASSES becomes the kit's classes; a class in GONE, which
 //     no stylesheet names, is dropped from it.
 // It leaves, with file:line: any other import from '@intafaced/ui' (PARTS says why, for the parts it has no twin for),
@@ -85,6 +86,26 @@ export const ONE_RULE = {
   'mkt-volume': 'lt-num',
   // A small secondary line with no margin of its own.
   'wl-note': 'lt-hint',
+  // A control's label: small secondary words (on a span inside the label, where a margin draws nothing).
+  'pay-field__label': 'lt-hint',
+  'cvt-field__label': 'lt-hint',
+  // Secondary words a step quieter: the colour only.
+  'of-note': 'lt-muted',
+};
+
+/** Whole class strings of utilities (as written, in this order) that together say exactly what one kit class says: a
+ * string is taken whole or not at all, so no utility is left half-moved. Without `m-0` a paragraph keeps the margin
+ * the utilities layer never resets, which lt-hint sets to 0, so only the `m-0` lines move to it. */
+export const WHOLE = {
+  'm-0 text-sm text-fg-2': 'lt-hint',
+  'm-0 text-xs text-fg-2': 'lt-hint',
+  'flex flex-col gap-1': 'lt-stack',
+  'flex flex-col gap-2': 'lt-stack',
+  'flex flex-col gap-3': 'lt-stack',
+  'flex flex-col gap-4': 'lt-stack',
+  'flex min-w-0 flex-col gap-3': 'lt-stack',
+  'flex flex-wrap gap-2': 'lt-actions',
+  'flex flex-wrap gap-3': 'lt-actions',
 };
 
 /** The old classes with a one-to-one class in the kit (packages/ui/src/lit/templates/templates.css): each does the kit
@@ -378,7 +399,9 @@ export function recipe(source, { found = new Set() } = {}) {
       if (attr.value?.type === 'JSXExpressionContainer') computed.push(`${lineOf(attr.start)}: className={…}, computed, needs judgement`);
       continue;
     }
-    const names = value.split(/\s+/).filter(Boolean);
+    const written = value.split(/\s+/).filter(Boolean);
+    const whole = WHOLE[written.join(' ')];
+    const names = whole ? [whole] : written;
     const own = names.filter((c) => !c.startsWith('lt-') && !Object.hasOwn(CLASSES, c) && !GONE.has(c));
     if (own.length > 0) {
       left.push(`${lineOf(attr.start)}: className "${value}" (${own.join(' ')} has no recipe)`);
@@ -393,7 +416,7 @@ export function recipe(source, { found = new Set() } = {}) {
       left.push(`${lineOf(attr.start)}: className "${value}" on words with a typed arrow, which the kit draws (lt-arrow)`);
       continue;
     }
-    const held = names.filter((c) => !c.startsWith('lt-') && found.has(c));
+    const held = written.filter((c) => !c.startsWith('lt-') && found.has(c));
     if (held.length > 0) {
       left.push(`${lineOf(attr.start)}: className "${value}" (a test finds an element by ${held.join(' ')}, needs judgement)`);
       continue;

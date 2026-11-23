@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseSync } from 'oxc-parser';
 import { readdirSync, readFileSync } from 'node:fs';
-import { CLASSES, GONE, ONE_RULE, classesIn, classesTestsFind, rank, recipe } from './volt-recipe.mjs';
+import { CLASSES, GONE, ONE_RULE, classesIn, classesTestsFind, rank, recipe, WHOLE } from './volt-recipe.mjs';
 
 test('moves the old Button, its variants and loading, and the three classes onto the kit', () => {
   const { text, left } = recipe(
@@ -355,4 +355,21 @@ test('says why the commonest parts left have no twin', () => {
   assert.match(left[0], /^1: imports EmptyState, KeyValue, Table from @intafaced\/ui \(EmptyState: it takes its action as data/);
   assert.match(left[0], /KeyValue: it takes items/);
   assert.match(left[0], /Table: its columns are/);
+});
+
+test('a whole string of utilities moves to its one kit class, and only whole', () => {
+  const { text, left } = recipe(
+    'export const a = (\n  <div>\n    <p className="m-0 text-sm text-fg-2">x</p>\n    <div className="flex flex-col gap-2">y</div>\n    <p className="text-sm text-fg-2">z</p>\n    <div className="flex flex-col gap-2 p-3">w</div>\n  </div>\n);\n',
+  );
+  assert.match(text, /<p className="lt-hint">x/);
+  assert.match(text, /<div className="lt-stack">y/);
+  // Not in WHOLE as written: left whole, never half-moved.
+  assert.match(text, /<p className="text-sm text-fg-2">z/);
+  assert.match(text, /<div className="flex flex-col gap-2 p-3">w/);
+  assert.equal(left.length, 2);
+  // A utility a test finds an element by holds the whole string.
+  const held = recipe('export const a = <div className="flex flex-col gap-2" />;\n', { found: new Set(['flex-col']) });
+  assert.match(held.text, /flex flex-col gap-2/);
+  assert.match(held.left[0], /a test finds an element by flex-col/);
+  for (const kit of Object.values(WHOLE)) assert.match(kit, /^lt-[a-z-]+$/);
 });
