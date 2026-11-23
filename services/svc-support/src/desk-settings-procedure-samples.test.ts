@@ -253,6 +253,13 @@ describe("svc-support's desk settings routes are mounted from their records", ()
     else expect(res.statusCode, res.body).toBe(200);
   });
 
+  it("a desk read under the customer's grant answers with what the grant's read gave, unchanged", async () => {
+    const record = SUPPORT_DESK_SETTINGS_PROCEDURES.find((r) => r.path === 'readDisclosure')!;
+    const accepted: ProcedureSample = record.samples.find((s: ProcedureSample) => s.verdict === 'accept')!;
+    const res = await send(record, accepted.input);
+    expect((JSON.parse(res.body) as { result: { data: unknown } }).result.data).toEqual(replies['reads.read']);
+  });
+
   it.each(refusals)('$label leaves with the status its record names', async ({ record, code, status }) => {
     const accepted: ProcedureSample = record.samples.find((s: ProcedureSample) => s.verdict === 'accept')!;
     next.set(METHOD[record.path], typedError(code));
