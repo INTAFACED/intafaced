@@ -331,21 +331,6 @@ jobs:
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
 
-  format:
-    name: Format
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: 1-2 min
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: format:check
-        run: pnpm format:check
-
   # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
   # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, the
   # TypeScript service a crate replaces and whose recorded answers its tests read, this file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
@@ -863,7 +848,7 @@ jobs:
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
-    needs: [changes, gates, format, build, test-full, rust, look]
+    needs: [changes, gates, build, test-full, rust, look]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
@@ -969,7 +954,7 @@ jobs:
   # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's own jobs do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

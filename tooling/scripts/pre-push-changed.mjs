@@ -7,7 +7,7 @@
  *
  * Each check runs only when the push changes what it reads, runs CI's own command or test, and a refusal names the
  * command that fixes it:
- *   format              prettier --check on the changed files                      CI's Format job
+ *   format              prettier --check on the changed files                      `pnpm format:check`
  *   dead-code           knip, cached in node_modules/.cache/knip                    the dead-code gate (Doctrine gates)
  *   procedure registry  each package's procedure-registry.mjs --check              procedure-registry.test.ts
  *   volt count, recorded calls, ui tokens, ops-desk catalog: the one test file, after the turbo-cached build its
@@ -39,7 +39,7 @@ const RENDER_DIR = 'apps/customer/render-record';
 const CODE = /\.(?:ts|tsx|mts|cts|mjs|cjs|js|jsx)$/;
 const TEST = /\.(?:test|spec|node-test|compare)\.[cm]?[jt]sx?$/;
 
-/** The extensions CI's Format job checks, from package.json's format:check (`prettier --check "**\/*.{ts,...}"`). */
+/** The extensions `pnpm format:check` checks, from package.json's format:check (`prettier --check "**\/*.{ts,...}"`). */
 export function formatExtensions(script) {
   const m = /\{([^}]+)\}/.exec(script ?? '');
   return m ? m[1].split(',') : [];
