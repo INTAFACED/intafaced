@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
-import { awayBid as engineAwayBid, reviewSheet, signUp, verify } from './desk.mjs';
+import { awayBid as engineAwayBid, pictureFromTop, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 import {
@@ -790,6 +790,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
 
 test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const s = state();
@@ -861,6 +862,10 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   await expect(note).toHaveText('Stop: not offered by this venue');
   await expect(page.locator('[data-not-offered="stop"]')).toHaveText('Stop: not offered by this venue');
   await expect(review).toHaveCount(0);
+  // The step's picture, here: the chart, drawn, with Buy, Sell and the spread under it and the refusal under those, from
+  // the top of the page, so the bar that stays at the top covers nothing of the desk.
+  await expect(page.getByTestId('venue-chart').locator('canvas').first()).toBeVisible({ timeout: 30_000 });
+  await pictureFromTop(page, stepPicture);
   await page.waitForTimeout(1_000);
   // The Stop press drafts nothing: any preview since is the ticket refreshing the sell draft it already holds (same
   // client order key, same limit price), never a stop and never a new order.
