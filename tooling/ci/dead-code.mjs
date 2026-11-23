@@ -14,6 +14,8 @@
  * Usage (from the repo root):
  *   node tooling/ci/dead-code.mjs           run knip, compare with the baseline, exit 1 on a new finding
  *   node tooling/ci/dead-code.mjs --write   also delete the baseline rows knip no longer finds (never adds one)
+ *   node tooling/ci/dead-code.mjs --cache   knip keeps its cache in node_modules/.cache/knip (the pre-push run, 8 s warm
+ *                                           against 35 s cold on the box, 23 Nov); CI runs without it
  * Its test, dead-code.test.mjs, plants each fault.
  */
 import { spawnSync } from 'node:child_process';
@@ -63,10 +65,11 @@ export function explain(finding) {
   return `${file}: export ${name} is imported by no other file. Drop \`export\` if this file uses it, else delete it.`;
 }
 
-function runKnip(root) {
+function runKnip(root, cache = false) {
   const bin = join(root, 'node_modules', 'knip', 'bin', 'knip.js');
   if (!existsSync(bin)) throw new Error(`knip is not installed at ${bin}: run pnpm install.`);
-  const run = spawnSync(process.execPath, [bin, '--include', 'files,exports', '--reporter', 'json', '--no-progress', '--no-exit-code'], {
+  const args = [bin, '--include', 'files,exports', '--reporter', 'json', '--no-progress', '--no-exit-code', ...(cache ? ['--cache'] : [])];
+  const run = spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
@@ -93,7 +96,7 @@ function main() {
     process.exit(1);
   }
 
-  const found = findingsOf(runKnip(root));
+  const found = findingsOf(runKnip(root, process.argv.includes('--cache')));
   const baseline = JSON.parse(readFileSync(join(root, BASELINE), 'utf8'));
   const { added, gone } = compare(found, baseline);
 
