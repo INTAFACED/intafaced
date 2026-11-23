@@ -43,9 +43,9 @@ describe('loan details', () => {
     expect(() => loanStatementSchema.parse({ format: 'pdf' })).toThrow();
   });
 
-  it('says why a loan read was refused, with the bank code as a reference', () => {
+  it('says why a loan read was refused in plain words, with no bank code no step names', () => {
     const said = (code: string) => loanRefusal(t, { code, message: 'raw', reason: 'error' });
-    expect(said('bank.loan_fee_unset')).toBe(`${t('feeUnset')} Reference: bank.loan_fee_unset`);
+    expect(said('bank.loan_fee_unset')).toBe(t('feeUnset'));
     expect(said('bank.loan_payoff_window_unset')).toContain('how long it holds');
     expect(said('bank.loan_closed')).toContain('nothing is owed');
     expect(said('bank.loan_liquidating')).toContain('being sold');

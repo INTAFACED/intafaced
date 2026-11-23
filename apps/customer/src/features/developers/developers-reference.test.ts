@@ -159,7 +159,7 @@ describe('the published route list matches what the services really mount', () =
     const expected = Object.entries(doors).flatMap(([door, entry]) =>
       entry.channels.map((channel) => ({ door, channel, private: entry.private })),
     );
-    expect(expected).toHaveLength(11);
+    expect(expected).toHaveLength(12);
     expect(STREAM_REFERENCE.map(({ door, channel, private: isPrivate }) => ({ door, channel, private: isPrivate }))).toEqual(expected);
     expect(STREAM_DOOR_PATH).toEqual(Object.fromEntries(Object.entries(doors).map(([door, entry]) => [door, entry.path])));
     // Each stream sits under the product svc-ws gives it (`STREAM_PRODUCTS`, served on every `/streams` entry).

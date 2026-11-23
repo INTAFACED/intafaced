@@ -7,6 +7,7 @@ import {
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
+  positionModesOf,
   ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
@@ -49,6 +50,7 @@ import {
   type VenueStakingDiscount,
   type UserVenueVaultTransfer,
   type VenueAccountMode,
+  type VenuePositionMode,
   type UserVenueCrossMargin,
   type UserVenueAdlRules,
   type UserVenueDeleverage,
@@ -493,6 +495,10 @@ export interface SimOptions {
    * declared, so it offers no scheduled cancel.
    */
   readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes this TEST venue declares (J-derivatives-05 #3). Default: one-way only, as the venue it stands for. */
+  readonly positionModes?: readonly VenuePositionMode[];
+  /** True when this TEST venue moves an open position between the main account and a sub-account (`move_position`). */
+  readonly positionMoves?: boolean;
 }
 
 interface AccountState {
@@ -546,6 +552,8 @@ interface AccountState {
   actionsToday: number;
   /** TEST switches (J-derivatives-29 #7 #11): the mode not reported, and a mode switch the venue refuses, in its words. */
   modeTest: { unreported: boolean; refuseSwitch: string | null };
+  /** The perpetuals the owner's signed `set_position_mode` put in hedge mode (J-derivatives-05 #3); every other is one-way. */
+  readonly hedged: Set<string>;
   /**
    * Main account only (J-derivatives-31): its position in each vault, by the vault's address: what it is worth, what was
    * put in (the leader's profit share is taken on what it gained above that), and when its lock-up ends. The newest
@@ -795,8 +803,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
       // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
       agentPermissionReach: 'own_account_only',
-      // As the venue it stands for: one net position per contract (no hedge mode).
-      positionModes: ['one_way'],
+      // As the venue it stands for: one net position per contract (no hedge mode), unless this TEST venue declares more.
+      positionModes: options.positionModes ?? ['one_way'],
+      ...(options.positionMoves ? { positionMoves: true } : {}),
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
@@ -1845,6 +1854,66 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           refuse(this.venue.id, 'venue_rejected', 'TEST rule: cancel every open order before the account mode changes');
         return;
       }
+      case 'set_position_mode': {
+        const market = this.market(intent.symbol);
+        if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${intent.symbol} is spot: it has no position mode`);
+        if (!positionModesOf(this.venue).includes(intent.mode))
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} offers no ${modeName(intent.mode)} mode`);
+        if (this.modeOf(state, intent.symbol) === intent.mode)
+          refuse(this.venue.id, 'venue_rejected', `${intent.symbol} is already in ${modeName(intent.mode)} mode on this account`);
+        const held = state.positions.get(intent.symbol);
+        if (held && held.size !== ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the position mode of ${intent.symbol} can't change while a position is open on it: this account holds ${held.side} ${formatAmount(held.size)} ${intent.symbol}. Close it first`,
+          );
+        if ([...state.orders.values()].some((o) => isLive(o) && o.order.symbol === intent.symbol))
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the position mode of ${intent.symbol} can't change while an order rests on it: cancel this account's open ${intent.symbol} orders first`,
+          );
+        return;
+      }
+      case 'move_position': {
+        if (!this.venue.positionMoves)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} moves no open position between accounts`);
+        this.subAccountOf(account.owner, intent.subAccount);
+        const market = this.market(intent.symbol);
+        if (market.marginAccount)
+          refuse(this.venue.id, 'not_offered', `${intent.symbol} keeps its margin with its deployer: a position on it is not moved`);
+        const into = intent.direction === 'into_sub_account';
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const [from, to] = into ? [state, subState] : [subState, state];
+        const moving = from.positions.get(intent.symbol);
+        if (!moving || moving.size === ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the ${into ? 'main account' : 'sub-account'} holds no open ${intent.symbol} position to move`,
+          );
+        const there = to.positions.get(intent.symbol);
+        if (there && there.size !== ZERO)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the ${into ? 'sub-account' : 'main account'} already holds a ${intent.symbol} position: two positions on one contract are not merged by a move`,
+          );
+        for (const s of [from, to]) {
+          if ([...s.orders.values()].some((o) => isLive(o) && o.order.symbol === intent.symbol))
+            refuse(
+              this.venue.id,
+              'venue_rejected',
+              `a position moves only while no order rests on ${intent.symbol} on either account: cancel the open ${intent.symbol} orders first`,
+            );
+          if (s.liquidations.some((l) => l.symbol === intent.symbol && l.state === 'in_progress'))
+            refuse(this.venue.id, 'venue_rejected', `${intent.symbol} is being liquidated: its position is not moved until that is done`);
+        }
+        if (this.modeOf(from, intent.symbol) !== this.modeOf(to, intent.symbol))
+          refuse(this.venue.id, 'venue_rejected', `the two accounts hold ${intent.symbol} in different position modes`);
+        return;
+      }
       case 'staking_transfer':
       case 'staking_delegate': {
         if (intent.asset !== TEST_STAKING.asset)
@@ -2507,6 +2576,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * The account's margin summary in its perpetual collateral (J-derivatives-06 #1): equity is every unit of collateral it
    * holds, free and locked, plus each position's unrealised result at the mark; used margin is the positions' margin.
    */
+  /** The position mode the account holds `symbol` in (J-derivatives-05 #3): hedge once its owner switched it, else one-way. */
+  async positionMode(account: UserVenueAccount, symbol: string): Promise<AsOf<VenuePositionMode>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is spot: it has no position mode`);
+    return this.asOf(this.modeOf(this.account(account), symbol));
+  }
+
+  private modeOf(state: AccountState, symbol: string): VenuePositionMode {
+    return state.hedged.has(symbol) ? 'hedge' : 'one_way';
+  }
+
   /**
    * The account's mode as the venue reports it (J-derivatives-29 #1 #9 #11): in standard mode its spot and perps
    * balances apart, and the day's action count against the mode's limit. `mode: null` while the TEST switch withholds it.
@@ -3315,6 +3396,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         spot: new Map(),
         actionsToday: 0,
         modeTest: { unreported: false, refuseSwitch: null },
+        hedged: new Set(),
         vaults: new Map(),
         vaultTransfers: [],
         staking: { staked: ZERO, delegations: new Map(), pending: [], arrived: [], rewards: [], rewardRefs: new Set() },
@@ -3344,6 +3426,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private checkOrderOnItsFace(state: AccountState, intent: PlaceUserOrderIntent): void {
     const market = this.market(intent.symbol);
+    // In hedge mode an order names the side of the position it opens or closes; the order intent carries none.
+    if (state.hedged.has(market.symbol))
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `${market.symbol} is in hedge mode on this account: an order there names its position side, and this one names none. Switch ${market.symbol} to one-way mode to send it`,
+      );
     const own = this.marketState.get(market.symbol)!;
     if (own.status === 'halted') refuse(this.venue.id, 'market_halted', `${market.symbol} is halted on ${this.venue.displayName}`);
     if (own.status === 'cancel_only')
@@ -3922,6 +4011,28 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         if (state.modeTest.refuseSwitch !== null) return refused('venue_rejected', state.modeTest.refuseSwitch);
         this.changeMode(state, intent.mode);
         return accepted(null, null);
+      case 'set_position_mode':
+        // validate() above refused a switch with a position or an order open on the market.
+        if (intent.mode === 'hedge') state.hedged.add(intent.symbol);
+        else state.hedged.delete(intent.symbol);
+        return accepted(null, null);
+      case 'move_position': {
+        // validate() above refused every move the venue does not make. The whole position goes, with the margin it holds:
+        // the margin leaves the source's locked balance and is locked on the destination, once; no free balance moves.
+        const market = this.market(intent.symbol);
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
+        const [from, to] = intent.direction === 'into_sub_account' ? [state, subState] : [subState, state];
+        const moving = from.positions.get(intent.symbol);
+        if (!moving) throw new Error(`move_position: no ${intent.symbol} position to move (validate() checks this first)`);
+        const source = this.balance(from, market.quoteAsset);
+        const target = this.balance(to, market.quoteAsset);
+        source.locked = sub(source.locked, moving.margin);
+        target.locked = add(target.locked, moving.margin);
+        from.positions.delete(intent.symbol);
+        to.positions.set(intent.symbol, moving);
+        to.leverage.set(intent.symbol, { leverageBps: moving.leverageBps, marginMode: moving.marginMode });
+        return accepted(prepared.nonce, null);
+      }
       case 'market_margin_transfer': {
         const rule = this.marginAccountOf(intent.symbol);
         const into = intent.direction === 'into_market';
@@ -4824,6 +4935,8 @@ export function crossed(side: 'buy' | 'sell', trigger: VenueTrigger, price: Amou
   if (trigger.role === 'take_profit') return side === 'sell' ? above : below;
   return side === 'sell' ? below : above;
 }
+
+const modeName = (mode: VenuePositionMode): string => (mode === 'hedge' ? 'hedge' : 'one-way');
 
 function isLive(o: OrderState): boolean {
   return o.order.status === 'open' || o.order.status === 'partially_filled';

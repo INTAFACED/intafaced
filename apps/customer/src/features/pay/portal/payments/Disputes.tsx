@@ -1,19 +1,39 @@
+// volt-room: /pay/disputes
+// volt-room: /pay/disputes/:disputeId
+// volt-room: portal:disputes
+// volt-room: portal:dispute
 import { useRef, useState } from 'react';
-import { plainCode } from '../ui/plain-code';
+import { Button } from '@intafaced/ui/lit';
+import { FileField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, DataTable } from '@intafaced/ui';
-import { EmptyState } from '../../ui-kit';
-import { PaySection } from '../../components';
-import { PortalReview } from '../ui/PortalReview';
-import { BackLink, Chip, Facts, Gate, MoneyLines, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
+import {
+  BackLink,
+  Chip,
+  Empty,
+  EntityList,
+  Facts,
+  Failure,
+  FilterRow,
+  Gate,
+  Grid,
+  KpiStrip,
+  Loading,
+  MoneyLines,
+  MoneyText,
+  Section,
+  SelectField,
+  StatusChip,
+  Timeline,
+  ToneChip,
+} from '../volt/parts';
+import { RecordListRoom, type RecordListSlots } from '../volt/RecordListRoom';
+import { Review } from '../volt/Review';
 import { portalCopy } from './copy';
 import { useNow, useUrlParam, type ListState } from '../hooks';
 import { shortId } from '../model';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
-import { WithAccount } from '../access/WithAccount';
 import { mc } from '../money/copy';
 import { useTestMode } from '../money/common';
-import { MoneyText } from '../ui/MoneyText';
 import { PartnerShortfallLine } from '../money/PartnerTerms';
 import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
@@ -25,17 +45,14 @@ import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type 
 import type { disputeSummarySchema } from '../schemas';
 import { DateTime } from '../ui/DateTime';
 import { PaymentCell } from './PaymentCell';
-import { EntityList } from '../ui/EntityList';
-import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
-import { KpiStrip } from '../ui/Kpi';
-import { StatusChip, ToneChip } from '../ui/StatusChip';
+import { dateRange, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
 import { useServerList } from '../ui/useServerList';
 import { bySoonestDue, countdown, disputeReason, fileProblem, fromBase64, toBase64 } from './dispute-model';
 
 type Summary = z.infer<typeof disputeSummarySchema>;
 
-/** `/pay/disputes`: every dispute, filtered by the service, with the answer deadline counted down on each row. */
-export function Disputes({ portal }: { portal: PortalApi }) {
+/** `/pay/disputes` on the record-list template: every dispute, filtered by the service, with the answer deadline counted down on each row. */
+export function DisputesRoom({ portal }: { portal: PortalApi }) {
   const filters = useListFilters();
   const [due, setDue] = useUrlParam('due', '');
   const range = dateRange(filters.date as DatePreset, Date.now(), { from: filters.from, to: filters.to });
@@ -54,21 +71,20 @@ export function Disputes({ portal }: { portal: PortalApi }) {
     query,
     (d: Dispute) => d.disputeId,
   );
-  return (
-    <DisputesView
-      portal={portal}
-      summary={summary.resource}
-      list={list.state}
-      filters={filters}
-      due={due}
-      setDue={setDue}
-      loadMore={list.loadMore}
-      retry={() => {
-        summary.reload();
-        list.reload();
-      }}
-    />
-  );
+  const slots = useDisputesSlots({
+    portal,
+    summary: summary.resource,
+    list: list.state,
+    filters,
+    due,
+    setDue,
+    loadMore: list.loadMore,
+    retry: () => {
+      summary.reload();
+      list.reload();
+    },
+  });
+  return <RecordListRoom>{() => slots}</RecordListRoom>;
 }
 
 export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'responseDueAt'>; now: number }) {
@@ -82,16 +98,7 @@ export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'r
   return <ToneChip tone={tone} label={label} />;
 }
 
-export function DisputesView({
-  portal,
-  summary,
-  list,
-  filters,
-  due,
-  setDue,
-  loadMore,
-  retry,
-}: {
+type DisputesProps = {
   /** Reads each dispute's payment for its customer. Without it (a static preview) rows show the payment reference only. */
   portal?: PortalApi;
   summary: Resource<Summary>;
@@ -101,16 +108,19 @@ export function DisputesView({
   setDue: (value: string) => void;
   loadMore: () => void;
   retry: () => void;
-}) {
+};
+
+/** The disputes page's regions, each a slot of the record-list template: the totals, the filters and the list. */
+function useDisputesSlots({ portal, summary, list, filters, due, setDue, loadMore, retry }: DisputesProps): RecordListSlots {
   const { t } = portalCopy.useCopy();
   const now = useNow();
   // If the dispute reads are not live, say so once; do not paint empty tiles. The failure becomes the not-live card when unmounted.
   const notLive = list.status === 'failed' && summary.status === 'failed';
-  if (notLive) return <PortalFailure result={list.failure} retry={retry} />;
+  if (notLive) return { list: <Failure result={list.failure} retry={retry} /> };
   const filtered = Boolean(filters.status || filters.search || filters.date || due);
   const period = t('periodAllTime');
-  return (
-    <div className="lt-stack">
+  return {
+    summary: (
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
           <KpiStrip
@@ -142,6 +152,8 @@ export function DisputesView({
           />
         )}
       </Gate>
+    ),
+    filters: (
       <FilterRow
         label={t('disputesTitle')}
         filters={filters}
@@ -161,76 +173,91 @@ export function DisputesView({
         }
         {...(list.status === 'ready' ? { shown: list.items.length, hasMore: list.hasMore } : {})}
       />
-      {list.status === 'loading' && <PortalLoading />}
-      {list.status === 'failed' && <PortalFailure result={list.failure} retry={retry} />}
-      {list.status === 'ready' &&
-        (list.items.length === 0 ? (
-          <EmptyState title={filtered ? t('disputesNoMatchTitle') : t('disputesEmptyTitle')}>
-            {filtered ? t('disputesNoMatchBody') : t('disputesEmptyBody')}
-          </EmptyState>
-        ) : (
-          <>
-            <p className="muted pp-note">{t('soonestFirst')}</p>
-            <EntityList
-              label={t('disputesTitle')}
-              rows={bySoonestDue(list.items)}
-              rowKey={(d) => d.disputeId}
-              href={(d) => `/pay/disputes/${encodeURIComponent(d.disputeId)}`}
-              columns={[
-                {
-                  header: t('colReason'),
-                  cell: (d) => (
-                    <>
-                      <strong>{d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')}</strong>
-                      <small className="lt-hint">{shortId(d.disputeId)}</small>
-                    </>
-                  ),
-                },
-                {
-                  header: t('colPayment'),
-                  cell: (d) => <PaymentCell portal={portal} paymentId={d.paymentId} />,
-                },
-                { header: t('colAmount'), cell: (d) => <Money value={d.amount} asset={d.assetId} /> },
-                { header: t('colStatus'), cell: (d) => <StatusChip entity="dispute" value={d.status} /> },
-                { header: t('colDue'), cell: (d) => <DueChip dispute={d} now={now} /> },
-                { header: t('colOpened'), cell: (d) => <DateTime value={d.openedAt} /> },
-              ]}
-              card={(d) => ({
-                title: d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven'),
-                time: <DueChip dispute={d} now={now} />,
-                amount: <Money value={d.amount} asset={d.assetId} />,
-                status: <StatusChip entity="dispute" value={d.status} />,
-              })}
-            />
-            <div className="lt-actions">
-              {list.hasMore && (
-                <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
-                  {list.more === 'loading' ? t('loadingMore') : t('loadMore')}
-                </Button>
-              )}
-            </div>
-          </>
-        ))}
+    ),
+    list:
+      list.status === 'loading' ? (
+        <Loading />
+      ) : list.status === 'failed' ? (
+        <Failure result={list.failure} retry={retry} />
+      ) : list.items.length === 0 ? (
+        <Empty title={filtered ? t('disputesNoMatchTitle') : t('disputesEmptyTitle')}>
+          {filtered ? t('disputesNoMatchBody') : t('disputesEmptyBody')}
+        </Empty>
+      ) : (
+        <div className="lt-stack">
+          <p className="lt-hint">{t('soonestFirst')}</p>
+          <EntityList
+            label={t('disputesTitle')}
+            rows={bySoonestDue(list.items)}
+            rowKey={(d) => d.disputeId}
+            href={(d) => `/pay/disputes/${encodeURIComponent(d.disputeId)}`}
+            columns={[
+              {
+                header: t('colReason'),
+                cell: (d) => (
+                  <>
+                    <strong>{d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')}</strong>
+                    <small className="lt-hint">{shortId(d.disputeId)}</small>
+                  </>
+                ),
+              },
+              {
+                header: t('colPayment'),
+                cell: (d) => <PaymentCell portal={portal} paymentId={d.paymentId} />,
+              },
+              { header: t('colAmount'), cell: (d) => <MoneyText value={d.amount} asset={d.assetId} /> },
+              { header: t('colStatus'), cell: (d) => <StatusChip entity="dispute" value={d.status} /> },
+              { header: t('colDue'), cell: (d) => <DueChip dispute={d} now={now} /> },
+              { header: t('colOpened'), cell: (d) => <DateTime value={d.openedAt} /> },
+            ]}
+          />
+          <div className="lt-actions">
+            {list.hasMore && (
+              <Button tone="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
+                {list.more === 'loading' ? t('loadingMore') : t('loadMore')}
+              </Button>
+            )}
+          </div>
+        </div>
+      ),
+  };
+}
+
+/** The disputes page's regions in order, outside the template (a static preview, a unit test). */
+export function DisputesView(props: DisputesProps) {
+  const slots = useDisputesSlots(props);
+  return (
+    <div className="lt-stack">
+      {slots.summary}
+      {slots.filters}
+      {slots.list}
     </div>
   );
 }
 
 // ---- detail ---------------------------------------------------------------------------------------------
 
-export function DisputeDetailPage({ portal, disputeId }: { portal: PortalApi; disputeId: string }) {
+/** `/pay/disputes/:disputeId` on the record-list template: the case, where its money is, and who covers a shortfall. */
+export function DisputeRoom({ portal, disputeId }: { portal: PortalApi; disputeId: string }) {
   const dispute = useResource((s) => portal.dispute(disputeId, s), `portal:dispute:${disputeId}`);
   return (
-    <>
-      <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
-      {/* The money only for a case that has loaded: a missing one has none. Read again when the case is. */}
-      {dispute.resource.status === 'ready' && (
-        <DisputeFundsSection portal={portal} disputeId={dispute.resource.data.disputeId} status={dispute.resource.data.status} />
-      )}
-      {/* Only for a case that has loaded and is not won: a won case takes nothing, and a missing one has no cover. */}
-      {dispute.resource.status === 'ready' && dispute.resource.data.status !== 'won' && (
-        <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
-      )}
-    </>
+    <RecordListRoom>
+      {({ merchantId }) => ({
+        detail: (
+          <div className="lt-stack">
+            <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
+            {/* The money only for a case that has loaded: a missing one has none. Read again when the case is. */}
+            {dispute.resource.status === 'ready' && (
+              <DisputeFundsSection portal={portal} disputeId={dispute.resource.data.disputeId} status={dispute.resource.data.status} />
+            )}
+            {/* Only for a case that has loaded and is not won: a won case takes nothing, and a missing one has no cover. */}
+            {dispute.resource.status === 'ready' && dispute.resource.data.status !== 'won' && (
+              <DisputeShortfallCover portal={portal} merchantId={merchantId} />
+            )}
+          </div>
+        ),
+      })}
+    </RecordListRoom>
   );
 }
 
@@ -257,7 +284,7 @@ const isZeroAmount = (v: string) => parseAmount(v) === 0n;
 export function DisputeFundsView({ funds, retry, test }: { funds: Resource<DisputeFunds>; retry: () => void; test: boolean }) {
   const { t } = portalCopy.useCopy();
   return (
-    <PaySection title={t('fundsTitle')} description={t('fundsBody')}>
+    <Section title={t('fundsTitle')} description={t('fundsBody')}>
       <Gate resource={funds} retry={retry} rows={4}>
         {(f) => (
           <>
@@ -277,29 +304,29 @@ export function DisputeFundsView({ funds, retry, test }: { funds: Resource<Dispu
                 [t('colStatus'), <Chip kind="dispute" value={f.status} />],
               ]}
             />
-            {!f.openingBooked && <p className="lt-muted">{t('fundsOpeningNotBooked')}</p>}
+            {!f.openingBooked && <p className="lt-hint">{t('fundsOpeningNotBooked')}</p>}
             {f.openingBooked && f.status !== 'won' && !isZeroAmount(f.notYetTaken) && (
-              <p className="lt-muted">{t('fundsNotYetTakenNote')}</p>
+              <p className="lt-hint">{t('fundsNotYetTakenNote')}</p>
             )}
             <p data-testid="dispute-funds-outcome">{t(FUNDS_OUTCOME[f.status])}</p>
           </>
         )}
       </Gate>
-    </PaySection>
+    </Section>
   );
 }
 
 /**
  * J-merchant-18 #5: who covers what a lost dispute takes beyond the business's funds, as the acquiring partner's terms
- * say, "not known" until they do. The ledger never covers it (OWNER 226).
+ * say, "not known" until they do. The ledger never covers it.
  */
 function DisputeShortfallCover({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const partner = useResource((s) => portal.partnerTerms(merchantId, s), `portal:partner-terms:${merchantId}`);
   const { t } = mc.useCopy();
   return (
-    <PaySection title={t('partnerShortfallTitle')} description={t('partnerShortfallBody')}>
+    <Section title={t('partnerShortfallTitle')} description={t('partnerShortfallBody')}>
       <PartnerShortfallLine terms={partner.resource} />
-    </PaySection>
+    </Section>
   );
 }
 
@@ -319,12 +346,12 @@ export function DisputeDetailView({
       <Gate resource={dispute} retry={reload} rows={5}>
         {(d) => (
           <>
-            <PaySection title={t('keyFacts')} description={t('disputeFactsBody')}>
+            <Section title={t('keyFacts')} description={t('disputeFactsBody')}>
               <Facts
                 items={[
                   [
                     t('colDispute'),
-                    <span data-testid="pp-mono" className="pp-mono pp-copy">
+                    <span data-testid="pp-mono" className="lt-mono">
                       {d.disputeId}
                     </span>,
                   ],
@@ -334,7 +361,7 @@ export function DisputeDetailView({
                       {t('openPayment')}
                     </a>,
                   ],
-                  [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
+                  [t('colAmount'), <MoneyText value={d.amount} asset={d.assetId} />],
                   [t('colReason'), d.reasonCode ? disputeReason(d.reasonCode) : t('notGiven')],
                   [t('colStatus'), <Chip kind="dispute" value={d.status} />],
                   [
@@ -350,9 +377,9 @@ export function DisputeDetailView({
                   [t('ledgerWire'), d.ledgerWire === 'posted' ? t('ledgerPosted') : t('ledgerNotConnected')],
                 ]}
               />
-            </PaySection>
+            </Section>
 
-            <PaySection title={t('timelineTitle')}>
+            <Section title={t('timelineTitle')}>
               <Timeline
                 label={t('timelineTitle')}
                 items={[
@@ -372,13 +399,13 @@ export function DisputeDetailView({
                     : []),
                 ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))}
               />
-            </PaySection>
+            </Section>
 
             {d.payment && (
-              <PaySection title={t('relatedPayment')}>
+              <Section title={t('relatedPayment')}>
                 <Facts
                   items={[
-                    [t('colAmount'), <Money value={d.payment.amount} asset={d.payment.assetId} />],
+                    [t('colAmount'), <MoneyText value={d.payment.amount} asset={d.payment.assetId} />],
                     [t('colStatus'), <Chip kind="payment" value={d.payment.status} />],
                     [t('colOpened'), <DateTime value={d.payment.createdAt} />],
                   ]}
@@ -386,7 +413,7 @@ export function DisputeDetailView({
                 <a className="lt-link" href={`/pay/payments/${encodeURIComponent(d.payment.paymentId)}`}>
                   {t('seePayments')}
                 </a>
-              </PaySection>
+              </Section>
             )}
 
             <EvidenceSection portal={portal} dispute={d} reload={reload} />
@@ -419,7 +446,7 @@ function EvidenceDownload({ portal, evidenceId, fileName }: { portal: PortalApi;
   return (
     <>
       <Button
-        variant="ghost"
+        tone="quiet"
         disabled={state === 'busy'}
         aria-label={t('evDownloadFile', { name: fileName })}
         onClick={async () => {
@@ -439,7 +466,7 @@ function EvidenceDownload({ portal, evidenceId, fileName }: { portal: PortalApi;
         {t('evDownload')}
       </Button>
       {state !== 'idle' && state !== 'busy' && (
-        <small className="error-text" role="alert">
+        <small className="lt-hint" data-part="error" role="alert">
           {state}
         </small>
       )}
@@ -470,11 +497,11 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
   const mayRespond = useMayRespond();
   const detailsOnly = storageOff || problem !== null;
   return (
-    <PaySection title={t('evidenceTitle')} description={t('evidenceBody')}>
+    <Section title={t('evidenceTitle')} description={t('evidenceBody')}>
       {dispute.evidence.length === 0 ? (
-        <EmptyState title={t('evidenceEmptyTitle')}>{t('evidenceEmptyBody')}</EmptyState>
+        <Empty title={t('evidenceEmptyTitle')}>{t('evidenceEmptyBody')}</Empty>
       ) : (
-        <DataTable
+        <Grid
           label={t('evidenceTitle')}
           headers={[t('colKind'), t('colFile'), t('colSize'), t('colFingerprint'), t('colNote'), t('colAdded'), t('evDownload')]}
         >
@@ -486,7 +513,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                 <small className="lt-hint">{e.contentType}</small>
               </td>
               <td className="lt-num">{formatBytes(e.sizeBytes)}</td>
-              <td data-testid="pp-mono" className="pp-mono" title={e.sha256}>
+              <td data-testid="pp-mono" className="lt-mono" title={e.sha256}>
                 {e.sha256.slice(0, 12)}…
               </td>
               <td>{e.note ?? '—'}</td>
@@ -498,51 +525,43 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               </td>
             </tr>
           ))}
-        </DataTable>
+        </Grid>
       )}
       {dispute.canRespond ? (
-        <div data-testid="form-stack" className="form-stack pp-form pp-add-evidence">
-          <h3 className="pp-sub">{t('addEvidence')}</h3>
-          <p className="pp-callout" role="note">
+        <div data-testid="form-stack" className="lt-stack">
+          <h3>{t('addEvidence')}</h3>
+          <p className="lt-hint" role="note">
             {detailsOnly ? (problem ? t(`evProblem_${problem}`) + ' ' : '') + t('evidenceMetaOnly') : t('evUploadNote')}
           </p>
-          <label className="lt-field">
-            <span>{t('fFile')} *</span>
-            <input
-              ref={input}
-              type="file"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return (setFileRef(null), setPicked(null));
-                setReading(true);
-                try {
-                  setFileRef(file);
-                  setPicked(await fingerprintFile(file));
-                } finally {
-                  setReading(false);
-                }
-              }}
-            />
-            <small>
-              {reading
+          <FileField
+            ref={input}
+            label={`${t('fFile')} *`}
+            onChange={async (file) => {
+              if (!file) return (setFileRef(null), setPicked(null));
+              setReading(true);
+              try {
+                setFileRef(file);
+                setPicked(await fingerprintFile(file));
+              } finally {
+                setReading(false);
+              }
+            }}
+            hint={
+              reading
                 ? t('readingFile')
                 : picked
                   ? t('fileReady', { name: picked.fileName, size: formatBytes(String(picked.sizeBytes)) })
-                  : t('hFile')}
-            </small>
-          </label>
+                  : t('hFile')
+            }
+          />
           <SelectField
             label={`${t('colKind')} *`}
             value={kind}
             onChange={(v) => setKind(v as EvidenceKind)}
             options={evidenceKinds.map((k) => [k, t(`evidence_${k}` as 'evidence_receipt')] as const)}
           />
-          <label className="lt-field">
-            <span>{t('colNote')}</span>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />
-            <small>{t('hEvidenceNote')}</small>
-          </label>
-          <PortalReview
+          <TextAreaField label={t('colNote')} value={note} onChange={setNote} maxLength={2000} rows={3} hint={t('hEvidenceNote')} />
+          <Review
             title={detailsOnly ? t('evRecordOnly') : t('addEvidence')}
             variant="primary"
             description={t('addEvidenceBody')}
@@ -555,7 +574,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                     [t('colSize'), formatBytes(String(picked.sizeBytes))],
                     [
                       t('colFingerprint'),
-                      <span data-testid="pp-mono" className="pp-mono">
+                      <span data-testid="pp-mono" className="lt-mono">
                         {picked.sha256}
                       </span>,
                     ],
@@ -593,12 +612,12 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
             disabled={!picked || reading || problem === 'empty' || !mayRespond}
             disabledReason={mayRespond ? undefined : t('disp_noRespond')}
           />
-          {!mayRespond && <p className="muted pp-note">{t('disp_noRespond')}</p>}
+          {!mayRespond && <p className="lt-hint">{t('disp_noRespond')}</p>}
         </div>
       ) : (
-        <p className="muted pp-note">{t('evidenceClosed')}</p>
+        <p className="lt-hint">{t('evidenceClosed')}</p>
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -612,27 +631,23 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
   const why = mayRespond ? undefined : t('disp_noRespond');
   const canContest = dispute.status === 'open' && dispute.evidence.length > 0;
   return (
-    <PaySection title={t('respondTitle')} description={t('respondBody')}>
+    <Section title={t('respondTitle')} description={t('respondBody')}>
       {!dispute.canRespond ? (
-        <p className="pp-callout" role="note">
+        <p className="lt-hint" role="note">
           {dispute.responses.length > 0 ? t('respondedAlready') : t('respondClosed')}
         </p>
       ) : (
         <div data-testid="form-stack" className="lt-stack">
-          <label className="lt-field">
-            <span>{t('colNote')}</span>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />
-            <small>{t('hRespondNote')}</small>
-          </label>
+          <TextAreaField label={t('colNote')} value={note} onChange={setNote} maxLength={2000} rows={3} hint={t('hRespondNote')} />
           <div className="lt-actions">
-            <PortalReview
+            <Review
               title={t('contest')}
               variant="primary"
               description={t('contestBody')}
               review={
                 <Facts
                   items={[
-                    [t('colAmount'), <Money value={dispute.amount} asset={dispute.assetId} />],
+                    [t('colAmount'), <MoneyText value={dispute.amount} asset={dispute.assetId} />],
                     [t('evidenceTitle'), String(dispute.evidence.length)],
                     [t('colNote'), note.trim() || '—'],
                   ]}
@@ -650,14 +665,14 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
               disabled={!canContest || !mayRespond}
               disabledReason={why}
             />
-            <PortalReview
+            <Review
               title={t('acceptLiability')}
               variant="sell"
               description={t('acceptLiabilityBody')}
               review={
                 <Facts
                   items={[
-                    [t('colAmount'), <Money value={dispute.amount} asset={dispute.assetId} />],
+                    [t('colAmount'), <MoneyText value={dispute.amount} asset={dispute.assetId} />],
                     [t('colNote'), note.trim() || '—'],
                   ]}
                 />
@@ -675,12 +690,12 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
               disabledReason={why}
             />
           </div>
-          {!mayRespond && <p className="muted pp-note">{t('disp_noRespond')}</p>}
+          {!mayRespond && <p className="lt-hint">{t('disp_noRespond')}</p>}
           {mayRespond && !canContest && (
-            <p className="muted pp-note">{dispute.status !== 'open' ? t('whyNoContestStatus') : t('whyNoContestEvidence')}</p>
+            <p className="lt-hint">{dispute.status !== 'open' ? t('whyNoContestStatus') : t('whyNoContestEvidence')}</p>
           )}
         </div>
       )}
-    </PaySection>
+    </Section>
   );
 }

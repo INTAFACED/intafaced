@@ -53,7 +53,7 @@ export function VenueTifSelect({ market, tif, onTif }: { market: VenueMarket; ti
   const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, t('Tif engine'), market, name)]));
   return (
     <div className="dk-tif dk-opt" data-testid="venue-tif">
-      <span className="dk-tif-label" id="venue-tif-label">
+      <span className="lt-hint lt-nowrap" id="venue-tif-label">
         {t('Time in force')}
       </span>
       <Select
@@ -89,7 +89,7 @@ export function VenueSelfTradeSelect({ market }: { market: VenueMarket }) {
   const items = Object.fromEntries(SELF_TRADE_MODES.map((mode) => [mode, label(mode)]));
   return (
     <div className="dk-tif dk-opt" data-testid="venue-self-trade">
-      <span className="dk-tif-label" id="venue-stp-label">
+      <span className="lt-hint lt-nowrap" id="venue-stp-label">
         {t('Self trade')}
       </span>
       <Select items={items} value={rule ?? ''}>

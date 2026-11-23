@@ -360,8 +360,12 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
             <option value="loss">{t('lossPasses')}</option>
           </select>
         </label>
+        <EnginePanel name={t('bestParameters')}>
+          <p lang="zxx">TEST {t('bestRow', { fast: 10, slow: 30 })}</p>
+        </EnginePanel>
         <p role="note">{t('sortNote')}</p>
-        <EnginePanel name={t('passes')}>
+        {/* The passes are sample rows the person filters and sorts here, so they stay readable; only the engine's output is blurred. */}
+        <div data-testid="optimise-passes">
           <table aria-label={t('passes')}>
             <thead>
               <tr>
@@ -392,7 +396,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
               ))}
             </tbody>
           </table>
-        </EnginePanel>
+        </div>
         <Button variant="secondary" onClick={() => setWalkOpen((open) => !open)}>
           {t('walkForward')}
         </Button>

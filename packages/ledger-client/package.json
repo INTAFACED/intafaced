@@ -38,6 +38,10 @@
       "types": "./dist/post-recipe-client.d.ts",
       "default": "./dist/post-recipe-client.js"
     },
+    "./operator-reverse": {
+      "types": "./dist/operator-reverse-record.d.ts",
+      "default": "./dist/operator-reverse-record.js"
+    },
     "./gate": {
       "types": "./dist/gate/index.d.ts",
       "default": "./dist/gate/index.js"

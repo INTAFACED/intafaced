@@ -376,7 +376,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   await invite.getByLabel('Their email').fill('bea.test@example.com');
   await invite.getByRole('button', { name: 'Send the invite' }).click();
   await expect(invite.getByTestId('payee-invite-answer')).toHaveText(
-    'Invites are sent by email, and email delivery is switched off in this build. Reference: bank.payee_invite_unwired',
+    'Invites are sent by email, and email delivery is switched off in this build.',
     { timeout: 30_000 },
   );
   // Sending to the new payee inside the window refuses with its end time; nothing is asked for, kept or taken.
@@ -387,10 +387,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   await source.selectOption({ label: (await source.locator('option', { hasText: 'USDT' }).first().innerText()).trim() });
   await panel.getByLabel('Amount to send').fill('10');
   await panel.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(panel.getByTestId('rail-send-problem')).toHaveText(
-    `New recipient: money can go to them from ${ends}. Reference: bank.payee_cooling_active`,
-    { timeout: 30_000 },
-  );
+  await expect(panel.getByTestId('rail-send-problem')).toHaveText(`New recipient: money can go to them from ${ends}.`, { timeout: 30_000 });
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(panel.getByTestId('rail-send-row')).toHaveCount(1);
   expect(toUnits(await senderUsdt())).toBe(toUnits(before));

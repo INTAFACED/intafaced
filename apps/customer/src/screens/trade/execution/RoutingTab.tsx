@@ -46,7 +46,7 @@ export function RoutingTab() {
 
   return (
     <div className="lt-stack">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="lt-toolbar">
         {ready && spine.status === 'ready' ? <Freshness asOf={spine.asOf} /> : null}
         <Button variant="secondary" size={32} nativeButton={false} render={<a href="/quant/studio" />}>
           {t('Open Quant Studio')}
@@ -58,7 +58,7 @@ export function RoutingTab() {
           <p role="note" className="lt-hint">
             {t('Routing staff only')}
           </p>
-          <span className="text-xs text-fg-2">{refusalSupportCode(spine.code)}</span>
+          <span className="lt-hint">{refusalSupportCode(spine.code)}</span>
         </div>
       ) : (
         <Gate load={spine}>

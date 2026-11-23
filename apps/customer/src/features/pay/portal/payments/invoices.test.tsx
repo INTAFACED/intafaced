@@ -17,6 +17,17 @@ vi.mock('../ui/PortalReview', async () => {
     ),
   };
 });
+// The invoice's own page confirms through the kit's review (`../volt/Review`): drawn in place the same way.
+vi.mock('../volt/Review', async () => {
+  const { ExactMoneyScope } = await import('../ui/ExactMoneyScope');
+  return {
+    Review: ({ review, title }: { review?: ReactNode; title: string }) => (
+      <div data-review={title}>
+        <ExactMoneyScope>{review}</ExactMoneyScope>
+      </div>
+    ),
+  };
+});
 let allowWrite = true;
 vi.mock('../access/MerchantAccess', async (original) => {
   const real = await original<typeof import('../access/MerchantAccess')>();
@@ -33,7 +44,8 @@ import { findRoom } from '../../../../app/navigation';
 import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
 import { paymentsCopy } from './copy';
-import { InvoiceCreate, InvoiceDetailView } from './Invoices';
+import { InvoiceCreate } from './InvoiceCreate';
+import { InvoiceDetailView } from './Invoices';
 import {
   allowedActions,
   amountProblem,

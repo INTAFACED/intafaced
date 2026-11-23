@@ -1,12 +1,8 @@
-import {
-  accountControlResultSchema,
-  accountControlLookupInputSchema,
-  accountControlStateSchema,
-} from '@intafaced/contracts/account-controls';
+import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { router, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradingControlError, type TradingControls } from './trading-controls.js';
 import { tradeRestrictInputSchema } from '../admin/trading-restrict.js';
-import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY, TRADE_ACCOUNT_CONTROLS_GET_STATE } from '@intafaced/contracts/trade-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tradeRefusal } from '../record-refusal.js';
 
@@ -38,10 +34,11 @@ export function tradingControlsRouter(controls?: TradingControls) {
     }
   }
   return router({
-    getState: protectedProcedure
-      .input(accountControlLookupInputSchema)
-      .output(accountControlStateSchema.nullable())
-      .query(({ ctx, input }) => call(() => requireControls().getState(ctx, input))),
+    getState: mountRecord(
+      TRADE_ACCOUNT_CONTROLS_GET_STATE,
+      ({ ctx, input }) => call(() => requireControls().getState(ctx, input)),
+      tradeRefusal,
+    ),
     history: mountRecord(
       TRADE_ACCOUNT_CONTROLS_HISTORY,
       ({ ctx, input }) => call(() => requireControls().history(ctx, input)),

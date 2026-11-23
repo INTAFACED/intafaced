@@ -70,6 +70,8 @@ export const venueStatusSchema = z.union([
           test: z.boolean(),
           health: z.object({ state: z.string() }).passthrough(),
           positionModes: z.array(z.enum(['one_way', 'hedge'])).optional(),
+          // J-derivatives-05 #7: true when the venue moves an open position between the main account and a sub-account.
+          positionMoves: z.boolean().optional(),
         }),
       )
       .optional(),
@@ -488,6 +490,10 @@ export const venueAccountModeSchema = z.object({
 });
 export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
 export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
+/** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
+export const venuePositionModeSchema = z.enum(['one_way', 'hedge']);
+export type VenuePositionMode = z.infer<typeof venuePositionModeSchema>;
 
 // ── J-derivatives-31: the venue's vaults, a position in one, and its lock-up, each the venue's own figure ──────────
 
