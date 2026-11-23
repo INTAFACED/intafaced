@@ -27,6 +27,7 @@ import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allEdges, pathReadEdges } from './cross-package-reads.mjs';
 import { journeyTouch } from './journey-touch.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { SPLIT } from './test-shards.mjs';
 import { checkoutTree, covers, reachOf, readersOf } from './tooling-reach.mjs';
 
@@ -329,12 +330,8 @@ export function testedPackages(filters, run = (args) => execFileSync('pnpm', arg
   }
 }
 
-/**
- * What a pull request's look gate (look-pr.yml, #9325) runs on: a change to a Customer room or the kit draws, or to
- * the gate itself. Docs there draw nothing. The seal then needs its pass, as for the Rust job.
- */
-const LOOK_PATHS = ['apps/customer/', 'packages/ui/', 'tooling/ci/look-gate/', '.github/workflows/look-pr.yml'];
-export const reachesLook = (files) => (files || []).map(posix).some((f) => !isDoc(f) && LOOK_PATHS.some((p) => matchesPrefix(f, p)));
+/** What a pull request's look gate runs on (look-paths.mjs). The seal then needs its pass, as for the Rust job. */
+export { reachesLook };
 
 export function sealNeeded(flags, results) {
   const problems = [];
