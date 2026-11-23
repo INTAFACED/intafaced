@@ -37,7 +37,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
-import { reachesLook } from './ci-affected.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -274,7 +274,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 
 /**
  * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
- * a look baseline, or a change that draws a Customer room or kit part (ci-affected.mjs reachesLook), whose review is
+ * a look baseline, or a change that draws a Customer room or kit part (look-paths.mjs reachesLook), whose review is
  * given the look gate's before and after pictures (REVIEW.md item 6; AGENTS.md: a design change merges "on its checks
  * and the independent review of those pictures"). Until this, #9910 merged over the review's FAIL on /bank's rows
  * (job 137281761301, 22 Nov 2026): the pictures were judged and the verdict was not read. Money and security code alone
