@@ -146,7 +146,9 @@ describe("the desk's reads behind the customer's grant, through the router", () 
     // The owner is asked for the request's own customer and its linked withdrawals, never for anyone the agent names.
     expect(asked).toEqual([{ balance: CUSTOMER }, { destinations: { userId: CUSTOMER, withdrawalIds: [W1] } }]);
     // Fills have no owner door: refused naming the owner, and not listed.
-    expect(await refusal(agent.readDisclosure({ ticketId, kind: 'fills' }))).toBe('PRECONDITION_FAILED support.disclosure_unwired svc-trade');
+    expect(await refusal(agent.readDisclosure({ ticketId, kind: 'fills' }))).toBe(
+      'PRECONDITION_FAILED support.disclosure_unwired svc-trade',
+    );
 
     expect(await customer.readAccess({ ticketId })).toEqual({
       ticketId,
@@ -187,7 +189,7 @@ describe("the desk's reads behind the customer's grant, through the router", () 
     expect(await refusal(agent.customerBalance({ ticketId }))).toBe('PRECONDITION_FAILED support.read_grant_required expired');
   });
 
-  it("an owner that gives no answer, or is not wired, refuses naming it; no linked withdrawal has no destination to read; none is listed", async () => {
+  it('an owner that gives no answer, or is not wired, refuses naming it; no linked withdrawal has no destination to read; none is listed', async () => {
     const silent = await desk({ readOwners: { balance: async () => null, destinations: async () => null } });
     await silent.customer.grantRead({ ticketId: silent.ticketId, seconds: 60 });
     expect(await refusal(silent.agent.customerBalance({ ticketId: silent.ticketId }))).toBe(
@@ -222,8 +224,7 @@ describe("the desk's reads behind the customer's grant, through the router", () 
     expect(await refusal(agent.grantRead({ ticketId, seconds: 60 }))).toMatch(/^NOT_FOUND/);
     expect(await refusal(stranger.grantRead({ ticketId, seconds: 60 }))).toMatch(/^NOT_FOUND/);
     expect(await refusal(stranger.readAccess({ ticketId }))).toMatch(/^NOT_FOUND/);
-    for (const seconds of [0, 29, 604_801, 60.5])
-      expect(await refusal(customer.grantRead({ ticketId, seconds }))).toMatch(/^BAD_REQUEST/);
+    for (const seconds of [0, 29, 604_801, 60.5]) expect(await refusal(customer.grantRead({ ticketId, seconds }))).toMatch(/^BAD_REQUEST/);
     const sneaky = { ticketId, seconds: 60, userId: STRANGER } as { ticketId: string; seconds: number };
     expect(await refusal(customer.grantRead(sneaky))).toMatch(/^BAD_REQUEST [\s\S]*unrecognized_keys/);
     expect(grantBook.grants).toEqual([]);

@@ -14,7 +14,7 @@ import { KitDetails, type KitAction } from './volt-action';
 import { EmptyNote, KitRead, ScrollTable } from './volt-parts';
 
 /** The lengths a customer picks from, in seconds, each inside the service's own bounds (half a minute to one week). */
-export const READ_GRANT_LENGTHS = [
+const READ_GRANT_LENGTHS = [
   ['900', 'readAccessLength900'],
   ['3600', 'readAccessLength3600'],
   ['86400', 'readAccessLength86400'],
@@ -24,7 +24,7 @@ export const READ_GRANT_LENGTHS = [
 const KIND_KEY = { balance: 'readAccessKindBalance', destination: 'readAccessKindDestination', fills: 'readAccessKindFills' } as const;
 
 /** What the grant line says: never given, still holding, or ended. Judged on the service's clock when it answered. */
-export const grantState = (grant: SupportReadGrant | null): 'none' | 'active' | 'ended' => (!grant ? 'none' : grant.active ? 'active' : 'ended');
+const grantState = (grant: SupportReadGrant | null): 'none' | 'active' | 'ended' => (!grant ? 'none' : grant.active ? 'active' : 'ended');
 
 /**
  * Support's access to this request's customer's balance and withdrawal details (J-support-public-20 #2): the team reads
@@ -60,9 +60,7 @@ export function SupportReadAccess({ ticket, action }: { ticket: Ticket; action: 
           return (
             <>
               <p data-testid="support-read-grant" data-state={state} data-expires-at={row.grant?.expiresAt ?? ''}>
-                <Tag tone={state === 'active' ? 'accent' : 'neutral'}>
-                  {copy.t(state === 'active' ? 'readAccessOn' : 'readAccessOff')}
-                </Tag>{' '}
+                <Tag tone={state === 'active' ? 'accent' : 'neutral'}>{copy.t(state === 'active' ? 'readAccessOn' : 'readAccessOff')}</Tag>{' '}
                 {row.grant
                   ? copy.t(state === 'active' ? 'readAccessActive' : 'readAccessEnded', {
                       until: stamp(row.grant.expiresAt, timeZone, Date.now(), true),

@@ -44,8 +44,8 @@ import type { VerificationAuditRow } from './verification-checks.js';
  * money.
  */
 
-export const READ_GRANT_REQUIRED = 'support.read_grant_required' as const;
-export const READ_WITHDRAWAL_UNLINKED = 'support.read_withdrawal_unlinked' as const;
+const READ_GRANT_REQUIRED = 'support.read_grant_required' as const;
+const READ_WITHDRAWAL_UNLINKED = 'support.read_withdrawal_unlinked' as const;
 
 /** The figures' owners, asked as svc-support. Each answers null when it gave no verified answer. */
 export interface ReadOwners {
@@ -189,7 +189,8 @@ export class ReadGrants {
     const ticket = await this.support.getTicket({ userId: operatorId, ticketId, asOperator: true });
     const at = this.now();
     const readAt = at.toISOString();
-    const trail = (outcome: string) => this.audit({ ticketId: ticket.id, action: 'disclosure', kind, outcome, operator: operatorId, at: readAt });
+    const trail = (outcome: string) =>
+      this.audit({ ticketId: ticket.id, action: 'disclosure', kind, outcome, operator: operatorId, at: readAt });
     const fail = async (code: string, message: string, detail?: string): Promise<never> => {
       await trail(code);
       throw new SupportError(message, code, detail);
@@ -213,7 +214,8 @@ export class ReadGrants {
       if (!this.owners.destinations) return unwired('serves the desk no read door here');
       const withdrawals = await this.owners.destinations({ userId: ticket.userId, withdrawalIds }).catch(() => null);
       // Only the linked withdrawals are an answer: anything else is no answer at all.
-      if (withdrawals === null || withdrawals.some((row) => !withdrawalIds.includes(row.withdrawalId))) return unwired('gave no verified answer');
+      if (withdrawals === null || withdrawals.some((row) => !withdrawalIds.includes(row.withdrawalId)))
+        return unwired('gave no verified answer');
       answer = { kind, readAt, grantExpiresAt: grant.expiresAt, withdrawals };
     } else {
       return unwired('serves the desk no read door yet');
@@ -231,7 +233,10 @@ type S2s = { signer: ServiceSigner; mode: ServiceAuthMode };
 export function createReadOwners(input: { tradeUrl?: string; payUrl?: string; internalSecret: string; s2s?: S2s }): ReadOwners {
   if (!identitySecretSet(input.internalSecret)) return {};
   const refusal = (path: string, status: number) => new Error(`${path} refused (${status})`);
-  const within = (ms: number): typeof fetch => (target, init) => fetch(target, { ...init, signal: AbortSignal.timeout(ms) });
+  const within =
+    (ms: number): typeof fetch =>
+    (target, init) =>
+      fetch(target, { ...init, signal: AbortSignal.timeout(ms) });
   const owners: ReadOwners = {};
   if (input.tradeUrl) {
     const baseUrl = input.tradeUrl;

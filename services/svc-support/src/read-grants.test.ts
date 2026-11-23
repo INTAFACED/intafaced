@@ -81,7 +81,14 @@ describe("a customer's grant for support to read", () => {
     });
     expect(book.rows).toEqual([]);
     expect(trail).toEqual([
-      { ticketId: TICKET, action: 'disclosure', kind: 'balance', outcome: 'support.disclosure_unwired', operator: OPERATOR, at: AT.toISOString() },
+      {
+        ticketId: TICKET,
+        action: 'disclosure',
+        kind: 'balance',
+        outcome: 'support.disclosure_unwired',
+        operator: OPERATOR,
+        at: AT.toISOString(),
+      },
     ]);
   });
 

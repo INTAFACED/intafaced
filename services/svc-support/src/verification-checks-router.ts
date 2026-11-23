@@ -27,11 +27,7 @@ import { userCopy } from './user-copy.js';
  */
 export function verificationCheckProcedures(checks: VerificationChecks, reads: ReadGrants) {
   return {
-    grantRead: mountRecord(
-      SUPPORT_GRANT_READ,
-      ({ ctx, input }) => reads.grant(ctx.principal.userId, input),
-      supportRefusal,
-    ),
+    grantRead: mountRecord(SUPPORT_GRANT_READ, ({ ctx, input }) => reads.grant(ctx.principal.userId, input), supportRefusal),
 
     readAccess: mountRecord(SUPPORT_READ_ACCESS, ({ ctx, input }) => reads.access(ctx.principal.userId, input.ticketId), supportRefusal),
 

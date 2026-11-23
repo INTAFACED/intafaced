@@ -331,7 +331,7 @@ test(`${J} #2 reading the customer's balance or withdrawal destination is refuse
   stepPicture,
 }) => {
   test.setTimeout(240_000);
-  const { who, userId } = await request(browser);
+  const { who } = await request(browser);
   const { lead: leadId } = await deskPeople();
   const client = await api(who);
   // A request of this step's own, so no other step's grant or read is on it.
