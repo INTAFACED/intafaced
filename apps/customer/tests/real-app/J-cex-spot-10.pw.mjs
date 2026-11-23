@@ -1051,7 +1051,7 @@ test(`${J}, part of #9, checked on today's custodial desk: chooses to pay tradin
     await page.reload();
     await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
     await tab(page, 'Trade history').click();
-    await expect(page.locator(`tr[data-fill="${fills[0].id}"] td[class*=dk-num]`).last()).toContainText(/^0\.0\d+ IFC/);
+    await expect(page.locator(`tr[data-fill="${fills[0].id}"] > td`).last()).toContainText(/^0\.0\d+ IFC/);
   } finally {
     await publish(SCHEDULE, 'no fee token terms again');
   }
