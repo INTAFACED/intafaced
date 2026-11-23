@@ -12,8 +12,8 @@ export function BetaNotInVolt() {
       title={t('Not in this beta')}
       state={{
         kind: 'empty',
-        title: t('This room is not in the beta yet'),
-        body: t('It opens here as soon as its new design is finished.'),
+        title: t('This room is not part of this beta'),
+        body: t('The beta shows only the rooms in the new design.'),
         action: { label: t('Back to home'), href: '/home' },
       }}
       figures={[]}
