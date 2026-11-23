@@ -28,7 +28,9 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const [closing, setClosing] = useState<CopiedPosition | null>(null);
   const [part, setPart] = useState<CopiedPosition | null>(null);
   const [amount, setAmount] = useState('');
-  const [tooMuch, setTooMuch] = useState(false);
+  // The part the service refused as more than is open: what was asked, of which position, and what was open then.
+  const [tooMuch, setTooMuch] = useState<{ position: CopiedPosition; qty: string } | null>(null);
+  const asked = useRef<{ position: CopiedPosition; qty: string } | null>(null);
   // A re-read keeps the last list on screen instead of blanking it while it loads.
   const last = useRef<CopiedPosition[] | null>(null);
   const lastMarkets = useRef<CopiedMarket[] | null>(null);
@@ -57,7 +59,8 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const close = (position: CopiedPosition, qty?: string) => {
     setClosing(null);
     setPart(null);
-    setTooMuch(false);
+    setTooMuch(null);
+    asked.current = qty ? { position, qty } : null;
     rereads.current = 0;
     void guard
       .run(
@@ -71,7 +74,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const { failure, setFailure } = guard;
   useEffect(() => {
     if (failure?.code !== 'trade.copy_close_qty_exceeds') return;
-    setTooMuch(true);
+    setTooMuch(asked.current);
     setFailure(null);
   }, [failure, setFailure]);
 
@@ -135,7 +138,6 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         rowKey={(r) => r.market}
         empty={marketRows === null ? <Skeleton shape="rows" /> : none}
       />
-      {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
       {reportedBy ? (
         <InfoNote>
           <span data-testid="copied-positions-source">
@@ -144,6 +146,16 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
               time: new Date(reportedBy.asOf).toLocaleTimeString(),
             })}
           </span>
+        </InfoNote>
+      ) : null}
+      {tooMuch ? (
+        <InfoNote tone="warn">
+          {t('That is more than is open.')}{' '}
+          {t('You asked to close {qty} of {market}; {open} is open. Nothing was sent.', {
+            qty: displayAmount(tooMuch.qty),
+            market: tooMuch.position.market,
+            open: displayAmount(tooMuch.position.open),
+          })}
         </InfoNote>
       ) : null}
       <Table
