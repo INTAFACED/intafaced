@@ -1,9 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { bootEdge, stopEdge } from './edge-boot.testkit.js';
 
 /**
  * Class N — edge `/api/support` KB doors forward svc-support public wire (#2078).
@@ -14,9 +13,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * boots the real entrypoint against a SUPPORT_URL stub that already omits
  * unpublished (the store stays in svc-support — the edge must not grow a catalog).
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = join(HERE, 'index.ts');
 
 interface PublicKbArticle {
   id: string;
@@ -61,11 +57,7 @@ function procedureName(pathname: string): string {
   return rest.split('?')[0] ?? '';
 }
 
-/** Requests that reached this file's own stub: proof the edge answering on the port is the one this file started. */
-let stubHits = 0;
-
 function handleSupportKb(req: IncomingMessage, res: ServerResponse, body: string): void {
-  stubHits += 1;
   const url = new URL(req.url ?? '/', 'http://support.stub');
   const proc = procedureName(url.pathname);
   const input = readJsonInput(req, url, body);
@@ -105,36 +97,6 @@ async function listenStub(): Promise<{ origin: string; server: Server }> {
   return { origin: `http://127.0.0.1:${port}`, server };
 }
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForBoot(url: string, log: () => string, child: ChildProcess | null): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  let last = '';
-  while (Date.now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`svc-edge exited with ${child.exitCode} before listening:\n${log()}`);
-    }
-    try {
-      const res = await fetch(`${url}/health`);
-      if (res.ok) return;
-      last = `status ${res.status}`;
-    } catch (err) {
-      last = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
-}
-
 function trpcData<T>(body: unknown): T {
   const o = body as { result?: { data?: T } };
   if (!o.result || !('data' in o.result)) {
@@ -157,66 +119,27 @@ beforeAll(async () => {
   const stubbed = await listenStub();
   stub = stubbed.server;
 
-  // A free port is probed, closed, then handed to the edge: in between, another test process in the same job can take it,
-  // and its server then answers /health for ours (main run 41316532581 got "<p>Payment request</p>" from such a server,
-  // #7100). So the edge is proved to be this file's own, a support call reaching this file's stub, and started again on
-  // a new port when it is not.
-  for (let attempt = 1; ; attempt += 1) {
-    const port = await freePort();
-    edgeBase = `http://127.0.0.1:${port}`;
-
-    let output = '';
-    const log = () => output;
-
-    child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-      cwd: join(HERE, '..'),
-      env: {
-        ...process.env,
-        APP_ENV: 'test',
-        NODE_ENV: 'test',
-        SERVICE_NAME: 'svc-edge',
-        HTTP_HOST: '127.0.0.1',
-        HTTP_PORT: String(port),
-        LOG_LEVEL: 'fatal',
-        OTEL_ENABLED: 'false',
-        JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-        EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-        EDGE_RATE_LIMIT_MAX: '300',
-        EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-        EDGE_BODY_LIMIT_BYTES: '1048576',
-        INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-        EDGE_KILL_STATE_PATH: '',
-        SUPPORT_URL: stubbed.origin,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    child.stdout?.on('data', (d: Buffer) => {
-      output += d.toString();
-    });
-    child.stderr?.on('data', (d: Buffer) => {
-      output += d.toString();
-    });
-
-    // Our edge exiting (its port was taken) or another server answering are both a lost port: start again.
-    const booted = await waitForBoot(edgeBase, log, child).then(
-      () => null,
-      (err: unknown) => err,
-    );
-    const before = stubHits;
-    const probe = booted ? null : await fetch(`${edgeBase}/api/support/trpc/listKb`).catch(() => null);
-    if (probe?.ok && stubHits > before) break;
-    child?.kill();
-    child = null;
-    if (attempt === 3)
-      throw new Error(
-        `the edge on ${edgeBase} is not this file's own after 3 starts (${String(booted ?? 'another server answered')}):\n${log()}`,
-      );
-  }
-}, 200_000);
+  const edge = await bootEdge({
+    ...process.env,
+    APP_ENV: 'test',
+    NODE_ENV: 'test',
+    SERVICE_NAME: 'svc-edge',
+    OTEL_ENABLED: 'false',
+    JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+    EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+    EDGE_RATE_LIMIT_MAX: '300',
+    EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+    EDGE_BODY_LIMIT_BYTES: '1048576',
+    INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+    EDGE_KILL_STATE_PATH: '',
+    SUPPORT_URL: stubbed.origin,
+  });
+  child = edge.child;
+  edgeBase = edge.base;
+}, 90_000);
 
 afterAll(async () => {
-  child?.kill();
+  await stopEdge(child);
   child = null;
   await new Promise<void>((resolve) => {
     if (!stub) return resolve();

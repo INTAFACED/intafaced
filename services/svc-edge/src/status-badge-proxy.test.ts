@@ -1,9 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { bootEdge, stopEdge } from './edge-boot.testkit.js';
 import { STATUS_BADGE_PATH, statusBadgeHeaders } from './status-badge-proxy.js';
 
 /**
@@ -12,9 +11,6 @@ import { STATUS_BADGE_PATH, statusBadgeHeaders } from './status-badge-proxy.js';
  * second half boots the real entrypoint against a NOTIFY_URL stub, so a later hook
  * that rewrites the header would fail here.
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = join(HERE, 'index.ts');
 
 const CSP = "default-src 'none'; style-src 'unsafe-inline'";
 const headersOf = (h: Record<string, string>) => ({ get: (name: string) => h[name] ?? null });
@@ -61,17 +57,6 @@ let child: ChildProcess | null = null;
 let stub: Server | null = null;
 let edgeBase = '';
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
 beforeAll(async () => {
   // svc-notify's badge and one tRPC read, as far as the edge can tell; both set cache-control.
   stub = createServer((req, res) => {
@@ -89,49 +74,27 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => stub!.listen(0, '127.0.0.1', () => resolve()));
   const notifyOrigin = `http://127.0.0.1:${(stub.address() as AddressInfo).port}`;
 
-  const port = await freePort();
-  edgeBase = `http://127.0.0.1:${port}`;
-  let output = '';
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
-      ...process.env,
-      APP_ENV: 'test',
-      NODE_ENV: 'test',
-      SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
-      OTEL_ENABLED: 'false',
-      JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-      EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-      EDGE_RATE_LIMIT_MAX: '300',
-      EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-      EDGE_BODY_LIMIT_BYTES: '1048576',
-      INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-      EDGE_KILL_STATE_PATH: '',
-      NOTIFY_URL: notifyOrigin,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const edge = await bootEdge({
+    ...process.env,
+    APP_ENV: 'test',
+    NODE_ENV: 'test',
+    SERVICE_NAME: 'svc-edge',
+    OTEL_ENABLED: 'false',
+    JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+    EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+    EDGE_RATE_LIMIT_MAX: '300',
+    EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+    EDGE_BODY_LIMIT_BYTES: '1048576',
+    INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+    EDGE_KILL_STATE_PATH: '',
+    NOTIFY_URL: notifyOrigin,
   });
-  child.stdout?.on('data', (d: Buffer) => void (output += d.toString()));
-  child.stderr?.on('data', (d: Buffer) => void (output += d.toString()));
-
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`svc-edge exited with ${child.exitCode}:\n${output}`);
-    try {
-      if ((await fetch(`${edgeBase}/health`)).ok) return;
-    } catch {
-      // not listening yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`svc-edge never became reachable:\n${output}`);
+  child = edge.child;
+  edgeBase = edge.base;
 }, 90_000);
 
 afterAll(async () => {
-  child?.kill();
+  await stopEdge(child);
   child = null;
   await new Promise<void>((resolve) => (stub ? stub.close(() => resolve()) : resolve()));
   stub = null;

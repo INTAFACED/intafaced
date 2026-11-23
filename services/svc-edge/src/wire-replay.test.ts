@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { bootEdge } from './edge-boot.testkit.js';
 import { issueAccessToken, SCOPES } from '@intafaced/auth';
 import { currentAuthorityTestReply } from './test-current-authority.js';
 import { UPSTREAMS } from './routes.js';
@@ -26,9 +26,6 @@ import { UPSTREAMS } from './routes.js';
  *
  * `WIRE_REPLAY_WRITE=1` rewrites the recording. Only for a change that is meant to change the wire, named in its PR.
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = join(HERE, 'index.ts');
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
@@ -48,17 +45,6 @@ diagnostics.channel('fastify.initialization').subscribe(({ fastify }) => {
   });
 });
 `)}`;
-
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 /** Identity vouches for the signed-in caller; every other path answers with what reached it. */
 function standIn(): Server {
@@ -98,34 +84,15 @@ function standIn(): Server {
   });
 }
 
-/** Resolves on the edge's own "listening" log line; rejects if the process exits first. */
-function waitForListening(proc: ChildProcess): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let output = '';
-    const onData = (d: Buffer) => {
-      output += d.toString();
-      if (/listening/i.test(output)) resolve();
-    };
-    proc.stdout?.on('data', onData);
-    proc.stderr?.on('data', onData);
-    proc.once('exit', (code) => reject(new Error(`svc-edge exited with ${code} before listening:\n${output}`)));
-  });
-}
-
 async function boot(routesFile: string, upstreamBase: string) {
-  const port = await freePort();
   const urls = Object.fromEntries(UPSTREAMS.map((u) => [u.envVar, upstreamBase]));
-  const child = spawn(process.execPath, ['--import', 'tsx', '--import', ROUTE_TAP, ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
+  return bootEdge(
+    {
       PATH: process.env.PATH,
       VITEST: 'true',
       APP_ENV: 'test',
       NODE_ENV: 'test',
       SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'info',
       OTEL_ENABLED: 'false',
       JWT_ACCESS_SECRET: JWT_SECRET,
       EDGE_PRINCIPAL_SECRET: 'an-edge-wire-replay-principal-secret-long-enough',
@@ -141,10 +108,8 @@ async function boot(routesFile: string, upstreamBase: string) {
       WIRE_REPLAY_ROUTES: routesFile,
       ...urls,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  await waitForListening(child);
-  return { child, base: `http://127.0.0.1:${port}` };
+    { imports: [ROUTE_TAP] },
+  );
 }
 
 type Caller = { readonly name: string; readonly headers: () => Promise<Record<string, string>> };

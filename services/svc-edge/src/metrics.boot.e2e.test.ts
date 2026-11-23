@@ -1,10 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { ChildProcess } from 'node:child_process';
 import { PROMETHEUS_CONTENT_TYPE, REQUESTS_TOTAL, REQUEST_DURATION_SECONDS, parseExposition } from '@intafaced/telemetry';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { bootEdge, stopEdge } from './edge-boot.testkit.js';
 
 /**
  * THE SHIPPED ENTRYPOINT, BOOTED, AND SCRAPED OVER A REAL SOCKET.
@@ -45,93 +42,35 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * there is nothing else to provide.
  */
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = join(HERE, 'index.ts');
-
-/** Ask the OS for a port nobody is using, then hand it to the child. */
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
 let child: ChildProcess | null = null;
 let base = '';
 
-/** Poll until the process is listening, or give up loudly. */
-async function waitForBoot(url: string, log: () => string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  let last = '';
-  while (Date.now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`svc-edge exited with ${child.exitCode} before listening:\n${log()}`);
-    }
-    try {
-      const res = await fetch(`${url}/health`);
-      if (res.ok) return;
-      last = `status ${res.status}`;
-    } catch (err) {
-      last = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
-}
-
 beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-
-  let output = '';
-  const log = () => output;
-
-  // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
-  // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
-  // that survives killing its parent on Windows.
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
-      ...process.env,
-      APP_ENV: 'test',
-      NODE_ENV: 'test',
-      SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
-      // No collector in a unit-test run; a provider that cannot export would
-      // only add retry noise to this process's stderr.
-      OTEL_ENABLED: 'false',
-      JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-      EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-      EDGE_RATE_LIMIT_MAX: '300',
-      EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-      EDGE_BODY_LIMIT_BYTES: '1048576',
-      // Listed fixture so the geo-block guard can pass through to the proxy
-      // (unset would 503 as unknown). Placeholder codes only — not counsel content.
-      INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-      // Kept out of the repo tree so a test run cannot leave a state file behind.
-      EDGE_KILL_STATE_PATH: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const edge = await bootEdge({
+    ...process.env,
+    APP_ENV: 'test',
+    NODE_ENV: 'test',
+    SERVICE_NAME: 'svc-edge',
+    // No collector in a unit-test run; a provider that cannot export would
+    // only add retry noise to this process's stderr.
+    OTEL_ENABLED: 'false',
+    JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+    EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+    EDGE_RATE_LIMIT_MAX: '300',
+    EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+    EDGE_BODY_LIMIT_BYTES: '1048576',
+    // Listed fixture so the geo-block guard can pass through to the proxy
+    // (unset would 503 as unknown). Placeholder codes only — not counsel content.
+    INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+    // Kept out of the repo tree so a test run cannot leave a state file behind.
+    EDGE_KILL_STATE_PATH: '',
   });
-
-  child.stdout?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-
-  await waitForBoot(base, log);
+  child = edge.child;
+  base = edge.base;
 }, 90_000);
 
 afterAll(async () => {
-  child?.kill();
+  await stopEdge(child);
   child = null;
 });
 
