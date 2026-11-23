@@ -2429,6 +2429,32 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
 });
 
+test('a deleted hand schema takes the imports only it read: a name still read, or a type, stays', async () => {
+  // contracts-payments.ts on main (weed project-state#3755): deleting transfers.listSchedules left
+  // BANK_TRANSFERS_LIST_SCHEDULES imported and unread (eslint/no-unused-vars).
+  const { unusedImportsDropped } = await import('./dead-hand-schemas.mjs');
+  const src = [
+    "import { z } from 'zod';",
+    "import { BANK_A, BANK_B } from '@intafaced/contracts/bank-a-procedures';",
+    "import { BANK_C } from '@intafaced/contracts/bank-c-procedures';",
+    "import type { Row } from './rows';",
+    "export const reads = { 'a.b': BANK_B.output, 'a.c': z.string() } as const;",
+    'export type R = Row;',
+    '',
+  ].join('\n');
+  assert.equal(
+    unusedImportsDropped(src),
+    [
+      "import { z } from 'zod';",
+      "import { BANK_B } from '@intafaced/contracts/bank-a-procedures';",
+      "import type { Row } from './rows';",
+      "export const reads = { 'a.b': BANK_B.output, 'a.c': z.string() } as const;",
+      'export type R = Row;',
+      '',
+    ].join('\n'),
+  );
+});
+
 test("a map read of a hand schema whose call has a record reads the record's schema, so the copy goes; one with no record stays", async () => {
   // svc-bank on main (weed project-state#3755): loans.projection, loans.payoffQuote, ramps.destinations.rename and
   // sharedPots.invite had records and no caller by name, yet a test's `bankReads['x'].parse` or a write check's
@@ -2478,8 +2504,8 @@ test("a map read of a hand schema whose call has a record reads the record's sch
       'expect(other).toBe(1);',
     ],
   });
-  readRecords(repo);
-  const read = (f) => readFileSync(join(repo, money, f), 'utf8');
+  const written = new Map(readRecords(repo).map((c) => [c.file.split('/').pop(), c.src]));
+  const read = (f) => written.get(f);
   assert.match(read('loans.test.ts'), /BANK_LOANS_QUOTE\.output\.parse/);
   assert.match(read('loans.test.ts'), /bankReads\['loans\.own'\]/, 'a call with no record keeps its hand read');
   assert.match(read('loans.test.ts'), /import \{ BANK_LOANS_QUOTE \} from '@intafaced\/contracts\/bank-loans-procedures';/);

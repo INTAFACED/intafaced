@@ -139,7 +139,7 @@ export function bankRecords(repo = REPO) {
   return out;
 }
 
-/** Sends each map read of a hand schema whose call has a record to the record's own schema; returns the files changed. */
+/** Sends each map read of a hand schema whose call has a record to the record's own schema; returns each file changed, `{ file, src }` as written. */
 export function readRecords(repo = REPO) {
   const records = bankRecords(repo);
   const hand = new Set(
@@ -208,9 +208,31 @@ export function readRecords(repo = REPO) {
     }
     writeFileSync(file, src);
     forget(file);
-    changed.push(file);
+    changed.push({ file, src });
   }
   return changed;
+}
+
+/** `src` without each named import its deleted entries were the last to read (a type import too). */
+export function unusedImportsDropped(src) {
+  return src.replace(/^import (type )?\{([^}]*)\} from ('[^']+');\n/gmu, (line, type, list, spec) => {
+    const names = list
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const body = src.replace(line, '');
+    const kept = names.filter((n) =>
+      new RegExp(
+        `\\b${n
+          .replace(/^type /u, '')
+          .split(/ as /u)
+          .pop()}\\b`,
+        'u',
+      ).test(body),
+    );
+    if (kept.length === names.length) return line;
+    return kept.length ? `import ${type ?? ''}{ ${kept.join(', ')} } from ${spec};\n` : '';
+  });
 }
 
 /** Deletes each dead entry with its own comments and its comma; returns what it deleted. */
@@ -231,14 +253,14 @@ export function deleteDead(repo = REPO) {
       if (comma) end += comma[0].length;
       next = next.slice(0, start) + next.slice(end);
     }
-    writeFileSync(file, next);
+    writeFileSync(file, unusedImportsDropped(next));
   }
   return dead;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const write = process.argv.includes('--write');
-  const moved = write ? readRecords() : [];
+  const moved = write ? readRecords().map((c) => c.file) : [];
   for (const f of moved) console.log(`${relative(REPO, f)}: reads its record's schema`);
   const dead = write ? deleteDead() : deadHandSchemas();
   const touched = [...new Set([...moved, ...dead.map((h) => h.file)])];
