@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
