@@ -21,11 +21,24 @@ const INFRA = import.meta.dirname;
 const ROOT = join(INFRA, '..', '..');
 export const OUT = join(INFRA, 'probe-targets.json');
 
-/** The resolved compose file: every profile, nothing interpolated (no secret or .env is read). */
+/**
+ * The resolved compose file, every profile, read the same on every machine: no `.env` and none of the caller's
+ * variables. A variable with a default keeps it; one with none (`${X:?why}`) gets a placeholder (a path, since some are bind mounts), so compose resolves
+ * without a secret. Not `--no-interpolate`: some compose versions then refuse a `${A:-/x}:${A:-/x}` volume. No port or
+ * healthcheck is a variable, so no placeholder reaches the probe list (probeOf refuses a port that isn't a number).
+ */
 export function composeConfig(file = join(ROOT, 'docker-compose.apps.yml')) {
-  const json = execFileSync('docker', ['compose', '-f', file, '--profile', '*', 'config', '--no-interpolate', '--format', 'json'], {
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+  for (const k of ['DOCKER_HOST', 'DOCKER_CONFIG', 'DOCKER_CONTEXT']) if (process.env[k]) env[k] = process.env[k];
+  for (const f of [file, join(ROOT, 'docker-compose.yml')]) {
+    for (const [, name, op] of readFileSync(f, 'utf8').matchAll(/\$\{(\w+)(:?[-?+])?/g)) {
+      if (op !== '-' && op !== ':-') env[name] = '/probe-targets-placeholder';
+    }
+  }
+  const json = execFileSync('docker', ['compose', '-f', file, '--env-file', '/dev/null', '--profile', '*', 'config', '--format', 'json'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    env,
   });
   return JSON.parse(json);
 }
