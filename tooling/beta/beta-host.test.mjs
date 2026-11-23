@@ -15,6 +15,8 @@ import {
   ensureAnvil,
   environEntries,
   fundsCheck,
+  HOSTED_TEST_NETWORK_HOSTS,
+  hostedAllowList,
   mailboxPage,
   mailboxRows,
   outsideAddresses,
@@ -120,6 +122,56 @@ test('fundsCheck fails closed: no process, no readable process, no page, or a pa
   const noBanner = fundsCheck({ records: { a: { pid: 1 } }, readEnviron: ok, page: '<body>app</body>' });
   assert.equal(noBanner.ok, false);
   assert.match(noBanner.lines[0], /lacks the TEST banner/);
+});
+
+test('hosted allow list (#10208): the test networks and the beta host pass; a planted mainnet or bank host fails', () => {
+  const allow = hostedAllowList('Beta.Example-Host.com');
+  assert.deepEqual([...allow].sort(), [...HOSTED_TEST_NETWORK_HOSTS, 'beta.example-host.com'].sort());
+  const records = { trade: { pid: 31 } };
+  const hosted = {
+    TRADE_USER_VENUE_URL: 'https://api.hyperliquid-testnet.xyz',
+    PAY_CRYPTO_RPC_URL: 'https://sepolia.base.org',
+    PUBLIC_URL: 'https://beta.example-host.com/app',
+    EDGE_URL: 'http://127.0.0.1:17500',
+  };
+  const pass = fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE, allow });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.match(
+    pass.lines.join('\n'),
+    /1 of 1 running processes: every address in their environments is this machine, a reserved name or the hosted allow list/,
+  );
+
+  // Without the allow list, the same hosted environment is three findings: the loopback check is unchanged.
+  assert.equal(fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE }).ok, false);
+
+  for (const [key, url, host] of [
+    ['TRADE_USER_VENUE_URL', 'https://api.hyperliquid.xyz', 'api.hyperliquid.xyz'],
+    ['PAY_CRYPTO_RPC_URL', 'https://mainnet.base.org', 'mainnet.base.org'],
+    ['BANK_RAIL_URL', 'https://api.bank-live.com/v1', 'api.bank-live.com'],
+    ['PAY_CRYPTO_RPC_URL', 'https://sepolia.base.org.attacker.net', 'sepolia.base.org.attacker.net'],
+    ['TRADE_USER_VENUE_URL', 'wss://ws.api.hyperliquid-testnet.xyz', 'ws.api.hyperliquid-testnet.xyz'],
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...hosted, [key]: url }), page: PAGE, allow });
+    assert.equal(r.ok, false, `${url} must fail`);
+    assert.ok(
+      r.lines.includes(`FAIL trade (pid 31): ${key} names ${url.split(':')[0]}://${host}, off this machine and the hosted allow list`),
+      r.lines.join('\n'),
+    );
+  }
+});
+
+test('hosted allow list (#10208): the beta host is one plain DNS name, else it throws and nothing runs open', () => {
+  for (const bad of [
+    undefined,
+    '',
+    'localhost',
+    '*.example.com',
+    'https://beta.example.com',
+    'beta.example.com:443',
+    'beta.example.com/x',
+    'a b.com',
+  ])
+    assert.throws(() => hostedAllowList(bad), /one plain DNS name/, String(bad));
 });
 
 test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {
