@@ -369,6 +369,17 @@ const SECRET_NAMES = [
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
+/** Every secret this stack mints for itself; tooling/beta/beta-secrets.mjs mints the hosted beta's from the same list. */
+export const LOCAL_TEST_SECRET_SLOTS = [...SECRET_NAMES, 'adminSession'];
+
+/**
+ * One fresh secret for a slot: 32 random bytes as hex (64 chars, satisfies every >=32 rule), but the founder console's
+ * session key, which must be exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
+ */
+export function mintLocalTestSecret(slot) {
+  return crypto.randomBytes(32).toString(slot === 'adminSession' ? 'base64url' : 'hex');
+}
+
 /** This stack's generated secrets (STATE/secrets.json, mode 600), created on first use; never in the repo. */
 export function loadOrCreateSecrets() {
   // As root, the folders the stack creates above STATE stay traversable for the database's OS user (preparePgPaths).
@@ -381,13 +392,12 @@ export function loadOrCreateSecrets() {
   let changed = false;
   for (const n of SECRET_NAMES) {
     if (!s[n]) {
-      s[n] = crypto.randomBytes(32).toString('hex'); // 64 chars, satisfies every >=32 rule
+      s[n] = mintLocalTestSecret(n);
       changed = true;
     }
   }
-  // The founder console wants exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
   if (!/^[A-Za-z0-9_-]{43}$/.test(s.adminSession ?? '')) {
-    s.adminSession = crypto.randomBytes(32).toString('base64url');
+    s.adminSession = mintLocalTestSecret('adminSession');
     changed = true;
   }
   // One TEST service key per S2S service, used only when LOCAL_STACK_S2S=dual (s2sEnv). Valid nowhere else.
@@ -4862,6 +4872,11 @@ async function cmdCardDispute(rawArgs) {
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
+}
+
+/** Env the founder console would get. Starts nothing. */
+export function localTestAdminEnv(secrets = PLAN_SECRETS) {
+  return adminEnv(secrets);
 }
 
 function runningAsCli() {

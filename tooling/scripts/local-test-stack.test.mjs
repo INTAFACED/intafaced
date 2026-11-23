@@ -1177,7 +1177,14 @@ console.log('local-test-stack: customer folder override checks passed');
     /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
-  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  {
+    const { mintLocalTestSecret } = await import('./local-test-stack.mjs');
+    const key = mintLocalTestSecret('adminSession');
+    assert.match(key, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(Buffer.from(key, 'base64url').length, 32);
+    assert.equal(Buffer.from(key, 'base64url').toString('base64url'), key);
+    assert.match(source, /s\.adminSession = mintLocalTestSecret\('adminSession'\);/);
+  }
   assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart\(\s*names,\s*\{[^}]*start = cmdStart,[^}]*\}[\s\S]*?await start\(/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
