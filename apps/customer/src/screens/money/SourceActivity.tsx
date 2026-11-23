@@ -507,7 +507,7 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
   return (
     <tr data-testid="money-act__parts-row" className="money-act__parts-row">
       <td colSpan={4}>
-        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="money-act__parts">
+        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="lt-stack">
           <h3 className="money-detail__h">{t('Parts of this order')}</h3>
           <p className="lt-hint" data-label="fill-reference">
             {t('Fill reference')} <code className="money-code">{line.ref}</code>

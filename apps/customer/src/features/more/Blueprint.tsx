@@ -1,4 +1,5 @@
-import { t as copyText, Text } from './copy';
+import { birthDateOptions } from './birth-date';
+import { copy, t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { BLUEPRINT_ERASE, BLUEPRINT_EXPORT, BLUEPRINT_SET_VISIBILITY } from '@intafaced/contracts/blueprint-procedures';
 import { useApi, useSession } from '../session';
@@ -25,7 +26,9 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('blueprint'),
-    { t: label } = blueprintSessionCopy.useCopy();
+    { t: label } = blueprintSessionCopy.useCopy(),
+    { renderedLocale } = copy.useCopy();
+  const birth = birthDateOptions(renderedLocale, copyText('blueprint.birth.not.given'), new Date().getUTCFullYear());
   const [size, setSize] = useState<CardSize>('portrait'),
     [erase, setErase] = useState(''),
     [exporting, setExporting] = useState(false),
@@ -243,7 +246,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
               <summary>
                 <Text k="blueprint.optional.birth.data" />
               </summary>
-              <Field label={copyText('blueprint.birth.date.optional')} type="date" value="" onChange={() => undefined} />
+              <fieldset>
+                <legend>{copyText('blueprint.birth.date.optional')}</legend>
+                <Select label={copyText('blueprint.birth.day')} value="" onChange={() => undefined} options={birth.days} />
+                <Select label={copyText('blueprint.birth.month')} value="" onChange={() => undefined} options={birth.months} />
+                <Select label={copyText('blueprint.birth.year')} value="" onChange={() => undefined} options={birth.years} />
+              </fieldset>
               <Field label={copyText('blueprint.birth.time.optional')} type="time" value="" onChange={() => undefined} />
               <Field label={copyText('blueprint.birth.place.optional')} value="" onChange={() => undefined} maxLength={200} />
             </details>

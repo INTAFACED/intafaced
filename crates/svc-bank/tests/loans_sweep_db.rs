@@ -230,7 +230,7 @@ fn raises_a_margin_call_records_it_and_delivers_it() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0][1].as_deref(), Some("true"));
     // The cure figure is what actually clears the call, rounded up.
-    assert!(amt(rows[0][2].as_deref().unwrap()) > 0);
+    assert!(amt(rows[0][2].as_deref().unwrap()) > Amount::ZERO);
     assert_eq!(k.status(&o.loan.id), "margin_call");
 }
 
@@ -274,7 +274,7 @@ fn liquidates_a_partial_tranche_once_the_call_has_been_served_and_grace_has_expi
     assert_eq!(rows[0][2].as_deref(), Some("false"));
     // Partial. Not the whole position.
     let sold = amt(rows[0][1].as_deref().unwrap());
-    assert!(sold > 0);
+    assert!(sold > Amount::ZERO);
     assert!(sold < amt("1"));
     assert_ne!(fmt(collateral(&k, &o.loan.id)), "0");
 }
@@ -402,7 +402,7 @@ fn does_not_false_cure_to_active_after_full_coll_sale_leaves_unpaid_interest() {
     let id = k.open(&p.id, "1", "5000").unwrap().loan.id;
     // ~5 USDT of interest after one day at 36.5% APR on 5000.
     k.d(|d| service::accrue(d, &id, plus(k.now, DAY))).unwrap();
-    assert!(k.debt(&id).interest > 0);
+    assert!(k.debt(&id).interest > Amount::ZERO);
 
     // Gap crash: 1 USDT/BTC, proceeds 1 < interest; insolvency waives grace.
     k.prices.btc("1");
@@ -411,8 +411,8 @@ fn does_not_false_cure_to_active_after_full_coll_sale_leaves_unpaid_interest() {
 
     assert_eq!(fmt(collateral(&k, &id)), "0");
     let residual = k.debt(&id);
-    assert!(residual.interest > 0);
-    assert!(residual.total > 0);
+    assert!(residual.interest > Amount::ZERO);
+    assert!(residual.total > Amount::ZERO);
     // The closing rung left residual debt: it must not already look healthy.
     assert_ne!(k.status(&id), "active");
 
@@ -422,7 +422,7 @@ fn does_not_false_cure_to_active_after_full_coll_sale_leaves_unpaid_interest() {
     let after = k.status(&id);
     assert_ne!(after, "active");
     assert_eq!(after, "margin_call");
-    assert!(k.debt(&id).interest > 0);
+    assert!(k.debt(&id).interest > Amount::ZERO);
 }
 
 /// One bad mark must not stop the sweep for everybody else.

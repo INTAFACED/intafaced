@@ -2779,7 +2779,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const state = this.account(account);
     const perps = [...this.marketsBySymbol.values()].filter((m) => m.kind === 'perpetual' && !m.marginAccount);
     const asset = perps[0]?.quoteAsset ?? 'USDC';
-    const b = this.balance(state, asset);
+    // A read writes nothing: an account with no balance in the asset keeps no row for it.
+    const b = state.balances.get(asset) ?? { free: ZERO, locked: ZERO };
     let unrealised = ZERO;
     let used = ZERO;
     let maintenance = ZERO;

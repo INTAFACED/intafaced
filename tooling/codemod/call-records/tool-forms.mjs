@@ -7,6 +7,10 @@
 //   query('x.y', input, schema, signal?)            -> queryRecord(RECORD, input, signal?)
 //   mutate('x.y', input, schema, opts?)             -> mutateRecord(RECORD, input, opts?)
 //   list('x.y', itemSchema, input, signal?)         -> listRecord(RECORD, input, signal?)
+// A portal caller whose schema checks the answer beyond its shape (`.refine((row) => row.merchantId === merchantId)`), and
+// does not change it, keeps that schema in the checked form, which reads the record's answer through it:
+//   query('x.y', input, schema, signal?)            -> queryRecordAs(RECORD, input, schema, signal?)
+//   list('x.y', itemSchema, input, signal?)         -> listRecordAs(RECORD, input, itemSchema, signal?)
 //   identityQuery / identityMutate (svc-identity)   -> identityQueryRecord / identityMutateRecord
 // The parameter takes the record form apart too, and drops a by-name tool once no call of it is left in that function
 // (`toolFormsIn`). A tool reached any other way (`tools.query(...)`, a rest element, a tool renamed) is not this shape.
@@ -24,9 +28,15 @@ const PAY = {
   // The item schema is one row of the page the call answers: it checks the answer, but the record's answer is the page.
   list: { form: 'listRecord', module: 'pay', kind: 'query', path: 0, input: 2, item: 1, args: [3, 4] },
 };
+/** The portal's own tools add a checked form for `query` and `list` (api-tools.ts); the settings tools have none. */
+const PORTAL = {
+  ...PAY,
+  query: { ...PAY.query, checkedForm: 'queryRecordAs' },
+  list: { ...PAY.list, checkedForm: 'listRecordAs' },
+};
 /** Each tools type, the file that declares it, and the tools it hands out by name. */
 const TOOLS = {
-  PortalTools: { home: /\/apps\/customer\/src\/features\/pay\/portal\/api-tools\.ts$/, tools: PAY },
+  PortalTools: { home: /\/apps\/customer\/src\/features\/pay\/portal\/api-tools\.ts$/, tools: PORTAL },
   SettingsBTools: {
     home: /\/apps\/customer\/src\/features\/pay\/portal\/settings\/b-client\.ts$/,
     tools: {
@@ -139,26 +149,37 @@ export function toolSite(p, n) {
 export const toolInput = (s) => s.node.arguments[s.tool.input];
 /** The schema the caller parsed the answer with (undefined for `list`, whose item schema is one row, not the answer). */
 export const toolSchema = (s) => (s.tool.schema === undefined ? undefined : s.node.arguments[s.tool.schema]);
+/** A `list` caller's row schema, its answer a page of it (undefined for every other tool). */
+export const toolItem = (s) => (s.tool.item === undefined ? undefined : s.node.arguments[s.tool.item]);
 /** The schema whose checks a record would drop: the answer's, or a list's item. */
 export const toolChecked = (s) => s.node.arguments[s.tool.schema ?? s.tool.item];
 
-/** One caller, rewritten to its record form; the parameter is rewritten once every caller is (`toolFormsIn`). */
+/** Whether a tool site whose schema checks the answer can keep that check in its tool's checked form. */
+export const checkedTool = (s) => Boolean(toolShape(s) && s.tool.checkedForm);
+
+/**
+ * One caller, rewritten to its record form (its checked form when `s.checked` holds the schema it keeps); the parameter
+ * is rewritten once every caller is (`toolFormsIn`).
+ */
 export function toolCall(changes, s, name, input) {
   const a = s.node.arguments;
   const { path, schema, item } = s.tool;
   const head = a.slice(0, path);
   const tail = a.filter((_, i) => i > path && i !== s.tool.input && i !== schema && i !== item);
+  const form = s.checked ? s.tool.checkedForm : s.tool.form;
+  const args = s.checked ? [...head, name, input, s.checked, ...tail] : [...head, name, input, ...tail];
   if (!s.tool.pattern) {
-    if (s.tool.from) changes.imp(s.file, s.tool.from, s.tool.form);
-    return { fn: s.tool.form, args: [...head, name, input, ...tail] };
+    if (s.tool.from) changes.imp(s.file, s.tool.from, form);
+    return { fn: form, args };
   }
   const f = changes.of(s.file);
   f.toolPatterns ??= new Map();
   const key = s.tool.pattern.start;
   if (!f.toolPatterns.has(key)) f.toolPatterns.set(key, { s, moved: new Map() });
-  const moved = f.toolPatterns.get(key).moved;
-  moved.set(s.tool.name, (moved.get(s.tool.name) ?? 0) + 1);
-  return { fn: s.tool.form, args: [...head, name, input, ...tail] };
+  const entry = f.toolPatterns.get(key);
+  entry.moved.set(s.tool.name, (entry.moved.get(s.tool.name) ?? 0) + 1);
+  (entry.forms ??= new Set()).add(form);
+  return { fn: form, args };
 }
 
 /** How many bare calls of `name` the function `fn` makes. */
@@ -176,13 +197,12 @@ function callsOf(fn, name) {
  */
 export function toolFormsIn(changes) {
   for (const [file, f] of changes.files) {
-    for (const { s, moved } of f.toolPatterns?.values() ?? []) {
+    for (const { s, moved, forms } of f.toolPatterns?.values() ?? []) {
       const { pattern, fn } = s.tool;
       const names = pattern.properties.map((x) => x.key.name);
-      const forms = s.tool.name in TOOLS.SettingsBTools.tools ? TOOLS.SettingsBTools.tools : TOOLS.PortalTools.tools;
       const keep = names.filter((x) => !moved.has(x) || callsOf(fn, x) > moved.get(x));
-      for (const x of moved.keys()) if (!keep.includes(forms[x].form) && !names.includes(forms[x].form)) keep.push(forms[x].form);
-      for (const x of names) if (x.endsWith('Record') && !keep.includes(x)) keep.push(x);
+      for (const x of forms) if (!keep.includes(x)) keep.push(x);
+      for (const x of names) if (/Record(As)?$/.test(x) && !keep.includes(x)) keep.push(x);
       const first = pattern.properties[0];
       const last = pattern.properties[pattern.properties.length - 1];
       changes.edit(file, first.start, last.end, keep.join(', '));

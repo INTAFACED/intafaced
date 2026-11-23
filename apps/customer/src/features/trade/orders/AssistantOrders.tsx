@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
-import { EmptyState, Failure, Loading } from '../../../shared/ui';
+import { EmptyState } from '@intafaced/ui/lit';
+import { FailureNote } from '../../../shared/failure-note';
+import { WaitingRows } from './orders-parts';
 import { useSession } from '../../session';
 import { venueApi, type VenueKeptOrder } from '../venue-api';
 import type { OrdersT } from './orders-copy';
@@ -87,16 +89,16 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
   }, [venue, userId, revision]);
 
   return (
-    <section data-testid="assistant-orders" aria-labelledby="assistant-orders-title" className="orders-assistant">
+    <section data-testid="assistant-orders" aria-labelledby="assistant-orders-title" className="lt-stack">
       <h3 id="assistant-orders-title">{t('assistantTitle')}</h3>
-      <p className="muted orders-note">{t('assistantLead')}</p>
-      {state.status === 'loading' ? <Loading label={t('assistantLoading')} /> : null}
-      {state.status === 'off' ? <p className="muted orders-note">{t('assistantOff')}</p> : null}
-      {state.status === 'failed' ? <Failure result={state.failure} /> : null}
+      <p className="lt-hint">{t('assistantLead')}</p>
+      {state.status === 'loading' ? <WaitingRows label={t('assistantLoading')} /> : null}
+      {state.status === 'off' ? <p className="lt-hint">{t('assistantOff')}</p> : null}
+      {state.status === 'failed' ? <FailureNote result={state.failure} /> : null}
       {state.status === 'ready' && state.rows.length === 0 ? <EmptyState title={t('assistantNone')} /> : null}
       {state.status === 'ready' && state.rows.length > 0 ? (
-        <div className="orders-table">
-          <table>
+        <div className="lt-table-scroll">
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colMarket')}</th>
@@ -111,14 +113,22 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
             <tbody>
               {state.rows.map((row) => (
                 <tr key={row.actionKey} data-venue-client-order-id={row.venueClientOrderId ?? ''} data-action-key={row.actionKey}>
-                  <td>{row.order?.symbol ?? t('notKnown')}</td>
-                  <td>{row.order ? (row.order.side === 'buy' ? t('sideBuy') : t('sideSell')) : t('notKnown')}</td>
-                  <td className="lt-num">{row.order ? displayAmount(row.order.amount) : t('notKnown')}</td>
-                  <td className="lt-num">{row.order ? displayAmount(row.order.filled) : t('notKnown')}</td>
-                  <td className="lt-num">{row.order?.averagePrice ? displayAmount(row.order.averagePrice) : t('notKnown')}</td>
-                  <td data-order-status={row.order?.status ?? row.state}>{statusWords(row, t)}</td>
-                  <td>
-                    <span className="pill" data-placed-by="assistant">
+                  <td data-label={t('colMarket')}>{row.order?.symbol ?? t('notKnown')}</td>
+                  <td data-label={t('colSide')}>{row.order ? (row.order.side === 'buy' ? t('sideBuy') : t('sideSell')) : t('notKnown')}</td>
+                  <td className="lt-num" data-label={t('colAmount')}>
+                    {row.order ? displayAmount(row.order.amount) : t('notKnown')}
+                  </td>
+                  <td className="lt-num" data-label={t('colFilled')}>
+                    {row.order ? displayAmount(row.order.filled) : t('notKnown')}
+                  </td>
+                  <td className="lt-num" data-label={t('colAvgPrice')}>
+                    {row.order?.averagePrice ? displayAmount(row.order.averagePrice) : t('notKnown')}
+                  </td>
+                  <td data-label={t('colStatus')} data-order-status={row.order?.status ?? row.state}>
+                    {statusWords(row, t)}
+                  </td>
+                  <td data-label={t('colPlacedBy')}>
+                    <span className="lt-chip" data-placed-by="assistant">
                       {t('byAssistant')}
                     </span>
                   </td>
@@ -129,7 +139,7 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
         </div>
       ) : null}
       {state.status === 'ready' && state.partial !== null ? (
-        <p className="muted orders-note">{t('assistantMore', { count: String(state.partial) })}</p>
+        <p className="lt-hint">{t('assistantMore', { count: String(state.partial) })}</p>
       ) : null}
     </section>
   );

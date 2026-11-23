@@ -38,7 +38,7 @@ interface ChartApiLike {
   subscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
   unsubscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
 }
-/** Pixels kept free left of the first candle: a High or Low label on it is centred there, and half of it would be cut off. */
+/** Pixels kept free left of the first candle and right of the last: a High or Low label on either is centred there, and half of it would be cut off. */
 const LEFT_ROOM_PX = 40;
 /** Must match the time scale's `rightOffset` below. */
 const RIGHT_OFFSET_BARS = 8;
@@ -115,6 +115,9 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
+      // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+      // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so the frame stays empty.
+      if (Object.values(c).some((value) => value === '')) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         handleScroll: false,
@@ -200,10 +203,12 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
       if (fittedFor.current !== resetKey) {
         const scale = chart.current?.timeScale();
         const width = host.current?.clientWidth ?? 0;
-        if (scale && width > LEFT_ROOM_PX * 2 && candles.length > 1) {
-          // All candles plus the right offset, with LEFT_ROOM_PX of empty space before the first one.
-          const span = candles.length - 1 + RIGHT_OFFSET_BARS;
-          scale.setVisibleLogicalRange({ from: -(LEFT_ROOM_PX * span) / (width - LEFT_ROOM_PX), to: span });
+        if (scale && width > LEFT_ROOM_PX * 4 && candles.length > 1) {
+          // All candles, with LEFT_ROOM_PX of empty space before the first and after the last, so a High or Low label
+          // centred on either end is never cut off (a phone fits many candles into few pixels, so bars alone aren't room).
+          const last = candles.length - 1;
+          const perBar = (width - 2 * LEFT_ROOM_PX) / last;
+          scale.setVisibleLogicalRange({ from: -LEFT_ROOM_PX / perBar, to: last + LEFT_ROOM_PX / perBar });
         } else scale?.fitContent();
         fittedFor.current = resetKey;
       }

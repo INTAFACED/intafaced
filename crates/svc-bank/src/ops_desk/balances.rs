@@ -95,7 +95,7 @@ pub fn breakdown(
     for asset in assets {
         let mine: Vec<&LedgerBalance> = rows
             .iter()
-            .filter(|r| r.asset_id == asset && r.amount != 0)
+            .filter(|r| r.asset_id == asset && r.amount != Amount::ZERO)
             .collect();
         if mine.is_empty() {
             continue;
@@ -110,10 +110,10 @@ pub fn breakdown(
             for r in &of_kind {
                 *by_purpose
                     .entry(service_kit::money::js_trim(&r.purpose).to_owned())
-                    .or_insert(0) += r.amount;
+                    .or_insert(Amount::ZERO) += r.amount;
             }
             // A kind shows only when one of its claims is not zero; its amount is every claim's.
-            if by_purpose.values().any(|a| *a != 0) {
+            if by_purpose.values().any(|a| *a != Amount::ZERO) {
                 locked.insert(kind, of_kind.iter().map(|r| r.amount).sum());
             }
         }
@@ -201,7 +201,7 @@ pub fn entries(
             .map(|s| (s.id.clone(), "subaccount", s.id.clone())),
     );
     let mut all: Vec<Entry> = Vec::new();
-    let mut balance: Amount = 0;
+    let mut balance: Amount = Amount::ZERO;
     for (account_id, owner_type, owner_id) in &owners {
         for r in ledger
             .balances(owner_type, owner_id)

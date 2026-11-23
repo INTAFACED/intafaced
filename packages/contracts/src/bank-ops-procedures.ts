@@ -482,12 +482,43 @@ export const BANK_OPS_TRANSFER_HEALTH = defineProcedure({
   ],
 });
 
+/** One customer's payments to and from other people, newest first, for the console's customer record (J-ops-console-02 #3). */
+export const BANK_OPS_CUSTOMER_TRANSFERS = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerTransfers',
+  kind: 'query',
+  path: 'ops.customerTransfers',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({
+    userId: z.string(),
+    transfers: z.array(
+      z.object({
+        id: z.string(),
+        direction: z.enum(['sent', 'received']),
+        counterpartyUserId: z.string(),
+        amount: z.string().regex(/^\d+(\.\d{1,18})?$/),
+        assetId: assetIdSchema,
+        status: z.string(),
+        ledgerTxId: z.string().nullable(),
+        createdAt: z.string(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   ...base,
   name: 'bank.ops.customerBalances',
   kind: 'query',
   path: 'ops.customerBalances',
-  access: { caller: 'scope', scope: 'admin:treasury' },
+  access: { caller: 'anyScope', scopes: ['admin:read', 'admin:treasury'] },
   refusals: {},
   input: z.object({ userId: z.string().guid() }).strict(),
   output: z.object({

@@ -172,7 +172,7 @@ const messages = {
   'OTC you receive': 'You receive',
   'OTC spread included': 'Desk spread of {bps} bps included.',
   'OTC firm until': 'Firm until',
-  'OTC quote id': 'Quote id',
+  'OTC quote id': 'Quote reference',
   'OTC confirm': 'Convert at this price',
   'OTC expired': 'This price has expired. Ask again for a new one.',
   'OTC done': 'Converted and settled: {qty} {base} for {notional} {quote} at {price}.',

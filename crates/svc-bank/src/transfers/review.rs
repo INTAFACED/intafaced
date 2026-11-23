@@ -66,7 +66,7 @@ pub fn parse_rule(raw: Option<&str>) -> Result<Option<Rule>, String> {
             ));
         }
         let line = parse_amount(&v)?;
-        if line <= 0 {
+        if line <= Amount::ZERO {
             return Err(format!(
                 "BANK_PERSONAL_SEND_REVIEW_JSON line for {asset} must be above zero"
             ));

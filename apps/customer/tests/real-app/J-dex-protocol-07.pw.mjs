@@ -480,7 +480,7 @@ test(`${J} #4 opens a token page: price, liquidity in token amounts, fees and gr
   await expect(facts).toContainText('From its deepest pool with a dollar reference token.');
   const usdTime = Number((await chain.getBlock({ blockNumber: usdBlock })).timestamp);
   const usdAsOf = facts.getByTestId('token-usd-as-of');
-  expect(Date.parse(await usdAsOf.getAttribute('datetime'))).toBe(usdTime * 1000);
+  await expect.poll(async () => Date.parse(await usdAsOf.getAttribute('datetime'))).toBe(usdTime * 1000);
   await expect(usdAsOf).toHaveText(new RegExp(`^as of \\d{2}:\\d{2}, block ${usdBlock}$`));
   expect(Math.abs(Date.now() - usdTime * 1000)).toBeLessThan(10 * 60_000);
   await expect(facts.locator('[data-blocker="price_feed"]')).toHaveCount(0);

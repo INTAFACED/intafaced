@@ -435,7 +435,7 @@ pub fn quote(d: &Deps<'_>, product_id: &str, principal: Amount) -> Result<Quote,
     if p.status != "open" {
         return Err(product_closed(&p));
     }
-    if principal <= 0 || principal < p.min_principal {
+    if principal <= Amount::ZERO || principal < p.min_principal {
         return Err(below_minimum(&p));
     }
     let marks = marks_for(
@@ -521,7 +521,7 @@ pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Opened, Refusal> {
     if ask.principal < p.min_principal {
         return Err(below_minimum(&p));
     }
-    if ask.principal <= 0 || ask.collateral_amount <= 0 {
+    if ask.principal <= Amount::ZERO || ask.collateral_amount <= Amount::ZERO {
         return Err(refuse(
             "bank.ltv_exceeded",
             "A loan needs positive collateral and positive principal",
@@ -1017,7 +1017,7 @@ pub fn abandon_pending(d: &Deps<'_>, loan_id: &str) -> Result<Abandoned, Refusal
         {
             adopt_booked_draw(d, &l, &booked.id, d.now)?;
             return Ok(Abandoned {
-                released: 0,
+                released: Amount::ZERO,
                 ledger_tx_id: None,
                 adopted: true,
                 draw_ledger_tx_id: Some(booked.id),
@@ -1055,10 +1055,10 @@ pub fn abandon_pending(d: &Deps<'_>, loan_id: &str) -> Result<Abandoned, Refusal
                 .map_err(|e| pg(&e))
             })
         };
-        if held <= 0 {
+        if held <= Amount::ZERO {
             close()?;
             return Ok(Abandoned {
-                released: 0,
+                released: Amount::ZERO,
                 ledger_tx_id: None,
                 adopted: false,
                 draw_ledger_tx_id: None,
@@ -1225,7 +1225,7 @@ pub fn add_collateral(
             l.id
         )));
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refuse(
             "bank.below_minimum",
             "Collateral top-up must be positive",
@@ -1425,7 +1425,7 @@ pub fn releasable(d: &Deps<'_>, loan_id: &str) -> Result<Releasable, Refusal> {
     let held = if ledger_held > reserved {
         ledger_held - reserved
     } else {
-        0
+        Amount::ZERO
     };
     let debt = with(d.store, |c| outstanding(c, &l.id))?;
     let debt_value = quote_value(
@@ -1436,16 +1436,16 @@ pub fn releasable(d: &Deps<'_>, loan_id: &str) -> Result<Releasable, Refusal> {
     let price = mark(&marks, &l.collateral_asset_id)?.mark.price;
     let ltv_after =
         |release: Amount| ltv_bps(debt_value, quote_value(held - release, price, Round::Floor));
-    let now_ltv = ltv_after(0)?;
-    let mut lo: Amount = 0;
+    let now_ltv = ltv_after(Amount::ZERO)?;
+    let mut lo: Amount = Amount::ZERO;
     if now_ltv <= p.max_ltv_bps {
         let mut hi = held;
         while lo < hi {
-            let mid = (lo + hi + 1) / 2;
+            let mid = (lo + hi + Amount::from_scaled(1)) / 2;
             if ltv_after(mid)? <= p.max_ltv_bps {
                 lo = mid;
             } else {
-                hi = mid - 1;
+                hi = mid - Amount::from_scaled(1);
             }
         }
     }
@@ -1480,7 +1480,7 @@ pub fn release_excess(
             l.id
         )));
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refuse(
             "bank.below_minimum",
             "Collateral release must be positive",
@@ -1530,7 +1530,7 @@ fn release_named(
                 let held = if ledger_held > reserved {
                     ledger_held - reserved
                 } else {
-                    0
+                    Amount::ZERO
                 };
                 if amount > held {
                     return Err(refuse(
@@ -1696,7 +1696,7 @@ pub fn accrue(d: &Deps<'_>, loan_id: &str, until: Instant) -> Result<Accrued, Re
     let none = |l: &Loan| Accrued {
         loan_id: l.id.clone(),
         days: Vec::new(),
-        charged: 0,
+        charged: Amount::ZERO,
     };
     if l.closed() || l.status == "pending" {
         return Ok(none(&l));
@@ -1707,7 +1707,7 @@ pub fn accrue(d: &Deps<'_>, loan_id: &str, until: Instant) -> Result<Accrued, Re
         return Ok(none(&l));
     }
     let mut debt = with(d.store, |c| outstanding(c, &l.id))?.total;
-    let mut charged: Amount = 0;
+    let mut charged: Amount = Amount::ZERO;
     let mut out = Vec::new();
     #[allow(clippy::cast_possible_truncation, reason = "an int4 column")]
     let rate = l.apr_bps as i32;
@@ -1956,7 +1956,7 @@ pub fn repay(
         if let Some(tx) = &p.ledger_tx_id {
             let remaining = with(d.store, |c| outstanding(c, &l.id))?;
             // Settled already: never post again. The crash after the settle leaves the collateral locked; finish it.
-            if remaining.total <= 0 && !l.closed() {
+            if remaining.total <= Amount::ZERO && !l.closed() {
                 close_repaid(d, &l, now)?;
                 return Ok(Repaid {
                     ledger_tx_id: tx.clone(),
@@ -1973,7 +1973,7 @@ pub fn repay(
                 interest_paid: p.interest,
                 principal_paid: p.principal,
                 remaining,
-                closed: remaining.total <= 0 || l.closed(),
+                closed: remaining.total <= Amount::ZERO || l.closed(),
             });
         }
     }
@@ -1989,7 +1989,7 @@ pub fn repay(
     if l.status == "liquidating" {
         return Err(liquidating(&l.id));
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refuse("bank.below_minimum", "A repayment must be positive"));
     }
     if with(d.store, |c| has_open_shortfall(c, &l.id))? {
@@ -2002,8 +2002,8 @@ pub fn repay(
         ));
     }
     let split = std::cell::Cell::new((
-        prior.as_ref().map_or(0, |p| p.interest),
-        prior.as_ref().map_or(0, |p| p.principal),
+        prior.as_ref().map_or(Amount::ZERO, |p| p.interest),
+        prior.as_ref().map_or(Amount::ZERO, |p| p.principal),
         prior.as_ref().map_or(0, |p| p.sequence),
     ));
     let tx_id = with_money_lock(d, &l.id, || {
@@ -2063,17 +2063,17 @@ pub fn repay(
                     .map_err(|e| pg(&e))?;
                 let pending_principal = amount_text(&r.try_get::<_, String>(0).map_err(|e| pg(&e))?)?;
                 let pending_interest = amount_text(&r.try_get::<_, String>(1).map_err(|e| pg(&e))?)?;
-                let interest_open = (debt.interest - pending_interest).max(0);
-                let principal_open = (debt.principal - pending_principal).max(0);
+                let interest_open = (debt.interest - pending_interest).max(Amount::ZERO);
+                let principal_open = (debt.principal - pending_principal).max(Amount::ZERO);
                 let open = interest_open + principal_open;
-                if open <= 0 && pending_principal + pending_interest > 0 {
+                if open <= Amount::ZERO && pending_principal + pending_interest > Amount::ZERO {
                     return Err(outcome_unknown(format!(
                         "Loan {} has a repayment whose ledger outcome is not yet known — retry that repayment id or \
                          wait for recovery",
                         l.id
                     )));
                 }
-                if open <= 0 {
+                if open <= Amount::ZERO {
                     return Err(refuse(
                         "bank.loan_closed",
                         format!(
@@ -2145,7 +2145,7 @@ pub fn repay(
     let remaining = with(d.store, |c| outstanding(c, &l.id))?;
     // Settlement: the debt is clear, so the collateral goes back. Checked here, from a figure derived after the post.
     let mut closed = false;
-    if remaining.total <= 0 {
+    if remaining.total <= Amount::ZERO {
         close_repaid(d, &l, now)?;
         closed = true;
     }
@@ -2163,7 +2163,7 @@ pub fn repay(
 pub fn release_settled(d: &Deps<'_>, loan_id: &str) -> Result<(Amount, Option<String>), Refusal> {
     let l = with(d.store, |c| loan(c, loan_id))?;
     let debt = with(d.store, |c| outstanding(c, &l.id))?;
-    if debt.total > 0 {
+    if debt.total > Amount::ZERO {
         return Err(refuse(
             "bank.loan_not_settled",
             format!(
@@ -2176,8 +2176,8 @@ pub fn release_settled(d: &Deps<'_>, loan_id: &str) -> Result<(Amount, Option<St
         ));
     }
     let held = collateral_of(d, &l)?;
-    if held <= 0 {
-        return Ok((0, None));
+    if held <= Amount::ZERO {
+        return Ok((Amount::ZERO, None));
     }
     let tx = release_collateral(d, &l, held, None).map_err(Fail::refusal)?;
     with(d.store, |c| {
@@ -2249,7 +2249,7 @@ pub fn close_repaid(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<(), Refusal>
     }
     redrive_pending_releases(d, l)?;
     let held = collateral_of(d, l)?;
-    if held > 0 {
+    if held > Amount::ZERO {
         release_collateral(d, l, held, None).map_err(Fail::refusal)?;
     }
     with(d.store, |c| {
@@ -2414,7 +2414,7 @@ pub fn recover_repayments(d: &Deps<'_>, limit: Option<f64>) -> Result<Vec<Resume
         let one = (|| {
             redrive_pending_repayments(d, &l)?;
             let debt = with(d.store, |c| outstanding(c, &l.id))?;
-            if debt.total <= 0 && with(d.store, |c| has_settled_repayment(c, &l.id))? {
+            if debt.total <= Amount::ZERO && with(d.store, |c| has_settled_repayment(c, &l.id))? {
                 close_repaid(d, &l, d.now)?;
                 return Ok("completed");
             }
@@ -2447,7 +2447,7 @@ pub fn fund_reserve(
     amount: Amount,
     from: Option<&LedgerAccount>,
 ) -> Result<String, Refusal> {
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refuse(
             "bank.below_minimum",
             "Reserve funding amount must be positive",
@@ -2570,7 +2570,7 @@ pub fn reconcile_reserve(d: &Deps<'_>, debt_asset_id: &str) -> Result<Reconciled
             "the reserve read answered no figures".to_owned(),
         ));
     };
-    let outstanding_principal = (drawn - repaid - recovered - bad_debt).max(0);
+    let outstanding_principal = (drawn - repaid - recovered - bad_debt).max(Amount::ZERO);
     Ok(Reconciled {
         reserve_balance: reserve,
         outstanding_principal,

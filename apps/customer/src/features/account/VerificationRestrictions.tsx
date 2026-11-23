@@ -1,7 +1,7 @@
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { RestrictionList } from './AccountStatus';
 import { accountStatusCopy as copy } from './account-status-copy';
 
@@ -56,7 +56,7 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
     );
   };
   return (
-    <section className="verification__cases" aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
+    <section className="lt-stack" aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
       <h2 id="verification-restrictions-title">
         <Copy k="restrictionsOnAccount" />
       </h2>

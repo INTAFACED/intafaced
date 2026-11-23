@@ -84,7 +84,7 @@ export function AnalyticsRoom() {
       state={{ kind: 'ready' }}
       mode="pro"
       figures={[]}
-      actions={<BankTabs current="Analytics" />}
+      section={<BankTabs />}
       related={<StatementsLink />}
       panels={
         <div className="lt-stack">

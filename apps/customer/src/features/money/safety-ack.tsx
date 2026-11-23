@@ -5,7 +5,6 @@ import {
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
-  supportSafetyAcknowledgementSchema,
   type SupportSafetyAcknowledgement,
   type SupportBereavementInput,
   type SupportComplaintInput,
@@ -20,6 +19,7 @@ import {
   SUPPORT_SAFETY_MINE,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 } from '@intafaced/contracts/support-safety-procedures';
 
 /**
@@ -57,8 +57,7 @@ export const sendComplaint = (api: ApiClient, input: Omit<SupportComplaintInput,
   api.call(SUPPORT_SAFETY_COMPLAIN, { ...input, requestKey });
 export const sendBereavement = (api: ApiClient, input: Omit<SupportBereavementInput, 'requestKey'>, requestKey: string) =>
   api.call(SUPPORT_SAFETY_REPORT_BEREAVEMENT, { ...input, requestKey });
-export const sendScamReport = (api: ApiClient, input: SupportScamReportInput) =>
-  api.mutate('support', 'safety.reportScam', input, supportSafetyAcknowledgementSchema);
+export const sendScamReport = (api: ApiClient, input: SupportScamReportInput) => api.call(SUPPORT_SAFETY_REPORT_SCAM, input);
 
 /**
  * One send at a time, under the form's key; the key changes only after an answer that is not a lost one. A scam report

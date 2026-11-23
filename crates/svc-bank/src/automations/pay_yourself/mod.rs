@@ -457,7 +457,7 @@ pub fn record(d: &Deps<'_>, user_id: &str, input: &RecordInput<'_>) -> Result<Mo
     if !move_key_shape(input.move_key)
         || !realised::lower_address(&owner)
         || !nonce_shape(input.nonce)
-        || input.amount <= 0
+        || input.amount <= Amount::ZERO
     {
         return Err(validation(
             "A pay yourself move needs its key, the venue account’s owner, the venue’s nonce and an amount.",
@@ -550,7 +550,7 @@ pub fn set_rule(d: &Deps<'_>, user_id: &str, weekday: &str, cap: Amount) -> Resu
     if d.t.partner.pay_in.is_none() {
         return Err(unset());
     }
-    if cap <= 0 {
+    if cap <= Amount::ZERO {
         return Err(validation(
             "A weekly rule needs a most it may move above zero.",
         ));
@@ -647,7 +647,7 @@ pub fn run_due(d: &Deps<'_>, limit: i64) -> Result<RunDue, Refusal> {
             .sum();
         let amount = rule.cap.min(realised - paid);
         in_tx(d.store(), |tx| {
-            if amount > 0 {
+            if amount > Amount::ZERO {
                 let id = service_kit::approvals::random_uuid().map_err(Refusal::Other)?;
                 tx.execute(
                     &format!(
@@ -682,7 +682,7 @@ pub fn run_due(d: &Deps<'_>, limit: i64) -> Result<RunDue, Refusal> {
             .map_err(|e| pg(&e))?;
             Ok(())
         })?;
-        if amount > 0 {
+        if amount > Amount::ZERO {
             out.prepared += 1;
         } else {
             out.nothing += 1;

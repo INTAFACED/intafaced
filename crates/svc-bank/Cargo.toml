@@ -26,6 +26,8 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # EIP-191 signer recovery and EIP-55 checksums (wallet ownership proofs, the address book).
 k256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 sha3 = { version = "0.10", default-features = false }
+# NFKC for the cardholder sanctions list's names (`String.prototype.normalize('NFKC')`); already in the lock through `url`.
+icu_normalizer = "2"
 
 [[test]]
 name = "it"

@@ -317,7 +317,7 @@ pub fn capture(
     }
     let conversion = authorization.conversion.as_ref();
     let authorized = conversion.map_or(authorization.amount, |c| c.settlement_amount);
-    if amount <= 0 || amount > authorized {
+    if amount <= Amount::ZERO || amount > authorized {
         return Err(refuse(
             "bank.card_capture_exceeds_authorization",
             format!(
@@ -346,7 +346,7 @@ pub fn capture(
         post_withdraw(m, "withdrawSettle", &card, &authorization.id, funding)
     })?;
     let remainder = authorization.amount - funding;
-    let reversal_tx = if remainder > 0 {
+    let reversal_tx = if remainder > Amount::ZERO {
         Some(settlement(
             m,
             &authorization,

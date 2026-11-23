@@ -103,6 +103,7 @@ const TABLES: &[&str] = &[
     "self_freezes_applied",
     "run_webhook_endpoints",
     "run_webhook_deliveries",
+    "event_outbox",
     "__migrations",
 ];
 
@@ -110,7 +111,7 @@ const TABLES: &[&str] = &[
 fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() {
     let Some(db) = TestDb::new() else { return };
     let ups: Vec<&str> = MIGRATIONS.ups().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(ups.len(), 44);
+    assert_eq!(ups.len(), 45);
 
     let (code, out) = db.binary(false);
     assert_eq!(code, 0, "{out}");
@@ -123,8 +124,8 @@ fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() 
         ]
         .concat()
     );
-    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 44);
-    assert_eq!(TABLES.len(), 70);
+    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 45);
+    assert_eq!(TABLES.len(), 71);
     for table in TABLES {
         assert!(
             db.regclass(&format!("agents.{table}")).is_some(),
@@ -138,15 +139,15 @@ fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() 
         out.lines()
             .filter(|l| l.ends_with("(already applied)"))
             .count(),
-        44
+        45
     );
-    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 44);
+    assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 45);
 
     let (code, out) = db.binary(true);
     assert_eq!(code, 0, "{out}");
     assert_eq!(
         out.lines().next(),
-        Some("↓ 20261121224407_run_webhooks.down.sql")
+        Some("↓ 20261123053307_event_outbox.down.sql")
     );
     assert_eq!(out.lines().last(), Some("✓ reversed"));
     assert_eq!(db.count("SELECT count(*) FROM agents.__migrations"), 0);

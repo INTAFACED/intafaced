@@ -19,7 +19,8 @@ import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { verificationGuidedCopy as copy } from './verification-guided-copy';
 
 type Tier = KycProfileDraft['tier'];
@@ -129,6 +130,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
             <Copy k="startLevel" params={{ level: t(tier) }} />
           </p>
           <Button
+            tone="primary"
             disabled={disabled || busy}
             onClick={() => {
               setSent(false);
@@ -164,7 +166,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
             <Copy k="resume" params={{ step: String(open.step), name: name(open.step) }} />
           </p>
         )}
-        <ol className="verification__guided-steps" data-testid="verification__guided-steps" aria-label={t('stepsLabel')}>
+        <ol className="lt-list" data-testid="verification__guided-steps" aria-label={t('stepsLabel')}>
           {KYC_PROFILE_STEPS.map((step, i) => (
             <li key={step} data-step={step} aria-current={i + 1 === shown ? 'step' : undefined}>
               {i + 1 <= open.step ? (
@@ -222,7 +224,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-guided-title" data-testid="verification__guided">
+    <section className="lt-stack" aria-labelledby="verification-guided-title" data-testid="verification__guided">
       <h2 id="verification-guided-title">
         <Copy k="title" />
       </h2>
@@ -290,7 +292,7 @@ function GuidedStep({
     onSave(step as KycProfileFieldStep, fields);
   };
   const saveButton = (
-    <Button type="submit" disabled={busy}>
+    <Button tone="primary" type="submit" disabled={busy}>
       <Copy k={busy ? 'saving' : 'save'} />
     </Button>
   );
@@ -422,7 +424,7 @@ function GuidedStep({
             setFile(event.target.files?.[0] ?? null);
           }}
         />
-        <Button type="submit" disabled={busy || !file}>
+        <Button tone="primary" type="submit" disabled={busy || !file}>
           <Copy k="uploadButton" />
         </Button>
       </form>
@@ -455,7 +457,7 @@ function GuidedStep({
         ))}
       </dl>
       <p className="lt-muted">{f.documentId ? <Copy k="fileStored" /> : <Copy k="notEntered" />}</p>
-      <Button disabled={busy} onClick={onSend}>
+      <Button tone="primary" disabled={busy} onClick={onSend}>
         <Copy k="send" />
       </Button>
     </div>

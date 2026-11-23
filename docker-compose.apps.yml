@@ -63,6 +63,9 @@ x-service-env: &service-env
   # which sets APP_ENV=dev); the shell environment still wins over `.env`.
   NODE_ENV: production
   APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
+  # The beta posture's switch (packages/config/src/beta-posture.ts): empty is off. The staging deploy sets it
+  # to test-networks for a beta; every service then refuses to boot with a mainnet, real bank or card route.
+  INTAFACED_BETA_POSTURE: ${INTAFACED_BETA_POSTURE:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the
@@ -361,7 +364,7 @@ services:
       # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
       CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
-    ports: ['4000:4000']
+    ports: ['127.0.0.1:4000:4000']
     healthcheck: *healthcheck
     # Started last on purpose: the door should open onto services that are
     # already answering, so a user's first request is not a 502.
@@ -394,6 +397,8 @@ services:
       # Registration open? §11 drop sequence. Empty pass-through — blank refuses
       # identity.registration_open_unset. Owner-explicit true is allowed. Never invent true.
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-}
+      # Invited addresses that may sign up while REGISTRATION_OPEN=false (comma-separated). Empty: no list.
+      REGISTRATION_EMAIL_ALLOWLIST: ${REGISTRATION_EMAIL_ALLOWLIST:-}
       # Waitlist / referral queue pins (env.ts optional). Empty default so
       # unset follows the drop clock — do not default these on. `off` in
       # `.env` refuse-closes capture.
@@ -434,6 +439,15 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Mail (#9165). Pass-through only, no compose default. Blank: a dev stack runs without mail; APP_ENV staging or
+      # prod refuses to boot until the host sets IDENTITY_MAIL_TRANSPORT=http-gateway and the gateway's settings.
+      # The gateway key is a secret: host `.env` only.
+      IDENTITY_MAIL_TRANSPORT: ${IDENTITY_MAIL_TRANSPORT:-}
+      IDENTITY_MAIL_GATEWAY_URL: ${IDENTITY_MAIL_GATEWAY_URL:-}
+      IDENTITY_MAIL_GATEWAY_KEY: ${IDENTITY_MAIL_GATEWAY_KEY:-}
+      IDENTITY_MAIL_FROM: ${IDENTITY_MAIL_FROM:-}
+      IDENTITY_MAIL_LINK_BASE: ${IDENTITY_MAIL_LINK_BASE:-}
+      IDENTITY_MAIL_CONSOLE_LINK_BASE: ${IDENTITY_MAIL_CONSOLE_LINK_BASE:-}
       # Access-token signing keys for rotation (id:secret list). Pass-through only — no compose default, no invented key.
       IDENTITY_AUTH_KEYS: ${IDENTITY_AUTH_KEYS:-}
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
@@ -1009,7 +1023,7 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
-    ports: ['4014:4014']
+    ports: ['127.0.0.1:4014:4014']
     healthcheck: *healthcheck
     depends_on:
       # The market list is read at boot so a subscription can be validated
@@ -2273,6 +2287,8 @@ services:
     restart: unless-stopped
     # 8090 because that is the port every existing doc already claims. Making
     # the docs true is cheaper than correcting all of them.
+    # The stack's one web entry point, and the only port here not bound to 127.0.0.1 (#9168,
+    # tooling/ci/compose-ports.test.mjs): it serves the customer site and proxies its API and stream same-origin.
     ports: ['8090:80']
     # Origins the browser CSP must allow beyond this site; all optional, empty by
     # default (see apps/customer/csp-origins.envsh). An invalid value stops the
@@ -2407,7 +2423,7 @@ services:
       # docs/adr/2026-10-14-hsts-staged-ramp-no-preload.md.
       HSTS_MAX_AGE_SECONDS: ${ADMIN_HSTS_MAX_AGE_SECONDS:-86400}
       HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
-    ports: ['3100:3100']
+    ports: ['127.0.0.1:3100:3100']
     healthcheck: *healthcheck
 
   # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs

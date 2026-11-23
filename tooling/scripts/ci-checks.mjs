@@ -206,6 +206,8 @@ export function bootstrapScript(text, db) {
 /** Tests that need CI's EVM chain (CI starts anvil on 8545 and 8546): they fail by design with no chain. */
 export const NEEDS_CHAIN = /\b(REQUIRE_EVM_CHAIN|PROTOCOL_RPC_URL|INDEXER_RPC_URL|INDEXER_REORG_RPC_URL)\b|127\.0\.0\.1:854[56]/;
 
+const RUN_ALL_CONFIG = /config\.[cm]?[jt]s$/;
+
 /**
  * A package's own `test` script, as CI's `pnpm test` runs it (svc-fix's Maven tests, sbe-codec's jar, a tsc first), with
  * its `vitest run` narrowed to `vitest related --run` over targets and the left-out files excluded. A script with no
@@ -214,10 +216,21 @@ export const NEEDS_CHAIN = /\b(REQUIRE_EVM_CHAIN|PROTOCOL_RPC_URL|INDEXER_RPC_UR
 export function packageTestCommand(script, targets, exclude = []) {
   const q = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
   const narrowed = `vitest related --run --passWithNoTests --maxWorkers=2 ${exclude.map((f) => `--exclude ${q(f)}`).join(' ')} ${targets.map(q).join(' ')}`;
-  if (!/(^|&&\s*)vitest run\b/.test(script)) return script;
+  // tooling/vitest/run-all.mjs runs one `vitest run --config <c>` per config it names: narrowed, each is its own related run.
+  const runAll = (part) => /^node\s+\S*tooling\/vitest\/run-all\.mjs\s/.test(part);
+  if (!/(^|&&\s*)vitest run\b/.test(script) && !script.split(/\s*&&\s*/).some(runAll)) return script;
   return script
     .split(/\s*&&\s*/)
-    .map((part) => (/^vitest run\b/.test(part) ? `${narrowed} ${part.slice('vitest run'.length).trim()}`.trim() : part))
+    .map((part) => {
+      if (/^vitest run\b/.test(part)) return `${narrowed} ${part.slice('vitest run'.length).trim()}`.trim();
+      if (!runAll(part)) return part;
+      const args = part.split(/\s+/).slice(2);
+      const rest = args.filter((a) => !RUN_ALL_CONFIG.test(a)).join(' ');
+      return args
+        .filter((a) => RUN_ALL_CONFIG.test(a))
+        .map((c) => `${narrowed} --config ${c} ${rest}`.trim())
+        .join(' && ');
+    })
     .join(' && ');
 }
 

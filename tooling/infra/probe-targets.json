@@ -1,0 +1,130 @@
+[
+  {
+    "targets": ["http://admin:3100/"],
+    "labels": { "service": "admin", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://evm:8545/"],
+    "labels": { "service": "evm", "__param_module": "evm_rpc" }
+  },
+  {
+    "targets": ["http://evm-reorg:8545/"],
+    "labels": { "service": "evm-reorg", "__param_module": "evm_rpc" }
+  },
+  {
+    "targets": ["http://nats:8222/healthz"],
+    "labels": { "service": "nats", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["postgres:5432"],
+    "labels": { "service": "postgres", "__param_module": "tcp_connect" }
+  },
+  {
+    "targets": ["redis:6379"],
+    "labels": { "service": "redis", "__param_module": "tcp_connect" }
+  },
+  {
+    "targets": ["http://svc-academy:4016/health"],
+    "labels": { "service": "svc-academy", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-agents:4008/health"],
+    "labels": { "service": "svc-agents", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-bank:4009/health"],
+    "labels": { "service": "svc-bank", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-blueprint:4011/health"],
+    "labels": { "service": "svc-blueprint", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-campaigns:4024/health"],
+    "labels": { "service": "svc-campaigns", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-dex:4010/health"],
+    "labels": { "service": "svc-dex", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-edge:4000/health"],
+    "labels": { "service": "svc-edge", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-execution:4019/health"],
+    "labels": { "service": "svc-execution", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-identity:4002/health"],
+    "labels": { "service": "svc-identity", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-indexer:4013/health"],
+    "labels": { "service": "svc-indexer", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-ledger:4001/health"],
+    "labels": { "service": "svc-ledger", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-market:4018/health"],
+    "labels": { "service": "svc-market", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-matching:4005/health"],
+    "labels": { "service": "svc-matching", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-mining-pool:4023/health"],
+    "labels": { "service": "svc-mining-pool", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-notify:4015/health"],
+    "labels": { "service": "svc-notify", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-ops:4022/health"],
+    "labels": { "service": "svc-ops", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-p2p:4007/health"],
+    "labels": { "service": "svc-p2p", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-pay:4006/health"],
+    "labels": { "service": "svc-pay", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-protocol:4012/health"],
+    "labels": { "service": "svc-protocol", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-quant:4021/health"],
+    "labels": { "service": "svc-quant", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-support:4017/health"],
+    "labels": { "service": "svc-support", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-tax:4020/health"],
+    "labels": { "service": "svc-tax", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-token:4003/health"],
+    "labels": { "service": "svc-token", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-trade:4004/health"],
+    "labels": { "service": "svc-trade", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://svc-ws:4014/health"],
+    "labels": { "service": "svc-ws", "__param_module": "http_2xx" }
+  },
+  {
+    "targets": ["http://vendor-shell:80/"],
+    "labels": { "service": "vendor-shell", "__param_module": "http_2xx" }
+  }
+]

@@ -18,10 +18,17 @@
  *   - cancelled and skipped runs say nothing and are passed over, and so does a finished run that started no job
  *     (startedNoJob, read from the run's jobs list), each named on one line;
  *   - per step, the newest finished run (by its current attempt's start) whose merged report lists the step decides:
- *     passed is green; failed or skipped is red. A newer run that failed a step outranks an older pass;
+ *     passed is green; failed or skipped is red. A newer run that failed a step outranks an older pass, and an older run
+ *     or an earlier attempt that failed it outranks a newer pass: a step that fails then passes on one commit is flaky
+ *     and never counts as passing (project-state AGENTS.md "How work flows" 4; flakyWay). (Failure it prevents: #9827
+ *     merged on 822aec16bd although run 45030979813 there failed J-cex-spot-21 #4, because run 45031001317, started 14
+ *     seconds later on the same head, passed it and only the newest run was read; the step went flaky on main about 90
+ *     minutes later, #9893. An earlier attempt counts too, so a re-run that passes, the first thing AGENTS.md "How work
+ *     flows" 8 says to try on a red, can't hide a failed step the same way.);
  *   - a run's report is the `real-app-journeys` artifact uploaded during its current attempt (created at or after the
- *     attempt started), so a re-run's verdict is never read from an earlier attempt's report. A run with no such report,
- *     or one that can't be read, is red for every step it could have decided (fail closed), unless a newer run decides;
+ *     attempt started), so a re-run's verdict is never read from an earlier attempt's report; an earlier attempt's report
+ *     (earlierReportArtifacts) counts only for a step it failed. A finished run with no such report, or one that can't
+ *     be read, is red for every step it could have decided (fail closed), whichever run is newer;
  *   - a step no finished run on the head reports is not green.
  * The exemption is one strict machine line, not Markdown: `Left-or-replaced: J-bank-13 #1 #3` (exemptions), at column 0,
  * outside any fenced code block and any HTML comment, holding only full step ids. Anything else that looks like one (a
@@ -266,6 +273,17 @@ const leaveLine = (keys) =>
   `to leave these steps instead, add this line to the body, at the start of a line and outside code: ${exemptionLine(keys)}`;
 
 /**
+ * The way forward for a step that failed in one run or attempt on a head and passed in another: it is flaky, and a
+ * flaky step never counts as passing (project-state AGENTS.md "How work flows" 4: "A step that fails then passes on one
+ * commit opens a flaky item; it stops only its own journeys and never counts as passing"). So a re-run that passes
+ * does not clear it, and nothing a person does is needed: the builder opens the flaky item with the one command
+ * (open-flaky.mjs, which labels it `flaky`, the pull's first pick), and the seal passes on a head whose every run
+ * passes the step: its deterministic fix, made here or merged in from main. `key` is a report key (`J-x-01#3`).
+ */
+export const flakyWay = (key, sha, repo, runId) =>
+  `a step that fails then passes on one commit is flaky and never counts as passing (project-state AGENTS.md "How work flows" 4), so a re-run that passes does not clear it; open its flaky item (node tooling/ci/open-flaky.mjs --step "${String(key).replace('#', ' #')}" --sha ${sha} --run https://github.com/${repo}/actions/runs/${runId} --title "<what fails>" --body-file <file>) and push a head on which every run passes it (its deterministic fix, made here or merged in from main)`;
+
+/**
  * The verdict for one head. `runs`: every JOURNEYS_WORKFLOW run listed for this head (the caller lists by head_sha; this
  * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. `derived`: the steps of
  * changed journey test files no name covers (judgeTouched), judged as if the title named them. Pure but for reportOf.
@@ -327,22 +345,35 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
   const kinds = new Set();
   for (const k of needed) {
     let decided = null;
+    // Every finished run on the head is read, and every earlier attempt of one: a failure in any of them stands
+    // against a pass in another (flakyWay).
+    let unreadable = null;
+    const failedIn = [];
     for (const r of finished) {
       const rep = await report(r);
       const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
       if (rep.error) {
-        decided = {
-          green: false,
-          kind: 'runner',
-          why: `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`,
-        };
-        break;
+        unreadable ??= `${where}'s report couldn't be read (${rep.error}), so a failure there can't be ruled out`;
+        if (!decided) break;
+        continue;
       }
+      for (const e of rep.earlier ?? [])
+        if (e.error)
+          unreadable ??= `run ${r.id} (attempt ${e.attempt})'s report couldn't be read (${e.error}), so a failure there can't be ruled out`;
+        else if (e.states?.[k] === 'failed') failedIn.push({ where: `run ${r.id} (attempt ${e.attempt})`, run: r.id });
       const st = rep.states?.[k];
       if (st === undefined) continue;
-      decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
-      break;
+      if (!decided)
+        decided = st === 'passed' ? { green: true, why: `passed in ${where}` } : { green: false, kind: 'yours', why: `${st} in ${where}` };
+      else if (st === 'failed') failedIn.push({ where, run: r.id });
     }
+    if (decided?.green && failedIn.length)
+      decided = {
+        green: false,
+        kind: 'yours',
+        why: `${decided.why}, but failed in ${failedIn.map((f) => f.where).join(', ')} on this same head: ${flakyWay(k, sha, repo, failedIn[0].run)}`,
+      };
+    if (unreadable && (!decided || decided.green)) decided = { green: false, kind: 'runner', why: unreadable };
     if (!decided)
       decided = {
         green: false,
@@ -442,10 +473,12 @@ export async function countJobs(runs, jobsOf) {
 
 /**
  * The touched-journeys verdict for a head whose pull request touches only journey test files (`files`: their names, as
- * a report's `ran` lists them). Newest finished run first: every run read is judged by the journeys
- * verdict on the files it has (`verdictOf`, the default branch's baseline), and any red step there fails the seal, so a
- * newer red run is never hidden behind an older clean one; runs are read until every touched file has been run by one
- * of them. A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
+ * a report's `ran` lists them). Every finished run on the head is read, newest first, and judged by the journeys
+ * verdict on the files it has (`verdictOf`, the default branch's baseline): any red step in any of them fails the seal,
+ * so a red run is never hidden behind a clean one, newer or older (#9827: run 45030979813's red J-cex-spot-21 #4 sat
+ * behind run 45031001317's pass on the same head, and the seal stopped reading once the newer run covered every file).
+ * An earlier attempt of a run counts the same way for each step it failed that a run on the head now passes (flakyWay).
+ * A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
  * (the pull request's head branch) that run just those and each start (dispatchCommands). A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
@@ -483,8 +516,9 @@ export async function judgeTouchedRun({
   const passedOver = noJob.map((l) => `touched journeys: ${l}`);
   const left = new Set(files);
   const read = [];
+  // Every finished run's report first, so a red in one names the run on this head that passed the same step.
+  const reps = [];
   for (const r of finished) {
-    if (!left.size) break;
     const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
     let rep;
     try {
@@ -492,13 +526,62 @@ export async function judgeTouchedRun({
     } catch (e) {
       rep = { error: e.message };
     }
-    if (rep.error)
+    const bad = rep.error
+      ? { where, error: rep.error }
+      : (rep.earlier ?? []).filter((e) => e.error).map((e) => ({ where: `run ${r.id} (attempt ${e.attempt})`, error: e.error }))[0];
+    if (bad)
       return {
         ok: false,
         state: 'fail',
         kinds: ['runner'],
-        lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`, ...passedOver],
+        lines: [`touched journeys: ${why}; ${bad.where}'s report couldn't be read (${bad.error}), so the seal fails closed`, ...passedOver],
       };
+    reps.push({ r, rep, where });
+  }
+  // Where each step passed in a run's current attempt on this head (the first, newest, such run).
+  const passedIn = new Map();
+  for (const { rep, where } of reps)
+    for (const [k, st] of Object.entries(rep.states ?? {})) if (st === 'passed' && !passedIn.has(k)) passedIn.set(k, where);
+  const flaky = (x, where, r) =>
+    passedIn.has(x.step) && passedIn.get(x.step) !== where
+      ? `${x.step}: ${x.why}; it passed in ${passedIn.get(x.step)}: ${flakyWay(x.step, sha, repo, r.id)}`
+      : `${x.step}: ${x.why}`;
+  for (const { r, rep, where } of reps) {
+    // Each earlier attempt of this run, judged as the run is, for the steps it failed that a run here now passes.
+    for (const e of rep.earlier ?? []) {
+      const at = `run ${r.id} (attempt ${e.attempt})`;
+      let v;
+      try {
+        v = await verdictOf(e, r);
+      } catch (err) {
+        return {
+          ok: false,
+          state: 'fail',
+          kinds: ['runner'],
+          lines: [
+            `touched journeys: ${why}; ${at}'s verdict couldn't be worked out (${err.message}), so the seal fails closed`,
+            ...passedOver,
+          ],
+        };
+      }
+      const failed = (v.red ?? []).filter((x) => e.states?.[x.step] === 'failed' && passedIn.has(x.step));
+      const split = await splitOrAll(inherited, failed, r);
+      read.push(...inheritedLines(split));
+      if (split.blocking.length)
+        return {
+          ok: false,
+          state: 'fail',
+          kinds: redKinds(split.blocking),
+          lines: [
+            `touched journeys: ${why}; ${at} failed ${split.blocking.length} step(s) a run on this head now passes: ${split.blocking
+              .slice(0, 10)
+              .map((x) => flaky(x, at, r))
+              .join('; ')}${split.blocking.length > 10 ? `; ${split.blocking.length - 10} more` : ''}`,
+            ...read.map((l) => `touched journeys: ${l}`),
+            ...passedOver,
+          ],
+        };
+    }
     let v;
     try {
       v = await verdictOf(rep, r);
@@ -529,7 +612,7 @@ export async function judgeTouchedRun({
         lines: [
           `touched journeys: ${why}; ${where} has ${red.length} step(s) outside the list or against its rules: ${red
             .slice(0, 10)
-            .map((x) => `${x.step}: ${x.why}`)
+            .map((x) => flaky(x, where, r))
             .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
           ...read.map((l) => `touched journeys: ${l}`),
           ...passedOver,
@@ -560,6 +643,32 @@ export function currentReportArtifact(run, artifacts) {
     (a) => a?.name === JOURNEYS_ARTIFACT && !a.expired && Number.isFinite(start) && Date.parse(a.created_at) >= start,
   );
   return fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0] ?? null;
+}
+
+/**
+ * The artifact that holds each earlier attempt's report of `run` (attempts 1 to run_attempt - 1), for a step one of them
+ * failed (flakyWay): for attempt k, the newest JOURNEYS_ARTIFACT made at or after it started (`starts`: Map(attempt →
+ * its run_started_at)) and before the next attempt did (the current attempt's start is the run's own). An attempt with
+ * none (it ran nothing, or stopped before its report) is left out: it reported no step. An attempt whose start is
+ * unknown is { attempt, error }, so the seal fails closed. Returns [{ attempt, artifact } | { attempt, error }]. Pure.
+ */
+export function earlierReportArtifacts(run, artifacts, starts) {
+  const current = Number(run?.run_attempt ?? 1);
+  const at = (k) => Date.parse(k === current ? (run?.run_started_at ?? '') : (starts?.get(k) ?? ''));
+  const out = [];
+  for (let k = 1; k < current; k++) {
+    const [from, to] = [at(k), at(k + 1)];
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      out.push({ attempt: k, error: `attempt ${k}'s start couldn't be read` });
+      continue;
+    }
+    const fits = (artifacts ?? []).filter(
+      (a) => a?.name === JOURNEYS_ARTIFACT && !a.expired && Date.parse(a.created_at) >= from && Date.parse(a.created_at) < to,
+    );
+    const art = fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0];
+    if (art) out.push({ attempt: k, artifact: art });
+  }
+  return out;
 }
 
 // ---- GitHub reads (GET only; a refusal or an unreadable list fails the seal closed) ----
@@ -618,6 +727,19 @@ async function listWhole(path, key, token, what) {
 
 export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
+  // One report artifact, downloaded and read: { states, files, ran, artifact }.
+  const readArtifactReport = async (art) => {
+    const dir = mkdtempSync(join(tmpdir(), 'journey-seal-'));
+    try {
+      const zip = join(dir, 'a.zip');
+      writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
+      const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
+      const { states, files, ran } = readReport(JSON.parse(text));
+      return { states, files, ran, artifact: art.id };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
   return {
     // The head's tooling reach (journey-touch.mjs quietTooling), scanned by this script's own tooling-reach.mjs (the
     // default branch's) over the head commit's files, as the journeys run's planner scans its checkout of the head.
@@ -666,15 +788,36 @@ export function makeIo(repo, token) {
       );
       const art = currentReportArtifact(run, arts);
       if (!art) return { error: `no ${JOURNEYS_ARTIFACT} artifact from its current attempt` };
-      const dir = mkdtempSync(join(tmpdir(), 'journey-seal-'));
+      return readArtifactReport(art);
+    },
+    // Each earlier attempt's report of a re-run run on a pull request's head (earlierReportArtifacts), for the steps it
+    // failed (flakyWay): one GET per earlier attempt for its start, one artifact list, one download each. A read that
+    // fails is that attempt's { error }, so the seal fails closed.
+    async earlierReports(run) {
+      const current = Number(run?.run_attempt ?? 1);
+      if (!(current > 1)) return [];
       try {
-        const zip = join(dir, 'a.zip');
-        writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
-        const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
-        const { states, files, ran } = readReport(JSON.parse(text));
-        return { states, files, ran, artifact: art.id };
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
+        const starts = new Map();
+        for (let k = 1; k < current; k++)
+          starts.set(k, (await api(`/repos/${repo}/actions/runs/${run.id}/attempts/${k}`, token))?.run_started_at);
+        const arts = await listWhole(
+          `/repos/${repo}/actions/runs/${run.id}/artifacts?name=${JOURNEYS_ARTIFACT}`,
+          'artifacts',
+          token,
+          `run ${run.id}'s artifacts`,
+        );
+        const out = [];
+        for (const e of earlierReportArtifacts(run, arts, starts))
+          if (e.error) out.push(e);
+          else
+            try {
+              out.push({ attempt: e.attempt, ...(await readArtifactReport(e.artifact)) });
+            } catch (err) {
+              out.push({ attempt: e.attempt, error: err.message });
+            }
+        return out;
+      } catch (e) {
+        return [{ attempt: 1, error: e.message }];
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
@@ -1304,12 +1447,13 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
+ * With no such run in the head's history, main's newest finished full run (`latest`) is the reference run instead.
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
  * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
  * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
  * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
- * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
+ * input problem, no finished full run on main at all, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
  * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
  * (new on this head) stops it as before. Returns { blocking, passed, notes }.
@@ -1330,9 +1474,14 @@ export const kindTitle = (kinds, title) => {
   return k.length ? `${k.join(' + ')}: ${title}` : title;
 };
 
-export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
+export async function splitInherited({ red, main: inHistory, latest, touches, upTo, rangeOf }) {
+  // No finished full run on main in the head's history: main's newest finished full run (`latest`, mainReference read
+  // whatever the head holds) stands in, so a red main already has is not counted against this pull request (project-state
+  // #3754: 5 of 24 sampled seal holds were this case). Its commit is outside the head, so the break range below reaches
+  // past it and the area only widens. With neither, every red counts.
+  const main = inHistory ?? latest ?? null;
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
-  const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
+  const at = `main's ${inHistory ? '' : 'newest '}run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}${inHistory ? '' : " (none is in this head's history)"}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
   if (touches.shared)
@@ -1731,7 +1880,29 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
     return reports.get(r.id);
   };
-  const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning, derived });
+  // A run on this head carries its earlier attempts' reports too (`earlier`), so a step one of them failed is never
+  // hidden by a re-run that passed it (flakyWay). Main's runs, read for inherited reds, keep reportOf alone.
+  const headReports = new Map();
+  const headReportOf = (r) => {
+    if (!headReports.has(r.id))
+      headReports.set(
+        r.id,
+        Promise.resolve(reportOf(r)).then(async (rep) =>
+          rep && !rep.error && io.earlierReports && Number(r.run_attempt ?? 1) > 1 ? { ...rep, earlier: await io.earlierReports(r) } : rep,
+        ),
+      );
+    return headReports.get(r.id);
+  };
+  const steps = await judgeSteps({
+    sha: head,
+    repo,
+    title: pull.title,
+    body: pull.body,
+    runs,
+    reportOf: headReportOf,
+    waitOnRunning,
+    derived,
+  });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
   // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
   // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
@@ -1793,6 +1964,16 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
               reportOf,
               verdictOf,
             })),
+            // Only when none of main's runs is in the head's history (splitInherited).
+            latest: (await main)
+              ? null
+              : await (latest ??= mainReference({
+                  repo,
+                  mainRuns: await io.mainRuns(),
+                  contains: async () => true,
+                  reportOf,
+                  verdictOf,
+                })),
             touches,
             upTo: await (upTo ??= Promise.resolve()
               .then(() => io.mergeBase(pull.base?.sha, head))
@@ -1824,7 +2005,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           repo,
           files: reach.files,
           runs,
-          reportOf,
+          reportOf: headReportOf,
           verdictOf: ownVerdictOf,
           waitOnRunning,
           inherited,

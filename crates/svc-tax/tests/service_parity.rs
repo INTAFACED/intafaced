@@ -326,7 +326,7 @@ impl CloseSeriesSource for FakeCloses {
                 let mut candles = Vec::new();
                 let mut t = from.0.div_euclid(ms) * ms - ms;
                 while t <= to.0 {
-                    candles.push((t, base + Amount::from(t.div_euclid(ms) % 13) * step));
+                    candles.push((t, base + i128::from(t.div_euclid(ms) % 13) * step));
                     t += ms;
                 }
                 Ok(Some(CloseSeries {
