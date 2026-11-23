@@ -797,7 +797,7 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
     // Money: the partner account, by the partner's name, with the partner's own time for its figures, and the USDT
     // balance as the partner reports it (the screen groups thousands; none here to undo).
     await page.goto('/money');
-    await expect(page.getByRole('heading', { name: `In your account at ${PARTNER_BANK}` })).toBeVisible();
+    await expect(page.getByRole('heading', { name: `In your account at ${PARTNER_BANK}`, exact: true })).toBeVisible();
     const partner = page.getByTestId('source-partner');
     await expect(partner).toContainText('The partner’s own figures.');
     await expect(partner.getByTestId('source-as-of')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
