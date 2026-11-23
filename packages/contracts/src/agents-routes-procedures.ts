@@ -50,6 +50,38 @@ export const AGENTS_ROUTES_PROPOSE = defineProcedure({
   ],
 });
 
+/** The proposer takes back their own pending change; nothing was applied. */
+export const AGENTS_ROUTES_WITHDRAW = defineProcedure({
+  ...base,
+  name: 'agents.routes.withdraw',
+  kind: 'mutation',
+  path: 'routes.withdraw',
+  access: { caller: 'scope', scope: 'admin:write', module: 'agents', person: true, ownSession: 'agents.route_change_person_only' },
+  refusals: {},
+  input: z.object({ changeId: z.string().uuid() }),
+  output: changeSchema,
+  samples: [
+    { verdict: 'accept', input: { changeId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: { changeId: 'not-a-uuid' } },
+  ],
+});
+
+/** A second founder, never the proposer, confirms a pending change: it is applied once, with its audit row. */
+export const AGENTS_ROUTES_CONFIRM = defineProcedure({
+  ...base,
+  name: 'agents.routes.confirm',
+  kind: 'mutation',
+  path: 'routes.confirm',
+  access: { caller: 'scope', scope: 'admin:write', module: 'agents', person: true, ownSession: 'agents.route_change_person_only' },
+  refusals: {},
+  input: z.object({ changeId: z.string().uuid() }),
+  output: changeSchema,
+  samples: [
+    { verdict: 'accept', input: { changeId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: { changeId: 'not-a-uuid' } },
+  ],
+});
+
 export const AGENTS_ROUTES_LIST = defineProcedure({
   ...base,
   name: 'agents.routes.list',
