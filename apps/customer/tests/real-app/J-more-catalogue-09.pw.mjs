@@ -1,9 +1,11 @@
 // World: restart, stack
+// Stack: fresh
 import { test, expect } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { utcMinuteOf } from './clock.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
@@ -11,11 +13,13 @@ import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 // J-more-catalogue-09, in the running app (docs/roadmap/journeys.json): read a governance proposal and cast my vote. One
 // test per step, titled "J-more-catalogue-09 #<n>", run in order. No value moves: staking is TEST IFC funded through the
 // real ledger, and a vote or a proposal moves nothing.
-// The start is built through the product's own doors, never injected: "I" sign up, verify and stake 100 TEST IFC; then a
-// second TEST account (the proposer) stakes 1100, above the stack's TEST proposer rule (stake:1000, from
-// tooling/profiles/test-owner-values/token.json), and opens one proposal now and one draft with a future opening time.
-// So the space holds proposals in two states, and my stake is from before they were created. The space is shared with
-// every other run, so each run's proposals carry a run nonce and the list is read through that search.
+// The start is built through the product's own doors, never injected, in two parts with step 1 between them. First "I"
+// sign up, verify and stake 100 TEST IFC, and a second TEST account (the proposer) stakes 1100, above the stack's TEST
+// proposer rule (stake:1000, from tooling/profiles/test-owner-values/token.json). Step 1 then opens the room while the
+// space holds no proposal at all: this file runs first on its stack (`// Stack: fresh`), and no seed writes a proposal.
+// Only after it does the proposer open one proposal now and one draft with a future opening time, so the space holds
+// proposals in two states and my stake is from before they were created. From there the space is shared with whatever
+// runs later on the stack, so each run's proposals carry a run nonce and the list is read through that search.
 // Step 4's "a blank rule gives its own code" restarts the token lane with the rule unset
 // (LOCAL_STACK_TOKEN_PROPOSER_RULE=off), reads the refusal, then restarts it with the TEST rule, in a try/finally.
 // Step 9 mints one TEST epoch through svc-token's job door (the ledger's mint recipe, TEST IFC into the rewards engine)
@@ -37,6 +41,17 @@ test.describe.configure({ mode: 'default' });
 const space = (page) => page.getByRole('region', { name: 'Governance space' });
 const proposals = (page) => tableIn(page, 'Proposals');
 const search = (page) => page.getByRole('searchbox', { name: 'Search proposals' });
+const statusFilter = (page) => page.getByRole('combobox', { name: 'Status', exact: true });
+const kindFilter = (page) => page.getByRole('combobox', { name: 'Kind', exact: true });
+/** The proposal list's empty state, by its exact words: the space's own, or the filters'. */
+const emptyState = (page, words) => page.getByRole('heading', { name: words, level: 3, exact: true });
+const NO_PROPOSALS = 'No proposals yet';
+const NO_MATCH = 'No proposals match these filters';
+// The filters' options as the room words them: All, then each status and each kind the token service filters by.
+const STATUS_OPTIONS = ['All', 'Draft', 'Open', 'Passed', 'Rejected', 'Executed', 'Cancelled', 'Closed, ranking stored'];
+const KIND_OPTIONS = ['All', 'Listing', 'Fee parameter', 'Curriculum', 'Grant'];
+/** A service timestamp as the list shows it: the UTC minute. */
+const utcMinute = (at) => `${utcMinuteOf(Date.parse(at)).replace('T', ' ')} UTC`;
 const trpcInput = (input) => `?input=${encodeURIComponent(JSON.stringify(input))}`;
 const data = (res) => res.body?.result?.data;
 const causeOf = (body) => body?.error?.data?.cause;
@@ -127,14 +142,80 @@ function localIn(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-test(`${J} starts: signed in; a governance space with proposals in two states; I hold a stake from before they were created`, async ({
-  page,
-}) => {
-  const nonce = `T${Date.now().toString(36)}`;
+test(`${J} before the start: signed in; I hold a stake, and so does the account that will open the proposals`, async ({ page }) => {
   const me = await staker(page, 'gv', '150', '100');
   const author = await staker(page, 'gvp', '1200', '1100');
+  run.reset({ who: me.who, proposer: author.who });
+});
+
+test(`${J} #1 Opens /token/governance: The space card, follow, filters and an empty state when no proposals`, async ({
+  page,
+  stepPicture,
+}) => {
+  const { who } = run.read();
+  const client = await api(who);
+  // No proposal exists: this file runs first on its stack and opens its own only after this step. The token service's
+  // whole list is empty, so what the page draws below is the space with no proposals, not a search that found none.
+  expect(await listed(client, {}), 'the stack must start with no proposal in the space').toEqual([]);
+  const read = await home(client);
+  expect(read).toMatchObject({ spaceId: expect.any(String), following: false });
+
+  await openGovernance(page);
+  // The space card: the space by name and what it is for.
+  const card = space(page);
+  await expect(card.getByRole('heading', { name: 'Governance space', level: 2, exact: true })).toBeVisible();
+  await expect(card).toContainText('IFC token holders');
+  await expect(card).toContainText('Proposals about the IFC token. Voting power comes from staked IFC.');
+  // Follow: the card's press, in the state the token service's governance read says (not followed yet).
+  const follow = card.getByRole('button', { name: 'Follow', exact: true });
+  await expect(follow).toBeVisible();
+  await expect(follow).toBeEnabled();
+  await expect(follow).toHaveAttribute('aria-pressed', String(read.following));
+  await expect(card.getByRole('button', { name: 'Following', exact: true })).toHaveCount(0);
+  // Filters: status and kind, each offering All and every value the service filters by, and the text search; none set.
+  await expect(statusFilter(page).getByRole('option')).toHaveText(STATUS_OPTIONS);
+  await expect(statusFilter(page)).toHaveValue('all');
+  await expect(kindFilter(page).getByRole('option')).toHaveText(KIND_OPTIONS);
+  await expect(kindFilter(page)).toHaveValue('all');
+  await expect(search(page)).toBeVisible();
+  await expect(search(page)).toHaveValue('');
+  // The empty state when no proposals: the space's own words, and no list, count line or row is drawn.
+  await expect(emptyState(page, NO_PROPOSALS)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Proposals', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('proposals-count')).toHaveCount(0);
+  await expect(page.locator('[data-proposal-id]')).toHaveCount(0);
+  await stepPicture();
+
+  // Each filter works on the empty space too: with one set the list says no proposal matches the filters, which is
+  // another state with its own words, and with it cleared the space's own empty state is back.
+  const none = `${Date.now().toString(36)}none`;
+  for (const [set, clear] of [
+    [() => statusFilter(page).selectOption({ label: 'Open' }), () => statusFilter(page).selectOption({ label: 'All' })],
+    [() => kindFilter(page).selectOption({ label: 'Grant' }), () => kindFilter(page).selectOption({ label: 'All' })],
+    [() => search(page).fill(none), () => search(page).fill('')],
+  ]) {
+    await set();
+    await expect(emptyState(page, NO_MATCH)).toBeVisible();
+    await expect(emptyState(page, NO_PROPOSALS)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Proposals', exact: true })).toHaveCount(0);
+    await clear();
+    await expect(emptyState(page, NO_PROPOSALS)).toBeVisible();
+    await expect(emptyState(page, NO_MATCH)).toHaveCount(0);
+  }
+  // The service's answers behind those states are empty too: for the status, the kind, the search, and no filter at all.
+  expect(await listed(client, { status: 'open' })).toEqual([]);
+  expect(await listed(client, { kind: 'grant' })).toEqual([]);
+  expect(await listed(client, { q: none })).toEqual([]);
+  expect(await listed(client, {})).toEqual([]);
+});
+
+test(`${J} starts: signed in; a governance space with proposals in two states; I hold a stake from before they were created`, async () => {
+  const { who, proposer } = run.read();
+  const nonce = `T${Date.now().toString(36)}`;
+  const me = await api(who);
+  const author = await api(proposer);
   const now = Date.now();
-  const opened = await author.client.post('/api/token/trpc/createProposal', {
+  const opened = await author.post('/api/token/trpc/createProposal', {
     kind: 'fee_param',
     body: {},
     handle: `${nonce}:open`,
@@ -146,7 +227,7 @@ test(`${J} starts: signed in; a governance space with proposals in two states; I
     closesAt: new Date(now + 7 * DAY).toISOString(),
   });
   expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
-  const drafted = await author.client.post('/api/token/trpc/createProposal', {
+  const drafted = await author.post('/api/token/trpc/createProposal', {
     kind: 'grant',
     body: {},
     handle: `${nonce}:draft`,
@@ -159,36 +240,11 @@ test(`${J} starts: signed in; a governance space with proposals in two states; I
   expect(data(opened).status).toBe('open');
   expect(data(drafted).status).toBe('draft');
   // My stake started before either proposal was created.
-  const stakes = await me.client.get(`/api/token/trpc/listStakes${trpcInput({ limit: 10 })}`);
+  const stakes = await me.get(`/api/token/trpc/listStakes${trpcInput({ limit: 10 })}`);
   expect(stakes.status, JSON.stringify(stakes.body).slice(0, 300)).toBe(200);
   expect(data(stakes).length).toBeGreaterThan(0);
   for (const s of data(stakes)) expect(Date.parse(s.startedAt)).toBeLessThan(Date.parse(data(opened).createdAt));
-  run.reset({ who: me.who, proposer: author.who, nonce, openId: data(opened).id, draftId: data(drafted).id });
-});
-
-test(`${J} #1 Opens /token/governance: The space card, follow, filters and an empty state when no proposals`, async ({ page }) => {
-  const { who, nonce } = run.read();
-  const client = await api(who);
-  // The space card draws what the token service's governance read says: not followed yet, so the press is Follow.
-  const read = await home(client);
-  expect(read).toMatchObject({ spaceId: expect.any(String), following: false });
-  await openGovernance(page);
-  await expect(space(page)).toBeVisible();
-  await expect(space(page)).toContainText('IFC token holders');
-  const follow = space(page).getByRole('button', { name: 'Follow', exact: true });
-  await expect(follow).toBeVisible();
-  await expect(follow).toHaveAttribute('aria-pressed', String(read.following));
-  await expect(page.getByRole('combobox', { name: 'Status' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Kind' })).toBeVisible();
-  await expect(search(page)).toBeVisible();
-  // The space starts with proposals (this journey's start state), so the list draws rows that equal the service read.
-  await search(page).fill(nonce);
-  await expect(bodyRows(proposals(page))).toHaveCount((await listed(client, { q: nonce })).length);
-  // When no proposal answers, the list says so and draws no rows; the service read is empty too.
-  await search(page).fill(`${nonce}none`);
-  await expect(page.getByText('No proposals match these filters')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Proposals', exact: true })).toHaveCount(0);
-  expect(await listed(client, { q: `${nonce}none` })).toEqual([]);
+  run.write({ nonce, openId: data(opened).id, draftId: data(drafted).id });
 });
 
 test(`${J} #2 Follows the space, twice: The follow persists; the second follow changes nothing`, async ({ page, browser }) => {
@@ -197,7 +253,7 @@ test(`${J} #2 Follows the space, twice: The follow persists; the second follow c
   expect((await home(client)).following).toBe(false);
   await openGovernance(page);
   // A second session of mine (another device), opened before the first follow, still offers Follow: pressing it there
-  // is the second follow.
+  // later is a follow of a space I already follow.
   const other = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const stale = await other.newPage();
   await openGovernance(stale, who);
@@ -210,6 +266,18 @@ test(`${J} #2 Follows the space, twice: The follow persists; the second follow c
   await page.reload();
   await expect(space(page).getByRole('button', { name: 'Following' })).toBeVisible();
 
+  // The second follow, on the same page: the press asks to follow again, never to unfollow, and nothing changes.
+  const repeat = page.waitForResponse((r) => r.url().includes('/api/token/trpc/followSpace'));
+  await space(page).getByRole('button', { name: 'Following', exact: true }).click();
+  const again = await repeat;
+  expect(again.request().postDataJSON()).toEqual({ following: true });
+  expect(again.status()).toBe(200);
+  expect((await again.json()).result.data).toEqual({ spaceId: first.spaceId, following: true });
+  await expect(space(page).getByRole('button', { name: 'Following', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(space(page).getByRole('button', { name: 'Follow', exact: true })).toHaveCount(0);
+  expect(await home(client)).toEqual(first);
+
+  // And from the session that still offers Follow: the same answer, and the service's read is still the first one.
   const answer = stale.waitForResponse((r) => r.url().includes('/api/token/trpc/followSpace'));
   await space(stale).getByRole('button', { name: 'Follow', exact: true }).click();
   const second = await answer;
@@ -228,6 +296,24 @@ test(`${J} #3 Filters and searches the proposals: Only matches, with dates and c
   const rows = bodyRows(proposals(page));
   await expect(rows).toHaveCount(2);
   await expect(page.getByTestId('proposals-count')).toHaveText(/^2 proposals shown/);
+  // Only matches: the two rows are this run's two proposals, in the order the service lists them, and words from one
+  // title leave only that proposal.
+  const both = await listed(client, { q: nonce });
+  expect(both.map((p) => p.id).sort()).toEqual([openId, draftId].sort());
+  for (const [i, p] of both.entries()) await expect(rows.nth(i)).toHaveAttribute('data-proposal-id', p.id);
+  await search(page).fill(`${nonce} future`);
+  expect((await listed(client, { q: `${nonce} future` })).map((p) => p.id)).toEqual([draftId]);
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute('data-proposal-id', draftId);
+  await expect(page.getByTestId('proposals-count')).toHaveText(/^1 proposals shown/);
+  // A search nothing answers draws no row at all, though the space holds proposals: the list says none match.
+  await search(page).fill(`${nonce}none`);
+  expect(await listed(client, { q: `${nonce}none` })).toEqual([]);
+  await expect(emptyState(page, NO_MATCH)).toBeVisible();
+  await expect(emptyState(page, NO_PROPOSALS)).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Proposals', exact: true })).toHaveCount(0);
+  await search(page).fill(nonce);
+  await expect(rows).toHaveCount(2);
 
   for (const [label, status, id] of [
     ['Open', 'open', openId],
@@ -245,6 +331,8 @@ test(`${J} #3 Filters and searches the proposals: Only matches, with dates and c
     const dates = row.getByTestId('proposal-voting-dates').locator('time');
     await expect(dates.nth(0)).toHaveAttribute('datetime', truth[0].opensAt);
     await expect(dates.nth(1)).toHaveAttribute('datetime', truth[0].closesAt);
+    // The dates as the row words them: each service timestamp's UTC minute, opening first.
+    await expect(dates).toHaveText([utcMinute(truth[0].opensAt), utcMinute(truth[0].closesAt)]);
     const c = truth[0].counts;
     await expect(row.getByTestId('proposal-votes')).toHaveText(
       `${c.votes} votes · ${c.for} for · ${c.against} against · ${c.abstain} abstain`,
@@ -253,6 +341,7 @@ test(`${J} #3 Filters and searches the proposals: Only matches, with dates and c
   // The kind filter narrows the same way: the open proposal is a fee parameter, the draft a grant.
   await page.getByRole('combobox', { name: 'Status' }).selectOption({ label: 'All' });
   await page.getByRole('combobox', { name: 'Kind' }).selectOption({ label: 'Grant' });
+  expect((await listed(client, { kind: 'grant', q: nonce })).map((p) => p.id)).toEqual([draftId]);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toHaveAttribute('data-proposal-id', draftId);
 });
@@ -334,6 +423,12 @@ test(`${J} #5 Creates a proposal with a future opening time: It stays draft and 
   const read = await client.get(`/api/token/trpc/getProposal${trpcInput({ proposalId: created.id })}`);
   expect(read.status).toBe(200);
   expect(data(read)).toMatchObject({ id: created.id, title: `${title} edited`, status: 'draft', revision: 2 });
+  // Voting has not opened: the window is the future one it was created with, and the list shows the edited draft.
+  expect(data(read)).toMatchObject({ opensAt: created.opensAt, closesAt: created.closesAt });
+  expect(Date.parse(data(read).opensAt)).toBeGreaterThan(Date.now());
+  await expect(row).toHaveAttribute('data-proposal-id', created.id);
+  await expect(row).toContainText(`${title} edited`);
+  await expect(row).toContainText('Draft');
 });
 
 test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the proposal was created; if I staked later it is zero and says so; history of power over time`, async ({
