@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, restartService, toUnits } from './stack.mjs';
-import { pictureFromTop, signUp, verify } from './desk.mjs';
+import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -557,7 +557,7 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
   expect(await triggers()).toEqual(before);
   // The step's picture: the refusal in the exit orders dialog, over the desk, with the whole take profit and stop loss
   // and the part one listed under it, taken from the top so the bar that stays at the top covers nothing.
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
 
   // A part one still rests: parts don't count toward the one of each.
   await armOnVenue('Stop loss', '0.05', '2750');
