@@ -61,8 +61,8 @@ describe('/uc/paydividends room', () => {
   it('explains what an airdrop is here and why dividends are not paid', () => {
     expect(html).toContain('What an airdrop is here');
     expect(html).toContain('Dividends');
-    expect(html).toContain('wait for an owner decision');
-    expect(html).toContain('not a statement that you were owed one or paid nothing');
+    expect(html).toContain('aren’t paid yet');
+    expect(html).toContain('That doesn’t mean you were owed one.');
   });
 
   it('shows the history as a table with headers and an honest empty state, and invents no rows', () => {
@@ -100,7 +100,7 @@ describe('/uc/paydividends room', () => {
     expect(one).toContain('data-testid="dividend-record"');
     expect(one).toContain('0.016667 USDC');
     expect(one).toContain(`data-tx="${record.chainTx}"`);
-    expect(one).toContain('by your venue equity of 100 USDC at the snapshot');
+    expect(one).toContain('by your trading account value of 100 USDC at the snapshot');
     const held = view({
       records: {
         status: 'ready',
@@ -134,7 +134,7 @@ describe('/uc/paydividends room', () => {
       },
     });
     expect(refused).toContain('data-testid="dividends-refusal"');
-    expect(refused).toContain('Dividends wait for an owner decision: Does INTAFACED pay dividends?');
+    expect(refused).toContain('INTAFACED still has to decide: Does INTAFACED pay dividends?');
     expect(refused).toContain('No dividend records');
     expect(refused.match(/data-testid="dividend-record"/g)).toBeNull();
   });

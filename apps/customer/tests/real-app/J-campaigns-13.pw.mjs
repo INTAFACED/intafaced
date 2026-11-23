@@ -291,7 +291,7 @@ test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amo
   await expect(row).toHaveAttribute('data-standing', 'counted');
   await expect(row.getByTestId('dividend-snapshot')).toHaveAttribute('data-at', snapshotAt);
   await expect(row.getByTestId('dividend-amount')).toHaveText(`${ANN_SHARE} ${ASSET}`);
-  await expect(row.getByTestId('dividend-source')).toContainText(`by your venue equity of ${ANN_EQUITY} ${ASSET} at the snapshot`);
+  await expect(row.getByTestId('dividend-source')).toContainText(`by your trading account value of ${ANN_EQUITY} ${ASSET} at the snapshot`);
   await expect(row.getByTestId('dividend-chain-tx')).toHaveAttribute('data-tx', annTx);
   await expect(row.getByTestId('dividend-payment')).toContainText(`Paid to ${ann.wallet} on the chain`);
   await stepPicture(page);
@@ -338,7 +338,7 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
   await expect(page.getByTestId('dividends-kind').getByRole('button', { name: 'Dividends' })).toHaveAttribute('aria-pressed', 'true');
   const refusal = page.getByTestId('dividends-refusal');
   await expect(refusal).toHaveAttribute('data-code', 'owner.decision', { timeout: 30_000 });
-  await expect(refusal).toHaveText(`No dividend is paid. Dividends wait for an owner decision: ${DIVIDEND_QUESTION}`);
+  await expect(refusal).toHaveText(`No dividend is paid yet. INTAFACED still has to decide: ${DIVIDEND_QUESTION}`);
   await expect(page.getByTestId('dividends-empty')).toHaveAttribute('data-kind', 'dividend');
   await expect(page.getByTestId('dividends-empty')).toHaveText('No dividend records');
   await expect(page.getByTestId('dividend-record')).toHaveCount(0);
