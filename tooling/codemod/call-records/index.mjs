@@ -163,9 +163,7 @@ function plan(opts) {
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
     // A portal tool's caller keeps its checking schema the same way, in the tool's checked form (tool-forms.mjs).
-    // Only a zod check it writes itself (`.refine()`): a schema built by its own function is that function's to move.
-    else if (checks.length && checked && checkedTool(s) && checks.every((c) => /^\.(refine|superRefine|check)\(\)/.test(c)))
-      s.checked = text(load(s.file), checked);
+    else if (checks.length && checked && checkedToolCall(s, checks)) s.checked = text(load(s.file), checked);
     else if (checks.length) {
       hand.push({
         site: s,
@@ -675,6 +673,12 @@ export function checkedCall(s, arg, checks) {
     !checks.some((c) => CHANGES_ANSWER.test(c))
   );
 }
+
+/**
+ * Whether a portal tool site with answer checks moves to its tool's checked form: only zod checks it writes itself
+ * (`.refine()`); a schema built by its own function, or one that changes the answer, stays for its own move.
+ */
+export const checkedToolCall = (s, checks) => checkedTool(s) && checks.every((c) => /^\.(refine|superRefine|check)\(\)/.test(c));
 
 export function answerChecks(p, node, seen = new Set()) {
   const found = [];
