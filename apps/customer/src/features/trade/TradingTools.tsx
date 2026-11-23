@@ -209,7 +209,7 @@ export function TradingTools({
         </a>
       }
     >
-      <div className="trade-tools">
+      <div className="lt-stack">
         {mode === 'Convert' ? (
           <Convert tools={tools} markets={markets} simulation={simulation} />
         ) : mode === 'Quote desk' ? (

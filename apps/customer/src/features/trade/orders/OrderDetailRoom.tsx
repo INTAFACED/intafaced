@@ -320,7 +320,7 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
         </>
       }
     >
-      <div className="orders-room">
+      <div className="lt-stack">
         {cancelled ? (
           <p className={`orders-note orders-note--${cancelled.tone}`} role={cancelled.tone === 'good' ? 'status' : 'alert'}>
             {cancelled.text}

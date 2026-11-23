@@ -37,7 +37,7 @@ export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
     };
   });
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('journeyTitle')}>
         <p className="lt-muted">
           <Copy k="journeyIntro" />

@@ -1551,7 +1551,7 @@ export const OrderPanel = memo(function OrderPanel({
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
-                <div className="dk-note-actions">
+                <div className="lt-actions">
                   <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
                     {t('Check order')}
                   </button>

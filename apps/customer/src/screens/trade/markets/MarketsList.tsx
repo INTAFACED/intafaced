@@ -301,7 +301,7 @@ export function MarketsList({
       ({ ticker }) => ticker?.quoteVolume24h ?? null,
       (entry) => (
         <span className="mkt-stack">
-          <span className="mkt-volume" data-slot="volume">
+          <span className="lt-num" data-slot="volume">
             {volumeText(entry.market, entry.ticker)}
           </span>
           {sinceOf(entry) ? (
@@ -501,7 +501,7 @@ export function MarketsList({
       </span>
       {more > 0 ? (
         <div className="mkt-more">
-          <span className="mkt-muted">{t('Showing {shown} of {total} markets', { shown: shown.length, total: sorted.length })}</span>
+          <span className="lt-muted">{t('Showing {shown} of {total} markets', { shown: shown.length, total: sorted.length })}</span>
           <Button variant="secondary" size={32} onClick={() => setLimit(limit + PAGE_SIZE)}>
             {t('Show {count} more markets', { count: more })}
           </Button>

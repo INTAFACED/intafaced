@@ -18,7 +18,7 @@ export function ExportTab({ read, now }: { read: readonly ReadQuote[]; now: numb
   return (
     <div className="flex max-w-2xl flex-col gap-3">
       <p className="m-0 text-sm text-fg">{t('Export label')}</p>
-      <p className="m-0 text-xs text-fg-2">{t('Export columns', { columns: CSV_COLUMNS.join(', ') })}</p>
+      <p className="lt-hint">{t('Export columns', { columns: CSV_COLUMNS.join(', ') })}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size={32} disabled={read.length === 0} onClick={() => download(csvFileName(now), buildCsv(read))}>
           {t('Download CSV')}
@@ -39,7 +39,7 @@ export function AllocationTab() {
   const { t } = otcCopy.useCopy();
   return (
     <div className="flex max-w-2xl flex-col gap-4">
-      <p className="m-0 text-sm text-fg-2">{t('Allocation intro')}</p>
+      <p className="lt-hint">{t('Allocation intro')}</p>
       <ul className="m-0 flex list-none flex-col gap-3 p-0">
         {REFUSALS.map(({ title, code }) => {
           const words = roomWords({ code });
@@ -47,7 +47,7 @@ export function AllocationTab() {
             <li key={code} className="rounded-md border border-line bg-panel p-3">
               <h3 className="m-0 text-sm font-medium text-fg">{t(title)}</h3>
               <p className="m-0 mt-1 text-sm text-fg">{words.title}</p>
-              <p className="m-0 text-sm text-fg-2">{words.body}</p>
+              <p className="lt-hint">{words.body}</p>
               <p className="m-0 mt-1 text-xs text-fg-2">
                 {t('Allocation code')} <span className="font-mono">{words.code}</span>
               </p>

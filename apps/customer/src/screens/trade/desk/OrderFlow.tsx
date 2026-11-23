@@ -84,7 +84,7 @@ function Ladder<O extends WorkingOrder>({
   const double = columns === 'double';
   if (ladder.rows.length === 0)
     return (
-      <p className="of-note" data-testid="of-ladder-empty">
+      <p className="lt-muted" data-testid="of-ladder-empty">
         {t('Ladder empty')}
       </p>
     );
@@ -186,7 +186,7 @@ function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
     return (
       <li className="of-queue-row" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
         <span className="of-queue-head">{head}</span>
-        <span className="of-note" role={read.status === 'loading' ? undefined : 'status'}>
+        <span className="lt-muted" role={read.status === 'loading' ? undefined : 'status'}>
           {read.status === 'loading'
             ? t('My queue loading')
             : read.status === 'refused' && read.code === 'trade.queue_unavailable'
@@ -227,7 +227,7 @@ function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
       <span data-testid="of-queue-chance">
         {chance ? t('My queue chance', { pct: fmtPct(chance.ratio, { signed: false }) }) : t('My queue chance unset')}
       </span>
-      <span className="of-note" data-testid="of-queue-basis">
+      <span className="lt-muted" data-testid="of-queue-basis">
         {chance
           ? t('My queue basis', {
               traded: size(chance.tradedThrough),
@@ -247,12 +247,12 @@ function MyQueue({ market, mine }: { market: FlowMarket; mine: readonly Order[] 
   const { t } = flowCopy.useCopy();
   const resting = mine.filter((order) => order.type === 'limit' && order.price !== null);
   return (
-    <section className="of-section" aria-label={t('My queue')} data-testid="of-queue">
+    <section className="lt-stack" aria-label={t('My queue')} data-testid="of-queue">
       <h3 className="of-title">{t('My queue')}</h3>
       {resting.length === 0 ? (
-        <p className="of-note">{t('My queue none')}</p>
+        <p className="lt-muted">{t('My queue none')}</p>
       ) : (
-        <ul className="of-queue">
+        <ul className="lt-stack">
           {resting.map((order) => (
             <QueueRow key={order.id} market={market} order={order} />
           ))}
@@ -294,15 +294,15 @@ function TimeAndSales({
   else if (tape.status === 'refused') {
     const words = refusalCopy(tape.code);
     body = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
-  } else if (view.total === 0) body = <p className="of-note">{t('Tape empty')}</p>;
+  } else if (view.total === 0) body = <p className="lt-muted">{t('Tape empty')}</p>;
   else
     body = (
       <>
-        <p className="of-note" role="status" data-testid="of-tape-hidden" data-hidden={view.hidden} data-total={view.total}>
+        <p className="lt-muted" role="status" data-testid="of-tape-hidden" data-hidden={view.hidden} data-total={view.total}>
           {view.hidden > 0 ? t('Tape hidden', { n: view.hidden, total: view.total }) : t('Tape none hidden', { total: view.total })}
         </p>
         {view.rows.length === 0 ? (
-          <p className="of-note">{t('Tape all hidden')}</p>
+          <p className="lt-muted">{t('Tape all hidden')}</p>
         ) : (
           <div className="of-tape" role="grid" aria-label={t('Time and sales')}>
             <div className="of-tape-row of-row--head" role="row">
@@ -343,7 +343,7 @@ function TimeAndSales({
     );
 
   return (
-    <section className="of-section" aria-label={t('Time and sales')} data-testid="of-tape">
+    <section className="lt-stack" aria-label={t('Time and sales')} data-testid="of-tape">
       <h3 className="of-title">{t('Time and sales')}</h3>
       <div className="of-tools">
         <label className="of-field">
@@ -419,7 +419,7 @@ function DepthChart({ market, data }: { market: FlowMarket; data: OrderBook }) {
     units === 'base' ? fmtAmount(amount, { places: placesOf(market.lotSize) }) : fmtAmount(amount, { places: placesOf(market.tickSize) });
 
   return (
-    <section className="of-section" aria-label={t('Depth chart')} data-testid="of-depth">
+    <section className="lt-stack" aria-label={t('Depth chart')} data-testid="of-depth">
       <div className="of-title-bar">
         <h3 className="of-title">{t('Depth chart')}</h3>
         <label className="of-field">
@@ -431,7 +431,7 @@ function DepthChart({ market, data }: { market: FlowMarket; data: OrderBook }) {
         </label>
       </div>
       {empty ? (
-        <p className="of-note" data-testid="of-depth-empty">
+        <p className="lt-muted" data-testid="of-depth-empty">
           {t('Depth empty')}
         </p>
       ) : (
@@ -456,7 +456,7 @@ function DepthChart({ market, data }: { market: FlowMarket; data: OrderBook }) {
             {hover ? <line className="of-depth-cursor" x1={hover.x} x2={hover.x} y1={0} y2={H} /> : null}
           </svg>
           <p
-            className="of-note"
+            className="lt-muted"
             role="status"
             data-testid="of-depth-readout"
             data-price={hover?.price ?? ''}
@@ -537,7 +537,7 @@ export function OrderFlowView<O extends WorkingOrder>({
         renderCancel={renderCancel}
       />
     );
-  else ladder = <p className="of-note">{t('Ladder empty')}</p>;
+  else ladder = <p className="lt-muted">{t('Ladder empty')}</p>;
 
   return (
     <section
@@ -583,7 +583,7 @@ export function OrderFlowView<O extends WorkingOrder>({
         </div>
       </div>
       {oneClick}
-      <p className="of-note" data-testid="of-ladder-hint">
+      <p className="lt-muted" data-testid="of-ladder-hint">
         {instant ? t('Ladder hint instant') : t('Ladder hint')}
       </p>
       <p className="of-note of-legend">{t('Ladder highlights')}</p>
@@ -593,11 +593,11 @@ export function OrderFlowView<O extends WorkingOrder>({
         </p>
       ) : null}
       <div className="of-body">
-        <div className="of-col">
+        <div className="lt-stack">
           {ladder}
           {queue}
         </div>
-        <div className="of-col">
+        <div className="lt-stack">
           {data ? <DepthChart market={market} data={data} /> : null}
           <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} tape={tape} />
         </div>
