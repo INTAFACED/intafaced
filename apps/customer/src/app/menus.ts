@@ -179,7 +179,12 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         : [{ id: 'help', href: '/help', icon: 'help', title: 'Help', description: 'Answers and support' }],
     },
   ];
-  return all.map((tab) => ({ ...tab, items: tab.items.filter((item) => !isHiddenPath(pathOf(item.href))) }));
+  // A door whose own room is hidden opens its first row that is not; a door left with neither is dropped (the beta's build).
+  return all.flatMap((tab) => {
+    const items = tab.items.filter((item) => !isHiddenPath(pathOf(item.href)));
+    if (!isHiddenPath(pathOf(tab.href))) return [{ ...tab, items }];
+    return items[0] ? [{ ...tab, href: items[0].href, items }] : [];
+  });
 }
 
 /** The words of a row: its own, or those of the room its link opens. */

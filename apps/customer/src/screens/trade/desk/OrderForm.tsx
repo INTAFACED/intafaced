@@ -86,6 +86,7 @@ import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
 import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
+import { DateInput } from '@intafaced/ui/lit';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -199,7 +200,7 @@ function LeadSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => 
     <div className="dk-tif">
       <label>
         <input type="checkbox" role="switch" checked={on} aria-describedby={noteId} onChange={(event) => onChange(event.target.checked)} />
-        <span className="dk-tif-label">{t('Lead trade')}</span>
+        <span className="lt-hint lt-nowrap">{t('Lead trade')}</span>
       </label>
       <span id={noteId} className="dk-note-small">
         {on ? t('Lead trade on') : t('Lead trade off')}
@@ -1511,8 +1512,8 @@ export const OrderPanel = memo(function OrderPanel({
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
         {market.open && tif === 'GTD' ? (
           <label className="dk-tif dk-expiry">
-            <span className="dk-tif-label">{t('Order expires')}</span>
-            <input
+            <span className="lt-hint lt-nowrap">{t('Order expires')}</span>
+            <DateInput
               type="datetime-local"
               className="dk-expiry-input"
               value={expiry}

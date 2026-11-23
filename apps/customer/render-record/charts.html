@@ -189,7 +189,11 @@
 <form class="cw-date">
 <label class="cw-select cw-select--inline">
 <span>Go to date</span>
+<span class="lit-date" data-empty="">
 <input required="" type="datetime-local" name="date">
+<span data-part="shown" aria-hidden="true" data-shown="mo day, yr, hr:min" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
+</span>
+</span>
 </label>
 <button type="submit">Go</button>
 </form>
@@ -369,7 +373,7 @@
 </div>
 </div>
 </section>
-<div class="ct-bar" data-testid="chart-trading" data-locked="true">
+<div class="lt-toolbar" data-testid="chart-trading" data-locked="true">
 <p class="cw-note" role="status" data-testid="chart-trading-refusal" data-code="trade.chart.order_entry_refused">Order entry is refused: the market state can’t be read.</p>
 <button type="button" aria-expanded="false" disabled="">Order on chart</button>
 </div>

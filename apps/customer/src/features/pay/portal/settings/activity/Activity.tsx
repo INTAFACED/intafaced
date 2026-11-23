@@ -1,13 +1,15 @@
+// volt-room: /pay/activity
+// volt-room: portal:activity
 import { Fragment, type ReactNode } from 'react';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../../../session';
-import { PaySection } from '../../../components';
-import { ListShell, MoreFooter, SelectField } from '../../components';
 import { useMemberNames, useUrlParam, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
 import { DateTime } from '../../ui/DateTime';
-import { EntityList } from '../../ui/EntityList';
-import { dateRange, FilterRow, useListFilters, type ListFilters } from '../../ui/FilterRow';
-import { MoneyText } from '../../ui/MoneyText';
+import { countText, dateRange, useListFilters, type ListFilters } from '../../ui/FilterRow';
+import { uiCopy } from '../../ui/copy';
+import { EntityList, ListShell, MoneyText, MoreFooter, Section, SelectField } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
 import { plainCode } from '../../ui/plain-code';
 import { useServerList } from '../../ui/useServerList';
 import { actorName } from '../account/actors';
@@ -26,8 +28,13 @@ function approvalStatusWords(status: string, p: ReturnType<typeof portalCopy.use
 
 type Filters = Record<string, string>;
 
+/** `/pay/activity` on the record-list template: the account's activity, once the business is known. */
+export function ActivityRoom({ portal }: { portal: PortalApi }) {
+  return <RecordListRoom>{() => ({ list: <Activity portal={portal} /> })}</RecordListRoom>;
+}
+
 /** `/pay/activity`: who changed what on the account, and when. Operator changes read "INTAFACED". */
-export function Activity({ portal }: { portal: PortalApi }) {
+function Activity({ portal }: { portal: PortalApi }) {
   const filters = useListFilters();
   const [type, setType] = useUrlParam('type');
   const [actor, setActor] = useUrlParam('actor');
@@ -119,8 +126,8 @@ export function ActivityView(props: {
   const actorOptions = [...props.names.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   return (
     <div className="lt-stack">
-      <PaySection title={t('activityFeedTitle')} description={t('activityFeedBody')}>
-        <div className="pp-filter-row">
+      <Section title={t('activityFeedTitle')} description={t('activityFeedBody')}>
+        <div className="lt-toolbar">
           <SelectField
             label={t('filterType')}
             value={props.type}
@@ -136,7 +143,7 @@ export function ActivityView(props: {
             />
           )}
         </div>
-        <FilterRow
+        <Filters
           filters={props.filters}
           label={t('activityFeedTitle')}
           shown={shown}
@@ -158,23 +165,64 @@ export function ActivityView(props: {
                   { header: t('colWhat'), cell: (r) => <strong>{title(r)}</strong> },
                   { header: t('colDetails'), cell: details },
                 ]}
-                card={(r) => ({
-                  title: title(r),
-                  // the details go under the time, where they can wrap: a long line in the amount slot pushes the page sideways
-                  time: (
-                    <>
-                      {who(r)} · <DateTime value={r.occurredAt} />
-                      <br />
-                      {details(r)}
-                    </>
-                  ),
-                })}
               />
               {props.state.status === 'ready' && <MoreFooter state={props.state} onMore={props.loadMore} />}
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
+    </div>
+  );
+}
+
+/** Search and date, in the address (`FilterRow` in `../../ui/FilterRow`, drawn with the kit): the honest count and a way to clear them. */
+function Filters({ filters, label, shown, hasMore }: { filters: ListFilters; label: string; shown?: number; hasMore: boolean }) {
+  const { t } = uiCopy.useCopy();
+  const active = Boolean(filters.search || filters.status || filters.date || filters.asset);
+  return (
+    <div className="lt-stack" role="search" aria-label={label}>
+      <div className="lt-toolbar">
+        <Field label={t('search')} value={filters.search} onChange={(e) => filters.setSearch(e.target.value)} />
+        <SelectField
+          label={t('date')}
+          value={filters.date}
+          onChange={filters.setDate}
+          options={[
+            ['', t('anyDate')],
+            ['today', t('today')],
+            ['7d', t('last7')],
+            ['30d', t('last30')],
+            ['custom', t('custom')],
+          ]}
+        />
+      </div>
+      {filters.date === 'custom' && (
+        <div className="lt-toolbar">
+          <Field label={t('from')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
+          <Field label={t('to')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
+        </div>
+      )}
+      <p className="lt-muted" role="status">
+        {shown !== undefined ? countText(t, shown, hasMore) : ''}
+        {active && (
+          <>
+            {' '}
+            <Button
+              tone="quiet"
+              onClick={() => {
+                filters.setSearch('');
+                filters.setStatus('');
+                filters.setDate('');
+                filters.setFrom('');
+                filters.setTo('');
+                filters.setAsset('');
+              }}
+            >
+              {t('clearFilters')}
+            </Button>
+          </>
+        )}
+      </p>
     </div>
   );
 }

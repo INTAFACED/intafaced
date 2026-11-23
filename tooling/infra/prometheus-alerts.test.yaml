@@ -23,7 +23,7 @@ tests:
           - exp_labels: { severity: page, job: svc-ledger, instance: 'svc-ledger:4001' }
             exp_annotations:
               summary: 'svc-ledger is down'
-              description: 'svc-ledger:4001 has answered no scrape for 2 minutes.'
+              description: 'svc-ledger:4001 has answered no scrape or health probe for 2 minutes.'
 
   - name: a service that never comes up is a failed boot; one that was up within 15 minutes is not
     interval: 1m
@@ -39,7 +39,87 @@ tests:
           - exp_labels: { severity: page, job: svc-matching, instance: 'svc-matching:4005' }
             exp_annotations:
               summary: 'svc-matching has not come up in 15 minutes'
-              description: 'svc-matching:4005 answered no scrape in 15 minutes: it is failing its boot checks. `docker compose logs svc-matching` names the check.'
+              description: 'svc-matching:4005 answered no scrape or health probe in 15 minutes: it is failing its boot checks. `docker compose logs svc-matching` names the check.'
+
+  - name: a probed service whose health check fails is down after 2 minutes; one that passes is not (#10250)
+    interval: 1m
+    input_series:
+      # The exporter answers every scrape (`up` 1); svc-bank's own /health stops answering at 3m.
+      - series: 'up{job="app-health", instance="http://svc-bank:4009/health", service="svc-bank"}'
+        values: '1x8'
+      - series: 'probe_success{job="app-health", instance="http://svc-bank:4009/health", service="svc-bank"}'
+        values: '1 1 1 0 0 0 0 0 0'
+      - series: 'up{job="app-health", instance="postgres:5432", service="postgres"}'
+        values: '1x8'
+      - series: 'probe_success{job="app-health", instance="postgres:5432", service="postgres"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              {
+                severity: page,
+                job: app-health,
+                instance: 'http://svc-bank:4009/health',
+                service: svc-bank,
+              }
+            exp_annotations:
+              summary: 'svc-bank is down'
+              description: 'http://svc-bank:4009/health has answered no scrape or health probe for 2 minutes.'
+      - eval_time: 6m
+        alertname: HealthProberDown
+        exp_alerts: []
+
+  - name: a probed service that never passes in 15 minutes is a failed boot (#10250)
+    interval: 1m
+    input_series:
+      - series: 'up{job="app-health", instance="http://svc-pay:4006/health", service="svc-pay"}'
+        values: '1x20'
+      - series: 'probe_success{job="app-health", instance="http://svc-pay:4006/health", service="svc-pay"}'
+        values: '0x20'
+      - series: 'probe_success{job="app-health", instance="http://svc-tax:4020/health", service="svc-tax"}'
+        values: '1 0x19'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BootCheckFailed
+        exp_alerts:
+          - exp_labels:
+              {
+                severity: page,
+                job: app-health,
+                instance: 'http://svc-pay:4006/health',
+                service: svc-pay,
+              }
+            exp_annotations:
+              summary: 'svc-pay has not come up in 15 minutes'
+              description: 'http://svc-pay:4006/health answered no scrape or health probe in 15 minutes: it is failing its boot checks. `docker compose logs svc-pay` names the check.'
+
+  - name: a prober that answers no scrape is one alert, not a down alert per service (#10250)
+    interval: 1m
+    input_series:
+      # The exporter is gone: no probe_success at all, `up` 0 for every target.
+      - series: 'up{job="app-health", instance="http://svc-bank:4009/health", service="svc-bank"}'
+        values: '0x8'
+      - series: 'up{job="app-health", instance="postgres:5432", service="postgres"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HealthProberDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HealthProberDown
+        exp_alerts:
+          - exp_labels: { severity: page }
+            exp_annotations:
+              summary: 'The health prober is down: no app service is being checked'
+              description: '`docker compose logs blackbox-exporter` names why.'
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts: []
 
   - name: a disk under 10% free for 5 minutes alerts; tmpfs never does
     interval: 1m

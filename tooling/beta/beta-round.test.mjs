@@ -25,7 +25,7 @@ function home() {
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
 
 /** Fakes for one round. `seen` records the status file and what the front shows at every outside step. */
-function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, readyAfter = 0, warmBefore = true } = {}) {
+function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, readyAfter = 0, warmBefore = true, chainNew = false } = {}) {
   let clock = Date.parse('2026-11-23T09:00:00Z');
   let calls = 0;
   const seen = [];
@@ -43,6 +43,7 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
       look(cmd === 'pnpm' ? 'install' : args.includes('launch') ? 'launch' : 'stop');
       return args.includes('launch') ? launch : 0;
     },
+    anvil: () => ({ line: 'anvil: fake', fresh: chainNew }),
     check: async () => (look('check'), check),
     readied: async () => {
       const first = calls++ === 0;
@@ -235,4 +236,33 @@ test('the front runs from the beta checkout: a round that changes beta-front.mjs
   );
   assert.equal(syncFront(paths, systemctl), 'restart');
   assert.equal(frontAction({ unitOnDisk: 'a', unitWanted: 'a', startedOn: 'h', fileHash: null }), 'none');
+});
+
+test('the first round with a TEST chain stops the running stack and starts it whole on the chain, behind the updating page (#10305)', async () => {
+  const paths = home();
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD, chainNew: true });
+  const end = await round(paths, io);
+  assert.deepEqual(
+    seen.map((s) => s.step),
+    ['stop', 'stop', 'launch', 'check', 'readied', 'readied'],
+  );
+  for (const s of seen) assert.deepEqual([s.state, s.shown], ['updating', 'updating'], s.step);
+  assert.equal(end.state, 'up');
+  assert.notEqual(end.upSince, '2026-11-23T04:00:00Z', 'up since the restart onto the chain');
+});
+
+test('a round on a stack already on its chain restarts nothing', async () => {
+  const paths = home();
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.ok(!seen.some((s) => s.step === 'stop'));
+  assert.equal(end.upSince, '2026-11-23T04:00:00Z');
 });

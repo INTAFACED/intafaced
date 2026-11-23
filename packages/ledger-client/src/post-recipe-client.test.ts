@@ -247,6 +247,177 @@ describe("postRecipeRequest: svc-bank's earn recipes are the registry's, key and
   });
 });
 
+const LOAN = '55555555-5555-4555-8555-555555555555';
+const COLLATERAL = { loanId: LOAN, userId: USER, collateralAssetId: 'BTC', amount: '0.5', sequence: 0 } as const;
+const DRAW = { loanId: LOAN, userId: USER, debtAssetId: 'USDT', principal: '1000' } as const;
+const mm = (assetId: string) => ({ ownerType: 'house', ownerId: 'market-maker', assetId, kind: 'available' }) as const;
+const LIQUIDATE = {
+  loanId: LOAN,
+  userId: USER,
+  tranche: 1,
+  collateralAssetId: 'BTC',
+  collateralSold: '0.1',
+  debtAssetId: 'USDT',
+  proceeds: '6000',
+  principalRepaid: '5000',
+  interestRepaid: '10',
+  penalty: '300',
+  surplusToBorrower: '690',
+  buyer: { collateralTo: mm('BTC'), proceedsFrom: mm('USDT') },
+  markPrice: '60000',
+} as const;
+const PRIMARY = { ownerType: 'user', ownerId: USER, assetId: 'USDC', kind: 'available' } as const;
+const NAMED = { ownerType: 'subaccount', ownerId: SPACE, assetId: 'USDC', kind: 'available' } as const;
+const APPROVAL = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const RAMP = { userId: USER, assetId: 'USDC', amount: '25', rail: 'bank-crypto-ledger' } as const;
+const WITHDRAW = { ...RAMP, withdrawalId: `cash-out:${APPROVAL}` } as const;
+const d = (s: string) => BigInt(s) * 10n ** 18n;
+
+describe("postRecipeRequest: svc-bank's loans, business, ramp and cashback recipes are the registry's, key and body", () => {
+  it('each loan recipe is exactly the registry recipe over the converted inputs, under the key svc-bank expects', () => {
+    const cases: [PostRecipeCall, ReturnType<typeof recipes.loanDraw>, string][] = [
+      [
+        { recipe: 'loanCollateralLock', input: COLLATERAL },
+        recipes.loanCollateralLock({ ...COLLATERAL, amount: d('5') / 10n }),
+        `bank.loan.collateral.lock:${LOAN}:0`,
+      ],
+      [
+        { recipe: 'loanCollateralRelease', input: { ...COLLATERAL, sequence: 3 } },
+        recipes.loanCollateralRelease({ ...COLLATERAL, sequence: 3, amount: d('5') / 10n }),
+        `bank.loan.collateral.release:${LOAN}:3`,
+      ],
+      [{ recipe: 'loanDraw', input: DRAW }, recipes.loanDraw({ ...DRAW, principal: d('1000') }), `bank.loan.draw:${LOAN}`],
+      [
+        { recipe: 'loanRepay', input: { ...DRAW, principal: '0', interest: '1', sequence: 2 } },
+        recipes.loanRepay({ ...DRAW, principal: 0n, interest: d('1'), sequence: 2 }),
+        `bank.loan.repay:${LOAN}:2`,
+      ],
+      [
+        { recipe: 'loanReserveFund', input: { fundingId: 'treasury-1', debtAssetId: 'USDT', amount: '50' } },
+        recipes.loanReserveFund({ fundingId: 'treasury-1', debtAssetId: 'USDT', amount: d('50') }),
+        'bank.loan.reserve.fund:USDT:treasury-1',
+      ],
+      [
+        { recipe: 'loanLiquidate', input: LIQUIDATE },
+        recipes.loanLiquidate({
+          ...LIQUIDATE,
+          collateralSold: d('1') / 10n,
+          proceeds: d('6000'),
+          principalRepaid: d('5000'),
+          interestRepaid: d('10'),
+          penalty: d('300'),
+          surplusToBorrower: d('690'),
+          markPrice: d('60000'),
+        }),
+        `bank.loan.liquidate:${LOAN}:1`,
+      ],
+      [
+        { recipe: 'loanBadDebt', input: { loanId: LOAN, debtAssetId: 'USDT', shortfall: '12.5' } },
+        recipes.loanBadDebt({ loanId: LOAN, debtAssetId: 'USDT', shortfall: d('25') / 2n }),
+        `bank.loan.baddebt:${LOAN}`,
+      ],
+    ];
+    for (const [call, want, key] of cases) {
+      const { request } = postRecipeRequest(call);
+      expect(request).toEqual(want);
+      expect(request.idempotencyKey).toBe(key);
+    }
+  });
+
+  it('each business, ramp and cashback recipe is exactly the registry recipe, under the key svc-bank expects', () => {
+    const payroll = { payrollId: APPROVAL.toUpperCase(), from: PRIMARY, recipients: [{ to: NAMED, amount: '100' }] } as const;
+    const cases: [PostRecipeCall, ReturnType<typeof recipes.loanDraw>, string][] = [
+      [
+        { recipe: 'businessApprovalHold', input: { approvalId: APPROVAL, from: NAMED, amount: '5' } },
+        recipes.businessApprovalHold({ approvalId: APPROVAL, from: NAMED, amount: d('5') }),
+        `bank.business.hold:${APPROVAL}`,
+      ],
+      [
+        { recipe: 'businessApprovalRelease', input: { approvalId: APPROVAL, from: PRIMARY, amount: '5' } },
+        recipes.businessApprovalRelease({ approvalId: APPROVAL, from: PRIMARY, amount: d('5') }),
+        `bank.business.release:${APPROVAL}`,
+      ],
+      [
+        { recipe: 'businessApprovalSettle', input: { approvalId: APPROVAL, from: PRIMARY, to: NAMED, amount: '5' } },
+        recipes.businessApprovalSettle({ approvalId: APPROVAL, from: PRIMARY, to: NAMED, amount: d('5') }),
+        `bank.business.settle:${APPROVAL}`,
+      ],
+      [
+        { recipe: 'businessPayroll', input: payroll },
+        recipes.businessPayroll({ ...payroll, recipients: [{ to: NAMED, amount: d('100') }] }),
+        `bank.business.payroll:${APPROVAL.toUpperCase()}`,
+      ],
+      [
+        { recipe: 'deposit', input: { ...RAMP, railRef: `cash-out-return:${APPROVAL}` } },
+        recipes.deposit({ ...RAMP, railRef: `cash-out-return:${APPROVAL}`, amount: d('25') }),
+        `deposit:bank-crypto-ledger:cash-out-return:${APPROVAL}`,
+      ],
+      [
+        { recipe: 'withdrawHold', input: WITHDRAW },
+        recipes.withdrawHold({ ...WITHDRAW, amount: d('25') }),
+        `withdraw.hold:${WITHDRAW.withdrawalId}`,
+      ],
+      [
+        { recipe: 'withdrawSettle', input: WITHDRAW },
+        recipes.withdrawSettle({ ...WITHDRAW, amount: d('25') }),
+        `withdraw.settle:${WITHDRAW.withdrawalId}`,
+      ],
+      [
+        { recipe: 'withdrawReverse', input: WITHDRAW },
+        recipes.withdrawReverse({ ...WITHDRAW, amount: d('25') }),
+        `withdraw.reverse:${WITHDRAW.withdrawalId}`,
+      ],
+      [
+        {
+          recipe: 'rewardPay',
+          input: { rewardId: `bank.card.cashback:${APPROVAL}`, userId: USER, assetId: 'USDC', amount: '1', reason: 'bank.card.cashback' },
+        },
+        recipes.rewardPay({
+          rewardId: `bank.card.cashback:${APPROVAL}`,
+          userId: USER,
+          assetId: 'USDC',
+          amount: d('1'),
+          reason: 'bank.card.cashback',
+        }),
+        `reward:bank.card.cashback:${APPROVAL}`,
+      ],
+      [
+        { recipe: 'sweepFeesToRewards', input: { windowId: 'bank.card:w1', sourceModule: 'bank', assetId: 'USDC', amount: '10' } },
+        recipes.sweepFeesToRewards({ windowId: 'bank.card:w1', sourceModule: 'bank', assetId: 'USDC', amount: d('10') }),
+        'token.fee.sweep:bank.card:w1:bank:USDC',
+      ],
+    ];
+    for (const [call, want, key] of cases) {
+      const { request } = postRecipeRequest(call);
+      expect(request).toEqual(want);
+      expect(request.idempotencyKey).toBe(key);
+    }
+  });
+
+  it('refuses what the recipes refuse, and what svc-bank never sends', () => {
+    refusesInput({ recipe: 'loanCollateralLock', input: { ...COLLATERAL, amount: '0' } });
+    refusesInput({ recipe: 'loanDraw', input: { ...DRAW, principal: '0' } });
+    refusesInput({ recipe: 'loanRepay', input: { ...DRAW, principal: '0', interest: '0', sequence: 0 } });
+    refusesInput({ recipe: 'loanLiquidate', input: { ...LIQUIDATE, surplusToBorrower: '689' } });
+    refusesInput({
+      recipe: 'loanLiquidate',
+      input: { ...LIQUIDATE, debtAssetId: 'BTC', buyer: { collateralTo: mm('BTC'), proceedsFrom: mm('BTC') } },
+    });
+    refusesInput({ recipe: 'loanLiquidate', input: { ...LIQUIDATE, buyer: { collateralTo: PRIMARY, proceedsFrom: mm('USDT') } } });
+    refusesInput({ recipe: 'loanReserveFund', input: { fundingId: 'f', debtAssetId: 'USDT', amount: '1', from: PRIMARY } });
+    refusesInput({
+      recipe: 'businessApprovalSettle',
+      input: { approvalId: APPROVAL, from: PRIMARY, to: { ...NAMED, assetId: 'USDT' }, amount: '5' },
+    });
+    refusesInput({ recipe: 'businessPayroll', input: { payrollId: APPROVAL, from: PRIMARY, recipients: [] } });
+    refusesInput({ recipe: 'businessPayroll', input: { payrollId: APPROVAL, from: PRIMARY, recipients: [{ to: PRIMARY, amount: '1' }] } });
+    refusesInput({ recipe: 'deposit', input: { ...RAMP, railRef: 'r', confirmed: false } });
+    refusesInput({ recipe: 'withdrawHold', input: { ...WITHDRAW, fee: '0.1' } });
+    refusesInput({ recipe: 'withdrawSettle', input: { ...WITHDRAW, amount: '0' } });
+    refusesInput({ recipe: 'sweepFeesToRewards', input: { windowId: 'w', sourceModule: 'trade', assetId: 'USDC', amount: '1' } });
+  });
+});
+
 describe('postRecipeRequest: the post the door books', () => {
   it('is exactly the registry recipe over the converted inputs', () => {
     const { recipe, request } = postRecipeRequest(CALL);
@@ -263,7 +434,7 @@ describe('postRecipeRequest: the post the door books', () => {
   });
 
   it('refuses a recipe it does not post, by code', () => {
-    for (const body of [{ recipe: 'deposit', input: {} }, { recipe: 'hasOwnProperty' }, null, 'academyPurchase']) {
+    for (const body of [{ recipe: 'tradeFill', input: {} }, { recipe: 'hasOwnProperty' }, null, 'academyPurchase']) {
       expect(() => postRecipeRequest(body)).toThrow(expect.objectContaining({ code: POST_RECIPE_UNKNOWN }));
     }
   });
@@ -359,7 +530,7 @@ describe('createHttpRecipePoster: the same transport as post', () => {
     await expect(poster(fetch).postRecipe({ recipe: 'academyPurchase', input: { ...PURCHASE, amount: '0' } })).rejects.toMatchObject({
       code: POST_RECIPE_INPUT_INVALID,
     });
-    await expect(poster(fetch).postRecipe({ recipe: 'deposit' } as never)).rejects.toMatchObject({ code: POST_RECIPE_UNKNOWN });
+    await expect(poster(fetch).postRecipe({ recipe: 'tradeFill' } as never)).rejects.toMatchObject({ code: POST_RECIPE_UNKNOWN });
     expect(sent).toEqual([]);
   });
 

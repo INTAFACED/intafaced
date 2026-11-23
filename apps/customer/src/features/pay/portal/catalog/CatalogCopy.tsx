@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import type { CatalogCopy as CopyReport } from '@intafaced/contracts/merchant-catalog';
 import type { PortalApi } from '../api';
-import { EntityList } from '../ui/EntityList';
+import { EntityList } from '../volt/parts';
 import { useMayAddProducts } from './access';
 import { catalogCopy as c } from './copy';
 
@@ -66,7 +66,7 @@ export function CatalogCopyControl({ portal, from }: { portal: PortalApi; from: 
         </div>
       )}
       {refused && (
-        <p className="pp-callout" role="alert">
+        <p className="lt-refusal" data-refusal="refused" role="alert">
           {refused}
         </p>
       )}
@@ -80,7 +80,7 @@ function CopyReportView({ report }: { report: CopyReport }) {
   const where = t(report.to === 'live' ? 'where_live' : 'where_test');
   return (
     <div className="lt-stack">
-      <p className="pp-confirmed" role="status">
+      <p className="lt-hint" role="status">
         {t('copyDone', { created: String(report.created.length), skipped: String(report.skipped.length), where })}
       </p>
       {report.created.length > 0 && (
@@ -91,10 +91,9 @@ function CopyReportView({ report }: { report: CopyReport }) {
           href={(row) => productHref(row.productId)}
           columns={[
             { header: t('colName'), cell: (row) => <strong>{row.name}</strong> },
-            { header: t('colId'), cell: (row) => <code>{row.productKey}</code> },
+            { header: t('colId'), cell: (row) => <code className="lt-mono">{row.productKey}</code> },
             { header: t('copyColPrices'), cell: (row) => row.prices },
           ]}
-          card={(row) => ({ title: row.name, status: <code>{row.productKey}</code> })}
         />
       )}
       {report.skipped.length > 0 && (
@@ -104,10 +103,9 @@ function CopyReportView({ report }: { report: CopyReport }) {
           rowKey={(row) => row.sourceId}
           columns={[
             { header: t('colName'), cell: (row) => <strong>{row.name}</strong> },
-            { header: t('colId'), cell: (row) => <code>{row.productKey}</code> },
+            { header: t('colId'), cell: (row) => <code className="lt-mono">{row.productKey}</code> },
             { header: t('copyColWhy'), cell: (row) => t(`copySkip_${row.reason}`, { where }) },
           ]}
-          card={(row) => ({ title: row.name, status: t(`copySkip_${row.reason}`, { where }) })}
         />
       )}
     </div>

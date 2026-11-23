@@ -8,6 +8,9 @@ import {
   opsPlatformIncidentsSchema,
   opsReconciliationPeriodsInputSchema,
   opsReconciliationPeriodsSchema,
+  opsAlertAcknowledgeInputSchema,
+  opsAlertSnoozeInputSchema,
+  opsAlertUnsnoozeInputSchema,
 } from './ops-reconciliation-alerts.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -71,6 +74,54 @@ export const OPS_ALERTS_GET = defineProcedure({
   output: opsAlertDetailSchema,
   samples: [
     { verdict: 'accept', input: { alertId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_ALERTS_ACKNOWLEDGE = defineProcedure({
+  ...base,
+  name: 'ops.alerts.acknowledge',
+  kind: 'mutation',
+  path: 'alerts.acknowledge',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: opsAlertAcknowledgeInputSchema,
+  output: opsAlertDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { alertId: '11111111-1111-4111-8111-111111111111', note: 'USDC', idempotencyKey: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_ALERTS_SNOOZE = defineProcedure({
+  ...base,
+  name: 'ops.alerts.snooze',
+  kind: 'mutation',
+  path: 'alerts.snooze',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: opsAlertSnoozeInputSchema,
+  output: opsAlertDetailSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { alertId: '11111111-1111-4111-8111-111111111111', endsAt: '2026-01-01T00:00:00.000Z', idempotencyKey: 'ethereum' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_ALERTS_UNSNOOZE = defineProcedure({
+  ...base,
+  name: 'ops.alerts.unsnooze',
+  kind: 'mutation',
+  path: 'alerts.unsnooze',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: opsAlertUnsnoozeInputSchema,
+  output: opsAlertDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { alertId: '11111111-1111-4111-8111-111111111111', idempotencyKey: 'ethereum' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

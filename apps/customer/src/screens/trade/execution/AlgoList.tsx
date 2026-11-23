@@ -85,7 +85,7 @@ function StatusCell({ row }: { row: ParentRead }) {
   const misses = row.progress?.missesRecorded ?? row.parent.missesRecorded;
   const emitted = row.progress?.childrenEmitted ?? row.parent.childrenEmitted;
   return (
-    <span className="flex flex-wrap items-center gap-1">
+    <span className="lt-toolbar">
       <Badge tone={TONE[status]}>{t(`Status ${status}`)}</Badge>
       {misses > 0 && emitted < row.parent.slicesPlanned ? (
         <Badge tone="warn">{t('Partial: {n} misses', { n: String(misses) })}</Badge>
@@ -393,11 +393,11 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
       />
       {blocked ? <Why>{blocked}</Why> : null}
       <p className="lt-hint">{t('Children note')}</p>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="lt-toolbar">
         <Button variant="secondary" size={32} onClick={() => onClone(parent)}>
           {t('Create new with these numbers')}
         </Button>
-        <span className="text-sm text-fg-2">{t('Schedules are not edited')}</span>
+        <span className="lt-hint">{t('Schedules are not edited')}</span>
       </div>
     </section>
   );

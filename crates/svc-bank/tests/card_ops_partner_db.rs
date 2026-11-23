@@ -1375,3 +1375,272 @@ fn currencies_remove_refuses_while_the_card_partner_holds_an_open_authorisation_
     );
     assert_eq!(removed.code(), "bank.currency_in_use");
 }
+
+// ── The TEST card draws on the person's own partner account (#10227, #10544) ──────
+// partner-card-holds.test.ts, "the TEST card draws on the person's own partner account (#10227)".
+
+/// The TEST partner's own main USDC account for the holder, or `None` when it holds none.
+fn partner_main(k: &Kit) -> Option<String> {
+    k.door
+        .partner()
+        .partner
+        .as_ref()
+        .unwrap()
+        .lock()
+        .card_available(HOLDER, "USDC")
+        .map(service_kit::money::format_amount)
+}
+
+/// TEST money paid into the holder's main USDC account at the TEST partner, once per id.
+fn fund_partner(k: &Kit, id: &str, amount: &str) {
+    k.door
+        .partner()
+        .partner
+        .as_ref()
+        .unwrap()
+        .lock()
+        .fund(
+            HOLDER,
+            &svc_bank::partner::Funding {
+                fund_id: id.to_owned(),
+                asset_id: "USDC".to_owned(),
+                amount: service_kit::money::parse_amount(amount).unwrap(),
+            },
+            now(),
+        )
+        .unwrap();
+}
+
+/// The holder's moves on the TEST partner's own record whose key starts with `card.partner.`: (key, from owner, to owner,
+/// amount).
+fn card_moves(k: &Kit) -> Vec<(String, String, String, String)> {
+    k.door
+        .partner()
+        .partner
+        .as_ref()
+        .unwrap()
+        .lock()
+        .record(HOLDER)
+        .moves
+        .iter()
+        .filter(|m| m.key.starts_with("card.partner."))
+        .map(|m| {
+            (
+                m.key.clone(),
+                m.from.user_id.clone(),
+                m.to.user_id.clone(),
+                service_kit::money::format_amount(m.amount),
+            )
+        })
+        .collect()
+}
+
+fn quad(key: &str, from: &str, to: &str, amount: &str) -> (String, String, String, String) {
+    (
+        key.to_owned(),
+        from.to_owned(),
+        to.to_owned(),
+        amount.to_owned(),
+    )
+}
+
+#[test]
+fn drawn_a_card_payment_lowers_the_partner_balance_the_person_reads_once_per_key_and_the_statement_counts_it()
+ {
+    let Some(k) = held() else { return };
+    fund_partner(&k, "f-400", "400");
+    let c = usdc(&k);
+    // The card reads the partner account, never the TEST figure of 100.
+    assert_eq!(figures(&k, &c), pair("400", "0"));
+    let auth = id(&authorize(&k, &c, "drawn-1", "20").ok());
+    assert_eq!(figures(&k, &c), pair("380", "20"));
+    assert_eq!(partner_main(&k).as_deref(), Some("380"));
+    // The same authorisation again moves nothing more at the partner.
+    authorize(&k, &c, "drawn-1", "20").ok();
+    assert_eq!(partner_main(&k).as_deref(), Some("380"));
+
+    let r = capture(&k, &c, "drawn-1", "20").ok();
+    assert_eq!(text(&r, "captured"), "20");
+    assert_eq!(figures(&k, &c), pair("380", "0"));
+    assert_eq!(partner_main(&k).as_deref(), Some("380"));
+
+    refund(&k, &c, "drawn-1", "5").ok();
+    refund(&k, &c, "drawn-1", "5").ok();
+    assert_eq!(partner_main(&k).as_deref(), Some("385"));
+    assert_eq!(figures(&k, &c), pair("385", "0"));
+
+    // Each step the person's account takes part in is one move on their record at the partner, under the instruction's
+    // key (J-derivatives-26 #8); the capture is between the partner's own two card accounts, so it is on neither.
+    assert_eq!(
+        card_moves(&k),
+        vec![
+            quad(&key("hold", &auth), HOLDER, "partner:card-holds", "20"),
+            quad(&key("refund", &auth), "partner:card-network", HOLDER, "5"),
+        ]
+    );
+    let partner = k.door.partner().partner.as_ref().unwrap().lock();
+    let captured = partner.book.by_key(&key("capture", &auth)).unwrap();
+    assert_eq!(
+        (captured.from.user_id.as_str(), captured.to.user_id.as_str()),
+        ("partner:card-holds", "partner:card-network")
+    );
+    // The card's own list is where a payment is read: no card move is a bank move, and none counts as a send.
+    let q = svc_bank::partner::MovesQuery {
+        limit: 50,
+        before: None,
+        asset_id: None,
+        pay_ins: false,
+    };
+    assert!(partner.moves(HOLDER, &q).is_empty());
+    assert_eq!(
+        partner.limits(HOLDER, "USDC", now()).unwrap().used_today,
+        service_kit::money::Amount::ZERO
+    );
+    let main = svc_bank::partner::AccountRef::main(HOLDER, "USDC");
+    let st = partner
+        .statement(
+            &main,
+            service_kit::time::Instant(0),
+            service_kit::time::Instant(now().0 + 60_000),
+            now(),
+        )
+        .unwrap();
+    assert_eq!(
+        (st.opening, service_kit::money::format_amount(st.closing)),
+        (service_kit::money::Amount::ZERO, "385".to_owned())
+    );
+    drop(partner);
+    ledger_untouched(&k);
+}
+
+#[test]
+fn drawn_a_released_hold_and_a_hold_whose_time_ran_out_each_come_back_to_the_account_once() {
+    let Some(k) = held() else { return };
+    fund_partner(&k, "f-50", "50");
+    let c = usdc(&k);
+    let auth = id(&authorize(&k, &c, "drawn-release", "30").ok());
+    assert_eq!(partner_main(&k).as_deref(), Some("20"));
+    reverse(&k, &c, "drawn-release").ok();
+    assert_eq!(partner_main(&k).as_deref(), Some("50"));
+    // The release instruction again, under its key: the partner's first answer, and nothing more moves.
+    let replay = k
+        .door
+        .cards_deps(now(), |d| {
+            book(d)
+                .unwrap()
+                .release(&key("release", &auth), &key("hold", &auth))
+        })
+        .unwrap();
+    assert_eq!(replay.amount, "30");
+    assert_eq!(partner_main(&k).as_deref(), Some("50"));
+    assert_eq!(figures(&k, &c), pair("50", "0"));
+    assert_eq!(
+        card_moves(&k),
+        vec![
+            quad(&key("hold", &auth), HOLDER, "partner:card-holds", "30"),
+            quad(&key("release", &auth), "partner:card-holds", HOLDER, "30"),
+        ]
+    );
+
+    let Some(k) = held() else { return };
+    partner_set(&k, HOLDER, &[("cardHold", "expired")]);
+    fund_partner(&k, "f-50", "50");
+    let c = usdc(&k);
+    let auth = id(&authorize(&k, &c, "drawn-expire", "30").ok());
+    assert_eq!(figures(&k, &c), pair("50", "0"));
+    assert_eq!(figures(&k, &c), pair("50", "0"));
+    assert_eq!(text(&hold_state(&k, &auth).unwrap(), "status"), "expired");
+    assert_eq!(partner_main(&k).as_deref(), Some("50"));
+    let partner = k.door.partner().partner.as_ref().unwrap().lock();
+    let back = partner
+        .book
+        .by_key(&format!("TEST-card-partner:{}:expired", key("hold", &auth)))
+        .unwrap();
+    assert_eq!(
+        (
+            back.from.user_id.as_str(),
+            back.to.user_id.as_str(),
+            service_kit::money::format_amount(back.amount)
+        ),
+        ("partner:card-holds", HOLDER, "30".to_owned())
+    );
+}
+
+#[test]
+fn drawn_above_what_the_account_holds_the_partner_declines_and_nothing_moves_an_empty_account_declines_too()
+ {
+    let Some(k) = held() else { return };
+    k.door
+        .partner()
+        .partner
+        .as_ref()
+        .unwrap()
+        .lock()
+        .open_currency(HOLDER, "USDC", now())
+        .unwrap();
+    let c = usdc(&k);
+    let a = authorize(&k, &c, "drawn-empty", "5").ok();
+    assert_eq!(text(&a, "decision"), "declined");
+    assert_eq!(
+        text(&a, "declineCode"),
+        "bank.card_partner_insufficient_funds"
+    );
+    assert_eq!(figures(&k, &c), pair("0", "0"));
+    fund_partner(&k, "f-10", "10");
+    let a = authorize(&k, &c, "drawn-short", "10.01").ok();
+    assert_eq!(text(&a, "decision"), "declined");
+    assert_eq!(partner_main(&k).as_deref(), Some("10"));
+    assert!(card_moves(&k).is_empty());
+}
+
+#[test]
+fn drawn_a_hold_by_the_persons_pay_from_order_draws_on_the_account_too() {
+    let terms = PartnerTerms {
+        rates: Some(svc_bank::cards::terms::PartnerRates {
+            in_asset: "USDC".to_owned(),
+            per_unit: Vec::new(),
+        }),
+        ..usdc_terms("partner_holds")
+    };
+    let Some(k) = door(terms, true, Settings::default(), None) else {
+        return;
+    };
+    partner_set(&k, HOLDER, &[("custody", "off")]);
+    fund_partner(&k, "f-100", "100");
+    let answer = k
+        .door
+        .cards_deps(now(), |d| {
+            book(d).unwrap().hold_in_order(
+                "card.partner.hold:order-1",
+                HOLDER,
+                &["USDC".to_owned()],
+                "USDC",
+                "12.5",
+            )
+        })
+        .unwrap();
+    let svc_bank::cards::moves::partner_book::HoldAnswer::Approved { figures, .. } = answer else {
+        panic!("declined: {answer:?}")
+    };
+    assert_eq!(
+        (figures.available.as_deref(), figures.held.as_deref()),
+        (Some("87.5"), Some("12.5"))
+    );
+    assert_eq!(partner_main(&k).as_deref(), Some("87.5"));
+}
+
+#[test]
+fn drawn_with_no_account_at_the_partner_the_card_holds_from_the_test_figure_and_an_open_hold_goes_back_where_it_came_from()
+ {
+    let Some(k) = held() else { return };
+    let c = usdc(&k);
+    assert_eq!(figures(&k, &c), pair("100", "0"));
+    authorize(&k, &c, "drawn-figure", "10").ok();
+    // The account opens while the TEST figure's hold is open: the book keeps to the figure until it holds nothing.
+    fund_partner(&k, "f-40", "40");
+    assert_eq!(figures(&k, &c), pair("90", "10"));
+    reverse(&k, &c, "drawn-figure").ok();
+    assert_eq!(partner_main(&k).as_deref(), Some("40"));
+    assert_eq!(figures(&k, &c), pair("40", "0"));
+    assert!(card_moves(&k).is_empty());
+}

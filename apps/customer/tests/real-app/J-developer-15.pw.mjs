@@ -312,8 +312,8 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.getByLabel('Key name').fill('agent-settings');
   await page.getByLabel('This key is for an AI agent').check();
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
-  await page.getByRole('checkbox', { name: /^identity:write/ }).check();
+  await page.locator('input[name="scope"][value="trade:read"]').check();
+  await page.locator('input[name="scope"][value="identity:write"]').check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText(
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
@@ -333,7 +333,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.getByLabel('Key name').fill('agent-reader');
   await page.getByLabel('This key is for an AI agent').check();
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
+  await page.locator('input[name="scope"][value="trade:read"]').check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   agentKey = await takeShownKey();
   const row = keyRow('agent-reader');
@@ -410,7 +410,10 @@ test(`${J} #6 the agent key attempts a payout, then a read: the payout is refuse
   expect(Number(read.body.balances?.USDT?.total), JSON.stringify(read.body).slice(0, 300)).toBe(250);
 });
 
-test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; with a sandbox key it runs`, async ({ browser }) => {
+test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; with a sandbox key it runs`, async ({
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(600_000);
   expect(agentKey, 'the live key from #5').toMatch(/^ifc_(?!test_)/);
   // A person with an approved TEST business (as J-developer-02 sets one up) and a passkey, who holds a sandbox key with
@@ -497,6 +500,8 @@ test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; 
     await expect(ran.getByTestId('explorer-refused')).toHaveCount(0);
     const answered = JSON.parse((await ran.getByTestId('explorer-body').textContent()) ?? '{}');
     expect(answered, JSON.stringify(answered)).toMatchObject({ mode: 'sandbox', status: 'created' });
+    // The step ends on the explorer's answer to the sandbox write, on the sandbox person's own page.
+    await stepPicture(sbPage);
   } finally {
     await sbPage.context().close();
   }

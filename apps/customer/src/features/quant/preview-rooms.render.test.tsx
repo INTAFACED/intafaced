@@ -79,3 +79,17 @@ describe('Preview rooms while the sign-in is restoring', () => {
     });
   }
 });
+
+describe('the optimiser', () => {
+  it('keeps the passes the person filters and sorts readable; only the engine output is blurred', () => {
+    session.restoring = false;
+    act(() => root.render(<OptimiseRoom paper={false} />));
+    const table = host.querySelector('table[aria-label="Optimisation passes"]');
+    expect(table).not.toBeNull();
+    expect(table!.closest('[data-blurred]'), 'the passes table is not blurred').toBeNull();
+    const engines = [...host.querySelectorAll('[data-testid="preview-engine"]')];
+    expect(engines.length).toBeGreaterThan(0);
+    for (const panel of engines) expect(panel.getAttribute('data-blurred')).toBe('true');
+    expect(engines.map((p) => p.textContent).join(' ')).toContain('TEST');
+  });
+});

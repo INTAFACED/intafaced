@@ -2,6 +2,8 @@
 //! module here, so a test build links one binary, not one per file (intafaced#9589). Written by
 //! `node tooling/scripts/rust-test-roots.mjs`; do not edit by hand. One file's tests: `--test it -- <file>::`.
 
+#[path = "counts_as_money.rs"]
+mod counts_as_money;
 #[path = "integer_aliases.rs"]
 mod integer_aliases;
 #[path = "metrics_golden.rs"]
@@ -18,6 +20,8 @@ mod one_outbox;
 mod outbox_db;
 #[path = "server_connections.rs"]
 mod server_connections;
+#[path = "server_reply.rs"]
+mod server_reply;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.
 #[test]

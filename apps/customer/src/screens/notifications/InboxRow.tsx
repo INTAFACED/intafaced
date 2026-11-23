@@ -36,7 +36,7 @@ export function InboxRow({
   const unread = !item.readAt;
   const label = whenLabel(item.createdAt, now, timeZone, copy);
   const inner = (
-    <span className="lt-actions">
+    <span className="lt-record-line">
       <span aria-hidden="true">
         <Icon size={18} strokeWidth={2} />
       </span>
@@ -44,7 +44,7 @@ export function InboxRow({
         <span data-testid="nf-title">{title}</span>
         {body ? <span data-testid="nf-body">{body}</span> : null}
       </span>
-      <span className="lt-actions">
+      <span data-part="end">
         <TestFigureTag item={item} />
         <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}

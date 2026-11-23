@@ -493,7 +493,7 @@ export function VenueSideForm({
         aria-label={valueLabel}
       />
       <label className="dk-tif dk-opt">
-        <span className="dk-tif-label">{t('Tag label')}</span>
+        <span className="lt-hint lt-nowrap">{t('Tag label')}</span>
         <input
           type="text"
           className="dk-expiry-input dk-tag-input"

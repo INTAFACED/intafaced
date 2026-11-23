@@ -60,6 +60,8 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--down"),
             &mut std::io::stdout(),
         )
+    } else if args.first().map(String::as_str) == Some("test-seed") {
+        test_seed(args.get(1).map_or("", String::as_str))
     } else {
         run()
     };
@@ -68,6 +70,30 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `svc-bank test-seed <op>`: one seed operation on a TEST stack's bank schema (`test_seed`), its input on stdin and
+/// its answer on stdout.
+fn test_seed(op: &str) -> Result<(), String> {
+    let raw: BTreeMap<String, String> = std::env::vars().collect();
+    svc_bank::test_seed::allowed(&raw)?;
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|e| e.to_string())?;
+    let url = raw
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| migrate::DEFAULT_URL.to_owned());
+    let store = db::open(&url, "svc-bank-test-seed", 1, false)?;
+    match svc_bank::test_seed::run(store, raw, op, &input) {
+        Ok(answer) => {
+            println!("{}", answer.compact());
+            Ok(())
+        }
+        Err(refused) => {
+            println!("{}", refused.compact());
+            Err(format!("svc-bank test-seed {op} refused"))
         }
     }
 }

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
@@ -9,6 +10,11 @@ import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, kyc
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
+/** svc-bank serves each call its crate declares (`crates/svc-bank/src/door/calls.rs`), every query by its path. */
+const bankQuery = (path: string) =>
+  readFileSync(fileURLToPath(new URL('../../../../../crates/svc-bank/src/door/calls.rs', import.meta.url)), 'utf8').includes(
+    `path: "${path}",\n        kind: Kind::Query,`,
+  );
 
 describe('customer record address', () => {
   it('takes an account id from the path, lower-cased, and nothing else', () => {
@@ -76,11 +82,13 @@ describe('what each tab reads', () => {
     expect(words.captureCheck?.not_checked).toContain('no automatic liveness or face-match check');
   });
   it('names procedures the owning services serve today', () => {
-    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
+    expect(bankQuery('ops.customerBalances')).toBe(true);
     // The tickets blocker: svc-support's account read goes by ticket, strictly (its record, mounted by svc-support).
     expect(service('svc-support/src/router.ts')).toContain('accountState: mountRecord(\n      SUPPORT_DESK_ACCOUNT_STATE,');
     expect(SUPPORT_DESK_ACCOUNT_STATE.input.safeParse({ ticketId: USER, userId: USER }).success).toBe(false);
-    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
+    // svc-trade's restriction history: mounted from its record, which asks a signed-in caller as protectedProcedure did.
+    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: mountRecord\(\s*TRADE_ACCOUNT_CONTROLS_HISTORY,/);
+    expect(TRADE_ACCOUNT_CONTROLS_HISTORY.access).toEqual({ caller: 'signedIn' });
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(
       /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
@@ -89,7 +97,7 @@ describe('what each tab reads', () => {
     expect(allowlist).toMatch(/\bmode: founder/);
     expect(allowlist).toMatch(/\bpolicy: founder/);
     expect(service('svc-pay/src/namespaces/founder-admin.ts')).toContain('allowlist: createAllowlistFounderRouter');
-    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerTransfers: customerTransfersProcedure(bank, guard)');
+    expect(bankQuery('ops.customerTransfers')).toBe(true);
     expect(service('svc-trade/src/admin/router.ts')).toContain('customerOrders: operator');
     expect(tabPlan('pay', USER).reads.map((r) => [r.module, r.procedure])).toEqual([
       ['bank', 'ops.customerTransfers'],

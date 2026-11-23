@@ -99,10 +99,18 @@ describe('the futures desk: a market’s published rules (J-derivatives-21)', ()
         price: '101',
         ratio: '2',
         reopened: '2026-11-12T09:00:00.000Z',
+        max: '100',
+        window: '60 seconds',
+        n: '60',
       });
       expect(words, key).not.toMatch(PROTECTION);
     }
     expect(t('Not published')).toBe('not published by this venue');
+    // J-derivatives-04 #7: a venue with no order rate falls back to the edge's own limit and says so, or says none applies.
+    expect(t('rate_edge', { max: '100', window: t('window_seconds', { n: '60' }) })).toBe(
+      'This venue publishes no order rate limit, so the INTAFACED edge limit applies: 100 requests per 60 seconds from one address',
+    );
+    expect(t('rate_edge_off')).toMatch(/no limit of ours applies/);
     expect(t('Feed stale notice', { venue: 'V', symbol: 'XAU-PERP', rule: 'R' })).toBe(
       'V reports the XAU-PERP price feed stale. The venue’s own rule: R',
     );

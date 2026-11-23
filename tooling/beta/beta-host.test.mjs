@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  ANVIL_IMAGE,
   BETA_LINK,
+  BETA_OWN_HOSTS,
   BETA_SLOT,
   MAILBOX_PORT,
   UPDATE_EVERY_MS,
+  anvilLauncher,
   betaPaths,
   decide,
+  ensureAnvil,
   environEntries,
   fundsCheck,
+  listeningSockets,
+  procHost,
+  readListeners,
+  HOSTED_TEST_NETWORK_HOSTS,
+  hostedAllowList,
   mailboxPage,
   mailboxRows,
   outsideAddresses,
@@ -106,6 +118,29 @@ test('fundsCheck fails on a route off the machine, naming the process, key and h
   assert.ok(!r.lines.join('\n').includes('zzz'));
 });
 
+test("the beta's own round passes the stack's TEST official-channel list, which names the beta's help centre, and nothing else off the machine", () => {
+  // The value the stack gives svc-support (tooling/profiles/test-owner-values/support.json): with NO_HOSTS the beta
+  // refused it and stopped the stack on 23 Nov 2026 (#10305).
+  const profile = JSON.parse(fs.readFileSync(new URL('../profiles/test-owner-values/support.json', import.meta.url), 'utf8'));
+  const channels = profile.values.SUPPORT_OFFICIAL_CHANNELS.value;
+  assert.deepEqual([...BETA_OWN_HOSTS], ['beta.intafaced.com']);
+  const records = { support: { pid: 41 } };
+  const support = { SUPPORT_OFFICIAL_CHANNELS: channels, EDGE_URL: 'http://127.0.0.1:17500' };
+  const before = fundsCheck({ records, readEnviron: () => environ(support), page: PAGE });
+  assert.equal(before.ok, false, 'without the allow the beta host is off the machine');
+  const pass = fundsCheck({ records, readEnviron: () => environ(support), page: PAGE, allow: BETA_OWN_HOSTS });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  for (const off of [
+    'https://intafaced.com/help',
+    'https://evil.intafaced.com/x',
+    'https://beta.intafaced.com.evil.xyz/',
+    'https://api.hyperliquid-testnet.xyz',
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...support, OTHER_URL: off }), page: PAGE, allow: BETA_OWN_HOSTS });
+    assert.equal(r.ok, false, off);
+  }
+});
+
 test('fundsCheck fails closed: no process, no readable process, no page, or a page with no TEST banner', () => {
   const ok = () => environ({ A: 'http://127.0.0.1:1' });
   assert.equal(fundsCheck({ records: {}, readEnviron: ok, page: PAGE }).ok, false);
@@ -114,6 +149,125 @@ test('fundsCheck fails closed: no process, no readable process, no page, or a pa
   const noBanner = fundsCheck({ records: { a: { pid: 1 } }, readEnviron: ok, page: '<body>app</body>' });
   assert.equal(noBanner.ok, false);
   assert.match(noBanner.lines[0], /lacks the TEST banner/);
+});
+
+test('procHost and listeningSockets read the kernel tables: only LISTEN rows, every address family', () => {
+  assert.equal(procHost('00000000'), '0.0.0.0');
+  assert.equal(procHost('0100007F'), '127.0.0.1');
+  assert.equal(procHost('00000000000000000000000000000000'), '::');
+  assert.equal(procHost('00000000000000000000000001000000'), '::1');
+  assert.equal(procHost('0000000000000000FFFF00000100007F'), '::ffff:127.0.0.1');
+  const table = [
+    '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode',
+    '   0: 00000000:446F 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 111 1 0 100 0 0 10 0',
+    '   1: 0100007F:4470 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 222 1 0 100 0 0 10 0',
+    '   2: 0100007F:4470 0100007F:9C40 01 00000000:00000000 00:00000000 00000000  1000        0 333 1 0 20 4 30 10 -1',
+  ].join('\n');
+  assert.deepEqual(listeningSockets(table), [
+    { inode: '111', host: '0.0.0.0', port: 17519 },
+    { inode: '222', host: '127.0.0.1', port: 17520 },
+  ]);
+});
+
+test('fundsCheck fails a listener on every interface, naming the process, host and port; loopback passes (#10244)', () => {
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  const check = (listeners) => fundsCheck({ records: { fix: { pid: 31 } }, readEnviron: ok, readListeners: () => listeners, page: PAGE });
+  for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
+    const r = check([
+      { host: '127.0.0.1', port: 17526 },
+      { host, port: 17527 },
+    ]);
+    assert.equal(r.ok, false, host);
+    assert.ok(r.lines.includes(`FAIL fix (pid 31): listens on ${host} port 17527, reachable off this machine`), r.lines.join('\n'));
+  }
+  assert.equal(
+    check([
+      { host: '127.0.0.1', port: 17526 },
+      { host: '::1', port: 17527 },
+      { host: '::ffff:127.0.0.1', port: 17528 },
+    ]).ok,
+    true,
+  );
+});
+
+test(
+  'the real check fails a planted all-interfaces listener in a live process and passes it on loopback (#10244)',
+  { skip: process.platform !== 'linux' && 'reads /proc' },
+  async () => {
+    const net = await import('node:net');
+    const listenOn = (host) =>
+      new Promise((resolve) => {
+        const s = net.createServer();
+        s.listen(0, host, () => resolve(s));
+      });
+    const run = () => fundsCheck({ records: { planted: { pid: process.pid } }, readEnviron: () => environ({}), readListeners, page: PAGE });
+    const wild = await listenOn('0.0.0.0');
+    try {
+      const r = run();
+      assert.equal(r.ok, false);
+      assert.ok(
+        r.lines.includes(`FAIL planted (pid ${process.pid}): listens on 0.0.0.0 port ${wild.address().port}, reachable off this machine`),
+        r.lines.join('\n'),
+      );
+    } finally {
+      await new Promise((resolve) => wild.close(resolve));
+    }
+    const local = await listenOn('127.0.0.1');
+    try {
+      assert.equal(run().ok, true, run().lines.join('\n'));
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
+  },
+);
+test('hosted allow list (#10208): the test networks and the beta host pass; a planted mainnet or bank host fails', () => {
+  const allow = hostedAllowList('Beta.Example-Host.com');
+  assert.deepEqual([...allow].sort(), [...HOSTED_TEST_NETWORK_HOSTS, 'beta.example-host.com'].sort());
+  const records = { trade: { pid: 31 } };
+  const hosted = {
+    TRADE_USER_VENUE_URL: 'https://api.hyperliquid-testnet.xyz',
+    PAY_CRYPTO_RPC_URL: 'https://sepolia.base.org',
+    PUBLIC_URL: 'https://beta.example-host.com/app',
+    EDGE_URL: 'http://127.0.0.1:17500',
+  };
+  const pass = fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE, allow });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.match(
+    pass.lines.join('\n'),
+    /1 of 1 running processes: every address in their environments is this machine, a reserved name or the hosted allow list/,
+  );
+
+  // Without the allow list, the same hosted environment is three findings: the loopback check is unchanged.
+  assert.equal(fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE }).ok, false);
+
+  for (const [key, url, host] of [
+    ['TRADE_USER_VENUE_URL', 'https://api.hyperliquid.xyz', 'api.hyperliquid.xyz'],
+    ['PAY_CRYPTO_RPC_URL', 'https://mainnet.base.org', 'mainnet.base.org'],
+    ['BANK_RAIL_URL', 'https://api.bank-live.com/v1', 'api.bank-live.com'],
+    ['PAY_CRYPTO_RPC_URL', 'https://sepolia.base.org.attacker.net', 'sepolia.base.org.attacker.net'],
+    ['TRADE_USER_VENUE_URL', 'wss://ws.api.hyperliquid-testnet.xyz', 'ws.api.hyperliquid-testnet.xyz'],
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...hosted, [key]: url }), page: PAGE, allow });
+    assert.equal(r.ok, false, `${url} must fail`);
+    assert.ok(
+      r.lines.includes(`FAIL trade (pid 31): ${key} names ${url.split(':')[0]}://${host}, off this machine and the hosted allow list`),
+      r.lines.join('\n'),
+    );
+  }
+});
+
+test('hosted allow list (#10208): the beta host is one plain DNS name, else it throws and nothing runs open', () => {
+  for (const bad of [
+    undefined,
+    '',
+    'localhost',
+    '*.example.com',
+    'https://beta.example.com',
+    'beta.example.com:443',
+    'beta.example.com/x',
+    'a b.com',
+  ])
+    assert.throws(() => hostedAllowList(bad), /one plain DNS name/, String(bad));
 });
 
 test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {
@@ -204,4 +358,70 @@ test('reserved names never reach a service, so they pass; a real host that only 
     ['PAY_MERCHANT_TERMS_URL', 'https://terms.example/t'],
   ]);
   assert.deepEqual(found, []);
+});
+
+test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+});
+
+test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-anvil-'));
+  const paths = betaPaths(dir);
+  fs.mkdirSync(paths.root, { recursive: true });
+  const calls = [];
+  const sh = (ok) => (cmd, args) => (calls.push([cmd, ...args].join(' ')), { status: ok(args) ? 0 : 1 });
+
+  // The image is missing: it is pulled, then the launcher is written and the stack is given it.
+  assert.deepEqual(
+    ensureAnvil(
+      paths,
+      sh((a) => a[0] === 'pull'),
+    ).fresh,
+    true,
+    'a new launcher',
+  );
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).line,
+    /on the box/,
+  );
+  assert.deepEqual(calls, [
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+    `docker pull --quiet ${ANVIL_IMAGE}`,
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+  ]);
+  assert.equal(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).fresh,
+    false,
+    'the same launcher is not new',
+  );
+  assert.equal(fs.readFileSync(paths.anvil, 'utf8'), anvilLauncher());
+  assert.match(
+    anvilLauncher(),
+    /^#!\/bin\/sh\nexec docker run --rm --init --network host ghcr\.io\/foundry-rs\/foundry:v1\.5\.1 "anvil \$\*"\n$/,
+  );
+  assert.equal(fs.statSync(paths.anvil).mode & 0o777, 0o755);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, paths.anvil);
+  assert.equal(stackEnv(paths, { LOCAL_STACK_ANVIL_BIN: '/opt/anvil' }).LOCAL_STACK_ANVIL_BIN, '/opt/anvil', 'a chosen anvil wins');
+
+  // The image is the one CI's journeys run their chain with.
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes(`docker run --rm --init --network host ${ANVIL_IMAGE} "anvil $*"`));
+
+  // No docker, or a failed pull: no launcher, and the stack starts as before, with no TEST chain.
+  calls.length = 0;
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => false),
+    ).line,
+    /no TEST chain/,
+  );
+  assert.equal(fs.existsSync(paths.anvil), false);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
 });

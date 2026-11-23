@@ -25,7 +25,7 @@ function drawInto(host: HTMLDivElement | null) {
 /** The kit's sized chart box: a library's drawing filling it, and a state in its place at the same size. */
 export function ChartBoxes() {
   return (
-    <div className="vk-grid">
+    <div className="lt-stack">
       <ChartBox marks={{ 'data-testid': 'kit-chart-box' }}>
         <ChartCanvas
           label="TEST price, drawn by a charting library into the box"

@@ -93,6 +93,8 @@ import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
@@ -249,7 +251,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                record: row.status === 'paused' ? BANK_TRANSFERS_RESUME : BANK_TRANSFERS_PAUSE,
                 facts: [
                   [copyText('rooms.schedule'), row.id],
                   [copyText('rooms.amount'), amount(row.amount, row.assetId)],
@@ -473,9 +475,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
-      <DirectDebitsLink />
-      <CalendarLink />
-      <RulesLink />
+      <div className="lt-stack money-transfer-links">
+        <DirectDebitsLink />
+        <CalendarLink />
+        <RulesLink />
+      </div>
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {

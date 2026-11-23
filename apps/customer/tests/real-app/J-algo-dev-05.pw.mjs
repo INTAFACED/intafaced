@@ -138,12 +138,12 @@ console.log(z.reason);`,
   const order = await first.getAttribute('data-order');
   expect(await eventKinds(page, order)).toEqual(['new', 'accepted', 'filled']);
   const placed = orderEvents(page).and(page.locator(`[data-order="${order}"][data-kind="new"]`));
-  expect(Number(await placed.getAttribute('data-limit'))).toBe(Number(BELOW));
-  expect(Number(await placed.getAttribute('data-market'))).toBe(Number(MARK));
+  await expect.poll(async () => Number(await placed.getAttribute('data-limit'))).toBe(Number(BELOW));
+  await expect.poll(async () => Number(await placed.getAttribute('data-market'))).toBe(Number(MARK));
   expect(Number(BELOW)).toBeLessThan(Number(MARK));
   const filled = orderEvents(page).and(page.locator(`[data-order="${order}"][data-kind="filled"]`));
-  expect(Number(await filled.getAttribute('data-price'))).toBeLessThanOrEqual(Number(BELOW));
-  expect(Number(await filled.getAttribute('data-market'))).toBeLessThanOrEqual(Number(BELOW));
+  await expect.poll(async () => Number(await filled.getAttribute('data-price'))).toBeLessThanOrEqual(Number(BELOW));
+  await expect.poll(async () => Number(await filled.getAttribute('data-market'))).toBeLessThanOrEqual(Number(BELOW));
 
   // Quantity zero: rejected with its reason, and the strategy itself saw the rejected event (its own log printed it).
   const zero = events.and(page.locator('[data-qty="0"]'));
@@ -428,7 +428,7 @@ test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns r
   const event = room.getByTestId('quant-risk-event').and(page.locator('[data-kind="equity_stop"]'));
   await expect(event).toHaveCount(1);
   await expect(event).toHaveAttribute('data-mode', 'reduce_only');
-  expect(Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
+  await expect.poll(async () => Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
   const at = await event.getAttribute('data-ts');
   await view(room, 'Orders and trades');
   const buysAfter = await room

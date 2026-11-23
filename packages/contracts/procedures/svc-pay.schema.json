@@ -1,6 +1,2151 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "pay.accountControls.change": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "accountControls.change",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["restrict", "restore"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^(?:0|[1-9]\\d*)$"
+          }
+        },
+        "required": ["requestId", "target", "action", "reason", "expectedVersion"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "approverUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "before": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "after": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "outcome": {
+                "type": "string",
+                "const": "changed"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "actorUserId",
+              "before",
+              "after",
+              "outcome",
+              "changed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "approverUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "before": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "after": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "outcome": {
+                "type": "string",
+                "const": "noop"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "actorUserId",
+              "before",
+              "after",
+              "outcome",
+              "changed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "outcome": {
+                "type": "string",
+                "const": "refused"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              },
+              "actorUserId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "operator.denied",
+                  "mfa.required",
+                  "authority.unavailable",
+                  "target.not_found",
+                  "restore.not_permitted",
+                  "request.conflict",
+                  "restriction_no_four_eyes",
+                  "restriction_approval_mismatch",
+                  "restriction_approval_consumed",
+                  "identity.account_archived",
+                  "restriction.reason_unlisted",
+                  "restriction.reason_in_force"
+                ]
+              },
+              "current": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "identity"
+                              },
+                              "userId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "userId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "trading"
+                              },
+                              "userId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "userId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "merchant"
+                              },
+                              "merchantId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "merchantId"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "version": {
+                        "type": "string",
+                        "maxLength": 40,
+                        "pattern": "^(?:0|[1-9]\\d*)$"
+                      },
+                      "restricted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["target", "version", "restricted"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "outcome",
+              "changed",
+              "actorUserId",
+              "code",
+              "current"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "outcome": {
+                "type": "string",
+                "const": "conflict"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "code": {
+                "type": "string",
+                "const": "restriction.version_conflict"
+              },
+              "current": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "outcome",
+              "changed",
+              "actorUserId",
+              "code",
+              "current"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "outputChecks": {
+        "account_control_result_holds": {
+          "at": "output",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different target; Outcome, action and state versions disagree"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "11111111-1111-4111-8111-111111111111",
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            },
+            "action": "restrict",
+            "reason": "USDC",
+            "expectedVersion": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.accountControls.getState": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.getState",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": ["target", "version", "restricted"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.accountControls.history": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.history",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["target", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "actorUserId",
+                "before",
+                "after",
+                "outcome",
+                "changed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "noop"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "actorUserId",
+                "before",
+                "after",
+                "outcome",
+                "changed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "authority.unavailable",
+                    "target.not_found",
+                    "restore.not_permitted",
+                    "request.conflict",
+                    "restriction_no_four_eyes",
+                    "restriction_approval_mismatch",
+                    "restriction_approval_consumed",
+                    "identity.account_archived",
+                    "restriction.reason_unlisted",
+                    "restriction.reason_in_force"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "identity"
+                                },
+                                "userId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "userId"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "trading"
+                                },
+                                "userId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "userId"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "merchant"
+                                },
+                                "merchantId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "merchantId"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "restricted": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["target", "version", "restricted"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "outputChecks": {
+        "account_control_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different target; Outcome, action and state versions disagree"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            },
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.allowlist.approve": {
       "service": "svc-pay",
       "module": "pay",
@@ -20229,6 +22374,224 @@
         }
       ]
     },
+    "pay.merchantControl.approvals.list": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchantControl.approvals.list",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:onboard", "pay:read"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "voided", "expired", "consumed"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "search": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["merchantId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "approvalId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "merchantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "settlementId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "assetCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "payloadHash": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "rejected", "voided", "expired", "consumed"]
+                },
+                "makerUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "checkerUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "decidedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "railId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "destinationKind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                "destinationMasked": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                }
+              },
+              "required": [
+                "approvalId",
+                "merchantId",
+                "settlementId",
+                "amount",
+                "assetCode",
+                "payloadHash",
+                "status",
+                "makerUserId",
+                "checkerUserId",
+                "createdAt",
+                "decidedAt",
+                "expiresAt",
+                "railId",
+                "destinationKind",
+                "destinationMasked"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "dailyPayoutRemaining": {
+            "maxItems": 232,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "remaining": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["assetCode", "remaining"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items", "nextCursor", "dailyPayoutRemaining"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "merchantId": "11111111-1111-4111-8111-111111111111",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.merchantControl.approvals.request": {
       "service": "svc-pay",
       "module": "pay",
@@ -24218,6 +26581,143 @@
         }
       ]
     },
+    "pay.merchantOps.payouts.list": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchantOps.payouts.list",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:onboard", "pay:read"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "posted", "paid_out", "failed"]
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "search": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "merchantId": {
+                  "type": "string"
+                },
+                "window": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "gross": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "fees": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "net": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "posted", "paid_out", "failed"]
+                },
+                "payoutMethod": {
+                  "type": ["string", "null"]
+                },
+                "payoutReference": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": [
+                "id",
+                "merchantId",
+                "window",
+                "assetId",
+                "gross",
+                "fees",
+                "net",
+                "status",
+                "payoutMethod",
+                "payoutReference",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.merchantOps.team.acceptInvite": {
       "service": "svc-pay",
       "module": "pay",
@@ -24767,6 +27267,150 @@
         }
       ]
     },
+    "pay.merchantOps.webhooks.deliveries.list": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchantOps.webhooks.deliveries.list",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:onboard", "pay:read"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "endpointId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "delivered", "failed", "dead", "unknown"]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "endpointId": {
+                  "type": "string"
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "eventType": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "delivered", "failed", "dead", "unknown"]
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastStatusCode": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "latencyMs": {
+                  "type": ["number", "null"]
+                },
+                "nextAttemptAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "deliveredAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "endpointId", "eventType", "status", "attempts", "lastStatusCode", "createdAt", "deliveredAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.merchantOps.webhooks.guide": {
       "service": "svc-pay",
       "module": "pay",
@@ -24962,6 +27606,121 @@
           }
         },
         "required": ["asOf", "endpoints"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.merchantOps.webhooks.list": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchantOps.webhooks.list",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:onboard", "pay:read"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "disabled"]
+          },
+          "search": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "disabled"]
+                },
+                "disabledReason": {
+                  "type": ["string", "null"]
+                },
+                "consecutiveFailures": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "eventTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "previousSecretUntil": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["id", "url", "status", "consecutiveFailures", "createdAt", "updatedAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
         "additionalProperties": false
       },
       "samples": [
@@ -31841,6 +34600,136 @@
         }
       ]
     },
+    "pay.submerchantPermission.grant": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "submerchantPermission.grant",
+      "access": {
+        "caller": "scope",
+        "scope": "pay:write",
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "granteeMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "subjectMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "merchant.profile",
+              "checkout.profile",
+              "payment.link",
+              "payment",
+              "payment.refund",
+              "settlement",
+              "settlement.payout",
+              "webhook",
+              "kyb",
+              "submerchant",
+              "permission"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": ["granteeMerchantId", "subjectMerchantId", "area", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "seq": {
+            "type": "string"
+          },
+          "granteeMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "subjectMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "area": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["grant", "revoke"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "actorMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "actorScope": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "granteeMerchantId",
+          "subjectMerchantId",
+          "area",
+          "action",
+          "reason",
+          "actorId",
+          "actorMerchantId",
+          "actorScope",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "granteeMerchantId": "11111111-1111-4111-8111-111111111111",
+            "subjectMerchantId": "22222222-2222-4222-8222-222222222222",
+            "area": "payment",
+            "reason": "Runs refunds for this shop"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.submerchantPermission.history": {
       "service": "svc-pay",
       "module": "pay",
@@ -32037,6 +34926,136 @@
           "verdict": "accept",
           "input": {
             "subjectMerchantId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.submerchantPermission.revoke": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "submerchantPermission.revoke",
+      "access": {
+        "caller": "scope",
+        "scope": "pay:write",
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "granteeMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "subjectMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "merchant.profile",
+              "checkout.profile",
+              "payment.link",
+              "payment",
+              "payment.refund",
+              "settlement",
+              "settlement.payout",
+              "webhook",
+              "kyb",
+              "submerchant",
+              "permission"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": ["granteeMerchantId", "subjectMerchantId", "area", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "seq": {
+            "type": "string"
+          },
+          "granteeMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "subjectMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "area": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["grant", "revoke"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "actorMerchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "actorScope": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "granteeMerchantId",
+          "subjectMerchantId",
+          "area",
+          "action",
+          "reason",
+          "actorId",
+          "actorMerchantId",
+          "actorScope",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "granteeMerchantId": "11111111-1111-4111-8111-111111111111",
+            "subjectMerchantId": "22222222-2222-4222-8222-222222222222",
+            "area": "payment",
+            "reason": "Runs refunds for this shop"
           }
         },
         {

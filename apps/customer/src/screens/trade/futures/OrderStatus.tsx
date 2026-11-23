@@ -51,7 +51,7 @@ export function FuturesOrderOrigin({ origin, label }: { origin: FuturesOrderOrig
   const { t } = tabsCopy.useCopy();
   const kind = origin ?? 'user';
   return (
-    <span className="flex flex-wrap items-center gap-1" data-origin={kind}>
+    <span className="lt-toolbar" data-origin={kind}>
       <Badge variant={kind === 'user' ? 'outline' : 'soft'} tone={kind === 'liquidation' ? 'down' : 'neutral'}>
         {t(`Origin ${kind}`)}
       </Badge>

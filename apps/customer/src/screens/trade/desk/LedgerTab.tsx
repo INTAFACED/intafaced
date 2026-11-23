@@ -20,6 +20,7 @@ import {
 } from './deps';
 import { ledgerKindKey, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 import { clockMinutes, dayTime } from './time';
+import { DateInput } from '@intafaced/ui/lit';
 
 const PAGE = 50;
 
@@ -238,11 +239,11 @@ function Statement() {
             <div className="dk-statement-days">
               <label>
                 <span>{t('Statement from')}</span>
-                <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+                <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
               </label>
               <label>
                 <span>{t('Statement to')}</span>
-                <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+                <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
             <p className="lt-hint">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
