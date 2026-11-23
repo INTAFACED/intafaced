@@ -921,7 +921,7 @@ impl MatchingEngine {
     pub fn net_position(&self, market_id: &str, account_id: &str) -> Amount {
         self.books
             .get(market_id)
-            .map_or(0, |b| b.net_position(account_id))
+            .map_or(Amount::ZERO, |b| b.net_position(account_id))
     }
 
     /// The engine's snapshot: every book's state at the journal's length, and the dead sessions.
@@ -1519,10 +1519,10 @@ impl MatchingEngine {
             return Ok(SubmitResult::refused(disabled(order_id)));
         }
         let net = self.net_position(market_id, account_id);
-        if net == 0 {
+        if net == Amount::ZERO {
             return Ok(position_flat());
         }
-        let long = net > 0;
+        let long = net > Amount::ZERO;
         let mut order = EngineOrder::new(
             order_id,
             account_id,

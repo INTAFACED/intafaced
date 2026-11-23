@@ -241,6 +241,50 @@ describe('payout reconciler job', { timeout: 30_000 }, () => {
     expect(chain.outboundTransfers()).toHaveLength(0);
   });
 
+  // A send the chain mined and reverted moved nothing, so its hold never settles.
+  it('a payout the chain reverted is never settled: the hold stays below the rail depth and goes back at it, once', async () => {
+    const { merchant, settlement } = await readySettlement('recon-reverted');
+    crypto.payout = async (s) => {
+      await chain.send({ to: s.destination.ref, assetId: s.assetId, amount: s.amount, idempotencyKey: `pay.payout:${s.settlementId}` });
+      throw new Error('receipt status reverted');
+    };
+    await expect(pay.payoutSettlement(request(settlement.id))).rejects.toThrow('receipt status reverted');
+    const key = `pay.payout:${settlement.id}`;
+
+    chain.setSendDepth(key, { reverted: true, depth: 5 });
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({
+      examined: 1,
+      paidOut: 0,
+      reversed: 0,
+      stillUnknown: 1,
+    });
+    expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.settled')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.reversed')).toHaveLength(0);
+
+    chain.setSendDepth(key, { reverted: true, depth: 6 });
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ examined: 1, paidOut: 0, reversed: 1 });
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ examined: 0 });
+    const after = await pay.getSettlement(settlement.id);
+    expect(after.status).toBe('failed');
+    const [stored] = await sql<
+      Array<{ failure_code: string | null }>
+    >`SELECT failure_code FROM pay.settlements WHERE id = ${settlement.id}`;
+    expect(stored?.failure_code).toBe('rail.reverted');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.settled')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.reversed')).toHaveLength(1);
+    expect(formatAmount((await ledger.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe(formatAmount(settlement.net));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a payout whose send has no receipt yet keeps its hold', async () => {
+    const { settlement } = await crashedAfterSend('recon-no-receipt');
+    chain.setSendDepth(`pay.payout:${settlement.id}`, 0);
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ examined: 1, paidOut: 0, stillUnknown: 1 });
+    expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.settled')).toHaveLength(0);
+  });
+
   it('crash between the rail answer and the ledger settle: the next pass finishes it without a second post', async () => {
     const { settlement } = await crashedAfterSend('recon-crash-settle');
     const originalPost = ledger.post.bind(ledger);

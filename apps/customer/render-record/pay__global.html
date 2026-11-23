@@ -108,7 +108,7 @@
 </p>
 </section>
 <div class="pay-recent" data-testid="pay-recent">
-<section class="pay-recent__section" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
+<section class="lt-stack" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
 <header class="pay-recent__head">
 <h2 id="pay-recent-payments">Recent payments</h2>
 <button type="button" class="pay-recent__link">Refresh</button>
@@ -154,7 +154,7 @@
 <button type="button" class="pay-recent__link">Look further back</button>
 <a class="pay-recent__link" href="/money/activity?tab=transfers">See all activity</a>
 </section>
-<section class="pay-recent__section" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
+<section class="lt-stack" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
 <header class="pay-recent__head">
 <h2 id="pay-recent-recipients">Recent recipients</h2>
 </header>
@@ -188,7 +188,7 @@
 </div>
 </div>
 <div hidden="" data-testid="receive-panel">
-<div class="pay-body" data-testid="receive-card">
+<div class="lt-stack" data-testid="receive-card">
 <div class="pay-receive">
 <h2 class="pay-receive__label">Your handle</h2>
 <p class="pay-receive__value" data-testid="receive-value">@test_friend</p>
@@ -264,7 +264,7 @@
 </div>
 </div>
 <div data-testid="global-panel">
-<div class="pay-body" data-testid="global-card">
+<div class="lt-stack" data-testid="global-card">
 <div class="pay-reason" role="note" data-testid="pay-reason">
 <p class="pay-reason__title">No services run in the look gate.</p>
 <p class="pay-reason__body">
@@ -278,21 +278,21 @@
 <li>Review and send</li>
 <li>Track it</li>
 </ol>
-<form class="pay-body" novalidate="">
+<form class="lt-stack" novalidate="">
 <fieldset class="pay-fieldset" disabled="">
 <div class="pay-field">
-<label class="pay-field__label" for="global-currency">Where it goes</label>
+<label class="lt-hint" for="global-currency">Where it goes</label>
 <select id="global-currency" class="pay-text">
 <option value="">Choose a country and currency</option>
 </select>
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="global-country-check">Not in the list? Enter a country code</label>
+<label class="lt-hint" for="global-country-check">Not in the list? Enter a country code</label>
 <input id="global-country-check" class="pay-text" autocomplete="off" maxlength="2" type="text" value="">
 <button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" data-testid="global-country-check" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Check</button>
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="global-recipient">Recipient</label>
+<label class="lt-hint" for="global-recipient">Recipient</label>
 <select id="global-recipient" class="pay-text">
 <option value="">Choose a saved recipient</option>
 </select>
@@ -302,26 +302,26 @@
 <fieldset class="pay-fieldset" disabled="">
 <h3 class="pay-section-title">Add a new recipient</h3>
 <div class="pay-field">
-<label class="pay-field__label" for="global-name">Recipient’s full name</label>
+<label class="lt-hint" for="global-name">Recipient’s full name</label>
 <input id="global-name" class="pay-text" autocomplete="off" type="text" value="">
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="global-account">Account number or IBAN</label>
+<label class="lt-hint" for="global-account">Account number or IBAN</label>
 <input id="global-account" class="pay-text" autocomplete="off" type="text" value="">
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="global-bank">Bank code (SWIFT/BIC)</label>
+<label class="lt-hint" for="global-bank">Bank code (SWIFT/BIC)</label>
 <input id="global-bank" class="pay-text" autocomplete="off" type="text" value="">
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="global-label">Name for this recipient (optional)</label>
+<label class="lt-hint" for="global-label">Name for this recipient (optional)</label>
 <input id="global-label" class="pay-text" autocomplete="off" type="text" value="">
 </div>
 <button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" data-testid="global-recipient-save" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Save recipient</button>
 </fieldset>
 <fieldset class="pay-fieldset" disabled="">
 <div class="pay-field">
-<span class="pay-field__label">You send</span>
+<span class="lt-hint">You send</span>
 <div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
 <div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
 <input id="base-ui-_r_16_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="You send" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="">

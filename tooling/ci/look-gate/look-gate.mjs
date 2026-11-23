@@ -342,6 +342,29 @@ async function settle(page) {
 }
 
 /**
+ * The whole page in one viewport (at most 12,000 px), so the boxes measured are where the shot draws them, and settled
+ * there. The height is read again after each resize until it holds: content sized by the viewport's height (a vh
+ * clamp, a desk grid) grows with it, and a page left taller than its viewport sets the fixed bars down over content its
+ * bottom padding keeps clear at a real screen's height, so the bar's own grey is measured as the text's background
+ * (/trade/spot's "Market" at 1.05:1, /charts' note at 1.07:1, 22 Nov). `fits` is false when it still grows after
+ * `tries` resizes, `settled` when the layout never stopped moving.
+ */
+export async function fitToPage(page, { tries = 6 } = {}) {
+  const { width, height: floor } = page.viewportSize();
+  const want = async () => Math.min(Math.max(floor, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
+  let settled = false;
+  for (let i = 0; i < tries; i++) {
+    const full = await want();
+    if (i > 0 && full === page.viewportSize().height) return { settled, fits: true };
+    if (full !== page.viewportSize().height) await page.setViewportSize({ width, height: full });
+    settled = await settle(page);
+    // A layout that never stops moving gives no height to hold to.
+    if (!settled) break;
+  }
+  return { settled, fits: (await want()) === page.viewportSize().height };
+}
+
+/**
  * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
  * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
  */
@@ -519,14 +542,13 @@ async function check(context, origin, target, vpName, opts) {
       .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
       .catch(() => row.notes.push('still loading after 8 s'));
     await page.evaluate(() => document.fonts.ready);
-    // The whole page in one viewport, so the boxes measured are where the shot draws them (a full-page shot resizes the
-    // viewport, which moves fixed bars and anything sized in vh).
+    // The whole page in one viewport (fitToPage), not a full-page shot, which resizes the viewport and so moves fixed
+    // bars and anything sized in vh after the boxes are measured.
     const viewport = page.viewportSize();
-    const fullHeight = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-    if (!target.scope && fullHeight > viewport.height)
-      await page.setViewportSize({ width: viewport.width, height: Math.min(fullHeight, 12_000) });
     if (target.scope) await page.addStyleTag({ content: 'header.sticky{display:none !important}' });
-    if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
+    const fit = target.scope ? { settled: await settle(page), fits: true } : await fitToPage(page);
+    if (!fit.settled) row.notes.push('layout still moving after 6 s');
+    if (!fit.fits) row.notes.push('page still taller than its viewport after 6 resizes (content sized in vh)');
 
     // The shots and the measurement back to back, so the boxes are where the pictures draw them.
     const shotOpts = { animations: 'disabled', caret: 'hide', timeout: 30_000 };
@@ -845,10 +867,8 @@ async function variants(browser, origin, target, opts) {
         const dir = join(opts.out, 'shots', target.room);
         mkdirSync(dir, { recursive: true });
         // The whole page in one viewport, as the main shots are, so fixed bars stay where a person sees them.
-        const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-        if (!target.scope && height > VIEWPORTS.phone.height)
-          await page.setViewportSize({ width: VIEWPORTS.phone.width, height: Math.min(height, 12_000) });
-        await settle(page);
+        if (target.scope) await settle(page);
+        else await fitToPage(page);
         const path = join(dir, 'phone-copy-130.png');
         const shotOpts = { path, animations: 'disabled', caret: 'hide', timeout: 30_000 };
         await (target.scope ? page.locator(target.scope).screenshot(shotOpts) : page.screenshot(shotOpts));
@@ -1105,17 +1125,9 @@ async function picture(browser, origin, target, vpName) {
     await page.addStyleTag({ content: FREEZE_CSS });
     await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
     await page.evaluate(() => document.fonts.ready);
-    // Settled before the height is read, and read again after each resize until it holds: a room still filling in
-    // when its height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
-    await settle(page);
-    const { width, height } = page.viewportSize();
-    for (let i = 0, last = height; i < 4; i++) {
-      const full = Math.min(Math.max(height, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
-      if (full === last && i > 0) break;
-      await page.setViewportSize({ width, height: full });
-      last = full;
-      await settle(page);
-    }
+    // Settled, and the height read again after each resize until it holds (fitToPage): a room still filling in when its
+    // height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
+    await fitToPage(page);
     return await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 30_000 });
   } catch (error) {
     // A page that can't be shot is reached: the full checks say why.

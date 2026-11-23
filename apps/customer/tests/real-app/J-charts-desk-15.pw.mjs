@@ -421,7 +421,7 @@ test(`${J} #3 confirms: the order shows as a line with its size, and a retry sen
   const line = orderLines();
   await expect(line).toHaveCount(1, { timeout: 20_000 });
   await expect(line).toHaveAttribute('data-client-order-id', order.venueClientOrderId);
-  expect(sameDecimal(await line.getAttribute('data-amount'), AMOUNT)).toBe(true);
+  await expect.poll(async () => sameDecimal(await line.getAttribute('data-amount'), AMOUNT)).toBe(true);
   await expect(line).toContainText(`Buy ${AMOUNT}`);
   run.write({ order: order.venueClientOrderId });
   expect(await ledgerView(s.account)).toEqual(s.ledger);

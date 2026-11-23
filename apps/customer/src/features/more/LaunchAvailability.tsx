@@ -24,7 +24,7 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
   const priv = (section: ReactNode, returnTo: string) =>
     userId ? section : restoreFailed ? <SessionRetryPanel retry={retryRestore} /> : <SignInPanel returnTo={returnTo} />;
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Tabs
         items={TABS}
         value={tab}

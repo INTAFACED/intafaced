@@ -665,7 +665,7 @@ mod tests {
         assert_eq!(g(&serialise_guardrail(&parsed).compact()).unwrap(), parsed);
         assert_eq!(
             parsed.limits.max_spend_per_session,
-            Some(1_500_000_000_000_000_000)
+            Some(Amount::from_scaled(1_500_000_000_000_000_000))
         );
     }
 
@@ -687,7 +687,7 @@ mod tests {
             closed: false,
             action_count: 0,
             tool_calls: vec![],
-            spend: 0,
+            spend: Amount::ZERO,
             approved_tools: vec![],
         };
         let code = |r: Result<(), Refusal>| r.err().map(|r| r.code);

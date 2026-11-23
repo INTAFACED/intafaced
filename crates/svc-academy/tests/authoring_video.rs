@@ -21,7 +21,7 @@ use authoring_kit::{
     TestDb, at, code, data, door, equals, iso, matches, message, principal, query, s, store, v,
 };
 use service_kit::json::Json;
-use service_kit::money::parse_amount;
+use service_kit::money::{Amount, parse_amount};
 use svc_academy::authoring::storage::Storage;
 use svc_academy::authoring::tracks::{self, Cue, TrackIn};
 use svc_academy::authoring::video::{self, Caller, Entry, Gate, Library, Transcript};
@@ -42,7 +42,7 @@ fn gate(min_tier: &str, min_stake: &str) -> Gate {
     }
 }
 
-fn amount(s: &str) -> i128 {
+fn amount(s: &str) -> Amount {
     parse_amount(s).unwrap()
 }
 
@@ -408,7 +408,7 @@ fn an_unset_or_zero_ttl_and_an_unset_or_blank_region_refuse_by_name_and_publishe
 
 #[test]
 fn the_shipped_spine_publishes_neither_a_captions_url_nor_a_transcript() {
-    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(0));
+    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(Amount::ZERO));
     let lib = Library {
         storage: Some(&sg),
         gate: &g,
@@ -433,7 +433,7 @@ fn the_shipped_spine_publishes_neither_a_captions_url_nor_a_transcript() {
 
 #[test]
 fn an_unknown_slug_is_not_found_and_a_blank_track_is_unpublished() {
-    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(0));
+    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(Amount::ZERO));
     let lib = Library {
         storage: Some(&sg),
         gate: &g,
@@ -470,7 +470,7 @@ fn an_unknown_slug_is_not_found_and_a_blank_track_is_unpublished() {
 
 #[test]
 fn a_published_test_track_is_returned_with_no_invented_language() {
-    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(0));
+    let (sg, g, stake) = (s3(), gate("none", "0"), FixedStake(Amount::ZERO));
     let lib = Library {
         storage: Some(&sg),
         gate: &g,

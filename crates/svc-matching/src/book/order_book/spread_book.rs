@@ -17,6 +17,7 @@ use crate::book::spread::{
 use crate::book::types::{
     AmendResult, EngineAmend, EngineOrder, Opt, OrderType, Reject, SubmitResult, Tif,
 };
+use service_kit::money::Amount;
 
 fn refuse(code: &str, message: impl Into<String>) -> Reject {
     Reject::new(code, message)
@@ -158,16 +159,16 @@ pub fn spread_order_refuse(
         ));
     }
     // A quantity that is not positive is the core book's `invalid_qty`, not a lot question.
-    if order.qty <= 0 {
+    if order.qty <= Amount::ZERO {
         return None;
     }
-    if order.qty % instrument.lot != 0 {
+    if order.qty % instrument.lot != Amount::ZERO {
         return Some(refuse(
             "spread_qty_off_lot",
             "spread qty is not a whole number of lots",
         ));
     }
-    if price % instrument.tick != 0 {
+    if price % instrument.tick != Amount::ZERO {
         return Some(refuse(
             "spread_price_off_tick",
             "spread price is not on the listed tick",
@@ -231,7 +232,7 @@ impl OrderBook {
             return result;
         }
         self.spread_mark = Some(spread_identity(&terms.instrument));
-        let reference = terms.anchor_reference.unwrap_or(0);
+        let reference = terms.anchor_reference.unwrap_or(Amount::ZERO);
         // The rehearsal priced these exact fills. A fill left without legs means the book moved under it: the engine
         // stops on it (`EngineError::Invariant`) rather than print half a spread.
         for fill in &mut result.fills {

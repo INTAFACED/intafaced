@@ -41,7 +41,7 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
         ) : r.status === 'failed' ? (
           <PortalFailure result={r.failure} retry={retry} />
         ) : null}
-        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+        <form data-testid="form-stack" className="lt-stack" noValidate onSubmit={(e) => e.preventDefault()}>
           <Field
             label={t('tuAmount')}
             hint={t('tuAmountHint')}
