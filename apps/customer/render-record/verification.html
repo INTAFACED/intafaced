@@ -118,95 +118,67 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="verification" class="verification" lang="en">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div data-testid="verification" lang="en">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Verification</h1>
-<p class="lt-muted">Your verification level and your requests for review.</p>
+<h1 class="lt-title">Verification</h1>
+<p class="lt-description">Your verification level and your requests for review.</p>
 </div>
 </header>
-<p class="verification__identity">
-<span lang="en" dir="ltr" data-i18n="account.verification.owner">Personal account</span> · <span class="verification__ref" lang="zxx">00000000-0000-4000-8000-000000000001</span>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<p class="lt-sr">
+<span lang="en" dir="ltr" data-i18n="account.verification.owner">Personal account</span> · <span lang="zxx">00000000-0000-4000-8000-000000000001</span>
 </p>
-<section class="verification__trading" aria-label="Trading checks" data-testid="verification__trading">
+<div class="lt-sections">
+<section class="lt-stack" aria-label="Trading checks" data-testid="verification__trading">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.failedTitle">The trading checks could not be read</span>
 </h2>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<div class="verification__columns">
-<section data-testid="verification__list" class="verification__list" aria-label="Your requests">
-<div data-testid="verification__tier" class="verification__tier">
-<span class="eyebrow">
+<section data-testid="verification__list" class="lt-stack" aria-label="Your requests">
+<div data-testid="verification__tier" class="lt-stack">
+<span class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.current">Your verification level</span>
 </span>
-<h2 class="verification__level">
-<span data-slot="status-tag" data-status="filled" class="inline-flex items-center whitespace-nowrap border border-current/40 text-accent-text bg-lime-soft verification__level-tag h-10 rounded-sm px-5 text-lg font-semibold" data-testid="verification__level-tag">Basic</span>
+<h2 class="lt-figure" data-testid="verification__level-tag" data-status="filled">
+<span lang="en" dir="ltr" data-i18n="account.verification.basic">Basic</span>
 </h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.currentBody">A pending request doesn’t change your level until it’s approved.</span>
 </p>
 </div>
-<div data-testid="verification__records" class="verification__records">
-<div class="verification__heading">
-<h2>
-<span lang="en" dir="ltr" data-i18n="account.verification.records">Your requests</span>
-</h2>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="account.verification.refresh">Refresh records</span>
-</button>
-</div>
-<p class="lt-muted">
-<span lang="en" dir="ltr" data-i18n="account.verification.window">Showing up to 50 recent requests.</span>
-</p>
-<button type="button" class="button button--secondary verification__jump">
-<span lang="en" dir="ltr" data-i18n="account.verification.jump">Request review</span>
-</button>
-<ul class="verification__rows">
-<li>
-<div class="verification__row">
-<strong>
-<span lang="en" dir="ltr" data-i18n="account.verification.basic">Basic</span>
-</strong>
-<span lang="zxx">US</span>
-<span class="verification__approved">
-<span lang="en" dir="ltr" data-i18n="account.verification.approved">Approved</span>
-</span>
-<time datetime="2026-10-08T12:00:00.000Z" lang="en">8 Oct, 12:00</time>
-<button type="button" class="button button--ghost " aria-label="Inspect record 33333333-3333-4333-8333-333333333333">
-<span lang="en" dir="ltr" data-i18n="account.verification.inspect">Details</span> →</button>
-</div>
-<p class="verification__ref muted" lang="zxx">33333333-3333-4333-8333-333333333333</p>
-</li>
-</ul>
-</div>
 </section>
-<section data-testid="verification__request" class="verification__request" aria-label="Request review">
+<section data-testid="verification__request" class="lt-stack" aria-label="Request review">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verification.requestTitle">Request review</span>
 </h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.requestBody">Sending this asks for a review. It doesn’t change your level unless it’s approved.</span>
 </p>
-<div class="verification__attempts" data-testid="verification__attempts" data-state="unread">
+<div class="lt-stack" data-testid="verification__attempts" data-state="unread">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.verificationAttempts.failedTitle">Attempts could not be read</span>
 </h3>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
@@ -221,48 +193,84 @@
 <option value="institutional">Institutional</option>
 </select>
 </label>
-<label class="lt-field" for="kyc-country-_r_3_">
-<span id="kyc-country-_r_3_-label">Country code</span>
-<input required="" minlength="2" maxlength="2" pattern="[a-zA-Z]{2}" id="kyc-country-_r_3_" aria-labelledby="kyc-country-_r_3_-label" aria-invalid="false" aria-describedby="kyc-country-_r_3_-help" value="" name="kyc-country">
-<small id="kyc-country-_r_3_-help" class="">Two letters, for example US.</small>
-</label>
-<button type="submit" class="button button--primary ">
+<div class="lit-field-control">
+<label for="_r_3_">Country code</label>
+<input required="" minlength="2" maxlength="2" pattern="[a-zA-Z]{2}" id="_r_3_" aria-describedby="_r_3_-hint" value="" name="kyc-country">
+<span id="_r_3_-hint" data-part="hint">Two letters, for example US.</span>
+</div>
+<button type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.verification.review">Review request</span>
 </button>
 </form>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.documentBoundary">You can’t upload documents here. Not sure which level to pick? Verification help explains each one.</span>
 </p>
-<a data-testid="text-link" class="text-link" href="/support">
-<span lang="en" dir="ltr" data-i18n="account.verification.help">Verification help</span> →</a>
+<a data-testid="text-link" class="lt-link" href="/support">
+<span lang="en" dir="ltr" data-i18n="account.verification.help">Verification help</span> <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
 </section>
+<section data-testid="verification__records" class="lt-stack" aria-label="Your requests">
+<div class="lt-title-row">
+<h2>
+<span lang="en" dir="ltr" data-i18n="account.verification.records">Your requests</span>
+</h2>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
+<span lang="en" dir="ltr" data-i18n="account.verification.refresh">Refresh records</span>
+</button>
 </div>
-<section class="verification__ladder" aria-label="What each level unlocks">
+<p class="lt-muted">
+<span lang="en" dir="ltr" data-i18n="account.verification.window">Showing up to 50 recent requests.</span>
+</p>
+<ul class="lt-sections">
+<li class="lt-stack">
+<div class="lt-title-row">
+<strong>
+<span lang="en" dir="ltr" data-i18n="account.verification.basic">Basic</span> · <span lang="zxx">US</span>
+</strong>
+<span class="lt-chip" data-status="done">
+<span class="lt-chip-mark" aria-hidden="true">
+</span>Approved</span>
+</div>
+<p class="lt-muted">
+<time datetime="2026-10-08T12:00:00.000Z" lang="en">8 Oct, 12:00</time>
+</p>
+<p class="lt-sr" lang="zxx">33333333-3333-4333-8333-333333333333</p>
+<div class="lt-actions">
+<button aria-label="Inspect record 33333333-3333-4333-8333-333333333333" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<span lang="en" dir="ltr" data-i18n="account.verification.inspect">Details</span> <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</button>
+</div>
+</li>
+</ul>
+</section>
+<section class="lt-stack" aria-label="What each level unlocks">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationLadder.failedTitle">Levels could not be read</span>
 </h2>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="verification__bank" aria-label="Verification for the bank" data-testid="verification__bank">
+<section class="lt-stack" aria-label="Verification for the bank" data-testid="verification__bank">
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.bankTitle">Verification for the bank</span>
 </h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.bankBody">Cards, bank accounts and higher limits need a fuller verification with your documents. Trading does not.</span>
 </p>
-<button type="button" class="button button--secondary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.bankOpen">Start verification for the bank</span>
 </button>
 </section>
-<section class="verification__cases" aria-labelledby="verification-poa-title" data-testid="verification__poa">
+<section class="lt-stack" aria-labelledby="verification-poa-title" data-testid="verification__poa">
 <h2 id="verification-poa-title">
 <span lang="en" dir="ltr" data-i18n="account.verificationPoa.title">Proof of address</span>
 </h2>
@@ -273,16 +281,16 @@
 <span lang="en" dir="ltr" data-i18n="account.verificationPoa.failedTitle">Proof of address could not be read</span>
 </h3>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="verification__cases" aria-labelledby="verification-capabilities-title">
+<section class="lt-stack" aria-labelledby="verification-capabilities-title">
 <h2 id="verification-capabilities-title">
 <span lang="en" dir="ltr" data-i18n="account.verificationCapabilities.title">Capabilities</span>
 </h2>
@@ -290,25 +298,25 @@
 <span lang="en" dir="ltr" data-i18n="account.verificationCapabilities.failedTitle">Capabilities could not be read</span>
 </h3>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="verification__cases" aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
+<section class="lt-stack" aria-labelledby="verification-restrictions-title" data-testid="verification__restrictions">
 <h2 id="verification-restrictions-title">
 <span lang="en" dir="ltr" data-i18n="account.status.restrictionsOnAccount">Restrictions on your account</span>
 </h2>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
@@ -318,7 +326,7 @@
 </a>
 </p>
 </section>
-<section class="verification__cases" aria-labelledby="verification-cases-title">
+<section class="lt-stack" aria-labelledby="verification-cases-title">
 <h2 id="verification-cases-title">
 <span lang="en" dir="ltr" data-i18n="account.verificationCases.title">Case history</span>
 </h2>
@@ -326,15 +334,23 @@
 <span lang="en" dir="ltr" data-i18n="account.verificationCases.failedTitle">Case history could not be read</span>
 </h3>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>
