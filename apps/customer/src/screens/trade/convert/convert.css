@@ -30,7 +30,7 @@
   }
 
   /* The title and the card side by side, both from the top: the card keeps its own width and the title the rest, so
-     no half of the first screen stands empty with the title floating in it (#10320). */
+     no half of the first screen stands empty with the title floating in it (issue 10320). */
   .cvt-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 32.5rem);

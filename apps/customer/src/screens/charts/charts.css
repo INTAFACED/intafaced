@@ -663,7 +663,7 @@
     .cw-canvas {
       min-height: clamp(240px, 46vh, 420px);
     }
-    /* On a phone the intervals and the chart styles wrap onto rows instead of running past the card's edge (#10320). */
+    /* On a phone the intervals and the chart styles wrap onto rows instead of running past the card's edge (issue 10320). */
     .cw-bar,
     .cw-chips {
       flex-wrap: wrap;
