@@ -11,7 +11,7 @@ const en = {
   testLabel: 'TEST venue: every figure here is TEST.',
   loading: 'Reading the run…',
   venueOff:
-    'Live trading on your own venue account is not open here yet, so no strategy can run live. Your strategies, backtests and paper runs still work.',
+    'Live trading on your own venue account is off on this service, so no strategy can run live. Your strategies, backtests and paper runs still work.',
   none: 'No live run is on this account. A run starts from a strategy’s deploy step.',
   open: 'Open',
   version: 'Version {version}',

@@ -8,7 +8,7 @@ export const researchCopy = defineCopy('quant-research', {
   dataIntro:
     'INTAFACED’s own public market data, kept for your research: prices (best bid, best ask and last trade), order books and trades, with no trader named. A time nothing was recorded is shown as a gap; it is never filled in.',
   dataSettings: 'Recorded every {seconds} seconds and kept for {days} days, so from {from}.',
-  dataStoreUnset: 'No market data is recorded here yet: which markets to record, and how often, is not set.',
+  dataStoreUnset: 'No market data is recorded here: which markets to record, and how often, is not set.',
   dataRetentionUnset: 'How long market data is kept is not set, so none is shown.',
   filterKind: 'Show',
   filterSymbol: 'Market',
