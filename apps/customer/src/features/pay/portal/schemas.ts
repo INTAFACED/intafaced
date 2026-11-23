@@ -47,7 +47,6 @@ import {
   preferenceSchema,
   kybEventSchema,
   teamEventSchema,
-  exportJobSchema,
   notificationSchema,
   preferenceChangeSchema,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
@@ -274,4 +273,4 @@ export {
   notificationKinds,
   preferenceSchema,
 };
-export { exportJobSchema, preferenceChangeSchema };
+export { preferenceChangeSchema };
