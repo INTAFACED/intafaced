@@ -27476,6 +27476,102 @@
         }
       ]
     },
+    "pay.support.withdrawalDestinations": {
+      "service": "svc-pay",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/support/withdrawal-destinations",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-support"]
+      },
+      "refusals": {
+        "pay.unauthenticated": "UNAUTHORIZED",
+        "pay.support_read_forbidden": "FORBIDDEN",
+        "pay.support_read_input": "BAD_REQUEST",
+        "pay.support_read_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "withdrawalIds": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          }
+        },
+        "required": ["userId", "withdrawalIds"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "withdrawals": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "withdrawalId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    }
+                  },
+                  "required": ["kind", "ref"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["withdrawalId", "destination"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["withdrawals"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "withdrawalIds": ["11111111-1111-4111-8111-111111111111"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "withdrawalIds": []
+          }
+        }
+      ]
+    },
     "pay.withdrawal.cancel": {
       "service": "svc-pay",
       "module": "pay",

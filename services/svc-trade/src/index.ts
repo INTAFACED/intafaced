@@ -78,7 +78,8 @@ import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
-import { presentAccountFees, registerPrivateRest } from './private-rest.js';
+import { presentAccountFees, presentCcxtBalances, registerPrivateRest } from './private-rest.js';
+import { registerSupportBalanceRead } from './support/balance-read.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
 import { attachBoundClosePosition } from './spot/close-position.js';
@@ -332,6 +333,13 @@ registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS
 // A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
 registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A customer's balance for svc-support, under the customer's own grant (J-support-public-20 #2): the same projection of
+// the ledger their own balance read gives.
+registerSupportBalanceRead(app, {
+  balances: async (userId) => presentCcxtBalances(await ledger.balances('user', userId)).balances,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+});
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
 const trailingMarkSource = markSourceFromDepth(async (marketId) => ({

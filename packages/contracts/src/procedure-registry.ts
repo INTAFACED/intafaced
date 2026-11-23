@@ -2008,6 +2008,13 @@ import { SUPPORT_LIST_QUEUE } from './support-list-queue-procedures.js';
 import { SUPPORT_OFFICIAL_CHANNELS } from './support-official-channels-procedures.js';
 
 import {
+  SUPPORT_GRANT_READ,
+  SUPPORT_READ_ACCESS,
+  SUPPORT_CUSTOMER_BALANCE_READ,
+  SUPPORT_WITHDRAWAL_DESTINATIONS_READ,
+} from './support-read-grants.js';
+
+import {
   SUPPORT_SAFETY_MINE,
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
@@ -4281,6 +4288,13 @@ const part_support_list_queue_procedures: readonly ProcedureRecord[] = [SUPPORT_
 
 const part_support_official_channels_procedures: readonly ProcedureRecord[] = [SUPPORT_OFFICIAL_CHANNELS];
 
+const part_support_read_grants: readonly ProcedureRecord[] = [
+  SUPPORT_GRANT_READ,
+  SUPPORT_READ_ACCESS,
+  SUPPORT_CUSTOMER_BALANCE_READ,
+  SUPPORT_WITHDRAWAL_DESTINATIONS_READ,
+];
+
 const part_support_safety_procedures: readonly ProcedureRecord[] = [
   SUPPORT_SAFETY_MINE,
   SUPPORT_SAFETY_MULE_POLICY,
@@ -4736,6 +4750,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_support_desk_settings_procedures,
   ...part_support_list_queue_procedures,
   ...part_support_official_channels_procedures,
+  ...part_support_read_grants,
   ...part_support_safety_procedures,
   ...part_support_ticket_charts_lookup_procedures,
   ...part_support_views_list_procedures,
