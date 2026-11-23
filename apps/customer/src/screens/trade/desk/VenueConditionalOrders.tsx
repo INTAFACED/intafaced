@@ -365,7 +365,9 @@ function PendingList({
           <p className="lt-note">{t('Pending empty')}</p>
         ) : null
       ) : (
-        <table className="lt-table lt-table-dense">
+        // Not the dense table: its cells keep to one line, which pushed each row's Modify and Cancel past the panel's edge.
+        // Here the words wrap, so the list stays inside its box.
+        <table className="lt-table">
           <thead>
             <tr>
               {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
