@@ -1861,8 +1861,9 @@ button.lt-tab {
 }
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']::file-selector-button {
-  min-block-size: var(--lit-control-h);
+  /* Sized by its padding, not the control height: a room may set its picker's own height, which clips a taller button. */
   margin-inline-end: var(--lit-gap-item);
+  padding-block: 0.4375rem;
   padding-inline: 1rem;
   border: 1px solid var(--lit-line-strong);
   border-radius: var(--lit-radius-control);
