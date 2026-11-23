@@ -16,7 +16,7 @@ fn trpc(r: Refusal) -> TrpcError {
 }
 
 impl BankDoor {
-    fn with_moves<T>(&self, ctx: &Ctx<'_>, f: impl FnOnce(&Moves<'_>) -> T) -> T {
+    pub(super) fn with_moves<T>(&self, ctx: &Ctx<'_>, f: impl FnOnce(&Moves<'_>) -> T) -> T {
         let round_up = |cap: &crate::automations::auto_invest::service::Capture<'_>| {
             self.automations_deps(ctx.now, |a| {
                 crate::automations::auto_invest::service::apply_round_up(a, cap)

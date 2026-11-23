@@ -579,6 +579,23 @@ fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
     Ok(w)
 }
 
+/// Slice `card-programme`'s wiring (`index.ts`'s `cardProgramme` options, `receiptSecret` and the cards' `rates`): the
+/// owner's cardholder sanctions list, the simulator on a dev or test stack alone, the export secret and svc-trade's ticker.
+fn card_programme_wiring(env: &BankEnv) -> svc_bank::card_programme::Wiring {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    svc_bank::card_programme::Wiring {
+        sanctions: raw("BANK_CARDHOLDER_SANCTIONS").map(str::to_owned),
+        simulator_allowed: cards::terms::dev_or_test(env.str("APP_ENV"), raw("NODE_ENV")),
+        export_secret: env.str("INTERNAL_SERVICE_SECRET").map(str::to_owned),
+        rates: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+    }
+}
+
 /// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
 /// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
 fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
@@ -791,6 +808,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
     .with_global(global_wiring(env)?)
+    .with_card_programme(card_programme_wiring(env))
     .with_bank_api(bank_api::Wiring::new(
         matches!(raw("APP_ENV"), Some("dev" | "test")) && raw("NODE_ENV") != Some("production"),
     ))

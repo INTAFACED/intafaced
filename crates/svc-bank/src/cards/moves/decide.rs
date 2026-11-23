@@ -131,7 +131,7 @@ impl RuleParams {
     }
 
     /// `ruleDeclines`.
-    fn declines(
+    pub fn declines(
         &self,
         asset_id: &str,
         amount: Amount,
@@ -149,7 +149,7 @@ impl RuleParams {
     }
 
     /// `ruleWords`.
-    fn words(&self) -> String {
+    pub fn words(&self) -> String {
         match self {
             RuleParams::AmountAbove { asset_id, amount } => {
                 format!("declines a payment above {amount} {asset_id}")

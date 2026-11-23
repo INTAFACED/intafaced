@@ -60,6 +60,8 @@ mod card_ops_ledger_db;
 mod card_ops_partner_db;
 #[path = "card_ops_product_db.rs"]
 mod card_ops_product_db;
+#[path = "card_programme_db.rs"]
+mod card_programme_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
