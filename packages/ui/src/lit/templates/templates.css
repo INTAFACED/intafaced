@@ -2194,9 +2194,11 @@ button.lt-tab:focus-visible {
   max-block-size: 24rem;
   overflow: auto;
 }
-/* A short scroller under a working surface (a chart's drawings dock): it keeps the surface above it on the screen. */
+/* A short scroller under a working surface (a chart's drawings dock): it keeps the surface above it on the screen, at
+   one fixed height, so a row added inside (a drawing stored) never resizes the surface between two clicks on it. */
 .lt-scroll-short {
-  max-block-size: 14rem;
+  flex: none;
+  block-size: 14rem;
   overflow: auto;
 }
 .lt-scroll-tall {
