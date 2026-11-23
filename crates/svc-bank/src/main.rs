@@ -235,6 +235,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
         batch_size: env.int("TRANSFER_BATCH_SIZE"),
         producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
         business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
+        bill_reader: env.str("BANK_BILL_READER").map(str::to_owned),
     };
     let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
     Ok(match env.str("IDENTITY_URL") {

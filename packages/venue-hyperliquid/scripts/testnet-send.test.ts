@@ -11,7 +11,11 @@ const FUNDER_ADDR = privateKeyToAccount(FUNDER).address.toLowerCase();
 const TO = '0xdeafb9ffaf6dc6dafe1c8d954741475a93dc5040';
 const TOKEN_ID = '0xeb62eee3685fc4c43992febcd9e75443';
 
-function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = { status: 'ok', response: { type: 'default' } }) {
+const OK = { status: 'ok', response: { type: 'default' } };
+const UNIFIED = { status: 'err', response: 'Action disabled when unified account is active' };
+
+/** `exchangeAnswer` is the venue's answer to every transfer, or one per action type (unlisted types answer ok). */
+function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = OK) {
   const sent: Record<string, unknown>[] = [];
   const fetch: FetchLike = async (url, init) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
@@ -19,11 +23,13 @@ function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = { status: 
     if (url.endsWith('/exchange')) {
       const action = body.action as Record<string, string>;
       sent.push(body);
-      if ((exchangeAnswer as { status?: string }).status === 'ok' && action.type === 'spotSend') {
+      const byType = exchangeAnswer as Record<string, unknown>;
+      const answer = 'status' in byType ? exchangeAnswer : (byType[action.type!] ?? OK);
+      if ((answer as { status?: string }).status === 'ok') {
         spot.set(action.destination!, (spot.get(action.destination!) ?? 0) + Number(action.amount));
         spot.set(FUNDER_ADDR, (spot.get(FUNDER_ADDR) ?? 0) - Number(action.amount));
       }
-      return ok(exchangeAnswer);
+      return ok(answer);
     }
     if (body.type === 'spotMeta') return ok({ tokens: [{ name: 'USDC', tokenId: TOKEN_ID, index: 0 }] });
     if (body.type === 'spotClearinghouseState') {
@@ -68,6 +74,16 @@ describe('testnet:send', () => {
     expect(r.text).toContain('after: funder 499 spot USDC free, destination 500');
   });
 
+  it('takes the key as MetaMask exports it, 64 hex characters with no 0x, and signs as that account', async () => {
+    const r = await run({ HL_TESTNET_FUNDER_KEY: `${FUNDER.slice(2)}\n` });
+    expect(r.code).toBe(0);
+    expect(r.sent).toHaveLength(1);
+    const body = r.sent[0] as { nonce: number; signature: { r: string; s: string; v: number } };
+    const { typedData } = spotSendAction(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
+    const joined = `${body.signature.r}${body.signature.s.slice(2)}${body.signature.v.toString(16)}`;
+    expect(await recoverTypedDataSigner(typedData, joined)).toBe(FUNDER_ADDR);
+  });
+
   it('never prints the key', async () => {
     const r = await run({});
     expect(r.text).not.toContain(FUNDER.slice(2));
@@ -108,5 +124,36 @@ describe('testnet:send', () => {
     const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { status: 'err', response: 'Insufficient balance' }));
     expect(r.code).toBe(1);
     expect(r.text).toContain('refused by the venue: Insufficient balance');
+  });
+  it('falls back to usdSend when a unified account refuses spotSend, and sees it land', async () => {
+    const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: UNIFIED }));
+    expect(r.code).toBe(0);
+    expect(r.sent.map((b) => (b.action as { type: string }).type)).toEqual(['spotSend', 'usdSend']);
+    expect(r.text).toContain('destination 500');
+  });
+
+  it('falls back to sendAsset spot to spot when usdSend is refused for the account mode too', async () => {
+    const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: UNIFIED, usdSend: UNIFIED }));
+    expect(r.code).toBe(0);
+    const last = r.sent.at(-1) as { action: Record<string, unknown> };
+    expect(last.action).toMatchObject({
+      type: 'sendAsset',
+      sourceDex: 'spot',
+      destinationDex: 'spot',
+      token: `USDC:${TOKEN_ID}`,
+      amount: '500',
+    });
+  });
+
+  it('stops after a refusal that is not about the account mode, trying nothing else', async () => {
+    const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: { status: 'err', response: 'Insufficient balance' } }));
+    expect(r.code).toBe(1);
+    expect(r.sent).toHaveLength(1);
+  });
+
+  it('exits 1 when every form is refused for the account mode', async () => {
+    const r = await run({}, fakeNet(new Map([[FUNDER_ADDR, 999]]), { spotSend: UNIFIED, usdSend: UNIFIED, sendAsset: UNIFIED }));
+    expect(r.code).toBe(1);
+    expect(r.sent).toHaveLength(3);
   });
 });

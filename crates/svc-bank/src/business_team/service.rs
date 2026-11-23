@@ -485,25 +485,53 @@ pub fn approver_pool<C: GenericClient>(
         .collect())
 }
 
-/// `ruleList`: the business's approval rules, oldest first, each with its id, as `pickRule` reads them.
-pub fn rule_list<C: GenericClient>(
-    c: &mut C,
-    account_id: &str,
-) -> Result<Vec<(String, Rule)>, Refusal> {
+/// One approval rule (`TeamRule`), as `ruleList` hands it out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamRule {
+    pub id: String,
+    pub rule: Rule,
+    pub created_at: Instant,
+}
+
+impl TeamRule {
+    /// `toRule`'s view: `overAmount` a decimal string, `createdAt` ISO.
+    pub fn json(&self) -> Json {
+        Json::obj([
+            ("id", Json::str(self.id.clone())),
+            (
+                "overAmount",
+                Json::str(format_amount(self.rule.over_amount)),
+            ),
+            ("payee", opt(self.rule.payee.as_deref())),
+            ("paymentType", opt(self.rule.payment_type.as_deref())),
+            ("approvals", Json::int(self.rule.approvals)),
+            ("createdAt", Json::str(self.created_at.iso())),
+        ])
+    }
+}
+
+/// `ruleList`: the business's approval rules, oldest first, as `pickRule` reads them.
+pub fn rule_list<C: GenericClient>(c: &mut C, account_id: &str) -> Result<Vec<TeamRule>, Refusal> {
     Ok(rule_rows(c, account_id)?
         .into_iter()
-        .map(|r| {
-            (
-                r.id,
-                Rule {
-                    over_amount: r.over_amount,
-                    payee: r.payee,
-                    payment_type: r.payment_type,
-                    approvals: r.approvals,
-                },
-            )
+        .map(|r| TeamRule {
+            id: r.id,
+            rule: Rule {
+                over_amount: r.over_amount,
+                payee: r.payee,
+                payment_type: r.payment_type,
+                approvals: r.approvals,
+            },
+            created_at: r.created_at,
         })
         .collect())
+}
+
+/// `partnerFor` on a seat: the guarded partner holding the business owner's money, none when no partner holds it.
+pub fn partner_of<'a>(d: &Deps<'a>, seat: &Seat) -> Option<Held<'a>> {
+    seat.owner_user_id
+        .as_deref()
+        .and_then(|owner| d.custody.bank_for(owner))
 }
 
 #[derive(Clone)]
@@ -922,6 +950,14 @@ fn assert_invite_open(row: &InviteRow) -> Result<(), Refusal> {
         )),
         _ => Ok(()),
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// What the business-spend slice asks of the team besides its seat
+
+/// `handlesOf`: public handles from svc-identity; a person with none is refused by name.
+pub fn handles_of(d: &Deps<'_>, user_ids: &[String]) -> Result<BTreeMap<String, String>, Refusal> {
+    handles(d, user_ids)
 }
 
 // ---------------------------------------------------------------------------------------------------------------

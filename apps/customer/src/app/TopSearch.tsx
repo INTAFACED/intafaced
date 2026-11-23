@@ -390,7 +390,7 @@ function SearchPanel({
                         {row.asset && row.hint ? <small className="tb-option-name">{row.hint}</small> : null}
                       </span>
                       {row.price ? (
-                        <small className="tb-option-price" data-money>
+                        <small className="lt-num" data-money>
                           {row.price}
                         </small>
                       ) : !row.asset && row.hint ? (

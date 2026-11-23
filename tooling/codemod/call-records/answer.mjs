@@ -4,6 +4,8 @@
 // schema its callers already parsed with: an answer that fits it reaches them as before, and one that doesn't is refused
 // at the service instead of at the caller. A caller with no schema (a reader function, or none) would lose every field the
 // schema does not name, so its call stays, named; so does a call two callers parse with different schemas.
+// A portal `list` caller parses one row (`list('x.y', item, input)`, a page of `item` on the wire): the record's answer is
+// that page, `{ items: item[], nextCursor }`, the very shape the tool parsed with (`page` in the portal's schemas).
 import { relative } from 'node:path';
 import { bindingOf, load, resolveRelative } from './ast.mjs';
 
@@ -52,14 +54,16 @@ function throughNamespace(p, node) {
 /**
  * The output a record takes from its callers, `{ output: { p, node } }`, or `{ why }` naming the caller that keeps the
  * call by name. `schemaOf(s)` is the caller's answer schema node in its own file (undefined when it parses with none);
+ * `itemOf(s)` is a portal list caller's row schema, its answer a page of that row (`{ output: { p, node, page: true } }`);
  * `checksOf(p, node)` lists what that schema checks beyond its shape (answerChecks in index.mjs).
  */
-export function answerFromCallers(repo, sites, { schemaOf, checksOf }) {
+export function answerFromCallers(repo, sites, { schemaOf, checksOf, itemOf = () => undefined }) {
   let taken;
   let first;
   for (const s of sites) {
-    const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : undefined);
-    const own = written && throughNamespace(written.p, written.node);
+    const item = s.schema || schemaOf(s) ? undefined : itemOf(s);
+    const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : item ? { p: load(s.file), node: item } : undefined);
+    const own = written && { ...throughNamespace(written.p, written.node), ...(item ? { page: true } : {}) };
     if (!own)
       return {
         why: `${at(repo, s)} reads the answer ${s.reader ? 'with its own reader function' : 'unparsed'}, not a zod schema a record can take`,
@@ -67,7 +71,7 @@ export function answerFromCallers(repo, sites, { schemaOf, checksOf }) {
     const checks = checksOf(own.p, own.node);
     if (checks.length) return { why: `${at(repo, s)} parses it with a schema that is not pure zod (${checks.join(', ')})` };
     const d = declarationOf(own.p, own.node);
-    const key = `${d.p.file}:${d.node.start}`;
+    const key = `${own.page ? 'page of ' : ''}${d.p.file}:${d.node.start}`;
     if (!taken) {
       taken = own;
       first = { s, key };

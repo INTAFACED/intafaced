@@ -390,8 +390,8 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                         <h3 lang="und" dir="auto">
                           {row.cadence} · {row.status}
                         </h3>
-                        <p className="money-standing-row-reference">
-                          <span className="money-visually-hidden">
+                        <p className="lt-wrap">
+                          <span className="lt-sr">
                             <Copy k="reference" />
                           </span>
                           <bdi lang="zxx" dir="ltr">

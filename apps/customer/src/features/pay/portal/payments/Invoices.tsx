@@ -245,7 +245,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
         ← {t('inv_back')}
       </a>
       <PaySection title={t('inv_createTitle')} description={t('inv_createBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <div className="form-row">
             {hasLines ? (
               <div data-testid="pp-line-total" className="field pp-line-total" role="group" aria-label={t('inv_fieldTotal')}>

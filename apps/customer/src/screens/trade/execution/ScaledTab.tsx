@@ -52,7 +52,7 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-stack">
       {balances.status === 'refused' || balances.status === 'error' ? <Why>{t('Balance unread')}</Why> : null}
       <ScaledForm
         markets={markets}

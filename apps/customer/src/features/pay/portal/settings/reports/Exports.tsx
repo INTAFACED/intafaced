@@ -117,7 +117,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
               <Field label={t('to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           )}
-          <p className="muted pp-count" role="status">
+          <p className="lt-muted" role="status">
             {list.state.status === 'ready' ? (list.state.hasMore ? t('newestMore', { n: shown }) : t('newestAll', { n: shown })) : ''}
             {filtered && (
               <>
@@ -209,7 +209,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                       ),
                   },
                   {
-                    header: <span className="pp-sr">{t('colActions')}</span>,
+                    header: <span className="lt-sr">{t('colActions')}</span>,
                     cell: (j) => <JobActions api={api} job={j} onDone={() => reload()} />,
                   },
                 ]}
@@ -344,7 +344,7 @@ export function RequestForm({
   const allColumns = columns.length === available.length;
   return (
     <PaySection title={t('requestTitle')} description={t('requestBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <div className="form-row">
           <SelectField
             label={t('colReport')}

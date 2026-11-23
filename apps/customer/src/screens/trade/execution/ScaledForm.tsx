@@ -256,9 +256,7 @@ export function ScaledForm({
           <Switch aria-label={t('Post only')} checked={postOnly} onCheckedChange={setPostOnly} />
         </Field>
         {market ? (
-          <p className="m-0 text-sm text-fg-2">
-            {t('Free {asset} {amount}', { asset: holdAsset, amount: fmtAmount(freeOf(holdAsset), { places: 6 }) })}
-          </p>
+          <p className="lt-hint">{t('Free {asset} {amount}', { asset: holdAsset, amount: fmtAmount(freeOf(holdAsset), { places: 6 }) })}</p>
         ) : null}
         {first === 'samePrices' || first === 'tooSmall' ? <Why>{word(first)}</Why> : null}
         {blocker ? <Why>{blocker}</Why> : null}
@@ -267,8 +265,8 @@ export function ScaledForm({
         </Button>
         {writer.note.state !== 'none' ? <Why>{t('Locked by unconfirmed request')}</Why> : null}
       </section>
-      <section aria-label={t('Ladder preview')} className="flex min-w-0 flex-col gap-3">
-        <p className="m-0 text-sm text-fg-2">
+      <section aria-label={t('Ladder preview')} className="lt-stack">
+        <p className="lt-hint">
           {t('Rounding note', { tick: market?.tickSize ?? '—', lot: market?.lotSize ?? '—' })}
           {ladder && ladder.residual !== '0'
             ? ` ${t('Residual note', { residual: ladder.residual ?? '—', n: String(ladder.rows.length) })}`

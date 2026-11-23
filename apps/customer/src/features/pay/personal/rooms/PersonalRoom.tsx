@@ -24,7 +24,7 @@ function Frame({ title, line, children }: { title: string; line: string; childre
           <p>{line}</p>
         </header>
         <section data-testid="pay-card" className="pay-card" aria-label={title}>
-          <div className="pay-body">
+          <div className="lt-stack">
             {children}
             <a className="pay-recent__link" href="/pay" data-testid="pay-room-back">
               {t('back')}
@@ -243,7 +243,7 @@ function ScanRoom({ slice }: { slice: string }) {
         </>
       )}
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="pay-scan-file">
+        <label className="lt-hint" htmlFor="pay-scan-file">
           {t('scanFile')}
         </label>
         <input
