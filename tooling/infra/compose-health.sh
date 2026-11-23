@@ -19,13 +19,16 @@ report() {
   done
 }
 
-# Only the typed refusal codes a bad container logged (`notify.verify_ttl_unset`, `config.s2s_body_bind_not_required`):
-# a code names the setting, never its value, so it is safe in a public log where the full log is not.
+# Why a bad container stopped, without its full log (public): its typed refusal codes (`notify.verify_ttl_unset`) and
+# its boot refusal's own lines ("Refusing to start", each "  - <SETTING> ..." issue, a "<SETTING>: Required"), which
+# name settings, not their values. Long hex runs and URL credentials are masked on top, in case a line carries one.
 codes() {
   while read -r name _; do
     [ -n "$name" ] || continue
-    found=$(docker logs "${name#/}" 2>&1 | grep -oE '\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_required|_refused|_invalid|_missing|_forbidden|_not_allowed|_dev_material|_blank)\b' | sort -u | head -n 20 | tr '\n' ' ' || true)
-    echo "  ${name#/} refusal codes: ${found:-none logged}"
+    echo "  ${name#/} said:"
+    docker logs --tail 200 "${name#/}" 2>&1 \
+      | grep -E 'Refusing to start|^Error|panicked|\berror:|^\s+- [A-Z][A-Z0-9_]+ |^[A-Z][A-Z0-9_]+: |\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_required|_refused|_invalid|_missing|_forbidden|_not_allowed|_blank|_not_required)\b' \
+      | sed -E 's/[0-9a-fA-F]{16,}/<hex>/g; s#://[^/@ ]*@#://<credentials>@#g' | sort -u | head -n 30 | sed 's/^/    /' || true
   done <<< "$1"
 }
 
