@@ -11,9 +11,9 @@
 //   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate);
 //   7. dead-hand-schemas.mjs deletes each bank hand schema the moved callers were the last to name, in the same change.
 // With --callers-only (a service whose Rust port is in flight) the service and its crate are never touched: step 1 mounts
-// nothing and moves no declaration out of the service, step 3 is skipped (its fixes would change a record away from the
-// router it copies, or the service's replay test), so a refused record is left by name; and the run fails if anything
-// under services/svc-* or crates/svc-* changed.
+// nothing and moves no declaration out of the service, step 3 only names a refinement in its record (its other fixes would
+// change a record away from the router it copies, or the service's replay test), so a record refused for anything else is
+// left by name; and the run fails if anything under services/svc-* or crates/svc-* changed.
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
 //
@@ -95,8 +95,10 @@ export function run(argv) {
       }
       sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...files]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
-      if (!Object.keys(skipped).length || callersOnly) break;
-      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
+      if (!Object.keys(skipped).length) break;
+      // Mid-port only a refinement is named in its record (no schema is rewritten: the record stays the router's copy).
+      const names = callersOnly ? ['--names-only'] : [];
+      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...names, ...door, ...files]));
       if (!fixed.fixed) break;
       // A record file is written again by the next round's step 1 (and fixed again by portable.mjs), so only the
       // schema sources it edited are kept: keeping a record file would bring back this round's records after a put back.

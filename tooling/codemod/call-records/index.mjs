@@ -38,6 +38,8 @@ import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
+import { sharedLoop } from './loop.mjs';
+import { sameImports } from './same-import.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
 import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
 
@@ -470,37 +472,50 @@ function build(opts, planned) {
         movedTo.set(k, shared);
         taken.set(m.name, k);
       }
+    const textOf = (f) => created.get(f) ?? (existsSync(f) ? readFileSync(f, 'utf8') : undefined);
+    // Mid-port or for a door, a helper the record file already imports from another contracts file that declares it as
+    // the router writes it (bank-loans-procedures reads bank-earn-procedures' `amountString`, the text the shared file
+    // holds too) is the copy this group reads: importing the shared file's beside it would bind the name twice.
+    const importedHere = routerKept ? sameImports(file, textOf(file), closure.moved, movedTo, keyOf, declaresSame) : new Map();
+    const homeOf = (m) => importedHere.get(keyOf(m)) ?? movedTo.get(keyOf(m));
     // A helper the record file already declares as written (an earlier run put svc-pay's `userIdSchema` there) is that
     // copy: the record reads it where it stands, and its old home imports it from there.
     const reused = [];
     for (const m of closure.moved) {
       const k = keyOf(m);
-      if (!m.q || movedTo.has(k) || !declaresSame(file, m.name, m.text)) continue;
+      if (!m.q || homeOf(m) || !declaresSame(file, m.name, m.text)) continue;
       movedTo.set(k, file);
       reused.push(m);
     }
-    const fresh = [...new Map(closure.moved.filter((m) => !movedTo.has(keyOf(m))).map((m) => [keyOf(m), m])).values()];
+    const fresh = [...new Map(closure.moved.filter((m) => !homeOf(m)).map((m) => [keyOf(m), m])).values()];
     const clash =
       fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m)) ||
       // A helper this group reads from a record file, under a name the shared file already gives another helper.
-      closure.moved.some(
-        (m) => !fresh.includes(m) && movedTo.get(keyOf(m)) !== shared && taken.has(m.name) && taken.get(m.name) !== keyOf(m),
-      );
+      closure.moved.some((m) => !fresh.includes(m) && homeOf(m) !== shared && taken.has(m.name) && taken.get(m.name) !== keyOf(m));
     // Every name the group adds to a file must be free there, or bound there to the same thing: svc-pay's mandateView
     // reads pay-subscription-procedures' `amountSchema`, which the shared file can't import beside its own.
-    const textOf = (f) => created.get(f) ?? (existsSync(f) ? readFileSync(f, 'utf8') : undefined);
     const specOf = (f) => `./${basename(f).replace(/\.ts$/, '.js')}`;
     const fromContracts = [...closure.fromContracts].map(([local, c]) => ({ local, spec: specOf(c.file), imported: c.imported }));
     const fromHomes = (target) =>
       closure.moved
-        .map((m) => movedTo.get(keyOf(m)) ?? target)
+        .map((m) => homeOf(m) ?? target)
         .flatMap((home, i) =>
           home === file ? [] : [{ local: closure.moved[i].name, spec: specOf(home), imported: closure.moved[i].name }],
         );
     const names = fresh.map((m) => m.name);
+    // A helper the group reads from a record file that imports the shared file (its own, or another's): new helpers sent
+    // to the shared file would have it import that record file back, a loop neither file loads through (loop.mjs).
+    const loop = sharedLoop({
+      fresh,
+      homes: closure.moved.filter((m) => !fresh.includes(m) && homeOf(m)).map((m) => [m.name, homeOf(m)]),
+      file,
+      shared,
+      textOf,
+    });
     const sharedTaken = clash
       ? (fresh.find((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m))?.name ?? 'a helper')
-      : (takenIn(shared, textOf(shared), names, fromContracts) ??
+      : (loop ??
+        takenIn(shared, textOf(shared), names, fromContracts) ??
         takenIn(file, textOf(file), [], [...fromContracts, ...fromHomes(shared)]));
     const fileTaken = sharedTaken && takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)]);
     if (fileTaken) {
@@ -534,14 +549,14 @@ function build(opts, planned) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
     }
-    const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
+    const placed = closure.moved.map((m) => ({ name: m.name, file: homeOf(m) }));
     created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
     if (target === shared && fresh.length) {
       // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
       // clash put it there): the shared file imports it from that record file.
       const fromRecords = new Map();
       for (const m of closure.moved) {
-        const home = movedTo.get(keyOf(m));
+        const home = homeOf(m);
         if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.name, home);
       }
       created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));

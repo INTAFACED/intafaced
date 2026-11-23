@@ -19342,6 +19342,124 @@
         }
       ]
     },
+    "bank.ops.cardPayFromReconciliation": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.cardPayFromReconciliation",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "test": {
+            "type": "boolean"
+          },
+          "partnerReports": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["spend", "open_holds"]
+                },
+                "app": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "partner": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["matches", "break"]
+                }
+              },
+              "required": ["assetId", "kind", "app", "partner", "status"],
+              "additionalProperties": false
+            }
+          },
+          "breaks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "authorizationRef": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["not_reported", "unreadable", "differs"]
+                },
+                "app": {
+                  "type": "object",
+                  "properties": {
+                    "spend": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                    },
+                    "open": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                    }
+                  },
+                  "required": ["spend", "open"],
+                  "additionalProperties": false
+                },
+                "partner": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "spend": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                        },
+                        "open": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["spend", "open"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["authorizationRef", "assetId", "reason", "app", "partner"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["test", "partnerReports", "lines", "breaks"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.ops.cardProgramme": {
       "service": "svc-bank",
       "module": "bank",

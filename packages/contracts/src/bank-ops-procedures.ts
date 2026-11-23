@@ -571,3 +571,38 @@ export const BANK_OPS_SET_CARD_STATUS = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const figures = z.object({ spend: signed, open: signed });
+
+export const BANK_OPS_CARD_PAY_FROM_RECONCILIATION = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardPayFromReconciliation',
+  kind: 'query',
+  path: 'ops.cardPayFromReconciliation',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    test: z.boolean(),
+    partnerReports: z.boolean(),
+    lines: z.array(
+      z.object({
+        assetId: assetIdSchema,
+        kind: z.enum(['spend', 'open_holds']),
+        app: signed,
+        partner: signed,
+        status: z.enum(['matches', 'break']),
+      }),
+    ),
+    breaks: z.array(
+      z.object({
+        authorizationRef: z.string(),
+        assetId: assetIdSchema,
+        reason: z.enum(['not_reported', 'unreadable', 'differs']),
+        app: figures,
+        partner: figures.nullable(),
+      }),
+    ),
+  }),
+  samples: [{ verdict: 'accept' }],
+});

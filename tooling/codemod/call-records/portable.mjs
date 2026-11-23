@@ -21,7 +21,10 @@
 //
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
-//   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] <record file.ts> ...
+// With --names-only (a service mid-port, whose records are copies of a router that keeps its own schemas) only the last
+// kind is done: a refinement is named in the record, which rewrites no schema; every other finding is left, named.
+//
+//   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] [--names-only] <record file.ts> ...
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
@@ -347,7 +350,7 @@ function checksText(named) {
 const jsonValueFrom = (file) =>
   file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
 
-export function plan(skipped, recordFiles, { door = false } = {}) {
+export function plan(skipped, recordFiles, { door = false, namesOnly = false } = {}) {
   const edits = new Map();
   const left = [];
   const replays = new Set();
@@ -379,6 +382,12 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
           named.get(r.key).at.push(at);
         }
+        continue;
+      }
+      // Mid-port the record is a copy of a router that keeps its own schemas: a refinement is named above, which changes
+      // no schema; any fix that rewrites one would leave the copy and its router apart, so it stays, named.
+      if (namesOnly) {
+        left.push({ record: name, at: f.at, why: "its fix would rewrite a schema copied from a router mid-port, which keeps its own" });
         continue;
       }
       // A door's input is its own zod tree (`schemas.json`), held to the record part for part: it keeps its z.unknown().
@@ -508,7 +517,7 @@ function main() {
   const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
   const d = argv.indexOf('--door');
   const files = argv.filter((a, j) => j !== i && j !== i + 1 && (d < 0 || j !== d + 1) && !a.startsWith('--')).map((f) => resolve(f));
-  const { edits, left, replays } = plan(skipped, files, { door: argv.includes('--door') });
+  const { edits, left, replays } = plan(skipped, files, { door: argv.includes('--door'), namesOnly: argv.includes('--names-only') });
   const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
   console.log(
     JSON.stringify(

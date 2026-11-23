@@ -40,6 +40,7 @@ import {
   BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
+  BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
 } from '@intafaced/contracts/bank-ops-procedures';
 import { BANK_HEALTH } from '@intafaced/contracts/bank-health-procedures';
 import { BANK_EARN_POOLS } from '@intafaced/contracts/bank-earn-procedures';
@@ -378,9 +379,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-pay-from-reconciliation',
         title: 'Pay-from reconciliation against the partner’s reports',
         note: 'For each asset a card payment was taken from by a person’s pay-from order: the spend (captured less refunded) and the open holds the card partner reports for those payments, beside what this app recorded from its answers and showed the person. Each line reads "matches" or "break". A payment the partner has no record of, or reports differently, is its own break row below and is not added to these lines.',
-        module: 'bank',
         plainName: 'card pay-from reconciliation',
-        procedure: 'ops.cardPayFromReconciliation',
+        ...readOf(BANK_OPS_CARD_PAY_FROM_RECONCILIATION),
         shape: 'list',
         rowsKey: 'lines',
         anonymousRows: true,
@@ -398,9 +398,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-pay-from-breaks',
         title: 'Pay-from breaks',
         note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold), unreadable (the partner’s read failed, so nothing is known of it) or different. A break is named here once, never folded into a total.',
-        module: 'bank',
         plainName: 'card pay-from breaks',
-        procedure: 'ops.cardPayFromReconciliation',
+        ...readOf(BANK_OPS_CARD_PAY_FROM_RECONCILIATION),
         shape: 'list',
         rowsKey: 'breaks',
         idKey: 'authorizationRef',

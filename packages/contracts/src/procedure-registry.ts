@@ -661,6 +661,7 @@ import {
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
+  BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
 } from './bank-ops-procedures.js';
 
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from './bank-own-moves-procedures.js';
@@ -2862,6 +2863,7 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
+  BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
 ];
 
 const part_bank_own_moves_procedures: readonly ProcedureRecord[] = [BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE];
