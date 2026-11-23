@@ -146,6 +146,15 @@ test('two Volt batches into main that lower different files edit no common file,
     ['raised'],
     'a batch into main that raises a ceiling still fails',
   );
+  assert.deepEqual(
+    judge({ [R]: { ...after.both, 'c/C.tsx': 1 } }, { [R]: { ...ceilings[R], 'c/C.tsx': 1 } }, ceilings, {}, true).map((p) => [
+      p.kind,
+      p.file,
+    ]),
+    [['raised', 'c/C.tsx']],
+    'a batch into main that adds a file to the ceilings still fails',
+  );
+  assert.deepEqual(lowered({ [R]: after.both }, ceilings)[R], after.both, 'the prune lowers both stale ceilings to their counts');
 });
 
 test(`the tree holds ${CEILINGS}: no count over, none raised over main's (a stale ceiling passes)`, { skip }, () => {
