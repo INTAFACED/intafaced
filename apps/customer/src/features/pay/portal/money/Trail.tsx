@@ -1,7 +1,7 @@
 import type { Approval, Settlement } from '../schemas';
 import { DateTime } from '../ui/DateTime';
 import { mc } from './copy';
-import { whoIs } from './common';
+import { whoIs } from './money-words';
 import { describeDestination } from './destination';
 import { orderTrail, type TrailEvent } from './model';
 import type { PayPayoutLifecycle as Lifecycle } from '@intafaced/contracts/pay-portal-reads';
@@ -131,10 +131,9 @@ export function fallbackEvents(
 export function Trail({ events }: { events: readonly TrailEvent[] }) {
   const { t } = mc.useCopy();
   return (
-    <ol className="pp-timeline" aria-label={t('trailLabel')}>
+    <ol className="lt-list" aria-label={t('trailLabel')}>
       {events.map((e) => (
         <li key={e.key}>
-          <span className="pp-timeline-dot" aria-hidden="true" />
           <div>
             <strong>{trailTitle(t, e.kind)}</strong>
             {e.who && <p className="lt-muted">{t('trailBy', { who: e.who })}</p>}
@@ -165,7 +164,7 @@ export function LifecycleTrail({
   return (
     <>
       {lifecycle.failure && (
-        <p className="pp-callout pp-callout--warn" role="alert">
+        <p className="lt-stale" role="alert">
           {lifecycle.failure.message}
         </p>
       )}

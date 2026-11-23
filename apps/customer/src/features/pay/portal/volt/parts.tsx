@@ -28,7 +28,7 @@ import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
-import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
+import { STALE_AFTER_SECONDS, activeHalts, lagParts, spanParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -785,7 +785,18 @@ export function HeroFigure({ value, asset, testId }: { value: string; asset: str
 }
 
 /** One line per asset (`MoneyLines` in `../components`). Two assets are never added together; none is a dash, not zero. */
-export function MoneyLines({ items, emptyLabel, test = false }: { items: readonly AssetAmount[]; emptyLabel?: string; test?: boolean }) {
+export function MoneyLines({
+  items,
+  emptyLabel,
+  test = false,
+  sign,
+}: {
+  items: readonly AssetAmount[];
+  emptyLabel?: string;
+  test?: boolean;
+  /** `minus`: each line is a fee taken or a debit, shown "−1.20 USDT". */
+  sign?: 'minus' | 'plus';
+}) {
   const { t } = portalCopy.useCopy();
   if (items.length === 0)
     return (
@@ -798,7 +809,7 @@ export function MoneyLines({ items, emptyLabel, test = false }: { items: readonl
     <span className="lt-lines">
       {items.map((item) => (
         <span key={item.assetCode}>
-          <MoneyText value={item.amount} asset={item.assetCode} test={test} />
+          <MoneyText value={item.amount} asset={item.assetCode} test={test} sign={sign} />
         </span>
       ))}
     </span>
@@ -913,5 +924,21 @@ export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: Pa
         {reason}
       </small>
     </div>
+  );
+}
+
+/** A length of time in words ("3 h", "just now"): the age of a request and the time left on it (`SpanText` in `../components`). */
+export function SpanText({ ms }: { ms: number }) {
+  const { t } = portalCopy.useCopy();
+  const span = spanParts(ms);
+  if (span.unit === 'minutes' && span.n === 0) return <>{t('spanNow')}</>;
+  return (
+    <>
+      {span.unit === 'minutes'
+        ? t('spanMinutes', { n: span.n })
+        : span.unit === 'hours'
+          ? t('spanHours', { n: span.n })
+          : t('spanDays', { n: span.n })}
+    </>
   );
 }
