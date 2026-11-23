@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui/lit';
 import { SettingsTemplate, Tabs, type RoomState } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { t as copyText } from '../copy';
-import { bankLabels, bankRoomHref, bankRooms } from '../bank-frame/bank-rooms';
+import { bankLabels, bankRoomHref, shownBankRooms, type bankRooms } from '../bank-frame/bank-rooms';
 
 type BankRoom = (typeof bankRooms)[number];
 
@@ -62,7 +62,7 @@ export function BankSettingsRoom({
           <Tabs
             label={copyText('rooms.bank.rooms')}
             current={bankRoomHref(room)}
-            items={bankRooms.map((r) => ({ label: copyText(bankLabels[r]), href: bankRoomHref(r) }))}
+            items={shownBankRooms(room).map((r) => ({ label: copyText(bankLabels[r]), href: bankRoomHref(r) }))}
           />
           {state.kind === 'ready' && sections.length > 0 ? (
             <nav aria-label={sectionsLabel}>

@@ -87,7 +87,7 @@ import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
-import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
+import { bankLabels, bankRoomHref, shownBankRooms } from './bank-frame/bank-rooms';
 import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
@@ -100,7 +100,7 @@ import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafa
 export function BankNavigation({ current }: { current: string }) {
   return (
     <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
-      {bankRooms.map((room) => (
+      {shownBankRooms(current).map((room) => (
         <a key={room} href={bankRoomHref(room)} aria-current={current === room ? 'page' : undefined}>
           <Text k={bankLabels[room]} />
         </a>

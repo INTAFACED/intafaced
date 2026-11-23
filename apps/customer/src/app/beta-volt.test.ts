@@ -6,6 +6,7 @@ import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
 import { findRoom } from './navigation';
 import { voltCount } from './volt-count';
+import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
 
 const count = voltCount();
 const state = new Map(count.rooms.map((room) => [room.key, room.state]));
@@ -106,6 +107,13 @@ describe("the beta's menus, by what the build switches on and the account can us
     expect(businessRows()).toEqual([]);
     setBetaAccess({ business: true, venue: false });
     expect(isHiddenPath('/pay/team')).toBe(false);
+  });
+
+  it("leave a switched-off room out of the Bank's own tabs, except the one open (#10300: Cash and crypto)", () => {
+    expect(shownBankRooms()).toContain('Ramps');
+    on();
+    expect(shownBankRooms()).not.toContain('Ramps');
+    expect(shownBankRooms('Ramps')).toContain('Ramps');
   });
 
   it('never treat opening a business account as a business room', () => {
