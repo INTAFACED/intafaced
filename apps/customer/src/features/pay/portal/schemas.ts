@@ -24,7 +24,7 @@ import {
   payPaymentConfirmationsSchema,
   payPricingSnapshotViewSchema,
 } from '@intafaced/contracts/pay-merchant-reads';
-import { payExportJobSchema, type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
+import { type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
 import {
   amount,
   asset,
@@ -45,6 +45,11 @@ import {
   memberSchema,
   notificationKinds,
   preferenceSchema,
+  kybEventSchema,
+  teamEventSchema,
+  exportJobSchema,
+  notificationSchema,
+  preferenceChangeSchema,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export { paymentEventSchema };
@@ -86,15 +91,6 @@ export type Freshness = MetricsFreshness;
 export type Snapshot = MerchantMetricsSnapshot;
 export type Series = MerchantMetricsSeries;
 
-export const kybEventSchema = z.object({
-  seq: z.string(),
-  fromStatus: z.string(),
-  toStatus: z.string(),
-  kybRef: z.string().nullable(),
-  decidedBy: z.enum(['merchant', 'intafaced']),
-  reason: z.string().nullable(),
-  at: timestamp,
-});
 export type KybEvent = z.infer<typeof kybEventSchema>;
 export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
 export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
@@ -114,15 +110,6 @@ export type OnboardingDraftFields = z.infer<typeof onboardingDraftFieldsSchema>;
 export type TeamRole = (typeof teamRoles)[number];
 export type MemberRole = z.infer<typeof memberRoleSchema>;
 export type Member = z.infer<typeof memberSchema>;
-export const teamEventSchema = z.object({
-  seq: z.string(),
-  memberUserId: z.string(),
-  action: z.string(),
-  fromRole: z.string().nullable(),
-  toRole: z.string().nullable(),
-  actorId: z.string(),
-  createdAt: timestamp,
-});
 export type TeamEvent = z.infer<typeof teamEventSchema>;
 export type Invitation = z.infer<typeof invitationSchema>[number];
 
@@ -223,38 +210,11 @@ export const customerDetailSchema = customerSchema.extend({
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
 export type ExportKind = PayExportKind;
-export const exportJobSchema = payExportJobSchema;
 export type ExportJob = PayExportJob;
-export const exportDownloadSchema = z.object({
-  fileName: z.string(),
-  contentType: z.string(),
-  content: z.string(),
-  sha256: z.string(),
-  rowCount: z.number().int(),
-});
 
 export type NotificationKind = (typeof notificationKinds)[number];
-export const notificationSchema = z.object({
-  notificationId: z.string(),
-  kind: z.enum(notificationKinds),
-  title: z.string(),
-  body: z.string().nullable(),
-  subjectType: z.string().nullable(),
-  subjectId: z.string().nullable(),
-  createdAt: timestamp,
-  readAt: timestamp.nullable(),
-});
 export type Notification = z.infer<typeof notificationSchema>;
 export type Preference = z.infer<typeof preferenceSchema>;
-/** One change to a notification preference (`merchantOps.notifications.preferences.history`): what it was set to, by whom. */
-export const preferenceChangeSchema = z.object({
-  seq: z.string(),
-  kind: z.enum(notificationKinds),
-  inApp: z.boolean(),
-  threshold: z.string().nullable(),
-  actorId: z.string(),
-  createdAt: timestamp,
-});
 export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
 
@@ -314,3 +274,4 @@ export {
   notificationKinds,
   preferenceSchema,
 };
+export { exportJobSchema, preferenceChangeSchema };

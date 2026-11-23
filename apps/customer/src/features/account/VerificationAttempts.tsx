@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { verificationAttemptsCopy as copy } from './verification-attempts-copy';
 import { IDENTITY_KYC_ATTEMPTS_READ } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -38,7 +38,7 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
-      <div className="verification__attempts" data-testid="verification__attempts" data-state="unread">
+      <div className="lt-stack" data-testid="verification__attempts" data-state="unread">
         <h3>
           <Copy k="failedTitle" />
         </h3>
@@ -47,7 +47,7 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
     );
   const { limit, denialsInWindow } = resource.data;
   return (
-    <div className="verification__attempts" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
+    <div className="lt-stack" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
       <h3>
         <Copy k="title" />
       </h3>
