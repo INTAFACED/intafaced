@@ -313,7 +313,7 @@ export function OrdersTable({
                   )}
                 </td>
               ) : null}
-              <td>
+              <td data-label={t('Time')}>
                 <a
                   data-testid="dk-order-link"
                   className="lt-link"
@@ -323,8 +323,8 @@ export function OrdersTable({
                   {dayTime(order.timestamp, timeZone)}
                 </a>
               </td>
-              <td>{order.symbol}</td>
-              <td>
+              <td data-label={t('Pair')}>{order.symbol}</td>
+              <td data-label={t('Type')}>
                 <span className="lt-actions">
                   {typeWordOf(order, t, precision)}
                   <OrderTag order={order} />
@@ -340,29 +340,37 @@ export function OrdersTable({
                   ) : null}
                 </span>
               </td>
-              <td>
+              <td data-label={t('Side')}>
                 <Side side={order.side} />
               </td>
-              <td data-align="end">
+              <td data-align="end" data-label={t('Price')}>
                 {order.price === null ? t('Market price word') : fmtPrice(order.price, precision.tickOf(order.symbol))}
               </td>
-              <td data-align="end">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
-              <td data-align="end">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
+              <td data-align="end" data-label={t('Amount')}>
+                {fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}
+              </td>
+              <td data-align="end" data-label={t('Filled')}>
+                {fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}
+              </td>
               {withAction ? (
-                <td data-align="end">
+                <td data-align="end" data-label={t('Held')}>
                   <Held order={order} lot={precision.lotOf(order.symbol)} unknown={t('Held unknown label')} />
                 </td>
               ) : null}
               {withAction || !desk ? null : (
                 <>
-                  <td data-align="end">{order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}</td>
-                  <td data-align="end">
-                    {order.cost === null ? '—' : fmtAmount(order.cost, { places: quotePlaces(quoteOf(order.symbol)), fixed: true })}{' '}
-                    {order.cost === null ? null : <span className="lt-hint">{quoteOf(order.symbol)}</span>}
+                  <td data-align="end" data-label={t('Average price')}>
+                    {order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}
+                  </td>
+                  <td data-align="end" data-label={t('Cost')}>
+                    <span>
+                      {order.cost === null ? '—' : fmtAmount(order.cost, { places: quotePlaces(quoteOf(order.symbol)), fixed: true })}{' '}
+                      {order.cost === null ? null : <span className="lt-hint">{quoteOf(order.symbol)}</span>}
+                    </span>
                   </td>
                 </>
               )}
-              <td>
+              <td data-label={withAction ? t('Action') : t('Status')}>
                 {withAction && !isTerminalOrder(order) ? (
                   <span className="lt-actions">
                     {onEdit && (canEdit(order) || canEditStop(order)) && precision.marketOf(order.symbol) ? (
