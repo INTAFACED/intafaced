@@ -151,7 +151,7 @@ export function MissingCost({
   const noLot = missing.items.filter((item) => item.kind === 'disposal' && item.lotId === null);
   if (lots.length === 0 && noLot.length === 0) return null;
   return (
-    <section data-testid="money-card" aria-label={t('Missing cost')}>
+    <section id="missing-cost" data-testid="money-card" aria-label={t('Missing cost')}>
       <header data-testid="money-card__head">
         <h2>{t('Missing cost')}</h2>
       </header>
