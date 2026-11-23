@@ -1,5 +1,6 @@
 // World: restart
 import { test, expect } from './journey.mjs';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
@@ -34,6 +35,7 @@ import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 import { api, ORIGIN, STACK_PORTS } from './stack.mjs';
 import { testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -216,6 +218,24 @@ async function person(page) {
   await signIn(page, who);
   return who;
 }
+
+// #6 reports an address of its own, not the one #5 looks up: a TEST address made from the reporter's own sign-up, so each
+// attempt's report is the first and only one about it and every count the step reads is exact.
+const scamAddressFor = (who) => `0x${createHash('sha256').update(who.email).digest('hex').slice(0, 40)}`;
+// The app's own calls to svc-protocol: the report a signed-in person sends, and the risk read anyone may make.
+const REPORT_SUBMIT = '/api/protocol/trpc/addressReports.submit';
+const RISK_READ = '/api/protocol/trpc/addressRisk.read';
+
+/** Every report svc-protocol holds about `address`, from its own table, oldest first: who filed it, and the duplicates refused. */
+const reportsAbout = (address) =>
+  protocolDb(async (sql) =>
+    Array.from(
+      await sql`
+        SELECT id::text AS id, reporter_id, kind, note, status, duplicates_refused FROM protocol.address_reports
+        WHERE chain_id = ${CHAIN_ID} AND lower(address) = ${address.toLowerCase()} ORDER BY created_at`,
+      (row) => ({ ...row }),
+    ),
+  );
 
 test(`${J} starts: a TEST wallet with two active session keys and several old approvals`, async ({ page }) => {
   dex.start();
@@ -407,31 +427,82 @@ test(`${J} #5 opens an address page before sending: a risk card with any label a
 test(`${J} #6 reports a scam address: a confirmation; a second report by the same person is refused as a duplicate; the reporter is hidden from the public`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const who = await person(page);
-  await page.goto(`/chain/address/${SUSPECT}`);
-  await page.getByRole('button', { name: 'Report this address' }).click(UNBUILT);
-  const report = page.getByRole('dialog', { name: 'Report this address' });
-  await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
-  await report.getByRole('button', { name: 'Send report' }).click();
-  // The confirmation shows in the risk card (the card may also be re-reading its count, which is its own status line).
-  const mine = page.getByRole('region', { name: 'Address risk' });
-  await expect(mine.getByRole('status').filter({ hasText: 'Thank you. Your report was received.' })).toBeVisible();
+  // The person's account id, as identity answers a sign-in of theirs: the id the service files a report under.
+  const { userId } = await api(who);
+  const scam = scamAddressFor(who);
+  const NOTE = `LOCAL TEST ${J} report by ${who.handle}`;
+  // What the public must never be shown: who reported (by handle, email or account id) and what they wrote.
+  const HIDDEN = [who.handle, who.email, userId, NOTE];
+  const CONFIRMATION = 'Thank you. Your report was received.';
+  const mine = page.getByRole('region', { name: 'Address risk', exact: true });
+  const report = page.getByRole('dialog', { name: 'Report this address', exact: true });
+  /** Opens the report form on the address page and sends a scam report with the note: the service's answer to it. */
+  const sendReport = async () => {
+    await mine.getByRole('button', { name: 'Report this address', exact: true }).click();
+    await report.getByRole('combobox', { name: 'Reason', exact: true }).selectOption({ label: 'Scam' });
+    await report.getByLabel('What happened (optional)', { exact: true }).fill(NOTE);
+    const answered = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith(REPORT_SUBMIT));
+    await report.getByRole('button', { name: 'Send report', exact: true }).click();
+    return answered;
+  };
+
+  await page.goto(`/chain/address/${scam}`);
+  // Nobody has reported this address yet: the card says so, and the service holds no report about it.
+  await expect(mine).toContainText('Not reported.');
+  expect(await reportsAbout(scam)).toEqual([]);
+
+  // The person reports it as a scam: the service takes the report, and the card confirms it and counts it.
+  const taken = await sendReport();
+  expect(taken.status()).toBe(200);
+  const receipt = (await taken.json()).result.data;
+  expect(receipt).toMatchObject({ chainId: CHAIN_ID, kind: 'scam' });
+  expect(receipt.address.toLowerCase()).toBe(scam);
+  await expect(mine.getByRole('status').filter({ hasText: CONFIRMATION })).toBeVisible();
   await expect(report).toHaveCount(0);
-  await page.getByRole('button', { name: 'Report this address' }).click();
-  await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
-  await report.getByRole('button', { name: 'Send report' }).click();
-  await expect(report.getByRole('alert')).toContainText('You already reported this address');
-  // Signed out, the address page shows the report count, never who reported.
+  await expect(mine).toContainText('Reported 1 time.');
+  // On record: one open report, filed under this person's id, with no duplicate refused yet.
+  const filed = { id: receipt.id, reporter_id: userId, kind: 'scam', note: NOTE, status: 'open' };
+  expect(await reportsAbout(scam)).toEqual([{ ...filed, duplicates_refused: 0 }]);
+
+  // The same person sends the same report again: the service refuses it by its typed code, and the form says why.
+  const refused = await sendReport();
+  expect(refused.request().postDataJSON()).toEqual(taken.request().postDataJSON());
+  expect(refused.status()).toBe(409);
+  const refusal = (await refused.json()).error;
+  expect(refusal.data.code).toBe('CONFLICT');
+  expect(refusal.data.cause.code).toBe('protocol.reports.duplicate');
+  await expect(report.getByRole('alert')).toHaveText('You already reported this address. Your report is still open.');
+  // Nothing was added: still that one report, now holding the one duplicate that was refused.
+  expect(await reportsAbout(scam)).toEqual([{ ...filed, duplicates_refused: 1 }]);
+  // The person closes the form: their page keeps the confirmation of the one report they made.
+  await report.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(report).toHaveCount(0);
+  await expect(mine.getByRole('status').filter({ hasText: CONFIRMATION })).toBeVisible();
+  await expect(mine).toContainText('Reported 1 time.');
+  await stepPicture();
+
+  // The public, signed out: the service's answer about the address, and the page drawn from it, hold the count, still one
+  // after the refused duplicate, and nothing of who reported or what they wrote.
   const away = await browser.newContext();
   try {
     const other = await away.newPage();
-    await other.goto(`/chain/address/${SUSPECT}`);
-    const card = other.getByRole('region', { name: 'Address risk' });
-    await expect(card).toContainText(/Reported \d+ times?/);
-    await expect(card).not.toContainText(who.handle);
-    await expect(card).not.toContainText(who.email);
+    const answer = await answerAfterNavigation(
+      other,
+      (r) => new URL(r.url()).pathname.endsWith(RISK_READ) && r.url().includes(scam),
+      () => other.goto(`/chain/address/${scam}`),
+    );
+    expect(answer.status()).toBe(200);
+    const shown = await answer.text();
+    expect(JSON.parse(shown).result.data.openReports).toBe(1);
+    for (const hidden of HIDDEN) expect(shown.toLowerCase()).not.toContain(hidden.toLowerCase());
+    const card = other.getByRole('region', { name: 'Address risk', exact: true });
+    await expect(card).toContainText('Reported 1 time.');
+    await expect(card).toContainText('Sign in to report this address.');
+    for (const hidden of HIDDEN) await expect(other.locator('body')).not.toContainText(hidden, { ignoreCase: true });
   } finally {
     await away.close();
   }
