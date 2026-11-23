@@ -4051,8 +4051,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           'closing or flipping a position with an opening order is not offered on the TEST simulator: close it reduce-only',
         );
       }
+      // An own resting order this one crosses is not counted: the self-trade rule below cancels it before this one rests.
+      const book = this.bookOf(market.symbol);
       const opposite = [...state.orders.values()].some(
-        (o) => o.order.symbol === market.symbol && o.order.side !== intent.side && !o.order.reduceOnly && isLive(o),
+        (o) =>
+          o.order.symbol === market.symbol &&
+          o.order.side !== intent.side &&
+          !o.order.reduceOnly &&
+          isLive(o) &&
+          !(book.includes(o) && crossesPrice(o)),
       );
       if (opposite) return refused('not_offered', 'opening orders on both sides of one market are not offered on the TEST simulator');
     }

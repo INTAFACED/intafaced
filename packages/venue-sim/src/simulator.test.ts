@@ -670,6 +670,21 @@ describe('TEST venue simulator: review regressions', () => {
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'BTC')).toMatchObject({ free: a('1'), locked: ZERO });
   });
 
+  it('on a perpetual, an opening order that crosses only its own resting opening order cancels it (self-trade) and rests; one that does not cross it is still refused', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:stp');
+    await w.run(w.wallet, w.trader, tenX);
+    const short = await w.run(w.wallet, w.trader, perp('sell', '70000', '0.01', 'order:t:stp-s'));
+    const apart = await w.run(w.wallet, w.trader, perp('buy', '69000', '0.01', 'order:t:stp-apart'));
+    expect(apart.outcome).toMatchObject({ accepted: false });
+    const long = await w.run(w.wallet, w.trader, perp('buy', '70000', '0.01', 'order:t:stp-l'));
+    expect(long.outcome).toMatchObject({ accepted: true });
+    const cancelled = (await w.sim.orderByClientId(w.trader, short.prepared.venueClientOrderId!)).value;
+    expect(cancelled).toMatchObject({ status: 'canceled', cancelReason: 'self_trade' });
+    expect((await w.sim.orderByClientId(w.trader, long.prepared.venueClientOrderId!)).value?.status).toBe('open');
+    expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
+  });
+
   it('an isolated loss stops at the margin released', async () => {
     const w = world();
     const bidder = testWallet('bidder-loss');
