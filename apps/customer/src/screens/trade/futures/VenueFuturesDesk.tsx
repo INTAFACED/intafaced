@@ -113,17 +113,20 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
     <div data-testid="if-futures" className="lt-stack" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
       <ActionLimitWarning venueName={status.venue.displayName} />
-      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-      <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-        <h2 className="lt-panel-title">{t('Contracts')}</h2>
-        {markets.data && perps.length === 0 ? (
-          <div data-testid="venue-no-contract">
-            <p>{t('No contract')}</p>
-            <p className="lt-quiet">{t('No contract reason', { venue: status.venue.displayName })}</p>
-          </div>
-        ) : null}
-      </section>
-      <GatedList status={status} />
+      {/* The contracts band: its titles and lists keep the desk's inner margin. */}
+      <div className="lt-stack">
+        {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+        <section className="lt-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+          <h2 className="lt-panel-title">{t('Contracts')}</h2>
+          {markets.data && perps.length === 0 ? (
+            <div data-testid="venue-no-contract">
+              <p>{t('No contract')}</p>
+              <p className="lt-quiet">{t('No contract reason', { venue: status.venue.displayName })}</p>
+            </div>
+          ) : null}
+        </section>
+        <GatedList status={status} />
+      </div>
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
   );
@@ -182,50 +185,61 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
-      <ul className="lt-stack" aria-label={t('Contracts')} data-testid="venue-contract-list">
-        {perps.map((m) => (
-          <li key={m.symbol}>
-            <Button
-              tone={m.symbol === market.symbol ? 'primary' : 'secondary'}
-              aria-pressed={m.symbol === market.symbol}
-              onClick={() => setChosen(m.symbol)}
-            >
-              {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-            </Button>{' '}
-            <TestMark test={status.test} />
-          </li>
-        ))}
-      </ul>
-      <ContractStrip market={market} test={status.test} />
-      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-      <WalletBar />
-      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-      {owner ? (
-        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-      ) : null}
-      {owner && market.marginAccount?.known ? (
-        <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-      ) : null}
-      {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-      {owner ? (
-        <Ticket
-          key={`t:${market.symbol}`}
-          status={status}
-          market={market}
-          owner={owner}
-          account={account}
-          run={run}
-          resend={resend}
-          side={side}
-          setSide={setSide}
-          disabled={false}
-        />
-      ) : null}
-      {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-      {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-      {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      {/* The desk's two columns, as on the venue spot desk: the contract and its ticket in the centre; the wallet, the
+          margin and the venue's own rules beside. */}
+      <div className="lt-grid lt-grid-main-side">
+        <div className="lt-col-main">
+          <ul className="lt-toolbar" aria-label={t('Contracts')} data-testid="venue-contract-list">
+            {perps.map((m) => (
+              <li key={m.symbol}>
+                <Button
+                  tone={m.symbol === market.symbol ? 'primary' : 'secondary'}
+                  aria-pressed={m.symbol === market.symbol}
+                  onClick={() => setChosen(m.symbol)}
+                >
+                  {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                </Button>{' '}
+                <TestMark test={status.test} />
+              </li>
+            ))}
+          </ul>
+          <ContractStrip market={market} test={status.test} />
+          {owner ? (
+            <Ticket
+              key={`t:${market.symbol}`}
+              status={status}
+              market={market}
+              owner={owner}
+              account={account}
+              run={run}
+              resend={resend}
+              side={side}
+              setSide={setSide}
+              disabled={false}
+            />
+          ) : null}
+          {owner ? (
+            <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+          ) : null}
+          <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+        <div className="lt-col-side">
+          <WalletBar />
+          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+          {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+          {owner && market.marginAccount?.known ? (
+            <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+          ) : null}
+          {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
+          <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+      </div>
+      {/* The wide tables keep the desk's whole width under the columns: the venues, the orders and the venue accounts. */}
+      <div className="lt-stack">
+        {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+        {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+        {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      </div>
     </>
   );
 }

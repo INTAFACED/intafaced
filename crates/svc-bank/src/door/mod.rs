@@ -795,7 +795,12 @@ impl BankDoor {
                     crate::business::payouts::router::answer(&d, ctx)
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::BusinessPayouts))),
-            other => Err(not_ported(other)),
+            Slice::BusinessSpend => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business_spend::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessSpend))),
         }
     }
 

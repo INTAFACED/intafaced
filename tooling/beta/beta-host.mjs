@@ -200,9 +200,21 @@ export function mailboxRows(text, { now = Date.now(), hours = 24, max = 60 } = {
   return rows.reverse().slice(0, max);
 }
 
+/** The rows a viewer may see: mail to TEST addresses whose local part is their token, or it, a dot and more. A token
+ * holds no dot (beta-front.mjs viewerToken), so one viewer's token is never the start of another's addresses. */
+export function viewerRows(rows, token) {
+  if (!token) return [];
+  return rows.filter((r) => {
+    const local = String(r.email ?? '')
+      .toLowerCase()
+      .split('@')[0];
+    return local === token || local.startsWith(`${token}.`);
+  });
+}
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
+export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = null } = {}) {
   const body = rows.length
     ? rows
         .map(
@@ -220,6 +232,7 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
 .test{background:#F5A915;color:#0b0b0b;font-weight:600;padding:.3rem .6rem;display:inline-block}table{border-collapse:collapse;width:100%}
 td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}</style></head>
 <body><p class="test">TEST MAILBOX: test accounts only, not real mail</p><h1>Codes and links the beta app sent</h1>${state}
+${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>. Sign up with one, for example <b>${esc(viewer)}.1@local-test.invalid</b>.</p>` : ''}
 <p><a href="${esc(link)}">Open the beta app</a>. This page reloads every 10 seconds.</p>
 <table><thead><tr><th>What</th><th>To</th><th>Code</th><th>Expires</th></tr></thead><tbody>
 ${body}
@@ -233,7 +246,16 @@ function serveMailbox(paths) {
       text = fs.readFileSync(path.join(paths.state, 'email-outbox.log'), 'utf8');
     } catch {}
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' });
-    res.end(mailboxPage(mailboxRows(text), { status: readJson(paths.status) }));
+    // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
+    // box's own loopback, without the header, every row.
+    const viewer = req.headers['x-beta-viewer'];
+    const rows = mailboxRows(text);
+    res.end(
+      mailboxPage(viewer === undefined ? rows : viewerRows(rows, String(viewer)), {
+        status: readJson(paths.status),
+        viewer: viewer ?? null,
+      }),
+    );
   });
   server.on('error', (err) => log(paths, `mailbox: ${err.message}`));
   server.listen(MAILBOX_PORT, '127.0.0.1');

@@ -183,6 +183,7 @@ export function VenueRoutes({
                           <>
                             {t('Connect to use')}{' '}
                             <a
+                              className="lt-link"
                               href="/wallet"
                               onClick={(e) => {
                                 e.preventDefault();
