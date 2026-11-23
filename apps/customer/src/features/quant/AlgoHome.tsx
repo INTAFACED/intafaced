@@ -14,7 +14,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
   const { t } = algoCopy.useCopy();
   return (
     <div className="lt-stack">
-      <QuantRooms active="home" paper={paper} />
+      <QuantRooms paper={paper} />
       <p className="more-badge">{t('simulated')}</p>
       {userId ? (
         <SignedIn paper={paper} userId={userId} />

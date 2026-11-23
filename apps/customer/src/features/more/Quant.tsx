@@ -274,7 +274,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   }, [api]);
   return (
     <div className="more-grid">
-      <QuantRooms active={mode} paper={paper} />
+      {mode === 'backtest' ? null : <QuantRooms paper={paper} />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
