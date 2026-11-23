@@ -36,7 +36,7 @@ use service_kit::json::Json;
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::Value;
-use service_kit::server::{Door, Request, RequestIds, Response};
+use service_kit::server::{Door, Reply, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
@@ -815,6 +815,15 @@ impl BankDoor {
         self.handle_from(req, request_id, "")
     }
 
+    /// Answers one request as `handle_from`, with the content type and headers it sends beside the body: the pay-in
+    /// stand-in's page is HTML and its approve a redirect; every other answer is JSON with none.
+    pub fn reply_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Reply {
+        if let Some(reply) = crate::ramps::onramp::page_reply(self, req) {
+            return reply;
+        }
+        self.handle_from(req, request_id, peer).into()
+    }
+
     /// Answers one request from the TCP peer `peer` (blank when unknown): the loopback TEST doors read it.
     pub fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         if let Some(res) = crate::test_age::answer(self, req, self.test_age_open) {
@@ -1011,6 +1020,10 @@ impl Door for BankDoor {
 
     fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         BankDoor::handle_from(self, req, request_id, peer)
+    }
+
+    fn reply_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Reply {
+        BankDoor::reply_from(self, req, request_id, peer)
     }
 
     /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it, and `/ready` the app's fixed body,
