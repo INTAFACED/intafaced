@@ -643,12 +643,21 @@ impl BankDoor {
                         crate::cards::core::freeze_for_holder(d, card_id, user)
                     })
                 };
+                // The card partner's held figure for one person and asset (`cardHolds.figures`), `None` when it gives none.
+                let card_held = |user: &str, asset: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::reads::test_card_holds(d, &d.w.holds).map_or(Ok(None), |h| {
+                            crate::cards::reads::HoldReads::figures(&h, user, asset).map(|f| f.held)
+                        })
+                    })
+                };
                 crate::spaces::router::answer(
                     &self.spaces,
                     &self.partner,
                     &self.store,
                     ctx,
                     &freeze,
+                    &card_held,
                 )
                 .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
