@@ -197,8 +197,7 @@ export function EarnPoolRoom({ search, open }: { search: string; open: (spec: Ac
       {...bankRoomProps('Earn', t('poolDescription'), t('poolTitle'))}
       section={<BankTabs />}
       state={{ kind: 'ready' }}
-      items={null}
-      item={<EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />}
+      items={<EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />}
     />
   );
 }
