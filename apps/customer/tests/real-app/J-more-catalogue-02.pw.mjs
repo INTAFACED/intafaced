@@ -235,6 +235,16 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   // No one has reviewed this run's new listing yet: the summary is svc-market's zero, with no mean.
   expect(read.reviews).toEqual({ count: '0', mean: null, meanRounding: 'half-up-scale-18' });
 
+  // The review list loads apart from the listing, with its own loading status in the same Reviews region. Hold it
+  // open until the summary is read, so the summary is checked beside that second status on every run, not by luck.
+  let release = () => {};
+  const held = new Promise((resolve) => (release = resolve));
+  const reviewsList = '**/api/market/trpc/reviews.list?**';
+  await page.route(reviewsList, async (route) => {
+    await held;
+    await route.continue().catch(() => {});
+  });
+
   // From the catalogue: the listing's dialog links to its own page.
   const dialog = await openListing(page);
   await dialog.getByRole('link', { name: 'Open the listing page', exact: true }).click();
@@ -254,9 +264,16 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   await expect(sellerPart).toContainText(read.vendor.description);
   await expect(sellerPart).toContainText(`Active listings: ${read.activeListingCount}`);
 
-  const summary = main.getByRole('region', { name: 'Reviews', exact: true }).getByTestId('market-review-summary');
+  const reviews = main.getByRole('region', { name: 'Reviews', exact: true });
+  await expect(reviews.getByRole('status')).toHaveCount(2);
+  const summary = reviews.getByTestId('market-review-summary');
   await expect(summary).toHaveAttribute('role', 'status');
   await expect(summary).toHaveText('No reviews yet.');
+  release();
+  await page.unroute(reviewsList);
+  // The list answers and its loading status goes; the summary is the region's one status left.
+  await expect(reviews.getByRole('status')).toHaveCount(1);
+  await expect(reviews.getByRole('status')).toHaveAttribute('data-testid', 'market-review-summary');
 
   // The figures, each from the read, and the basis they are counted on, word for word.
   const performance = main.getByRole('region', { name: 'Performance', exact: true });
