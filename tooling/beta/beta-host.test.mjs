@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  ANVIL_IMAGE,
   BETA_LINK,
   BETA_SLOT,
   MAILBOX_PORT,
   UPDATE_EVERY_MS,
+  anvilLauncher,
   betaPaths,
   decide,
+  ensureAnvil,
   environEntries,
   fundsCheck,
   mailboxPage,
@@ -208,4 +214,66 @@ test('reserved names never reach a service, so they pass; a real host that only 
 
 test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
   assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+});
+
+test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-anvil-'));
+  const paths = betaPaths(dir);
+  fs.mkdirSync(paths.root, { recursive: true });
+  const calls = [];
+  const sh = (ok) => (cmd, args) => (calls.push([cmd, ...args].join(' ')), { status: ok(args) ? 0 : 1 });
+
+  // The image is missing: it is pulled, then the launcher is written and the stack is given it.
+  assert.deepEqual(
+    ensureAnvil(
+      paths,
+      sh((a) => a[0] === 'pull'),
+    ).fresh,
+    true,
+    'a new launcher',
+  );
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).line,
+    /on the box/,
+  );
+  assert.deepEqual(calls, [
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+    `docker pull --quiet ${ANVIL_IMAGE}`,
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+  ]);
+  assert.equal(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).fresh,
+    false,
+    'the same launcher is not new',
+  );
+  assert.equal(fs.readFileSync(paths.anvil, 'utf8'), anvilLauncher());
+  assert.match(
+    anvilLauncher(),
+    /^#!\/bin\/sh\nexec docker run --rm --init --network host ghcr\.io\/foundry-rs\/foundry:v1\.5\.1 "anvil \$\*"\n$/,
+  );
+  assert.equal(fs.statSync(paths.anvil).mode & 0o777, 0o755);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, paths.anvil);
+  assert.equal(stackEnv(paths, { LOCAL_STACK_ANVIL_BIN: '/opt/anvil' }).LOCAL_STACK_ANVIL_BIN, '/opt/anvil', 'a chosen anvil wins');
+
+  // The image is the one CI's journeys run their chain with.
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes(`docker run --rm --init --network host ${ANVIL_IMAGE} "anvil $*"`));
+
+  // No docker, or a failed pull: no launcher, and the stack starts as before, with no TEST chain.
+  calls.length = 0;
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => false),
+    ).line,
+    /no TEST chain/,
+  );
+  assert.equal(fs.existsSync(paths.anvil), false);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
 });

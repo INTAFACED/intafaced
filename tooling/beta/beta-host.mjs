@@ -82,6 +82,8 @@ export function betaPaths(home = os.homedir()) {
     frontUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-front.service'),
     /** The hash of the beta-front.mjs the front service was last started on. */
     front: path.join(root, 'front.json'),
+    /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
+    anvil: path.join(root, 'anvil'),
   };
 }
 
@@ -97,8 +99,9 @@ const BETA_CADENCE_SECONDS = 300;
  * reach, and its TEST market re-quotes and its lake captures every BETA_CADENCE_SECONDS. Its database keeps crash
  * durability, so a box restart keeps the testers' accounts (#10352).
  */
-export const stackEnv = (paths, env = process.env) => ({
+export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(paths.anvil)) => ({
   ...env,
+  ...(hasAnvil && !env.LOCAL_STACK_ANVIL_BIN ? { LOCAL_STACK_ANVIL_BIN: paths.anvil } : {}),
   LOCAL_STACK_SLOT: String(BETA_SLOT),
   LOCAL_STACK_STATE: paths.state,
   LOCAL_STACK_CODE_REACH: 'off',
@@ -108,6 +111,37 @@ export const stackEnv = (paths, env = process.env) => ({
   // The beta's Customer build shows only rooms finished in Volt (apps/customer/src/app/beta-volt.ts).
   INTAFACED_BETA_VOLT_ONLY: '1',
 });
+
+/**
+ * The TEST chain's anvil on the beta: the same pinned foundry image and `docker run` launcher the journeys use
+ * (.github/workflows/real-app-journeys.yml, "Get an anvil launcher"). The box has no anvil of its own, and without one the
+ * stack starts no TEST chain: svc-indexer is not started and svc-protocol keeps no node, so /dex, /chain, /protocol and
+ * /dex/pools only ever said "didn't answer" or "Checking network…" (#10305). Host network, so anvil binds the loopback
+ * port the stack names; the stack's stop signals the client, which passes it to the container (--init, --rm).
+ */
+export const ANVIL_IMAGE = 'ghcr.io/foundry-rs/foundry:v1.5.1';
+export const anvilLauncher = (image = ANVIL_IMAGE) => `#!/bin/sh\nexec docker run --rm --init --network host ${image} "anvil $*"\n`;
+
+/**
+ * Puts the launcher in place once its image is on the box (pulled when missing), and returns the round.log line and
+ * whether the launcher is new (`fresh`): a stack already running with no chain has started svc-protocol, svc-indexer's
+ * absence and every other service's chain settings without one, so the round restarts it once onto the chain. With no
+ * docker or a failed pull the launcher is removed, so the stack starts as before, with no TEST chain, rather than failing
+ * its launch on a chain that cannot start.
+ */
+export function ensureAnvil(paths, sh = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', timeout: 15 * 60_000 })) {
+  const have = sh('docker', ['image', 'inspect', '--format', '{{.Id}}', ANVIL_IMAGE]).status === 0;
+  const pulled = have || sh('docker', ['pull', '--quiet', ANVIL_IMAGE]).status === 0;
+  if (!pulled) {
+    fs.rmSync(paths.anvil, { force: true });
+    return { line: `anvil: no ${ANVIL_IMAGE} (docker missing or the pull failed); the stack starts with no TEST chain`, fresh: false };
+  }
+  const fresh = !fs.existsSync(paths.anvil);
+  const text = anvilLauncher();
+  if (fresh || fs.readFileSync(paths.anvil, 'utf8') !== text) fs.writeFileSync(paths.anvil, text);
+  fs.chmodSync(paths.anvil, 0o755);
+  return { line: `anvil: ${ANVIL_IMAGE} ${have ? 'on the box' : 'pulled'}; the stack runs its TEST chain with ${paths.anvil}`, fresh };
+}
 
 // ── The TEST funds check ────────────────────────────────────────────────────
 
@@ -413,12 +447,13 @@ const roundIo = {
   run,
   check: checkStack,
   readied: readiedNow,
+  anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, sleep, now } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -439,6 +474,8 @@ export async function round(paths = betaPaths(), io = {}) {
       reason: `no TEST screening file at ${paths.screening}: Edge would refuse every call, so nothing is built (docs/runbooks/beta-link.md)`,
       sha: head,
     });
+  const chain = anvil(paths);
+  log(paths, chain.line);
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
@@ -447,7 +484,7 @@ export async function round(paths = betaPaths(), io = {}) {
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const warm = !chain.fresh && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
   if (!warm)
     writeStatus(paths, {
       state: 'updating',
@@ -463,6 +500,10 @@ export async function round(paths = betaPaths(), io = {}) {
     if (co.status !== 0) return finish(paths, { state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head });
     if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0)
       return finish(paths, { state: 'down', reason: 'pnpm install failed (round.log)', sha, updatedAt, mainAt });
+  }
+  if (chain.fresh) {
+    log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
+    await stopStack(paths, run);
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
