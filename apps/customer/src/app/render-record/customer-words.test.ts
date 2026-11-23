@@ -18,6 +18,7 @@ describe('no customer room shows a raw id, an internal code or a placeholder add
       at('<p title="8a96885b-cd8f-4a1e-9b1c-0123456789ab" data-code="bank.plan_fee_unwired">Reference 8A96885B · 1.5 BTC</p>'),
     ).toEqual([]);
     expect(at('<details><summary>Details</summary>id 8a96885b-cd8f-4a1e-9b1c-0123456789ab</details>')).toEqual([]);
+    expect(at('<p class="lt-sr" lang="zxx">8a96885b-cd8f-4a1e-9b1c-0123456789ab</p>')).toEqual([]);
     expect(at('<p>http://localhost:3000/pay/send?to=friend · beta.intafaced.com</p>')).toEqual([]);
     expect(visibleText('<b>a</b><svg><text>8a96885b-cd8f-4a1e-9b1c-0123456789ab</text></svg>')).toBe(' a ');
   });
