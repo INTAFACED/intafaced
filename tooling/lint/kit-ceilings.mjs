@@ -7,22 +7,23 @@
  * apps/customer/kit-ceilings.json. kit-ceilings.test.mjs fails when a file's count passes its ceiling (a file with no entry
  * has a ceiling of zero), when a ceiling is above the file's count (stale: lower it), and when the file raises a ceiling or
  * adds a file that main's copy does not hold (main's copy where this change forked from it, so a layer behind main is
- * judged on its own edits). On a batch PR into a Volt layer (`volt/<template>`) a stale ceiling does not fail, so no batch
- * edits this shared file; the layer's PR into main holds it exact, after one `--write` on the layer. A file git sees as renamed or moved since main (`git diff -M`) is the same file:
+ * judged on its own edits). On every PR, into main included, a stale ceiling does not fail, so no batch edits this shared
+ * file; `node tooling/design/volt-prune.mjs`, run in its own PR, is the one thing that lowers it. A file git sees as
+ * renamed or moved since main (`git diff -M`) is the same file:
  * its new path inherits its old path's ceiling, so a move that keeps or lowers its count passes. The lint ratchet separately
  * fails a change whose touched files gain a finding.
  *
  * Usage:
- *   node tooling/lint/kit-ceilings.mjs            print each rule's total and what is over or stale; exit 1 if any
- *   node tooling/lint/kit-ceilings.mjs --write    lower the ceilings to today's counts, moving a renamed file's entry to
- *                                                its new path; refuses to raise any
+ *   node tooling/lint/kit-ceilings.mjs            print each rule's total and what is over or stale; exit 1 if any is over
+ *   node tooling/design/volt-prune.mjs            lower the ceilings to today's counts (lowered()), moving a renamed
+ *                                                file's entry to its new path; refuses to raise any
  * Never raise a ceiling or add a file to pass: replace the raw control or class with the kit's part.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, mainRef, ruleOf } from '../ci/lint-ratchet.mjs';
+import { CONFIG, ruleOf } from '../ci/lint-ratchet.mjs';
 
 export const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 export const CEILINGS = 'apps/customer/kit-ceilings.json';
@@ -84,8 +85,8 @@ const inherited = (table, file, renames) => table[file] ?? (renames[file] !== un
 /**
  * What breaks the ceilings: [{ kind: 'over'|'stale'|'raised', rule, file, count, ceiling, was }].
  * `over`: a count above its ceiling (no entry is a ceiling of 0). `stale`: a ceiling above its count. `raised`: a ceiling
- * above main's (`base`), or a file main's copy does not hold. `base` null skips the raised check. `staleAllowed` (a batch
- * into a Volt layer, intoVoltLayer) passes a stale ceiling. `renames`
+ * above main's (`base`), or a file main's copy does not hold. `base` null skips the raised check. `staleAllowed` (the tree's
+ * own check, on every PR) passes a stale ceiling. `renames`
  * ({ <new path>: <old path> }, from renamesSince) lets a moved file's ceiling be judged against main's for its old path.
  */
 export function judge(counts, ceilings, base = null, renames = {}, staleAllowed = false) {
@@ -111,7 +112,8 @@ export function judge(counts, ceilings, base = null, renames = {}, staleAllowed 
 
 const FIX = {
   over: (p) => `${p.file}: ${p.rule} ${p.count}, ceiling ${p.ceiling}. Use the kit's part instead (the lint message names it).`,
-  stale: (p) => `${p.file}: ${p.rule} ${p.count}, ceiling ${p.ceiling}. Lower it: node tooling/lint/kit-ceilings.mjs --write`,
+  stale: (p) =>
+    `${p.file}: ${p.rule} ${p.count}, ceiling ${p.ceiling}. Passes; node tooling/design/volt-prune.mjs lowers it in its own PR.`,
   raised: (p) => `${p.file}: ${p.rule} ceiling ${p.ceiling}, main's ${p.was}. Never raise a ceiling or add a file: use the kit's part.`,
 };
 export const describe = (p) => `${p.kind}: ${FIX[p.kind](p)}`;
@@ -136,9 +138,6 @@ export function lowered(counts, ceilings, renames = {}) {
   return Object.fromEntries(RULES.map((r) => [r, counts[r] ?? {}]));
 }
 
-/** Whether this run judges a batch PR into a Volt layer branch (`volt/<template>`), read from the PR's base branch. */
-export const intoVoltLayer = (env = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
-
 /** The commit this change forked from `ref` at (`git merge-base`), or `ref` itself when the history is too shallow to say. */
 export function forkPoint(ref, cwd = ROOT) {
   if (!ref) return ref;
@@ -147,19 +146,13 @@ export function forkPoint(ref, cwd = ROOT) {
 }
 
 export const readCeilings = (root = ROOT) => JSON.parse(readFileSync(join(root, CEILINGS), 'utf8'));
-const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
+export const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const counts = countTree();
-  const ceilings = readCeilings();
-  if (process.argv.includes('--write')) {
-    writeFileSync(join(ROOT, CEILINGS), formatCeilings(lowered(counts, ceilings, renamesSince(mainRef()))));
-    console.log(`wrote ${CEILINGS}`);
-  } else {
-    for (const r of RULES)
-      console.log(`${r}: ${Object.values(counts[r]).reduce((a, b) => a + b, 0)} in ${Object.keys(counts[r]).length} files`);
-    const problems = judge(counts, ceilings);
-    for (const p of problems) console.log(describe(p));
-    process.exitCode = problems.length ? 1 : 0;
-  }
+  for (const r of RULES)
+    console.log(`${r}: ${Object.values(counts[r]).reduce((a, b) => a + b, 0)} in ${Object.keys(counts[r]).length} files`);
+  const problems = judge(counts, readCeilings());
+  for (const p of problems) console.log(describe(p));
+  process.exitCode = problems.some((p) => p.kind !== 'stale') ? 1 : 0;
 }
