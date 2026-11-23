@@ -3,20 +3,28 @@ import { WithAccount } from '../access/WithAccount';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { catalogCopy } from './copy';
 import { Products } from './Products';
+import { ProductsRoom } from './ProductList';
 import { StoresRoom } from './Stores';
 
 const t = catalogCopy.t;
 
-/** The product catalogue: the list, Add a product, Import products and one product (J-merchant-03). Every role reads; the page gates adding. */
+/** The product catalogue: the list and one product on the record-list template (`./ProductList`), which draws their heading. */
 const products: RoomDef = {
   header: (route) =>
     route.room === 'products'
       ? { title: t('productsTitle'), purpose: t('productsPurpose') }
-      : route.room === 'product-new'
-        ? { title: t('newTitle'), purpose: t('newPurpose') }
-        : route.room === 'product-import'
-          ? { title: t('importTitle'), purpose: t('importPurpose') }
-          : { title: t('productTitle'), purpose: t('productPurpose') },
+      : { title: t('productTitle'), purpose: t('productPurpose') },
+  here: '/pay/products',
+  ownTitle: true,
+  render: (route, { portal }) => <ProductsRoom portal={portal} productId={route.param} />,
+};
+
+/** Add a product and Import products (J-merchant-03). Every role reads; the page gates adding. */
+const productForms: RoomDef = {
+  header: (route) =>
+    route.room === 'product-new'
+      ? { title: t('newTitle'), purpose: t('newPurpose') }
+      : { title: t('importTitle'), purpose: t('importPurpose') },
   here: '/pay/products',
   render: (route, { portal }) => (
     <WithAccount>
@@ -40,7 +48,7 @@ const stores: RoomDef = {
 export const catalogRooms: RoomTable = {
   'settings-stores': stores,
   products,
-  'product-new': products,
-  'product-import': products,
+  'product-new': productForms,
+  'product-import': productForms,
   product: products,
 };

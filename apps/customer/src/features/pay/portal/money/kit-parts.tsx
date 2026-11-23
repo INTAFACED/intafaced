@@ -2,13 +2,17 @@
  * The money pages' own parts for a page on its Volt template, drawn only from the kit and the portal's kit parts
  * (`../volt/parts`). Each keeps the words, roles and test ids of the part it stands in for in `./common`.
  */
-import type { ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { ListState } from '../hooks';
 import type { ApiResult } from '../../../../shared/api';
+import type { PortalApi } from '../api';
+import { useMerchantAccess } from '../access/MerchantAccess';
+import { newRequestId } from '../model';
 import { refusalText } from '../refusal';
 import { reason, type ReasonKey } from '../chrome/copy';
 import { Button } from '@intafaced/ui/lit';
 import { Empty, EntityList, Failure, Loading, NotLive, TestTag, type EntityColumn } from '../volt/parts';
+import type { ListQuery } from './api';
 import { mc } from './copy';
 import { useTestMode } from './test-mode';
 import { isStatementBusy } from './money-words';
@@ -39,6 +43,7 @@ export function ListBody<T>({
   retry,
   onMore,
   empty,
+  filtered,
   label,
   rowKey,
   columns,
@@ -48,15 +53,29 @@ export function ListBody<T>({
   retry: () => void;
   onMore: () => void;
   empty: { title: string; body: string; action?: ReactNode };
+  /** Filters are on: an empty result then offers to clear them instead of explaining what the list is. */
+  filtered?: { clear: () => void; active: boolean };
   label: string;
   rowKey: (row: T) => string;
   columns: readonly EntityColumn<T>[];
   href?: (row: T) => string;
 }) {
+  const { t } = mc.useCopy();
   if (state.status === 'loading') return <Loading rows={4} />;
-  if (state.status === 'failed') return <Failure result={state.failure} retry={retry} />;
+  if (state.status === 'failed') return <MoneyFailure result={state.failure} retry={retry} />;
   if (state.items.length === 0)
-    return (
+    return filtered?.active ? (
+      <Empty
+        title={t('mnNoMatchTitle')}
+        action={
+          <Button tone="secondary" onClick={filtered.clear}>
+            {t('clearFilters')}
+          </Button>
+        }
+      >
+        {t('mnNoMatchBody')}
+      </Empty>
+    ) : (
       <Empty title={empty.title} action={empty.action}>
         {empty.body}
       </Empty>
@@ -80,6 +99,69 @@ function LoadMore({ state, onMore }: { state: ListState<unknown>; onMore: () => 
         {state.more === 'loading' ? t('loadingMore') : failed ? t('tryAgain') : t('loadMore')}
       </Button>
       {failed && <p role="alert">{refusalText(state.more as Extract<ApiResult<unknown>, { ok: false }>)}</p>}
+    </div>
+  );
+}
+
+type ExportKindName = 'settlements' | 'payouts' | 'refunds';
+
+/**
+ * Asks the service for a file of exactly what the list shows (its current filters). The file is made in the
+ * background and appears under Reports. Where the service cannot, the page offers a labelled copy of this page.
+ */
+export function ExportButton({
+  portal,
+  kind,
+  query,
+  fallback,
+}: {
+  portal: PortalApi;
+  kind: ExportKindName;
+  query: ListQuery;
+  fallback?: ReactNode;
+}) {
+  const { t } = mc.useCopy();
+  const { can } = useMerchantAccess();
+  const [state, setState] = useState<'idle' | 'busy' | 'started' | { message: string }>('idle');
+  // A different view is a different request; the same view clicked twice replays the first.
+  const requestId = useMemo(newRequestId, [kind, JSON.stringify(query)]);
+  const allowed = can('exports.create');
+  return (
+    <div className="lt-actions">
+      <Button
+        tone="secondary"
+        disabled={!allowed || state === 'busy'}
+        title={allowed ? undefined : t('mnExportNotAllowed')}
+        onClick={async () => {
+          setState('busy');
+          const result = await portal.moneyExportCreate({
+            requestId,
+            kind,
+            filters: {
+              ...(query.from ? { from: query.from } : {}),
+              ...(query.to ? { to: query.to } : {}),
+              ...(query.status ? { status: query.status } : {}),
+              ...(query.assetId ? { assetId: query.assetId } : {}),
+            },
+          });
+          setState(result.ok ? 'started' : { message: refusalText(result) });
+        }}
+      >
+        {state === 'busy' ? t('mnExportStarting') : t('mnExportView')}
+      </Button>
+      {fallback}
+      <span role="status">
+        {state === 'started' && (
+          <>
+            {t('mnExportStarted')}{' '}
+            <a className="lt-link" href="/pay/reports/exports">
+              {t('mnExportReports')}
+            </a>
+          </>
+        )}
+      </span>
+      {typeof state === 'object' && <span role="alert">{state.message}</span>}
+      {!allowed && <small className="lt-muted">{t('mnExportNotAllowed')}</small>}
     </div>
   );
 }

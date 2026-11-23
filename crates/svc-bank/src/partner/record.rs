@@ -2,7 +2,8 @@
 //! compares the app with. Mounted only with the TEST partner, which refuses to start outside dev or test, and a caller
 //! off loopback is refused. Read straight from the book, so no switch shapes it.
 //!
-//! `GET /test-partner/venue`, `POST /test-partner/{balances,moves,onboarding,direct-debits,dd-refund}`.
+//! `GET /test-partner/venue`, `POST /test-partner/{balances,accounts,moves,open-orders,onboarding,account-details,
+//! direct-debits,dd-refund}`.
 
 use service_kit::json::Json;
 use service_kit::money::format_amount;
@@ -13,16 +14,20 @@ use service_kit::time::Instant;
 use super::compliance::REQUIREMENTS;
 use super::{AccountRef, LABEL, Move, TestPartner};
 use crate::errors::Refusal;
+use crate::partner_account::account_details::test_set;
 
 /// The doors' base (`TEST_PARTNER_RECORD_BASE`) and the partner's venue id (`TEST_PARTNER_RECORD_ID`).
 pub const BASE: &str = "/test-partner";
 pub const RECORD_ID: &str = "test-partner-bank";
 /// The routes Fastify mounts, with their methods.
-pub const ROUTES: [(&str, &str); 6] = [
+pub const ROUTES: [(&str, &str); 9] = [
     ("GET", "/venue"),
     ("POST", "/balances"),
+    ("POST", "/accounts"),
     ("POST", "/moves"),
+    ("POST", "/open-orders"),
     ("POST", "/onboarding"),
+    ("POST", "/account-details"),
     ("POST", "/direct-debits"),
     ("POST", "/dd-refund"),
 ];
@@ -187,7 +192,8 @@ pub fn answer(
                 Err(_) => error(500, "the TEST partner could not answer"),
             };
         }
-        "/balances" | "/moves" | "/onboarding" => {}
+        "/balances" | "/accounts" | "/moves" | "/open-orders" | "/onboarding"
+        | "/account-details" => {}
         _ => return error(404, "no such path"),
     }
     if method != "POST" {
@@ -235,7 +241,63 @@ pub fn answer(
             ),
         ]));
     }
+    if path == "/account-details" {
+        // The account details it issued the person in one currency, and the holder name it keeps the account in
+        // (J-bank-30 #2): read from its switches, never through `salary.details`, so the partner down keeps its record.
+        let Some(currency) = body
+            .get("currency")
+            .as_str()
+            .filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()))
+        else {
+            return error(400, "currency (three capital letters) is required");
+        };
+        let (issued, holder) = state.board.read(owner, |s| {
+            (s.account_details == "issued", s.holder_name.clone())
+        });
+        let sets = if issued {
+            vec![test_set(owner, currency).json()]
+        } else {
+            Vec::new()
+        };
+        return test(Json::obj([
+            ("issued", Json::Bool(issued)),
+            (
+                "holderName",
+                holder.as_deref().map_or(Json::Null, Json::str),
+            ),
+            ("sets", Json::Array(sets)),
+        ]));
+    }
+    if path == "/open-orders" {
+        // The one TEST order the stand-in reports open for the person, from its own switch (as `openOrders` answers).
+        return test(Json::Array(
+            state
+                .open_orders(owner)
+                .iter()
+                .map(|o| Json::obj([("id", Json::str(&o.id)), ("asset", Json::str(&o.asset_id))]))
+                .collect(),
+        ));
+    }
     let book = state.record(owner);
+    if path == "/accounts" {
+        // Every account it holds for the person, main balances and spaces, each once, with the amount in it
+        // (J-bank-01 #3 #5).
+        return test(Json::Array(
+            book.accounts
+                .iter()
+                .map(|(a, amount)| {
+                    Json::obj([
+                        ("asset", Json::str(&a.asset_id)),
+                        (
+                            "spaceId",
+                            a.space_id.as_deref().map_or(Json::Null, Json::str),
+                        ),
+                        ("amount", Json::str(format_amount(*amount))),
+                    ])
+                })
+                .collect(),
+        ));
+    }
     if path == "/moves" {
         return test(Json::Array(book.moves.iter().map(move_line).collect()));
     }
@@ -290,4 +352,171 @@ pub fn door(
         status,
         body: out.compact(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "a test")]
+    use super::*;
+    use crate::partner::{Funding, MoveRequest};
+    use service_kit::json;
+    use service_kit::money::parse_amount;
+
+    const ADA: &str = "11111111-1111-4111-8111-111111111111";
+    const BOB: &str = "22222222-2222-4222-8222-222222222222";
+    const NOW: Instant = Instant(1_800_000_000_000);
+
+    fn ask(p: &TestPartner, method: &str, path: &str, body: &str) -> (u16, String) {
+        let body = Value::from_json(&json::parse(body).unwrap());
+        let (status, out) = answer(p, method, path, &body, NOW);
+        (status, out.compact())
+    }
+
+    fn account(owner: &str) -> String {
+        format!(r#"{{"account":{{"venueId":"{RECORD_ID}","owner":"{owner}","subAccount":null}}}}"#)
+    }
+
+    fn fund(p: &TestPartner, owner: &str, asset: &str, amount: &str) {
+        let f = Funding {
+            fund_id: "f1".to_owned(),
+            asset_id: asset.to_owned(),
+            amount: parse_amount(amount).unwrap(),
+        };
+        p.lock().fund(owner, &f, NOW).unwrap();
+    }
+
+    fn set(p: &TestPartner, owner: &str, change: &str) {
+        let mut state = p.lock();
+        let next = state
+            .board
+            .get(owner)
+            .with(&Value::from_json(&json::parse(change).unwrap()));
+        state.board.set(owner, next);
+    }
+
+    #[test]
+    fn mounts_every_path_the_journeys_read() {
+        for path in [
+            "/balances",
+            "/accounts",
+            "/moves",
+            "/open-orders",
+            "/onboarding",
+            "/account-details",
+        ] {
+            assert!(ROUTES.contains(&("POST", path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn answers_every_account_it_holds_for_one_person_main_balances_and_spaces_a_currency_it_opened_once_and_its_open_orders()
+     {
+        let p = TestPartner::new().unwrap();
+        fund(&p, ADA, "USDT", "50");
+        p.lock().open_currency(ADA, "USDC", NOW).unwrap();
+        p.lock().open_currency(ADA, "USDC", NOW).unwrap();
+        let space = AccountRef {
+            user_id: ADA.to_owned(),
+            asset_id: "USDT".to_owned(),
+            space_id: Some("space-1".to_owned()),
+        };
+        p.lock()
+            .move_raw(
+                &MoveRequest {
+                    key: "k-space".to_owned(),
+                    from: AccountRef::main(ADA, "USDT"),
+                    to: space,
+                    amount: parse_amount("20").unwrap(),
+                    payees: None,
+                },
+                NOW,
+            )
+            .unwrap();
+        fund(&p, BOB, "USDT", "7");
+        assert_eq!(
+            ask(&p, "POST", "/accounts", &account(ADA)),
+            (
+                200,
+                r#"{"label":"TEST","value":[{"asset":"USDT","spaceId":null,"amount":"30"},{"asset":"USDC","spaceId":null,"amount":"0"},{"asset":"USDT","spaceId":"space-1","amount":"20"}]}"#.to_owned()
+            )
+        );
+        assert_eq!(
+            ask(&p, "POST", "/open-orders", &account(ADA)),
+            (200, r#"{"label":"TEST","value":[]}"#.to_owned())
+        );
+        set(&p, ADA, r#"{"openOrder":"USDC"}"#);
+        assert_eq!(
+            ask(&p, "POST", "/open-orders", &account(ADA)),
+            (
+                200,
+                format!(
+                    r#"{{"label":"TEST","value":[{{"id":"TEST-order:{ADA}:USDC","asset":"USDC"}}]}}"#
+                )
+            )
+        );
+        assert_eq!(
+            ask(&p, "POST", "/open-orders", &account(BOB)).1,
+            r#"{"label":"TEST","value":[]}"#
+        );
+    }
+
+    #[test]
+    fn opens_no_currency_account_while_it_is_down() {
+        let p = TestPartner::new().unwrap();
+        set(&p, ADA, r#"{"down":true}"#);
+        let refused = p.lock().open_currency(ADA, "USDC", NOW);
+        assert!(
+            matches!(refused, Err(Refusal::Bank(e)) if e.row.code == "bank.partner_unavailable")
+        );
+        set(&p, ADA, r#"{"down":false}"#);
+        assert_eq!(
+            ask(&p, "POST", "/accounts", &account(ADA)).1,
+            r#"{"label":"TEST","value":[]}"#
+        );
+    }
+
+    #[test]
+    fn answers_the_account_details_it_issued_one_person_with_the_holder_name_it_keeps_and_none_before_it_issues_them()
+     {
+        let p = TestPartner::new().unwrap();
+        let details = |owner: &str, currency: &str| {
+            let a = account(owner);
+            let body = format!("{},{}", &a[..a.len() - 1], currency);
+            ask(&p, "POST", "/account-details", &format!("{body}}}"))
+        };
+        assert_eq!(
+            details(ADA, r#""currency":"USD""#),
+            (
+                200,
+                r#"{"label":"TEST","value":{"issued":false,"holderName":null,"sets":[]}}"#
+                    .to_owned()
+            )
+        );
+        set(
+            &p,
+            ADA,
+            r#"{"accountDetails":"issued","holderName":"TEST Ada"}"#,
+        );
+        let number = format!("TEST-USD-{}", ADA.replace('-', "").to_uppercase());
+        let issued = format!(
+            r#"{{"label":"TEST","value":{{"issued":true,"holderName":"TEST Ada","sets":[{{"id":"test-partner:{ADA}:USD","accountNumber":"{number}","sortCode":null,"routingNumber":null,"bsb":null,"iban":null,"bic":null,"partnerBank":"TEST partner bank","restrictions":["TEST details: no real account exists and nothing can be received"]}}]}}}}"#
+        );
+        assert_eq!(details(ADA, r#""currency":"USD""#), (200, issued.clone()));
+        // The partner down still keeps its record: the read is its own book, not its answer to the app.
+        set(
+            &p,
+            ADA,
+            r#"{"accountDetails":"issued","holderName":"TEST Ada","down":true}"#,
+        );
+        assert_eq!(details(ADA, r#""currency":"USD""#), (200, issued));
+        assert_eq!(
+            details(BOB, r#""currency":"USD""#).1,
+            r#"{"label":"TEST","value":{"issued":false,"holderName":null,"sets":[]}}"#
+        );
+        assert_eq!(details(ADA, r#""x":1"#).0, 400);
+        assert_eq!(details(ADA, r#""currency":"usd""#).0, 400);
+        assert_eq!(ask(&p, "GET", "/account-details", "null").0, 405);
+        assert_eq!(ask(&p, "GET", "/open-orders", "null").0, 405);
+        assert_eq!(ask(&p, "GET", "/accounts", "null").0, 405);
+    }
 }

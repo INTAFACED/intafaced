@@ -1,31 +1,50 @@
+// volt-room: /pay/payouts
+// volt-room: /pay/payouts/:payoutId
+// volt-room: portal:payouts
+// volt-room: portal:payout
 import { useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
-import { EmptyState } from '../../ui-kit';
-import { PaySection } from '../../components';
-import { Gate, HaltBanner, PortalFailure, PortalLoading, SpanText } from '../components';
+import { Meter } from '@intafaced/ui/lit/templates';
 import { isNotLive, portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
+import { portalCopy } from '../copy';
 import { buildCsv, downloadText } from '../csv';
 import { useMemberNames, useNow, useReadAt } from '../hooks';
 import { isUuid } from '../model';
 import type { Approval, Settlement, Usage } from '../schemas';
-import { AuditPanel } from '../ui/AuditPanel';
-import { CopyReference } from '../ui/CopyReference';
 import { DateTime } from '../ui/DateTime';
-import { DetailHeader } from '../ui/DetailHeader';
-import { FilterRow, useListFilters } from '../ui/FilterRow';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyText } from '../ui/MoneyText';
-import { RelatedLinks } from '../ui/RelatedLinks';
-import { StatusChip } from '../ui/StatusChip';
+import { useListFilters } from '../ui/FilterRow';
 import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
+import {
+  AuditPanel,
+  CopyReference,
+  DetailHeader,
+  Facts,
+  Failure,
+  FilterRow,
+  Freshness,
+  Gate,
+  HaltNotice,
+  KpiStrip,
+  LinkButton,
+  Loading,
+  MoneyAction,
+  MoneyText,
+  NotConfigured,
+  RelatedLinks,
+  Section,
+  SpanText,
+  StatusChip,
+} from '../volt/parts';
+import { RecordListRoom } from '../volt/RecordListRoom';
 import { ApprovalDecision, CancelRequest, useApprovalDestination } from './Approvals';
-import { ExportButton, LinkButton, ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
+import { ExportButton, ListBody, TestBanner } from './kit-parts';
+import { useListQuery } from './list-query';
+import { payoutName, whoIs } from './money-words';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
-import { MoneyAction } from '../access/MoneyAction';
 import { describeDestination, railWords } from './destination';
 import {
   isApprovedToSend,
@@ -42,7 +61,6 @@ import { pictureCount, usePayoutPicture } from './payout-picture';
 import { settlementHref } from './Settlements';
 import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
 import type { PayPayoutLifecycle as Lifecycle, PayPayoutListItem as PayoutItem } from '@intafaced/contracts/pay-portal-reads';
-import { Facts, NotConfigured, UsageBar } from '../components';
 import type { PayoutState } from '../model';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 
@@ -89,8 +107,28 @@ function useSentDestinations(portal: PortalApi, rows: PayoutItem[], approvals: R
   return found;
 }
 
+/** `/pay/payouts` on the record-list template, for the business the access resolved. */
+export function PayoutsRoom({ portal }: { portal: PortalApi }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId }) => ({ list: <Payouts portal={portal} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
+
+/** `/pay/payouts/:id` on the record-list template: one payout's own page. */
+export function PayoutRoom({ portal, payoutId }: { portal: PortalApi; payoutId: string }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId, role }) => ({
+        detail: <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={payoutId} role={role} />,
+      })}
+    </RecordListRoom>
+  );
+}
+
 /** `/pay/payouts`: money leaving your balance, and where each payout is in approval. */
-export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -156,7 +194,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   };
   return (
     <div className="lt-stack">
-      <HaltBanner resource={halts.resource} scopes={['payout']} />
+      <HaltNotice resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <Freshness asOf={readAt} />
       <KpiStrip
@@ -272,12 +310,6 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
               ),
           },
         ]}
-        card={(r) => ({
-          title: payoutName(t, locale, r, destinationOf(r.id)),
-          time: <DateTime value={r.createdAt} />,
-          amount: <MoneyText value={r.net} asset={r.assetId} test={test} />,
-          status: <StatusChip entity="payout" value={payoutRowState(r, approvals)} />,
-        })}
       />
     </div>
   );
@@ -286,7 +318,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
 // ---- detail ---------------------------------------------------------------------------------------------
 
 /** `/pay/payouts/:id` (the id is the settlement's): who asked, who approved, your limit, and what happened to the money. */
-export function PayoutDetailPage({
+function PayoutDetailPage({
   portal,
   merchantId,
   payoutId,
@@ -373,7 +405,7 @@ export function PayoutDetailView({
   const destination = useApprovalDestination();
   return (
     <div className="lt-stack">
-      <HaltBanner resource={halts} scopes={['payout']} />
+      <HaltNotice resource={halts} scopes={['payout']} />
       <Gate resource={settlement} retry={reload} rows={5}>
         {(s) => {
           const trail =
@@ -397,7 +429,7 @@ export function PayoutDetailView({
               ? // Asking for approval and sending both carry the payout scope; deciding someone else's request (pay:write) is elsewhere.
                 (() => {
                   const link = (
-                    <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
+                    <LinkButton tone="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
                       {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
                     </LinkButton>
                   );
@@ -427,18 +459,18 @@ export function PayoutDetailView({
               <TestBanner />
               <Freshness asOf={readAt} />
               {latest?.status === 'voided' && state !== 'failed' && (
-                <p className="pp-callout pp-callout--warn" role="alert">
+                <p className="lt-stale" role="alert">
                   {t('voidBanner')}
                 </p>
               )}
               {waitingToSend && latest && (
-                <p className="pp-callout" role="note">
+                <p className="lt-hint" role="note">
                   {t('apvApprovedBy', { who: whoIs(latest.checkerUserId ?? latest.makerUserId, me, names, t('mnMe')) })}{' '}
                   {maySend ? t('apvSendBefore') : t('apvAskOwner')} <DateTime value={latest.expiresAt} />.
                 </p>
               )}
               {overLimit && left !== null && (
-                <p className="pp-callout pp-callout--warn" role="alert">
+                <p className="lt-stale" role="alert">
                   {t('pdoOverLimit')} (<MoneyText value={left} asset={s.assetId} test={test} /> {t('pnLimitLeft')}.) {t('pdoOverLimitHow')}{' '}
                   <a className="lt-link" href="/pay/limits">
                     {t('pdoOverLimitLink')}
@@ -446,7 +478,7 @@ export function PayoutDetailView({
                 </p>
               )}
               {state === 'failed' && (
-                <p className="pp-callout pp-callout--warn" role="alert">
+                <p className="lt-stale" role="alert">
                   {t('payoutFailedBody')} {lc?.failure?.message ?? s.failure?.message ?? ''}{' '}
                   {reversed ? t('payoutFailedBack', { asset: s.assetId }) : t('payoutFailedBalanceUnknown', { asset: s.assetId })}
                   {!PAYOUT_RETRY_ENABLED && (
@@ -460,9 +492,9 @@ export function PayoutDetailView({
                   )}
                 </p>
               )}
-              {state === 'not_ready' && <p className="pp-callout">{t('payoutNotReadyBody')}</p>}
+              {state === 'not_ready' && <p className="lt-hint">{t('payoutNotReadyBody')}</p>}
 
-              <PaySection title={t('pdoFactsTitle')}>
+              <Section title={t('pdoFactsTitle')}>
                 <Facts
                   items={[
                     [t('colStatus'), <StatusChip entity="payout" value={state} />],
@@ -487,28 +519,28 @@ export function PayoutDetailView({
                     [t('stlId'), <CopyReference value={s.id} what={t('stlId')} />],
                   ]}
                 />
-              </PaySection>
+              </Section>
 
-              <PaySection title={t('pdoTimelineTitle')} description={t('pdoTimelineBody')}>
+              <Section title={t('pdoTimelineTitle')} description={t('pdoTimelineBody')}>
                 {lifecycle.status === 'loading' || approvals.status === 'loading' ? (
-                  <PortalLoading rows={3} />
+                  <Loading rows={3} />
                 ) : lifecycle.status === 'ready' ? (
                   <LifecycleTrail lifecycle={lifecycle.data} approvals={trail} me={me} names={names} settlement={s} />
                 ) : approvals.status === 'failed' && !isNotLive(approvals.failure) ? (
-                  <PortalFailure result={approvals.failure} retry={reload} />
+                  <Failure result={approvals.failure} retry={reload} />
                 ) : (
                   <Trail events={fallbackEvents(t, s, trail, me, names)} />
                 )}
-              </PaySection>
+              </Section>
 
-              <PaySection title={t('pdoAttemptsTitle')} description={t('pdoAttemptsBody')}>
+              <Section title={t('pdoAttemptsTitle')} description={t('pdoAttemptsBody')}>
                 {approvals.status === 'ready' && trail.length === 0 && <p className="lt-muted">{t('noApprovalYet')}</p>}
                 {approvals.status === 'ready' && trail.length > 0 && (
-                  <ul className="pp-approvals" aria-label={t('pdoAttemptsTitle')}>
+                  <ul className="lt-list" aria-label={t('pdoAttemptsTitle')}>
                     {trail.map((a) => (
-                      <li key={a.approvalId} className="pp-approval">
-                        <div className="pp-approval-head">
-                          <strong className="pp-approval-amount">
+                      <li key={a.approvalId}>
+                        <div className="lt-actions">
+                          <strong>
                             <MoneyText value={a.amount} asset={a.assetCode} test={test} />
                           </strong>
                           <StatusChip entity="approval" value={a.status} />
@@ -516,7 +548,7 @@ export function PayoutDetailView({
                             {t('requestedBy')} {whoIs(a.makerUserId, me, names, t('mnMe'))} · <DateTime value={a.createdAt} />
                           </small>
                           {a.status === 'pending' && (
-                            <span className="pp-agechip">
+                            <span className="lt-chip" data-status="pending">
                               {t('expiresIn')} <SpanText ms={Date.parse(a.expiresAt) - now} />
                             </span>
                           )}
@@ -527,7 +559,7 @@ export function PayoutDetailView({
                 )}
                 {latest?.status === 'pending' && (
                   <>
-                    <h3 className="pp-sub">{t('decideTitle')}</h3>
+                    <h3>{t('decideTitle')}</h3>
                     <ApprovalDecision
                       portal={portal}
                       approval={latest}
@@ -540,17 +572,17 @@ export function PayoutDetailView({
                     />
                     {me !== null && latest.makerUserId === me && (
                       <>
-                        <h3 className="pp-sub">{t('cancelTitle')}</h3>
+                        <h3>{t('cancelTitle')}</h3>
                         <CancelRequest portal={portal} approval={latest} me={me} onDone={reload} />
                       </>
                     )}
                   </>
                 )}
-              </PaySection>
+              </Section>
 
-              <PaySection title={t('capTitle')} description={t('capBody')}>
+              <Section title={t('capTitle')} description={t('capBody')}>
                 <PayoutCap usage={usage} assetId={s.assetId} test={test} retry={reload} />
-              </PaySection>
+              </Section>
 
               <RelatedLinks
                 links={[
@@ -579,8 +611,9 @@ export function PayoutDetailView({
 
 function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; assetId: string; test: boolean; retry: () => void }) {
   const { t } = mc.useCopy();
-  if (usage.status === 'loading') return <PortalLoading rows={2} />;
-  if (usage.status === 'failed') return <PortalFailure result={usage.failure} retry={retry} />;
+  const { t: p } = portalCopy.useCopy();
+  if (usage.status === 'loading') return <Loading rows={2} />;
+  if (usage.status === 'failed') return <Failure result={usage.failure} retry={retry} />;
   const row = limitRows(usage.data, null).find((r) => r.kind === 'daily_payout' && r.assetCode === assetId && r.configured);
   if (!row) {
     return (
@@ -591,7 +624,13 @@ function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; as
   }
   return (
     <>
-      {row.pct !== null && <UsageBar pct={row.pct} label={t('capDailyPayout')} />}
+      {row.pct !== null && (
+        <Meter
+          label={t('capDailyPayout')}
+          value={row.pct}
+          text={row.pct >= 100 ? p('usageFull') : p('usagePct', { pct: Math.round(row.pct) })}
+        />
+      )}
       <Facts
         items={[
           [t('capDailyPayout'), row.limit ? <MoneyText value={row.limit} asset={assetId} test={test} /> : '—'],
