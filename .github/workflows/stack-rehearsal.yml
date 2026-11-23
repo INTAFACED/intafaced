@@ -1,5 +1,6 @@
 # Stack rehearsal: builds every image of the containerised stack and starts it the way a hosted deploy does
-# (APP_ENV=staging, the beta posture), on a throwaway runner, then proves it answers and tears it down (#9166).
+# (APP_ENV=staging, the beta posture), on a throwaway runner, and tears it down (#9166). Every service but the edge must
+# turn healthy; the edge must refuse for exactly the owner's missing screening list.
 #
 # Nothing else builds the Dockerfiles or boots docker-compose.apps.yml: Real-app journeys start the local process
 # stack, and staging-deploy.yml needs a host that has not been bought. So this is how anyone knows the hosted stack
@@ -63,43 +64,40 @@ jobs:
           $COMPOSE up -d --no-build --wait postgres
           $COMPOSE exec -T postgres psql -q -U intafaced -d intafaced -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/roles.sql"
 
-      # `up` stops at the first dependency that fails to start; the health gate below reads every container either way.
-      - name: Start the stack
-        run: $COMPOSE up -d --no-build || echo "::warning::compose up stopped early; the health gate reads why"
+      # A staging edge refuses to boot without the owner's screening list (packages/config/src/jurisdiction.ts
+      # assertScreeningConfigured), and that list is a repository secret this workflow does not read: only the owner may
+      # let it. So the rehearsal starts everything but the edge and the customer site behind it, and then proves the edge
+      # refuses for exactly that reason, so nothing else hides there. The sign-in smoke through the site waits on the
+      # owner's answer (project-state nino issue named in #9166).
+      - name: Start the stack, all but the edge and the site behind it
+        run: |
+          set -euo pipefail
+          mapfile -t services < <($COMPOSE config --services | grep -vxE 'svc-edge|vendor-shell')
+          $COMPOSE up -d --no-build "${services[@]}" || echo "::warning::compose up stopped early; the health gate reads why"
 
       - name: Every container is healthy
         run: tooling/infra/compose-health.sh 90 -f docker-compose.apps.yml
 
-      # The edge keeps its operator kill-switch in a state file, and a missing file halts every module (fail-closed,
-      # services/svc-edge/src/kill-switch.ts). `{ "killed": [] }` is the recorded all-on state an operator writes on a
-      # new host (docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md); the rehearsal writes it the same way, restarts the edge to read it, and waits for it again.
-      - name: The operator records every module on
+      - name: The edge refuses to start without the owner's screening list, and for nothing else
         run: |
           set -euo pipefail
-          $COMPOSE exec -T svc-edge sh -c 'printf %s "{\"killed\":[]}" > "$EDGE_KILL_STATE_PATH"'
-          $COMPOSE restart svc-edge
-          tooling/infra/compose-health.sh 30 -f docker-compose.apps.yml
-
-      - name: Sign-in smoke through the customer site
-        run: |
-          set -euo pipefail
-          site=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/)
-          echo "customer site / answered $site"
-          [ "$site" = 200 ]
-          body=$(curl -s -w '\n%{http_code}' -X POST http://localhost:8090/api/identity/trpc/auth.login \
-            -H 'content-type: application/json' -H 'origin: https://localhost:8090' \
-            -d '{"identifier":"rehearsal-nobody@example.invalid","password":"not-the-password"}')
-          status=$(printf '%s' "$body" | tail -n1)
-          code=$(printf '%s' "$body" | grep -oE '"(intafacedCode|code)":"(auth|identity)\.[a-z_]+"' | head -n1 | cut -d'"' -f4 || true)
-          echo "sign-in with an unknown name answered $status $code"
-          # A refusal to a made-up sign-in carries no secret; its first lines say which layer answered.
-          printf '%s' "$body" | sed '$d' | cut -c1-600
-          # Identity answered through the site and the edge with its own typed refusal: with no screening list set (the
-          # owner's, which this run never reads), every sign-in is paused, exactly as on a host before the owner sets it.
-          case "$code" in
-            identity.screening_unset) ;;
-            *) echo "::error::sign-in did not reach identity's typed refusal"; exit 1 ;;
-          esac
+          $COMPOSE up -d --no-build --no-deps svc-edge
+          for _ in $(seq 1 30); do
+            logs=$($COMPOSE logs --no-color svc-edge 2>&1 || true)
+            if grep -q 'denied.screening_unconfigured' <<< "$logs"; then
+              echo "svc-edge refused to boot: denied.screening_unconfigured (no screening list), as a staging host does until the owner sets it"
+              other=$(printf '%s\n' "$logs" | grep -oE '\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_unconfigured|_refused|_required|_not_required|_in_production_posture)\b' | grep -vx 'denied.screening_unconfigured' | sort -u || true)
+              [ -z "$other" ] || { echo "::error::svc-edge also refused for: $other"; exit 1; }
+              $COMPOSE rm -sf svc-edge >/dev/null
+              exit 0
+            fi
+            health=$(docker inspect intafaced-svc-edge --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>/dev/null || true)
+            [ "$health" != healthy ] || { echo "::error::svc-edge became healthy with no screening list: the screening guard did not hold"; exit 1; }
+            sleep 5
+          done
+          echo "::error::svc-edge neither refused with denied.screening_unconfigured nor started"
+          printf '%s\n' "$logs" | tail -n 25 | sed -E 's/[0-9a-fA-F]{16,}/<hex>/g; s#://[^/@ ]*@#://<credentials>@#g' | cut -c1-400
+          exit 1
 
       - name: The health gate fails on an image broken on purpose
         run: |
