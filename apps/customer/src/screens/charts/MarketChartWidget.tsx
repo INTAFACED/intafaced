@@ -502,7 +502,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
               <button type="submit">{t('Start replay')}</button>
             </form>
           )}
-          <span className="cw-replay-note">{t('Replay note')}</span>
+          <span className="lt-muted">{t('Replay note')}</span>
           {replayNote && (
             <span role="status" data-testid="replay-note">
               {replayNote}

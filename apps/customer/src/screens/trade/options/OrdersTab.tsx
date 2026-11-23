@@ -45,7 +45,7 @@ function Section({
   const now = useNow(15_000);
   if (load.status === 'refused') return <RefusedRegion code={load.code} />;
   return (
-    <section aria-label={title} className="flex flex-col gap-2">
+    <section aria-label={title} className="lt-stack">
       <div className="flex items-center justify-between">
         <h3 className="m-0 text-md font-medium text-fg">{title}</h3>
         <Freshness asOf={asOfOf(load)} now={now} />

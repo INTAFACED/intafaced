@@ -141,7 +141,7 @@ export function HistoryTab({ closed }: { closed: Loadable<Position[]> }) {
                 emptyState={<EmptyState size="inline" title={t('History empty title')} reason={t('History empty reason')} />}
               />
               <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
-                <p className="m-0 text-xs text-fg-2">{t('History footer')}</p>
+                <p className="lt-hint">{t('History footer')}</p>
                 <Button
                   variant="secondary"
                   size={28}
