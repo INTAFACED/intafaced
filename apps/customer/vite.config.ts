@@ -4,6 +4,7 @@ import { defineConfig, loadEnv, runnerImport, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { homeBoot } from './src/app/boot';
 import { localWorkers } from '../../tooling/scripts/local-jobs.mjs';
+import { testResults } from '../../tooling/vitest/budget.mjs';
 
 /**
  * Production guard. `VITE_LOCAL_TEST=1` turns on the dev-only screens (`/dev/features`) in a build. It no longer changes
@@ -118,7 +119,8 @@ export default defineConfig(({ mode }) => {
     // local test stack asks: the journeys' reach recorder maps the functions a page ran back to source lines with them
     // (tooling/scripts/journey-reach.mjs). Every other build has none.
     build: { target: 'es2022', sourcemap: process.env.INTAFACED_SOURCEMAP === 'hidden' ? 'hidden' : false, assetsInlineLimit },
-    // vitest reads this config too: on a shared machine at most INTAFACED_LOCAL_JOBS workers (tooling/scripts/local-jobs.mjs).
-    test: { ...localWorkers() },
+    // vitest reads this config too: on a shared machine at most INTAFACED_LOCAL_JOBS workers (tooling/scripts/local-jobs.mjs),
+    // and in CI's Tests job the reporter that records what failed (tooling/vitest/budget.mjs testResults).
+    test: { ...localWorkers(), ...testResults() },
   };
 });
