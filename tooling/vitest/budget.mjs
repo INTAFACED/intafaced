@@ -12,4 +12,16 @@
 // tests run on vitest without it. A package that needs longer says so after the spread, as tooling/pay-sim does.
 import { localWorkers } from '../scripts/local-jobs.mjs';
 
-export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000, ...localWorkers() });
+/**
+ * Node's own Web Storage off in the test workers on Node 25 and later, where it is on by default: with no
+ * --localstorage-file its global `localStorage` is undefined, it stands in place of the DOM environment's (happy-dom,
+ * jsdom), and every test that reads storage fails. On Node 26 the Customer render records failed 203 of 204 at
+ * `localStorage.clear()` and the pre-push hook refused every push until the builder set
+ * NODE_OPTIONS=--no-experimental-webstorage by hand (PR #9819, 23 Nov; #10218 the first time). CI runs Node 22
+ * (.node-version), where it is off already: there this is nothing, and CI's runs are unchanged.
+ */
+export function nodeStorageOff(version = process.versions.node) {
+  return Number(version.split('.')[0]) >= 25 ? { execArgv: ['--no-experimental-webstorage'] } : {};
+}
+
+export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000, ...localWorkers(), ...nodeStorageOff() });
