@@ -3,7 +3,7 @@
  *
  * Read only, ledger reads only: the same `balanceBreakdown` and `balanceEntries` the customer sees, asked for the customer a
  * desk names. The balances (`ops.customerBalances`) are open to the operator read scope `admin:read` or to `admin:treasury`
- * (owner: operators read a customer's cards and balances in svc-bank with `admin:read`); the entries behind them
+ * (owner decision of 2026-11-06, docs/adr/2026-10-22-service-access-calls.md section 3.9's amendment); the entries behind them
  * (`ops.customerBalanceEntries`) stay on `admin:treasury`. A customer's own session never reaches these. Who may hold a
  * scope is decided where scopes are granted (identity), so widening or narrowing the desk is a scope change, not code.
  * No audit table is merged for operator reads (the same as `ops.transferDetail`), so every read writes one structured log
