@@ -193,7 +193,8 @@ test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: t
   const tradingAsOf = Date.parse(await tradingSource.locator('[data-as-of]').getAttribute('data-as-of'));
   await expect(tradingSource.locator('[data-as-of]')).toHaveText(/^As of \S/);
   const venueAfter = Date.parse((await venueRecord(owner, '/balances')).asOf);
-  expect(venueBefore <= tradingAsOf && tradingAsOf <= venueAfter, `${venueBefore} <= ${tradingAsOf} <= ${venueAfter}`).toBe(true);
+  expect(tradingAsOf).toBeGreaterThanOrEqual(venueBefore);
+  expect(tradingAsOf).toBeLessThanOrEqual(venueAfter);
 
   // Spending: the other named group, from the partner, with the time the partner reported it.
   await expect(spending(page).getByRole('heading', { level: 2 })).toHaveText('Spending');
@@ -201,7 +202,9 @@ test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: t
   await expect(spendingSource).toContainText(`From ${PARTNER_BANK}`, { timeout: 30_000 });
   await expect(spendingSource.locator('[data-as-of]')).toHaveText(/^As of \S/);
   const spendingAsOf = Date.parse(await spendingSource.locator('[data-as-of]').getAttribute('data-as-of'));
-  expect(openedAt - 2_000 <= spendingAsOf && spendingAsOf <= Date.now() + 2_000, `${openedAt} <= ${spendingAsOf}`).toBe(true);
+  // The partner stamps each read it answers: one the room made after it opened, and not one from the future.
+  expect(spendingAsOf).toBeGreaterThanOrEqual(openedAt - 2_000);
+  expect(spendingAsOf).toBeLessThanOrEqual(Date.now() + 2_000);
   // The partner account: 1000.00 USDC, as the partner's own book has it.
   const partnerHas = await partnerMain(userId);
   expect(sameDecimal(partnerHas, PARTNER_USDC)).toBe(true);
@@ -418,4 +421,82 @@ test(`${J} #4 buys TEST 0.01 BTC on the venue's spot market (BTC-USDC, on this f
   } finally {
     await testVenue('/test/ladder-mid', { symbol: SPOT, price: mid });
   }
+});
+
+test(`${J} #12 opens the trading account statement: every move, fill and fee, each with its venue, chain or partner reference as its own source records it; nothing labelled as an INTAFACED balance`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, ledger, moveId } = state();
+  if (!moveId) throw new Error(`${J} #2 moved nothing into trading, so the statement has no move to show`);
+  const venue = await venueInfo();
+  // The sources' own records: the venue's fills on the account, the partner's book of moves, and the moves the bank kept.
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
+  if (fills.length === 0) throw new Error(`${J} #4 filled nothing on the venue, so the statement has no fill to show`);
+  const book = (await partnerMoves(userId)).filter((m) => m.key.startsWith('bank.transfer.own-move:'));
+  const kept = await bankGet('ownMoves.list', { limit: 100 });
+  expect(kept.map((m) => m.id)).toContain(moveId);
+  expect(book).toHaveLength(kept.length);
+
+  await openAccount(page);
+  const statement = page.getByTestId('trading-statement');
+  await statement.getByRole('button', { name: 'Open statement', exact: true }).click();
+  await expect(statement).toHaveAttribute('data-open', 'yes');
+
+  // Every move, a row for each leg, and no row more.
+  await expect(statement.locator('tr[data-move]')).toHaveCount(kept.length * 2, { timeout: 30_000 });
+  for (const m of kept) {
+    expect(m.status).toBe('sent');
+    // The partner's leg: the partner's own reference for it, from the partner's book, and its transfer on the TEST chain.
+    const theirs = book.filter((p) => p.key === `bank.transfer.own-move:${m.id}:1`);
+    expect(theirs).toHaveLength(1);
+    const partnerLeg = statement.locator(`tr[data-move="${m.id}"][data-leg="partner"]`);
+    await expect(partnerLeg.locator('[data-cell="what"]')).toHaveText(`${PARTNER_BANK} sent to your wallet`);
+    expect(sameDecimal(await cellAmount(partnerLeg.locator('[data-cell="amount"]')), theirs[0].amount)).toBe(true);
+    await expect(partnerLeg.locator('[data-ref="partner"]')).toHaveText(`Partner reference ${theirs[0].id}`);
+    await expect(partnerLeg.locator('[data-ref="chain"]')).toHaveText(`Chain transaction ${m.deliveryTx}`);
+    expect((await receipt(m.deliveryTx)).status).toBe('0x1');
+    // Its fee as the partner reported it, or "not known": never a 0 of ours.
+    await expect(partnerLeg.locator('[data-cell="fee"]')).toHaveText(
+      m.partnerFee === null ? 'not known' : `${Number(m.partnerFee).toFixed(2)} USDC`,
+    );
+    // The wallet's leg: the chain's own transaction, sent by the person's wallet.
+    const depositLeg = statement.locator(`tr[data-move="${m.id}"][data-leg="deposit"]`);
+    await expect(depositLeg.locator('[data-cell="what"]')).toHaveText(`Your wallet deposited to ${venue.displayName}`);
+    expect(sameDecimal(await cellAmount(depositLeg.locator('[data-cell="amount"]')), theirs[0].amount)).toBe(true);
+    await expect(depositLeg.locator('[data-ref="chain"]')).toHaveText(`Chain transaction ${m.depositTx}`);
+    const deposited = await receipt(m.depositTx);
+    expect(deposited.status).toBe('0x1');
+    expect(deposited.from.toLowerCase()).toBe(owner);
+    await expect(depositLeg.locator('[data-cell="fee"]')).toHaveText('not known');
+  }
+
+  // Every fill the venue records on the account, with the venue's own id for it and the fees the venue charged on it.
+  const fillsShown = statement.getByTestId('statement-fills');
+  await expect(fillsShown).toHaveAttribute('data-venue', venue.displayName);
+  await expect(fillsShown.getByTestId('statement-fills-source')).toContainText(`From ${venue.displayName}`);
+  await expect(statement.locator('tr[data-fill]')).toHaveCount(fills.length, { timeout: 30_000 });
+  for (const f of fills) {
+    const row = statement.locator(`tr[data-fill="${f.fillId}"]`);
+    await expect(row.locator('[data-cell="reference"]')).toHaveText(`Venue fill ${f.fillId}`);
+    await expect(row.locator('[data-cell="market"]')).toHaveText(f.symbol);
+    await expect(row.locator('[data-cell="side"]')).toHaveText(f.side === 'buy' ? 'Buy' : 'Sell');
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="size"]').innerText(), f.amount)).toBe(true);
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="price"]').innerText(), f.price)).toBe(true);
+    // Each fee as the line reads it: the figure, and the asset the venue took it in.
+    const venueFee = /^Venue’s fee (\S+) (\S+)$/.exec((await row.locator('[data-fee="venue"]').innerText()).trim());
+    expect(venueFee, 'the venue’s fee line').not.toBeNull();
+    expect(sameDecimal(venueFee[1], f.venueFee)).toBe(true);
+    expect(venueFee[2]).toBe(f.feeAsset);
+    const builderFee = /^Our builder fee (\S+) (\S+)$/.exec((await row.locator('[data-fee="builder"]').innerText()).trim());
+    expect(builderFee, 'the builder fee line').not.toBeNull();
+    expect(sameDecimal(builderFee[1], f.builderFee)).toBe(true);
+    expect(builderFee[2]).toBe(f.feeAsset);
+  }
+
+  // Nothing in it is labelled a balance, ours or anyone's: it lists what each source recorded.
+  await expect(statement).not.toContainText(/balance/i);
+  await stepPicture();
+  expect(await ledgerOf()).toEqual(ledger);
 });

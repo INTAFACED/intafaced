@@ -30,6 +30,7 @@ import { useOwner, useVenueApi } from '../venue/VenueKit';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { TradingStatement } from './Statement';
 import { depositRoute, routeOf } from './move-route';
 import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
@@ -163,6 +164,7 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
         <SpendingGroup revision={revision} spaces={spaces} />
       </div>
       <MoveIn owner={owner} venue={primary} partner={partner} onMoved={() => setRevision((n) => n + 1)} />
+      <TradingStatement owner={owner} venues={venues} revision={revision} />
     </>
   );
 }
