@@ -85,6 +85,34 @@ describe('the partner cash leg', () => {
     expect(await legs.leg('u2', KEY)).toBeNull();
   });
 
+  it('two carries of one key at once make one move, ask the payout once and return the one leg (#9872)', async () => {
+    const partner = testPartner();
+    partner.set('u1', { custody: 'off' });
+    partner.fund('u1', { fundId: 'f1', assetId: 'EUR', amount: parseAmount('100') });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const asked: string[] = [];
+    const legs = testPartnerCashLegs({
+      partner,
+      custody: testPartnerCustody(partner),
+      custodyLayer: 'on',
+      rates: parseCashLegRates('EUR:USDC:1.08')!,
+      payout: {
+        async pay({ ref }) {
+          asked.push(ref);
+          await held;
+        },
+      },
+    });
+    const both = Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]);
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    release();
+    const [a, b] = await both;
+    expect(asked).toEqual([KEY]);
+    expect(b).toBe(a);
+    expect(partner.record('u1').moves.filter((m) => m.key === KEY)).toHaveLength(1);
+  });
+
   it('rounds the coin down to its smallest unit', async () => {
     const { legs } = world();
     const leg = await legs.carry('u1', ask({ spend: parseAmount('0.0000013'), least: parseAmount('0.000001') }));
