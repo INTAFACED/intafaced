@@ -5,6 +5,7 @@ import {
   supportComplaintInputSchema,
   supportSafetyAcknowledgementSchema,
   supportBereavementInputSchema,
+  supportScamReportInputSchema,
 } from './support-safety.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -74,5 +75,34 @@ export const SUPPORT_SAFETY_REPORT_BEREAVEMENT = defineProcedure({
       },
     },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** A scam report with its amount and the transfer it went out on (BK-safe-02, J-bank-18 #3), acknowledged once. */
+export const SUPPORT_SAFETY_REPORT_SCAM = defineProcedure({
+  ...base,
+  name: 'support.safety.reportScam',
+  kind: 'mutation',
+  path: 'safety.reportScam',
+  access: { caller: 'scope', scope: 'support:write' },
+  refusals: {},
+  input: supportScamReportInputSchema,
+  checks: {
+    support_scam_report_input_holds: {
+      at: 'input',
+      says: 'a report after sending money names the transfer; before sending money there is no transfer to name',
+    },
+    amount_holds: { at: 'input.amount', says: 'an amount is greater than zero' },
+  },
+  output: supportSafetyAcknowledgementSchema,
+  samples: [
+    { verdict: 'accept', input: { when: 'before_sending', amount: '1', assetId: 'USDC', contactedBy: 'phone_call' } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'support_scam_report_input_holds',
+      input: { when: 'after_sending', amount: '1', assetId: 'USDC', contactedBy: 'phone_call' },
+    },
+    { verdict: 'refuse', by: 'amount_holds', input: { when: 'before_sending', amount: '0', assetId: 'USDC', contactedBy: 'phone_call' } },
   ],
 });

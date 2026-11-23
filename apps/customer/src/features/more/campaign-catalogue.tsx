@@ -1,19 +1,13 @@
 import { useMemo, useState } from 'react';
-import {
-  CAMPAIGN_TYPES,
-  CATALOGUE_CAMPAIGN_STATES,
-  campaignCatalogueSchema,
-  campaignViewSchema,
-  myCampaignsSchema,
-  type CampaignType,
-  type CampaignView,
-} from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGN_TYPES, CATALOGUE_CAMPAIGN_STATES, type CampaignType, type CampaignView } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Select } from '@intafaced/ui/lit';
 import { FailureBox, LoadingLine, RecordTable } from '../../shared/record/record-parts';
 import { EmptyNote } from './volt-parts';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
+import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from '@intafaced/contracts/campaigns-catalogue-procedures';
+import { CAMPAIGNS_PARTICIPATION_MINE } from '@intafaced/contracts/campaigns-participation-procedures';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -80,10 +74,7 @@ export function CampaignCatalogue() {
   const when = useWhen();
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
-  const catalogue = useResource(
-    (signal) => api.query('campaigns', 'catalogue.list', undefined, campaignCatalogueSchema, { signal }),
-    'campaigns-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(CAMPAIGNS_CATALOGUE_LIST, undefined, { signal }), 'campaigns-catalogue');
   const any = { value: '', label: t('filterAny') };
   return (
     <div className="lt-stack">
@@ -177,10 +168,7 @@ export function MyCampaigns() {
   const api = useApi();
   const { Copy, t } = campaignCatalogueCopy.useCopy();
   const when = useWhen();
-  const mine = useResource(
-    (signal) => api.query('campaigns', 'participation.mine', undefined, myCampaignsSchema, { signal }),
-    'campaigns-mine',
-  );
+  const mine = useResource((signal) => api.call(CAMPAIGNS_PARTICIPATION_MINE, undefined, { signal }), 'campaigns-mine');
   return (
     <section>
       <h2>{t('mineTitle')}</h2>
@@ -219,8 +207,5 @@ export function MyCampaigns() {
 /** One campaign as svc-campaigns publishes it, for its own page (`campaign-detail/CampaignDetailRoom.tsx`). */
 export function useCampaignView(campaignId: string) {
   const api = useApi();
-  return useResource(
-    (signal) => api.query('campaigns', 'catalogue.get', { id: campaignId }, campaignViewSchema, { signal }),
-    `campaign-${campaignId}`,
-  );
+  return useResource((signal) => api.call(CAMPAIGNS_CATALOGUE_GET, { id: campaignId }, { signal }), `campaign-${campaignId}`);
 }

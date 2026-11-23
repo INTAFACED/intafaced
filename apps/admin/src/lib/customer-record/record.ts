@@ -14,6 +14,7 @@ import {
 import { BANK_OPS_CUSTOMER_TRANSFERS } from '@intafaced/contracts/bank-ops-procedures';
 import { SUPPORT_LIST_ALL } from '@intafaced/contracts/support-list-queue-procedures';
 import { TRADE_ADMIN_CUSTOMER_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -65,9 +66,8 @@ function tradeControlHistory(userId: string): ReadSpec {
     id: 'trade.controls',
     title: 'Trading restrictions',
     note: 'Every restrict or restore of this account’s trading that svc-trade logged, with its outcome. Changing it is on Account controls, with a second founder.',
-    module: 'trade',
     plainName: 'svc-trade’s restriction history',
-    procedure: 'accountControls.history',
+    ...readOf(TRADE_ACCOUNT_CONTROLS_HISTORY),
     input: { target: { area: 'trading', userId }, limit: CONTROL_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'auditId',
