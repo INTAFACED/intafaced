@@ -144,3 +144,10 @@
   inset-block: 0;
   background: var(--if-lime);
 }
+
+/* The Preview editor's gutter: each line's number (or its breakpoint) in a fixed column apart from the code. */
+.preview-code .preview-gutter {
+  min-inline-size: 2rem;
+  margin-inline-end: var(--if-space-2);
+  text-align: end;
+}
