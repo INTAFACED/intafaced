@@ -197,9 +197,9 @@ test(`${J} #1 opens Open orders: each open venue order with its price, amount, f
   for (const o of open) {
     const row = rowOf(page, o.venueClientOrderId);
     await expect(row.locator('td').nth(1)).toHaveText(o.symbol);
-    expect(shownUnits(await row.locator('[data-cell=price]').innerText())).toBe(toUnits(o.price));
-    expect(shownUnits(await row.locator('[data-cell=amount]').innerText())).toBe(toUnits(o.amount));
-    expect(shownUnits(await row.locator('[data-cell=filled]').innerText())).toBe(0n);
+    await expect.poll(async () => shownUnits(await row.locator('[data-cell=price]').innerText())).toBe(toUnits(o.price));
+    await expect.poll(async () => shownUnits(await row.locator('[data-cell=amount]').innerText())).toBe(toUnits(o.amount));
+    await expect.poll(async () => shownUnits(await row.locator('[data-cell=filled]').innerText())).toBe(0n);
     const locked = await row.locator('[data-cell=locked]').innerText();
     expect(shownUnits(locked)).toBe(toUnits(o.locked));
     expect(locked).toContain(o.lockedAsset);

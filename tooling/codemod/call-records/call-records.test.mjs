@@ -12,6 +12,8 @@ import {
   checkedToolCall,
   importedFrom,
   importsFile,
+  listItemOf,
+  pageOf,
   holdCallersOnly,
   portInFlight,
   portRefusal,
@@ -1497,6 +1499,80 @@ test("a guard behind the service's own function or const options is copied whole
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
 });
 
+test("an anyScope or signedIn guard handed the service's own check as its option names it; the mount is handed it by name, and the old .use() shape stays", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { partsFor } = await import('./guard-check.mjs');
+  const { reasonOf } = await import('./report.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-option-check-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/guards.ts'),
+    [
+      "export const PAY_OR_ONBOARD = ['pay:write', 'pay:onboard'] as const;",
+      'export function teamMemberCheck(sql) { return async (ctx) => {}; }',
+      'export const membershipExit = (ctx) => {};',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { anyScopeProcedure, signedInProcedure, router } from '@intafaced/contracts/trpc';",
+      "import { membershipExit, PAY_OR_ONBOARD, teamMemberCheck } from './guards.js';",
+      'export function createSvcRouter(sql) {',
+      '  const teamMember = teamMemberCheck(sql);',
+      "  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });",
+      '  const exit = signedInProcedure({ check: membershipExit });',
+      // svc-pay's guard before: the check and its database reads in a .use() of many statements.
+      "  const old = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' }).use(async ({ ctx, next }) => { const db = await sql(); if (!db) throw new Error('x'); return next(); });",
+      '  const shadowed = (teamMember) => router({ inner: write.output(o).mutation(h) });',
+      '  return router({',
+      '    save: write.output(o).mutation(h),',
+      '    decline: exit.output(o).mutation(h),',
+      '    old: old.output(o).mutation(h),',
+      '    nested: shadowed(1),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries([...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : c.guard.text]));
+  assert.deepEqual(access, {
+    save: "{ caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' }",
+    decline: "{ caller: 'signedIn', check: 'membershipExit' }",
+    old: 'guard use() chained: not one a record names',
+    // Where the record would mount, \`teamMember\` is another function's parameter: the mount would hand it something else.
+    'nested.inner': 'guard check teamMember means something else where the record mounts',
+  });
+  assert.equal(reasonOf(access.old), 'guard chained with .use()');
+  assert.equal(reasonOf(access['nested.inner']), 'guard a record cannot name');
+  // The mount is handed each check by name beside the router file's refusal reader: a local as it stands, an import added.
+  const file = join(dir, 'src/router.ts');
+  const reader = { name: 'payRefusal', file: join(dir, 'src/refusal.ts'), exported: true };
+  assert.deepEqual(
+    partsFor([], file, chains.get('save').guard, () => reader),
+    {
+      name: '{ refusalOf: payRefusal, checks: { teamMember } }',
+      file,
+      imports: [{ file: reader.file, name: 'payRefusal' }],
+    },
+  );
+  assert.deepEqual(
+    partsFor([], file, chains.get('decline').guard, () => reader),
+    {
+      name: '{ refusalOf: payRefusal, checks: { membershipExit } }',
+      file,
+      imports: [
+        { file: reader.file, name: 'payRefusal' },
+        { file: join(dir, 'src/guards.ts'), name: 'membershipExit' },
+      ],
+    },
+  );
+});
+
 test("a guard whose one check runs inside the service's own error mapper names its check; the mount is handed it without next(), and a near shape stays", async () => {
   const { procedures, chainOf } = await import('./router.mjs');
   const { partsFor } = await import('./guard-check.mjs');
@@ -2475,6 +2551,64 @@ test('a helper that would move under a name the group imports from contracts is 
     { p: load(join(repo, app, 'api-other.ts')), node: init(`${app}/api-other.ts`, 'differs'), where: 'x output' },
   ]);
   assert.match(differs.problems.join('; '), /id clashes with another id the record imports from packages\/contracts\/src\/pay-founder\.ts/);
+});
+
+test("a portal list's answer is a page of the row schema its callers name, through `import * as ns`", () => {
+  const portal = 'apps/customer/src/features/pay/portal';
+  const repo = plantRepo('call-records-list-answer-', {
+    'packages/contracts/src/procedure.ts': ['export const defineProcedure = (r) => r;'],
+    [`${portal}/api-tools.ts`]: [
+      'export function portalTools(api) {',
+      "  const query = (procedure: string, input, schema, signal) => api.query('pay', procedure, input, schema, { signal });",
+      '  const list = (procedure: string, item, input, signal) => query(procedure, input, item, signal);',
+      '  return { query, list };',
+      '}',
+      'export type PortalTools = ReturnType<typeof portalTools>;',
+    ],
+    [`${portal}/settings/b-client.ts`]: ['export type SettingsBTools = {};'],
+    [`${portal}/schemas.ts`]: [
+      "import { z } from 'zod';",
+      'const stamp = z.string();',
+      'export const rowSchema = z.object({ id: z.string(), at: stamp });',
+      'export const otherRowSchema = z.object({ id: z.string() });',
+    ],
+    [`${portal}/a.ts`]: [
+      "import * as p from './schemas';",
+      "import type { PortalTools } from './api-tools';",
+      'export const a = ({ list }: PortalTools) => ({',
+      "  rows: (signal) => list('merchantOps.rows.list', p.rowSchema, {}, signal),",
+      "  other: (signal) => list('merchantOps.other.list', p.otherRowSchema, {}, signal),",
+      '});',
+    ],
+    [`${portal}/b.ts`]: [
+      "import * as shared from './schemas';",
+      "import type { PortalTools } from './api-tools';",
+      'export const b = ({ list, query }: PortalTools) => ({',
+      "  rows: (signal) => list('merchantOps.rows.list', shared.rowSchema, { limit: 5 }, signal),",
+      "  other: (signal) => query('merchantOps.other.list', {}, shared.otherRowSchema, signal),",
+      '});',
+    ],
+  });
+  const sites = findSites(repo).sort((x, y) => x.file.localeCompare(y.file) || x.node.start - y.node.start);
+  const of = (path) =>
+    answerFromCallers(
+      repo,
+      sites.filter((s) => s.path === path),
+      { schemaOf: schemaArgOf, checksOf: answerChecks, itemOf: listItemOf },
+    );
+  // Two callers name one row through two namespaces: one declaration, so one answer, the page of it.
+  const rows = of('merchantOps.rows.list');
+  assert.ok(rows.output, rows.why);
+  assert.equal(rows.output.page, true);
+  const c = closureOf(repo, [{ ...rows.output, where: 'rows output' }]);
+  assert.deepEqual(c.problems, []);
+  assert.deepEqual(
+    c.moved.map((m) => m.name),
+    ['stamp', 'rowSchema'],
+  );
+  assert.equal(pageOf(text(rows.output.p, rows.output.node)), 'z.object({ items: z.array(rowSchema), nextCursor: z.string().nullable() })');
+  // A list and a query of one path parse different answers (a page of the row, the row): the record can take only one.
+  assert.match(of('merchantOps.other.list').why ?? '', /parse it with different schemas/);
 });
 
 /** A scratch repo with these files, committed so `git ls-files` sees them. */

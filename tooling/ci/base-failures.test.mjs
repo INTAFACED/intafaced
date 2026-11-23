@@ -7,21 +7,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   RECORD_VERSION,
+  WALK,
   artifactName,
+  changedDirs,
   compare,
   explainPackage,
   failureId,
   latestSummary,
   mainState,
   manifestsAtRev,
+  judge,
+  mainLine,
   manifestsOf,
   moneyDirsOf,
+  nearestRecord,
+  recentMainRuns,
   needsMain,
   protectedWhy,
   readReports,
   recordOf,
   verdictText,
   vitestRuns,
+  WAIT_MIN,
 } from './base-failures.mjs';
 import { REPORT_VERSION, errorLine, reportOf } from './test-results-reporter.mjs';
 import { plan } from '../vitest/run-all.mjs';
@@ -56,8 +63,8 @@ const prRecord = (pkg, dir, failed, { script = 'vitest run', reports } = {}) => 
 });
 
 /** Main's run on BASE, finished, with one Tests job whose record names these failures. */
-function mainWith(failures, { runOver = {}, jobOver = {}, recordOver = {} } = {}) {
-  const run = { id: 77, head_sha: BASE, event: 'push', head_branch: 'main', status: 'completed', conclusion: 'failure', ...runOver };
+function mainWith(failures, { sha = BASE, runOver = {}, jobOver = {}, recordOver = {} } = {}) {
+  const run = { id: 77, head_sha: sha, event: 'push', head_branch: 'main', status: 'completed', conclusion: 'failure', ...runOver };
   const job = {
     name: 'Tests (3/16)',
     status: 'completed',
@@ -74,7 +81,7 @@ function mainWith(failures, { runOver = {}, jobOver = {}, recordOver = {} } = {}
   }));
   const rec = {
     v: RECORD_VERSION,
-    sha: BASE,
+    sha,
     event: 'push',
     shard: '3/16',
     attempt: 2,
@@ -83,7 +90,7 @@ function mainWith(failures, { runOver = {}, jobOver = {}, recordOver = {} } = {}
     packages,
     ...recordOver,
   };
-  return { base: BASE, run, jobs: [job], records: new Map([[artifactName('3/16', 2), rec]]) };
+  return { base: sha, run, jobs: [job], records: new Map([[artifactName('3/16', 2), rec]]) };
 }
 
 const REGISTRY = [
@@ -94,6 +101,13 @@ const REGISTRY = [
   "AssertionError: expected [Function] to not throw an error but 'Error: Command failed: node scripts/p…' was thrown",
 ];
 const [pkg, dir, file, name, reason] = REGISTRY;
+const MANIFESTS = new Map([
+  [dir, { name: pkg, dependencies: { '@intafaced/dep': 'workspace:*' } }],
+  ['packages/dep', { name: '@intafaced/dep', dependencies: { '@intafaced/deeper': 'workspace:*' } }],
+  ['packages/deeper', { name: '@intafaced/deeper' }],
+  ['apps/elsewhere', { name: '@intafaced/elsewhere' }],
+  ['services/svc-other', { name: '@intafaced/svc-other' }],
+]);
 
 test('(a) a failure main recorded the same way on the base, in a test of nothing protected, is excused', () => {
   const v = compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main: mainState(mainWith([REGISTRY])), moneyDirs });
@@ -293,6 +307,12 @@ test('main is read only when it can change the verdict', () => {
     moneyDirs,
   });
   assert.equal(needsMain(money.held), false);
+  // a known record of main is final: passed it, failed it for another reason, or changed the package since
+  const known = (failures, changed = new Set()) =>
+    compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main: { ...mainState(mainWith(failures)), changed }, moneyDirs });
+  assert.equal(needsMain(known([]).held), false);
+  assert.equal(needsMain(known([[pkg, dir, file, name, 'TypeError: other']]).held), false);
+  assert.equal(needsMain(known([REGISTRY], new Set([dir])).held), false);
 });
 
 test('the test script reader counts vitest runs and refuses what it cannot read', () => {
@@ -495,4 +515,263 @@ test("money code here is the repo's list, as the journeys run reads it, at the h
   assert.deepEqual([...at.keys()], ['services/svc-x', 'packages/y']);
   assert.ok(moneyDirsOf(at).has('services/svc-x'));
   assert.ok(!moneyDirsOf(at).has('packages/y'));
+});
+
+// ── the nearest finished record on main, when the base has none ─────────────────────────────────────────────────────
+
+/** A line of main: the base, then `n - 1` commits before it, newest first. */
+const lineOf = (n) => [BASE, ...Array.from({ length: n - 1 }, (_, i) => `${(i + 1).toString(16).padStart(2, '0')}`.repeat(20))];
+const noRun = (sha) => ({ state: mainState({ base: sha, run: null, jobs: [], records: new Map() }), run: null });
+const cancelled = (sha) => {
+  const m = mainWith([], { sha, runOver: { id: 70, conclusion: 'cancelled' } });
+  return { state: mainState(m), run: m.run };
+};
+const going = (sha) => {
+  const m = mainWith([], { sha, runOver: { id: 71, status: 'in_progress', conclusion: null } });
+  return { state: mainState(m), run: m.run };
+};
+const recorded = (sha, failures) => {
+  const m = mainWith(failures, { sha, runOver: { id: 45133724681 } });
+  return { state: mainState(m), run: m.run };
+};
+/** readAt over a line: `at` maps a commit's place on the line to its answer; every other commit has no run. */
+const reader = (line, at) => {
+  const asked = [];
+  const readAt = async (sha) => {
+    asked.push(sha);
+    const i = line.indexOf(sha);
+    return (at[i] ?? noRun)(sha);
+  };
+  return { readAt, asked };
+};
+
+test('(ancestor a) the base has no run and the nearest recorded commit before it failed the same way: excused, naming that commit', async () => {
+  const line = lineOf(10);
+  const { readAt } = reader(line, { 1: cancelled, 2: going, 3: (sha) => recorded(sha, [REGISTRY]), 5: (sha) => recorded(sha, []) });
+  const main = await nearestRecord({ base: BASE, line, readAt });
+  assert.equal(main.known, true);
+  assert.equal(main.sha, line[3]);
+  assert.equal(main.behind, 3);
+  assert.equal(main.run.id, 45133724681);
+  assert.equal(main.pending.sha, line[2], 'a run above the record that is still going is named');
+  main.changed = new Set();
+  const v = compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main, moneyDirs });
+  assert.equal(v.pass, true, JSON.stringify(v.held));
+  const text = verdictText({
+    verdict: v,
+    base: BASE,
+    runUrl: 'https://github.com/o/r/actions/runs/45133724681',
+    record: { sha: main.sha, behind: main.behind },
+  }).join('\n');
+  assert.match(text, new RegExp(`recorded the same way on ${line[3]}, 3 commit\\(s\\) before ${BASE}`));
+  assert.match(text, /actions\/runs\/45133724681/);
+  // a record of the base itself still wins over one before it
+  const own = await nearestRecord({
+    base: BASE,
+    line,
+    readAt: reader(line, { 0: (sha) => recorded(sha, []), 3: (sha) => recorded(sha, [REGISTRY]) }).readAt,
+  });
+  assert.equal(own.sha, BASE);
+  assert.equal(compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main: own, moneyDirs }).pass, false);
+});
+
+test('(ancestor b) no finished record within the walk excuses nothing, and the walk stops at WALK commits', async () => {
+  const line = lineOf(WALK + 5);
+  const { readAt, asked } = reader(line, { 1: cancelled, [WALK]: (sha) => recorded(sha, [REGISTRY]) });
+  const main = await nearestRecord({ base: BASE, line, readAt });
+  assert.equal(main.known, false);
+  assert.equal(asked.length, WALK);
+  assert.match(main.why, new RegExp(`none of ${BASE} and the ${WALK - 1} commit\\(s\\) before it on main has a finished record`));
+  const v = compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main, moneyDirs });
+  assert.equal(v.pass, false);
+  assert.equal(v.excused.length, 0);
+  assert.match(v.held[0].why, /^main's result is unknown: none of/);
+  // a line not read from the base is no line
+  assert.equal((await nearestRecord({ base: BASE, line: line.slice(1), readAt })).known, false);
+  // a base not on main is refused before anything is read
+  const git = (args) => {
+    if (args[0] === 'merge-base') throw new Error('exit 1');
+    return line.join('\n');
+  };
+  assert.throws(() => mainLine(BASE, git), /is not on origin\/main/);
+  assert.deepEqual(
+    mainLine(BASE, (args) => (args[0] === 'rev-list' ? `${line.slice(0, WALK).join('\n')}\n` : '')),
+    line.slice(0, WALK),
+  );
+});
+
+test('(ancestor c) a recorded commit before the base that passed the test, or main changed its package since, excuses nothing', async () => {
+  const line = lineOf(6);
+  const pr = prRecord(pkg, dir, [[file, name, reason]]);
+  const passed = await nearestRecord({
+    base: BASE,
+    line,
+    readAt: reader(line, { 2: (sha) => recorded(sha, []), 4: (sha) => recorded(sha, [REGISTRY]) }).readAt,
+  });
+  assert.equal(passed.sha, line[2], 'the nearest record, not the one that would excuse');
+  const v = compare({ pr, main: { ...passed, changed: new Set() }, moneyDirs });
+  assert.equal(v.pass, false);
+  assert.deepEqual(
+    v.held.map((h) => h.why),
+    ['main did not fail it: only this pull request does'],
+  );
+  // the same failure on the record, but a commit of main after it changed the package's folder
+  const same = await nearestRecord({ base: BASE, line, readAt: reader(line, { 2: (sha) => recorded(sha, [REGISTRY]) }).readAt });
+  const diffOf = (files) => (args) => (args[0] === 'diff' ? files.join('\n') : '');
+  same.changed = changedDirs(same.sha, BASE, [dir], diffOf([`${dir}/src/x.ts`]), MANIFESTS);
+  assert.deepEqual([...same.changed], [dir]);
+  const w = compare({ pr, main: same, moneyDirs });
+  assert.equal(w.pass, false);
+  assert.match(w.held[0].why, new RegExp(`^main changed ${dir} after the record it has \\(${line[2]}\\)`));
+  assert.equal(
+    changedDirs(BASE, BASE, [dir], diffOf([`${dir}/src/x.ts`]), MANIFESTS).size,
+    0,
+    "the base's own record has nothing after it",
+  );
+});
+
+test('(ancestor e) a change on main after the record to a package the test depends on, or to a shared file, holds it', () => {
+  const diffOf = (files) => (args) => (args[0] === 'diff' ? files.join('\n') : '');
+  const at = 'a'.repeat(40);
+  const held = (files) => changedDirs(at, BASE, [dir], diffOf(files), MANIFESTS).has(dir);
+  assert.equal(held(['packages/dep/src/index.ts']), true, 'a direct workspace dependency');
+  assert.equal(held(['packages/deeper/src/index.ts']), true, 'a dependency of a dependency');
+  for (const f of [
+    'pnpm-lock.yaml',
+    'vitest.workspace.ts',
+    'tsconfig.base.json',
+    'turbo.json',
+    'tooling/vitest/budget.mjs',
+    '.github/workflows/ci.yml',
+  ])
+    assert.equal(held([f]), true, `a shared file: ${f}`);
+  assert.equal(held(['apps/elsewhere/src/page.tsx', 'services/svc-other/src/a.ts']), false, 'packages it does not depend on');
+  assert.equal(held([]), false, 'no change');
+  const broken = () => {
+    throw new Error('bad object');
+  };
+  assert.equal(changedDirs(at, BASE, [dir], broken, MANIFESTS).has(dir), true, 'a diff git cannot read');
+  assert.equal(
+    changedDirs(at, BASE, ['apps/unknown'], diffOf(['apps/elsewhere/a.ts']), MANIFESTS).has('apps/unknown'),
+    true,
+    'a folder with no manifest',
+  );
+});
+
+test('(ancestor d) a protected test is never excused by a record before the base', async () => {
+  const line = lineOf(4);
+  const p = '@intafaced/customer';
+  const d = 'apps/customer';
+  const f = 'apps/customer/src/features/pay/x.test.tsx';
+  const n = 'the payout form > saves';
+  const why = 'AssertionError: expected null not to be null';
+  const main = await nearestRecord({ base: BASE, line, readAt: reader(line, { 2: (sha) => recorded(sha, [[p, d, f, n, why]]) }).readAt });
+  assert.equal(main.known, true);
+  const v = compare({ pr: prRecord(p, d, [[f, n, why]]), main: { ...main, changed: new Set() }, moneyDirs });
+  assert.equal(v.pass, false);
+  assert.match(v.held[0].why, /^never excused: a money test/);
+  assert.equal(needsMain(v.held), false, 'nothing to wait for');
+});
+
+test('the wait: never once main has a known record; only while main has none near the base and its run is going, at most WAIT_MIN', async (t) => {
+  assert.equal(WAIT_MIN, 10);
+  const pr = prRecord(pkg, dir, [[file, name, reason]]);
+  const ancestor = (failures, pending, changed = new Set()) => ({
+    state: { ...mainState(mainWith(failures, { sha: 'a'.repeat(40) })), sha: 'a'.repeat(40), behind: 2, pending, changed },
+    run: { id: 5 },
+  });
+  const going = { sha: BASE, run: { id: 6 }, why: `main's run 6 on ${BASE} is in_progress` };
+  let reads = 0;
+  let sleeps = 0;
+  // a clock each sleep moves on, so a wrong wait ends at its deadline at once instead of in real minutes
+  let now = Date.UTC(2026, 10, 23);
+  const realNow = Date.now;
+  Date.now = () => now;
+  t.after(() => (Date.now = realNow));
+  const once = (answer, extra = {}) => {
+    reads = 0;
+    sleeps = 0;
+    return judge({
+      repo: 'o/r',
+      base: BASE,
+      pr,
+      moneyDirs,
+      read: async () => (reads++, typeof answer === 'function' ? answer() : answer),
+      sleep: async (ms) => ((now += ms), sleeps++),
+      ...extra,
+    });
+  };
+  // a known record that excuses everything: no wait
+  const settled = await once(ancestor([REGISTRY], going));
+  assert.equal(settled.verdict.pass, true);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  assert.deepEqual(settled.record, { sha: 'a'.repeat(40), behind: 2 });
+  assert.match(settled.runUrl, /actions\/runs\/5$/);
+  // a known record that passed the test, while the base's own run is still going: red at once, no wait
+  const passed = await once(ancestor([], going));
+  assert.equal(passed.verdict.pass, false);
+  assert.equal(passed.verdict.held[0].why, 'main did not fail it: only this pull request does');
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // a known record that failed it for another reason: red at once
+  const other = await once(ancestor([[pkg, dir, file, name, 'TypeError: something else']], going));
+  assert.equal(other.verdict.pass, false);
+  assert.match(other.verdict.held[0].why, /^main failed it for another reason/);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // a known record main changed the package after: held, red at once
+  const stale = await once(ancestor([REGISTRY], going, new Set([dir])));
+  assert.equal(stale.verdict.pass, false);
+  assert.match(stale.verdict.held[0].why, /^main changed /);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // no record near the base while the base's own run is going: wait, and read again when it ends
+  const unknown = { state: { known: false, pending: going, why: 'none of … has a finished record' }, run: null };
+  const answers = [unknown, unknown, { state: { ...ancestor([REGISTRY], null).state, sha: BASE, behind: 0 }, run: { id: 6 } }];
+  let i = 0;
+  const waited = await once(() => answers[i++]);
+  assert.equal(waited.verdict.pass, true);
+  assert.deepEqual([reads, sleeps], [3, 2]);
+  assert.deepEqual(waited.record, { sha: BASE, behind: 0 });
+  // the base's run ends with main passing the test: red, and the wait ends there
+  i = 0;
+  answers[2] = { state: { ...ancestor([], null).state, sha: BASE, behind: 0 }, run: { id: 6 } };
+  const ended = await once(() => answers[i++]);
+  assert.equal(ended.verdict.pass, false);
+  assert.deepEqual([reads, sleeps], [3, 2]);
+  // still unknown and still going: waits at most WAIT_MIN (one-minute polls), then red
+  const start = now;
+  const capped = await once(unknown);
+  assert.equal(capped.verdict.pass, false);
+  assert.match(capped.verdict.held[0].why, /^main's result is unknown/);
+  assert.equal(sleeps, WAIT_MIN, `slept ${sleeps} minute(s)`);
+  assert.ok(now - start <= WAIT_MIN * 60_000);
+  // unknown, nothing going: no wait; a read that fails excuses nothing
+  const none = await once({ state: { known: false, pending: null, why: 'no run' }, run: null });
+  assert.equal(none.verdict.pass, false);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  const broken = await once(() => {
+    throw new Error('GitHub 502');
+  });
+  assert.equal(broken.verdict.pass, false);
+  assert.match(broken.verdict.held[0].why, /GitHub 502/);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // and past the deadline it stops waiting
+  const late = await once(unknown, { waitMin: 0.001, sleep: async () => assert.fail('slept past the deadline') });
+  assert.equal(late.verdict.pass, false);
+});
+
+test("main's recent runs are read in one call, the newest run per commit", async () => {
+  const asked = [];
+  const runs = [
+    { id: 3, head_sha: 'x' },
+    { id: 9, head_sha: 'x' },
+    { id: 5, head_sha: 'y' },
+  ];
+  const by = await recentMainRuns('o/r', async (path) => (asked.push(path), { workflow_runs: runs }));
+  assert.deepEqual(asked, ['/repos/o/r/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100']);
+  assert.deepEqual(
+    [...by].map(([sha, r]) => [sha, r.id]),
+    [
+      ['x', 9],
+      ['y', 5],
+    ],
+  );
 });
