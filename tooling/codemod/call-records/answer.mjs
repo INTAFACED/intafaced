@@ -5,7 +5,7 @@
 // at the service instead of at the caller. A caller with no schema (a reader function, or none) would lose every field the
 // schema does not name, so its call stays, named; so does a call two callers parse with different schemas.
 import { relative } from 'node:path';
-import { bindingOf, load } from './ast.mjs';
+import { bindingOf, load, resolveRelative } from './ast.mjs';
 
 const at = (repo, s) => `${relative(repo, s.file)}:${s.line}`;
 
@@ -21,6 +21,35 @@ function declarationOf(p, node, depth = 0) {
 }
 
 /**
+ * A schema read through a namespace import (`p.teamMeSchema`, with `import * as p from './schemas'`), as the name its own
+ * file declares or re-exports: the record writes that name and the closure follows it from there, as it does a named
+ * import. Anything else is returned as it is.
+ */
+export function throughNamespace(p, node) {
+  if (node?.type !== 'MemberExpression' || node.computed || node.object?.type !== 'Identifier' || node.property?.type !== 'Identifier')
+    return { p, node };
+  const b = bindingOf(p, node.object, node.object.name);
+  const file = b.kind === 'import' && b.imported === '*' ? resolveRelative(p.file, b.from) : undefined;
+  if (!file) return { p, node };
+  const q = load(file);
+  const name = node.property.name;
+  for (const stmt of q.program.body) {
+    const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : undefined;
+    if (decl?.type === 'VariableDeclaration')
+      for (const d of decl.declarations) if (d.id.type === 'Identifier' && d.id.name === name) return { p: q, node: d.id };
+    if (stmt.type === 'ExportNamedDeclaration' && !stmt.declaration && !stmt.source)
+      for (const sp of stmt.specifiers ?? [])
+        if (
+          (sp.exported.name ?? sp.exported.value) === name &&
+          (sp.local.name ?? sp.local.value) === name &&
+          sp.local.type === 'Identifier'
+        )
+          return { p: q, node: sp.local };
+  }
+  return { p, node };
+}
+
+/**
  * The output a record takes from its callers, `{ output: { p, node } }`, or `{ why }` naming the caller that keeps the
  * call by name. `schemaOf(s)` is the caller's answer schema node in its own file (undefined when it parses with none);
  * `checksOf(p, node)` lists what that schema checks beyond its shape (answerChecks in index.mjs).
@@ -29,7 +58,8 @@ export function answerFromCallers(repo, sites, { schemaOf, checksOf }) {
   let taken;
   let first;
   for (const s of sites) {
-    const own = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : undefined);
+    const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : undefined);
+    const own = written && throughNamespace(written.p, written.node);
     if (!own)
       return {
         why: `${at(repo, s)} reads the answer ${s.reader ? 'with its own reader function' : 'unparsed'}, not a zod schema a record can take`,

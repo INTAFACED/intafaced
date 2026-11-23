@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import * as p from '../schemas';
+import { preferenceSchema } from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
 import { accountApi } from './account/account-api';
@@ -76,7 +77,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   unreadCount: (signal?: AbortSignal) => query('merchantOps.notifications.unreadCount', {}, p.unreadSchema, signal),
   markRead: (notificationIds: string[]) => mutate('merchantOps.notifications.markRead', { notificationIds }, p.markedSchema),
   markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
-  preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(p.preferenceSchema), signal),
+  preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(preferenceSchema), signal),
   preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.notifications.preferences.history', p.preferenceChangeSchema, { ...(cursor ? { cursor } : {}) }, signal),
   setPreference: (input: { kind: p.NotificationKind; inApp: boolean; threshold?: string | null }) =>

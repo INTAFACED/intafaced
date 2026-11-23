@@ -2224,6 +2224,34 @@ test("a call whose router writes no answer schema takes its callers' one pure zo
   assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });
 
+test("a caller's answer schema read through a namespace import (`p.teamSchema`) is taken as the name its file declares, and its closure follows it", () => {
+  const dir = 'apps/customer/src/features/pay/portal';
+  const repo = plantRepo('call-records-namespace-', {
+    'packages/contracts/src/ids.ts': ['export const ID = 1;'],
+    [`${dir}/schemas.ts`]: [
+      "import { z } from 'zod';",
+      "const role = z.enum(['owner', 'viewer']);",
+      'export const teamSchema = z.object({ id: z.string(), role });',
+    ],
+    [`${dir}/api.ts`]: [
+      "import * as p from './schemas';",
+      "export const a = (api) => api.query('pay', 'merchantOps.team.me', {}, p.teamSchema);",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.path === 'merchantOps.team.me');
+  assert.equal(sites.length, 1);
+  const taken = answerFromCallers(repo, sites, { schemaOf: schemaArgOf, checksOf: answerChecks });
+  assert.ok(taken.output, taken.why);
+  assert.equal(text(taken.output.p, taken.output.node), 'teamSchema', 'the record writes the name, not the namespace');
+  assert.equal(taken.output.p.file, join(repo, dir, 'schemas.ts'));
+  const closure = closureOf(repo, [{ ...taken.output, where: 'merchantOps.team.me output' }]);
+  assert.deepEqual(closure.problems, []);
+  assert.deepEqual(
+    closure.moved.map((m) => m.name),
+    ['role', 'teamSchema'],
+  );
+});
+
 /** A scratch repo with these files, committed so `git ls-files` sees them. */
 function plantRepo(prefix, files) {
   const repo = mkdtempSync(join(tmpdir(), prefix));
