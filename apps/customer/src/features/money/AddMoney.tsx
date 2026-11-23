@@ -11,6 +11,7 @@ import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
 import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
+import { shownCode, withCode } from '../../shared/reference';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -108,17 +109,17 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
         </small>
       )}
       {row.blocker && (
-        <small className="lt-muted">
-          {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
+        <small className="lt-muted" data-code={row.blocker}>
+          {withCode(feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail }), row.blocker, (code) => t('reference', { code }))}
         </small>
       )}
     </label>
   );
 }
 
-function Refused({ title, body, reference }: { title: string; body: string; reference: string }) {
+function Refused({ title, body, reference, code }: { title: string; body: string; reference: string; code?: string | null }) {
   return (
-    <div className="lt-refusal" role="status" data-testid="add-money-refused">
+    <div className="lt-refusal" role="status" data-testid="add-money-refused" data-code={code ?? undefined}>
       <h3>{title}</h3>
       <p>{body}</p>
       <small className="lt-muted">{reference}</small>
@@ -131,7 +132,14 @@ function Answer({ outcome }: { outcome: AddMoneyRequest | Refusal }) {
   const { t } = addMoneyCopy.useCopy();
   if (!('ok' in outcome)) return <Outcome request={outcome} />;
   if (outcome.code !== EXPIRED) return <Failure result={outcome} />;
-  return <Refused title={t('expiredTitle')} body={t('expiredNow')} reference={t('reference', { code: EXPIRED })} />;
+  return (
+    <Refused
+      title={t('expiredTitle')}
+      body={t('expiredNow')}
+      reference={withCode('', EXPIRED, (code) => t('reference', { code })).trim()}
+      code={EXPIRED}
+    />
+  );
 }
 
 function Outcome({ request }: { request: AddMoneyRequest }) {
@@ -142,7 +150,8 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
       <Refused
         title={expired ? t('expiredTitle') : t('refusedTitle')}
         body={expired ? t('expiredBody') : t('refusedBody', { rail: request.rail })}
-        reference={`${request.rail} · ${t('reference', { code: request.refusalCode ?? '' })}`}
+        code={request.refusalCode}
+        reference={shownCode(request.refusalCode) ? `${request.rail} · ${t('reference', { code: request.refusalCode! })}` : request.rail}
       />
     );
   }
@@ -346,7 +355,11 @@ function Requests() {
               </span>
               <span>
                 <StatusWord request={row} />
-                {row.refusalCode && <small className="lt-muted"> {t('reference', { code: row.refusalCode })}</small>}
+                {row.refusalCode && (
+                  <small className="lt-muted" data-code={row.refusalCode}>
+                    {shownCode(row.refusalCode) ? ` ${t('reference', { code: row.refusalCode })}` : null}
+                  </small>
+                )}
               </span>
             </div>
           ))
