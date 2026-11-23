@@ -4,7 +4,8 @@ import { hostDispatchOnce, type HostDispatchView } from './host-dispatch';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 
-/** The apex, app and join hosts as the deployment's host check left them: served, or the typed code that refused each. */
+/** The apex, app and join hosts as the deployment's host check left them: served or not, in words; the typed code that
+ *  refused each is on its row's `data-result`. */
 export function HostDispatch() {
   const { t } = copy.useCopy();
   const { timeZone } = usePreferences();
@@ -44,8 +45,8 @@ export function HostDispatch() {
             </p>
           )}
           {view.everyHost && (
-            <p role="status">
-              {t('everyHost')} <strong lang="zxx">{view.everyHost}</strong>
+            <p role="status" data-result={view.everyHost}>
+              {t('everyHost')}
             </p>
           )}
           <ul className="lt-stack">
@@ -55,7 +56,7 @@ export function HostDispatch() {
                 <span lang="zxx" className="lt-hint lt-wrap">
                   {row.host ?? t('notNamed')}
                 </span>{' '}
-                <strong lang="zxx">{row.result === 'served' ? t('served') : row.result}</strong>
+                <strong>{row.result === 'served' ? t('served') : t('notServed')}</strong>
               </li>
             ))}
           </ul>

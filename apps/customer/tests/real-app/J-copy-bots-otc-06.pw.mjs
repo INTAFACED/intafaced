@@ -186,7 +186,7 @@ test(`${J} #2 opens a copied position with two fills and no funding data: averag
   const header = await position.locator('thead th').allInnerTexts();
   const cell = (name) => row.locator('td').nth(header.findIndex((h) => h.trim() === name));
   await expect(cell('Fills')).toHaveText('2');
-  expect(ungroup(await cell('Average entry').innerText())).toBe(expected);
+  await expect.poll(async () => ungroup(await cell('Average entry').innerText())).toBe(expected);
   await expect(cell('Funding')).toHaveText('Not set');
 });
 

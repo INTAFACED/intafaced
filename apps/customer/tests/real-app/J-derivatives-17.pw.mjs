@@ -281,8 +281,8 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     await expect(row).toHaveAttribute('data-state', 'matched');
     const cells = row.locator('td');
     await expect(cells.nth(1)).toHaveText(fill.fillId);
-    expect(dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
-    expect(dec(await cells.nth(5).innerText())).toBe(dec(fill.builderFee));
+    await expect.poll(async () => dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
+    await expect.poll(async () => dec(await cells.nth(5).innerText())).toBe(dec(fill.builderFee));
     await expect(cells.nth(6)).toHaveText('Matched');
   }
   // The totals agree: the venue's sum of builder fees and the ledger's, per asset.
@@ -373,7 +373,7 @@ test(`${J} #2 a builder fee is in one record but not the other: the break with i
   const row = venue.getByTestId('builder-fee-lines').locator(`tr[data-fill-id="${fill.fillId}"]`);
   await expect(row).toHaveAttribute('data-state', 'not_in_ledger');
   const cells = row.locator('td');
-  expect(dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
+  await expect.poll(async () => dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
   await expect(cells.nth(5)).toHaveText('none');
   await expect(cells.nth(6)).toHaveText('Break: the venue reports this fee, the ledger has none');
   // The read is the console's: the service lists the same break, and nothing was posted to make the two agree.
@@ -411,7 +411,7 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
   for (const [asset, units] of before) {
     expect(units > 0n, `${asset} is owed, not paid ahead`).toBe(true);
     expect(own.get(asset)?.unclaimed, `the venue's own unclaimed ${asset} is what the ledger says it owes`).toBe(units);
-    expect(dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
+    await expect.poll(async () => dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
     const ownCells = await venue.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${asset}"] td`).allInnerTexts();
     expect(dec(ownCells[3])).toBe(dec(fromUnits(units)));
     expect(dec(ownCells[4])).toBe(dec(fromUnits(own.get(asset).unclaimed)));
@@ -437,7 +437,7 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
   // The venue's own unclaimed figure grew by the same fee, and the console shows the two equal.
   expect((await venueBuilderTotals(builderAddress)).get(fill.feeAsset)?.unclaimed).toBe(want);
   const unclaimedCell = page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"] td`).nth(4);
-  expect(dec(await unclaimedCell.innerText())).toBe(dec(fromUnits(want)));
+  await expect.poll(async () => dec(await unclaimedCell.innerText())).toBe(dec(fromUnits(want)));
   await expect(page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"]`)).toHaveAttribute(
     'data-state',
     'green',

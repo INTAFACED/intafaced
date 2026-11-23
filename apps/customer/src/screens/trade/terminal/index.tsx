@@ -255,7 +255,7 @@ export default function Screen({ search }: ScreenProps) {
   const parentRows = parents.status === 'ready' ? parents.data : [];
 
   return (
-    <RoomFrame mode="Execution" title={t('Terminal')} description={t('Terminal description')}>
+    <RoomFrame title={t('Terminal')} description={t('Terminal description')}>
       {!userId ? (
         <EmptyState
           variant="refused"
