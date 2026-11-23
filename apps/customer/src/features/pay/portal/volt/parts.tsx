@@ -7,7 +7,7 @@
 import { Children, isValidElement, useId, useState, type ReactElement, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
-import { Button, Figure, Select } from '@intafaced/ui/lit';
+import { Button, Field, Figure, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { useSaidOnce } from '../components';
 import { usePreferences } from '../../../../shared/preferences';
@@ -29,6 +29,7 @@ import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
 import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
+import { countText, type ListFilters } from '../ui/FilterRow';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -707,6 +708,114 @@ export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: Pa
       <small id={reasonId} className="lt-hint">
         {reason}
       </small>
+    </div>
+  );
+}
+
+/**
+ * A list's filters in one row (`FilterRow` in `../ui/FilterRow`): Search, Status, Date (Today, 7d, 30d, custom), Asset
+ * and More filters, all kept in the address by `useListFilters`. A filter is shown only when the page passes the options
+ * for it, so a list never offers a control its service cannot apply. The count under it is honest: "N results" only
+ * when the service gave a total.
+ */
+export function FilterRow({
+  filters,
+  statuses,
+  assets,
+  more,
+  searchHint,
+  shown,
+  hasMore,
+  total,
+  label,
+}: {
+  filters: ListFilters;
+  statuses?: ReadonlyArray<readonly [value: string, label: string]>;
+  assets?: readonly string[];
+  more?: ReactNode;
+  /** One line under Search saying what it matches, when it matches less than a person would guess. */
+  searchHint?: string;
+  shown?: number;
+  hasMore?: boolean;
+  total?: number | null;
+  label: string;
+}) {
+  const { t } = uiCopy.useCopy();
+  const [open, setOpen] = useState(false);
+  const active = Boolean(filters.search || filters.status || filters.date || filters.asset);
+  return (
+    <div className="lt-stack" role="search" aria-label={label}>
+      <div className="lt-field-row">
+        <Field
+          label={t('search')}
+          value={filters.search}
+          onChange={(e) => filters.setSearch(e.target.value)}
+          {...(searchHint ? { hint: searchHint } : {})}
+        />
+        {statuses && (
+          <SelectField
+            label={t('status')}
+            value={filters.status}
+            onChange={filters.setStatus}
+            options={[['', t('allStatuses')] as const, ...statuses]}
+          />
+        )}
+        <SelectField
+          label={t('date')}
+          value={filters.date}
+          onChange={filters.setDate}
+          options={[
+            ['', t('anyDate')],
+            ['today', t('today')],
+            ['7d', t('last7')],
+            ['30d', t('last30')],
+            ['custom', t('custom')],
+          ]}
+        />
+        {assets && assets.length > 0 && (
+          <SelectField
+            label={t('asset')}
+            value={filters.asset}
+            onChange={filters.setAsset}
+            options={[['', t('allAssets')] as const, ...assets.map((a) => [a, a] as const)]}
+          />
+        )}
+      </div>
+      {filters.date === 'custom' && (
+        <div className="lt-field-row">
+          <Field label={t('from')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
+          <Field label={t('to')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
+        </div>
+      )}
+      {more && (
+        <div className="lt-stack">
+          <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {t('moreFilters')}
+          </Button>
+          {open && <div className="lt-field-row">{more}</div>}
+        </div>
+      )}
+      <p className="lt-muted" role="status">
+        {shown !== undefined ? countText(t, shown, Boolean(hasMore), total) : ''}
+        {active && (
+          <>
+            {' '}
+            <Button
+              tone="quiet"
+              onClick={() => {
+                filters.setSearch('');
+                filters.setStatus('');
+                filters.setDate('');
+                filters.setFrom('');
+                filters.setTo('');
+                filters.setAsset('');
+              }}
+            >
+              {t('clearFilters')}
+            </Button>
+          </>
+        )}
+      </p>
     </div>
   );
 }

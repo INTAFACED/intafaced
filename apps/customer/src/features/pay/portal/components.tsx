@@ -288,17 +288,6 @@ export function Gate<T>({
 
 // ---- W3b -------------------------------------------------------------------------------------------------
 
-/** "As of" for a list the page read straight from the account's records (B12): there is no projection, so no lag. */
-export function ReadAt({ at }: { at: string | null }) {
-  const { t } = portalCopy.useCopy();
-  if (!at) return null;
-  return (
-    <p className="pp-asof" role="status">
-      {t('readAt')} <DateTime value={at} />
-    </p>
-  );
-}
-
 /** A figure or setting nobody has configured. It is never a zero and never a default. */
 export function NotConfigured({ children }: { children?: ReactNode }) {
   const { t } = portalCopy.useCopy();

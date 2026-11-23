@@ -2,15 +2,18 @@ import './payments.css';
 import { Button } from '@intafaced/ui';
 import { Requires } from '../access/MerchantAccess';
 import { WithAccount } from '../access/WithAccount';
-import { paymentsCopy, portalCopy, w3cCopy } from './copy';
+import { extensionCopy, paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Customers, CustomerDetailPage } from './Customers';
 import { Dashboard } from './Dashboard';
 import { Disputes, DisputeDetailPage } from './Disputes';
 import { Invoices } from './Invoices';
 import { Links } from './Links';
+import { LinksRoom } from './LinkList';
+import { LinkButton } from '../volt/parts';
 import { PaymentDetailPage, Payments } from './Payments';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
+import { SubscriptionsRoom } from './SubscriptionList';
 import { CheckoutSettingsRoom } from './CheckoutSettings';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
@@ -20,15 +23,31 @@ const link = (href: string, label: string, variant: 'primary' | 'secondary' = 's
 );
 const t = portalCopy.t;
 const c = w3cCopy.t;
+const e = extensionCopy.t;
 
+/** `/pay/subscriptions` and `/pay/subscriptions/:subscriptionId` on the record-list template (`./SubscriptionList`). */
 const subscriptions: RoomDef = {
+  header: (route) => ({
+    title: e(route.room === 'subscription' ? 'subscriptionTitle' : 'subscriptionsTitle'),
+    purpose: e('subscriptionsPurpose'),
+    action: (
+      <LinkButton href="/pay/subscriptions/new" tone="primary">
+        {e('createSubscription')}
+      </LinkButton>
+    ),
+  }),
+  here: '/pay/subscriptions',
+  ownTitle: true,
+  render: (route, { portal, authority }) => <SubscriptionsRoom portal={portal} subscriptionId={route.param} authority={authority} />,
+};
+const subscriptionNew: RoomDef = {
   header: subscriptionHeader,
   here: '/pay/subscriptions',
-  render: (route, { portal, authority }) => (
+  render: (_route, { portal, authority }) => (
     <WithAccount>
       {({ merchantId }) => (
         <Requires need="owner">
-          <Subscriptions portal={portal} merchantId={merchantId} route={route} authority={authority} />
+          <Subscriptions portal={portal} merchantId={merchantId} authority={authority} />
         </Requires>
       )}
     </WithAccount>
@@ -56,19 +75,32 @@ const invoices: RoomDef = {
     </WithAccount>
   ),
 };
+/** `/pay/links` and `/pay/links/:linkId` on the record-list template (`./LinkList`), which draws their heading. */
 const links: RoomDef = {
   header: (route) =>
     route.room === 'links'
-      ? { title: c('linksTitle'), purpose: c('linksPurpose'), action: link('/pay/links/new', c('linkNew'), 'primary') }
-      : route.room === 'link-new'
-        ? { title: c('linkNew'), purpose: c('linkNewPurpose') }
-        : { title: c('linkDetail'), purpose: c('linkDetailPurpose'), action: link('/pay/links/new', c('linkNew')) },
+      ? {
+          title: c('linksTitle'),
+          purpose: c('linksPurpose'),
+          action: (
+            <LinkButton href="/pay/links/new" tone="primary">
+              {c('linkNew')}
+            </LinkButton>
+          ),
+        }
+      : { title: c('linkDetail'), purpose: c('linkDetailPurpose'), action: <LinkButton href="/pay/links/new">{c('linkNew')}</LinkButton> },
   here: '/pay/links',
-  render: (route, { portal, authority }) => (
+  ownTitle: true,
+  render: (route, { portal, authority }) => <LinksRoom portal={portal} linkId={route.param} authority={authority} />,
+};
+const linkNew: RoomDef = {
+  header: () => ({ title: c('linkNew'), purpose: c('linkNewPurpose') }),
+  here: '/pay/links',
+  render: (_route, { portal, authority }) => (
     <WithAccount>
       {({ merchantId }) => (
         <Requires need="owner">
-          <Links portal={portal} merchantId={merchantId} create={route.room === 'link-new'} linkId={route.param} authority={authority} />
+          <Links portal={portal} merchantId={merchantId} authority={authority} />
         </Requires>
       )}
     </WithAccount>
@@ -78,11 +110,11 @@ const links: RoomDef = {
 export const paymentsRooms: RoomTable = {
   subscriptions,
   subscription: subscriptions,
-  'subscription-new': subscriptions,
+  'subscription-new': subscriptionNew,
   invoices,
   invoice: invoices,
   links,
-  'link-new': links,
+  'link-new': linkNew,
   link: links,
   dashboard: {
     header: () => ({
