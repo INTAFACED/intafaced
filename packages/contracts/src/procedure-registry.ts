@@ -2209,6 +2209,8 @@ import {
   TRADE_ALGO_LIST,
 } from './trade-algo-procedures.js';
 
+import { AUTO_TOP_UP_GET, AUTO_TOP_UP_SET, AUTO_TOP_UP_SUBMIT_PERMISSION, AUTO_TOP_UP_OFF } from './trade-auto-top-up-procedures.js';
+
 import {
   TRADE_BOTS_GRID_SETUP,
   TRADE_BOTS_GRID_PRESETS,
@@ -4588,6 +4590,13 @@ const part_trade_algo_procedures: readonly ProcedureRecord[] = [
   TRADE_ALGO_LIST,
 ];
 
+const part_trade_auto_top_up_procedures: readonly ProcedureRecord[] = [
+  AUTO_TOP_UP_GET,
+  AUTO_TOP_UP_SET,
+  AUTO_TOP_UP_SUBMIT_PERMISSION,
+  AUTO_TOP_UP_OFF,
+];
+
 const part_trade_bots_procedures: readonly ProcedureRecord[] = [
   TRADE_BOTS_GRID_SETUP,
   TRADE_BOTS_GRID_PRESETS,
@@ -4969,6 +4978,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_account_controls_procedures,
   ...part_trade_admin_procedures,
   ...part_trade_algo_procedures,
+  ...part_trade_auto_top_up_procedures,
   ...part_trade_bots_procedures,
   ...part_trade_builder_mode_procedures,
   ...part_trade_convert_procedures,
