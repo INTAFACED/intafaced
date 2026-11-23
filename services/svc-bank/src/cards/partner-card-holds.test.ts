@@ -226,7 +226,9 @@ describe('the TEST card draws on the person’s own partner account (#10227)', (
     expect(await partner.bank.moves(ADA, { limit: 50 })).toEqual([]);
     expect((await partner.bank.limits(ADA, 'USDC')).usedToday).toBe(0n);
     // The partner's statement of the account still adds up: 400 paid in, 20 held, 5 refunded.
-    const statement = await partner.bank.statement!(main, { from: new Date(0), to: new Date(Date.now() + 60_000) });
+    const statementOf = partner.bank.statement;
+    if (!statementOf) throw new Error('the TEST partner offers statements');
+    const statement = await statementOf(main, { from: new Date(0), to: new Date(Date.now() + 60_000) });
     expect(statement).toMatchObject({ opening: 0n, closing: units('385') });
     expect(partner.record(ADA).accounts).toEqual([{ account: main, amount: units('385') }]);
   });
@@ -251,7 +253,9 @@ describe('the TEST card draws on the person’s own partner account (#10227)', (
 
   it('above what the account holds, the partner declines and nothing moves; an empty account declines too', async () => {
     const { partner, card, balance } = drawnCard();
-    await partner.bank.openCurrency(ADA, 'USDC');
+    const openCurrency = partner.bank.openCurrency;
+    if (!openCurrency) throw new Error('the TEST partner opens currency accounts');
+    await openCurrency(ADA, 'USDC');
     expect(await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '5' })).toMatchObject({
       approved: false,
       reason: 'bank.card_partner_insufficient_funds',
@@ -267,7 +271,8 @@ describe('the TEST card draws on the person’s own partner account (#10227)', (
   it('a hold by the person’s pay-from order draws on the account too', async () => {
     const { partner, card, balance } = drawnCard();
     partner.fund(ADA, { fundId: 'f-100', assetId: 'USDC', amount: units('100') });
-    const answer = await card.holdInOrder!({ key: HOLD, userId: ADA, order: ['USDC'], settlementAssetId: 'USDC', amount: '12.5' });
+    if (!card.holdInOrder) throw new Error('the TEST partner card takes pay-from orders');
+    const answer = await card.holdInOrder({ key: HOLD, userId: ADA, order: ['USDC'], settlementAssetId: 'USDC', amount: '12.5' });
     expect(answer).toMatchObject({ approved: true, figures: { available: '87.5', held: '12.5' } });
     expect(await balance()).toBe(units('87.5'));
   });
