@@ -365,7 +365,7 @@ test(`${J} #3 chooses hedge or one-way mode: offered only where the venue offers
     await expect(choose(FLAT, label)).toBeDisabled();
   }
   const sent = door.of('prepare').map((c) => ({ venueId: c.body.venueId, ...c.body.intent }));
-  expect(sent.map(({ changeKey, ...rest }) => rest)).toEqual([
+  expect(sent.map(({ changeKey: _changeKey, ...rest }) => rest)).toEqual([
     { venueId: v.b.id, kind: 'set_position_mode', symbol: FLAT, mode: 'hedge' },
     { venueId: v.b.id, kind: 'set_position_mode', symbol: FLAT, mode: 'one_way' },
   ]);
@@ -766,8 +766,8 @@ test(`${J} #7 moves a position between main and sub-account: moved where the ven
   const freeBefore = await usdcBoth(v.a, s.subAccount);
   const shownIsVenues = async () => {
     const now = await usdcBoth(v.a, s.subAccount);
-    expect(same((await mainFree.innerText()).trim(), now.main.free), 'main account free').toBe(true);
-    expect(same((await subFree.innerText()).trim(), now.sub.free), 'sub-account free').toBe(true);
+    await expect.poll(async () => same((await mainFree.innerText()).trim(), now.main.free), 'main account free').toBe(true);
+    await expect.poll(async () => same((await subFree.innerText()).trim(), now.sub.free), 'sub-account free').toBe(true);
     return now;
   };
   await expect(shownIsVenues).toPass({ timeout: 30_000 });

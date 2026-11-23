@@ -4022,7 +4022,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         const market = this.market(intent.symbol);
         const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
         const [from, to] = intent.direction === 'into_sub_account' ? [state, subState] : [subState, state];
-        const moving = from.positions.get(intent.symbol)!;
+        const moving = from.positions.get(intent.symbol);
+        if (!moving) throw new Error(`move_position: no ${intent.symbol} position to move (validate() checks this first)`);
         const source = this.balance(from, market.quoteAsset);
         const target = this.balance(to, market.quoteAsset);
         source.locked = sub(source.locked, moving.margin);
