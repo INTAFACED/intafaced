@@ -432,17 +432,17 @@ async function sendFromWallet(page, wallet, to, amount, { prefilled = false } = 
   return { hash, shownAmount, feeLine: page.getByTestId('send-network-fee') };
 }
 
-/** The send's network fee as the page shows it, equal to what the chain's receipt says it paid; kept for #8. */
+/**
+ * The send's network fee as the page shows it, equal to what the chain's receipt says it paid; kept for #8. The TEST
+ * chain mines the send and its receipt is read here, so the fee is known at its source: the page must show that figure,
+ * and "not known" here would be a figure that differs from its source.
+ */
 async function feeShownEqualsChain(step, feeLine, hash) {
   const { fee } = await paidFee(hash);
-  await expect(feeLine).toHaveAttribute('data-fee', /^(known|unknown)$/, { timeout: 60_000 });
-  if ((await feeLine.getAttribute('data-fee')) === 'known') {
-    await expect
-      .poll(async () => BigInt(await feeLine.getAttribute('data-fee-units')), 'the network fee shown is the one the chain charged')
-      .toBe(fee);
-    await expect(feeLine).toContainText(`Network fee: ${eth(fee)} ETH`);
-    keepShown(step, `network fee of ${hash}, from the chain`, eth(BigInt(await feeLine.getAttribute('data-fee-units'))), eth(fee));
-  } else await expect(feeLine).toHaveText(/Network fee: not known/);
+  await expect(feeLine, 'the chain knows the fee, so the page shows it').toHaveAttribute('data-fee', 'known', { timeout: 60_000 });
+  await expect(feeLine, 'the network fee shown is the one the chain charged').toHaveAttribute('data-fee-units', fee.toString());
+  await expect(feeLine).toContainText(`Network fee: ${eth(fee)} ETH`);
+  keepShown(step, `network fee of ${hash}, from the chain`, eth(BigInt(await feeLine.getAttribute('data-fee-units'))), eth(fee));
   return fee;
 }
 
