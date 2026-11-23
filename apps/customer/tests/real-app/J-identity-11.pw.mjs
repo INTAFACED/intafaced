@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
+import { signIn, verify } from './desk.mjs';
 import { OWN_AGENT, createOwnAgent } from './agents.mjs';
 import { body200 } from './answers.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -25,6 +26,12 @@ venueForThisFile(test);
 /** What the person is told about their funds, the same sentence wherever INTAFACED says it. */
 const FUNDS = 'Your funds stay in your own wallet and venue account, which only your wallet controls.';
 const HELD = '500';
+
+/** The venue desk serves only a verified person: the stack's TEST operators verify them, and they sign in again. */
+async function verifiedAgain(page, who) {
+  await verify(page, who);
+  await signIn(page, who);
+}
 
 /** The person's own TEST wallet and its venue account, funded with TEST USDC by the TEST venue's deposit control. */
 async function ownVenueAccount() {
@@ -123,6 +130,7 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   test.setTimeout(180_000);
   const who = person();
   await signUpInBrowser(page, who);
+  await verifiedAgain(page, who);
   // The person's own venue account: the desk shows what the TEST venue records for it.
   const venueAcct = await ownVenueAccount();
   expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
@@ -313,6 +321,7 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
   test.setTimeout(180_000);
   const who = person('jg');
   await signUpInBrowser(page, who);
+  await verifiedAgain(page, who);
   const venueAcct = await ownVenueAccount();
   expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   await freezeOwn(page, who);
@@ -361,6 +370,7 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   test.setTimeout(240_000);
   const who = person('jr');
   await signUpInBrowser(page, who);
+  await verifiedAgain(page, who);
   const venueAcct = await ownVenueAccount();
   expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
 
@@ -421,6 +431,7 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
   test.setTimeout(300_000);
   const who = person('js');
   await signUpInBrowser(page, who);
+  await verifiedAgain(page, who);
   const venueAcct = await ownVenueAccount();
   expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   const userId = await staffFreeze(who);
