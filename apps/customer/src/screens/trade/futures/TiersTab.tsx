@@ -5,6 +5,7 @@ import type { Loadable } from '../../../data/types';
 import type { RiskTiers } from './api';
 import { LoadGate, TabHeader } from './HistoryTab';
 import { riskCopy } from './risk-copy';
+import { tabsCopy } from './tabs-copy';
 import { percentOfBps } from './tabs-logic';
 import { RegionNote } from './notes';
 
@@ -16,6 +17,7 @@ type TierRow = RiskTiers['tiers'][number];
  */
 export function TiersTab({ tiers, quote }: { tiers: Loadable<RiskTiers>; quote: string }) {
   const { t } = riskCopy.useCopy();
+  const tabs = tabsCopy.useCopy();
   const notional = (value: string | null, last: boolean) =>
     last ? t('Tier any size') : value === null ? t('Tier no depth') : `${fmtAmount(value, { places: 2 })} ${quote}`;
 
@@ -64,7 +66,7 @@ export function TiersTab({ tiers, quote }: { tiers: Loadable<RiskTiers>; quote: 
               columns={columns}
               rows={data.tiers}
               rowKey={(row) => String(row.tier)}
-              empty={<RegionNote title="Nothing to show" />}
+              empty={<RegionNote title={tabs.t('Nothing to show')} />}
             />
             <p className="lt-note">
               {data.maxLeverage === null ? t('Tiers leverage unset') : t('Tiers leverage note', { cap: fmtAmount(data.maxLeverage) })}
