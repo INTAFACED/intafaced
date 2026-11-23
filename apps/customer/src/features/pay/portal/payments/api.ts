@@ -17,7 +17,7 @@ import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-proce
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query(
       'subscription.list',
