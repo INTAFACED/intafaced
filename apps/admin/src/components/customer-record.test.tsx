@@ -23,7 +23,7 @@ describe('CustomerRecord', () => {
   });
   it('refuses one read on its own while the one beside it shows', () => {
     const plan = tabPlan('pay', USER);
-    const [mode, policy] = plan.reads;
+    const [, mode, policy] = plan.reads;
     const html = renderToStaticMarkup(
       <CustomerRecord
         userId={USER}
@@ -53,7 +53,7 @@ describe('CustomerRecord', () => {
     );
     expect(html).toContain('svc-pay did not answer.');
     expect(html).toContain('One-time sends allowed');
-    expect(html).toContain('Payments sent and received: no source');
+    expect(html).toContain('Payments to merchants at checkout: no source');
   });
   it('shows a closed card on the cards tab by its id and status', () => {
     const plan = tabPlan('cards', USER);

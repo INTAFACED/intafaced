@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { StatusNote } from '@intafaced/ui/lit';
 import { createPersonalPayApi, fmtAmount, useSession, type PersonalPayApi } from './deps';
 import { sourcesFrom, type Source } from './send-model';
 
 /** Why a journey cannot run, in plain words, always on screen. */
 export function Reason({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="pay-reason" role="note" data-testid="pay-reason">
-      <p className="pay-reason__title">{title}</p>
-      <p className="pay-reason__body">{children}</p>
-    </div>
+    <StatusNote title={title} data-testid="pay-reason">
+      {children}
+    </StatusNote>
   );
 }
 
 /** The steps of a journey, numbered, so a customer can see the whole path before it is connected. */
 export function Steps({ items }: { items: readonly string[] }) {
   return (
-    <ol className="pay-steps" data-testid="pay-steps">
+    <ol className="lt-steps" data-testid="pay-steps">
       {items.map((label) => (
-        <li key={label}>{label}</li>
+        <li key={label} className="lt-step">
+          <span className="lt-step-dot" aria-hidden="true" />
+          <span>{label}</span>
+        </li>
       ))}
     </ol>
   );

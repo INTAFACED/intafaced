@@ -58,7 +58,7 @@ export function BankSection({
 }) {
   return (
     <section aria-label={label}>
-      <header className="lt-title-row">
+      <header className="lt-title-row lt-title-row-wrap">
         <div>
           <h2>{title}</h2>
           {description && <p className="lt-description">{description}</p>}

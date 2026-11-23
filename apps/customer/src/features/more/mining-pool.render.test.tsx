@@ -9,6 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 import { SessionProvider } from '../session';
 import { MinerSecretView, MiningPoolStatus, PoolConnectView, PoolOverviewView, PoolProbeView, workerNameFor } from './MiningPool';
 import type { ApiResult } from '../../shared/api';
+import { ConnectView } from './mining-room/MiningRoom';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const noop = () => undefined;
@@ -52,22 +53,48 @@ describe('connect your miner', () => {
     expect(out).not.toContain('Copy pool address');
   });
 
-  it('shows host:port, the account id and the worker name exactly as stored', () => {
+  it('shows host:port as stored, and the account id as its short reference with the whole id beside it', () => {
     const data = {
-      host: '198.51.100.1',
+      host: 'pool.intafaced.com',
       port: '3999',
       secureUrl: null,
-      accountId: 'acct-1',
+      accountId: '8a96885b-cd8f-4a1e-9b1c-0123456789ab',
       workerNamePattern: 'TEST.{worker}',
     };
     const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
-    expect(out).toContain('data-testid="mining-pool-address" lang="und" dir="ltr">198.51.100.1:3999<');
-    expect(out).toContain('data-testid="mining-account-id" lang="und" dir="ltr">acct-1<');
+    expect(out).toContain('data-testid="mining-pool-address" lang="und" dir="ltr">pool.intafaced.com:3999<');
+    expect(out).toContain('data-testid="mining-account-id" lang="und" dir="ltr" title="8a96885b-cd8f-4a1e-9b1c-0123456789ab">8A96885B<');
     // No rig typed yet: the worker name is not made up from the bare pattern, and its copy button is off.
     expect(out).toContain('data-testid="mining-worker-name" lang="und" dir="ltr">Type your rig name');
     expect(out).not.toContain('{worker}');
     expect(out).toMatch(/aria-label="Copy worker name" disabled/);
     expect(out).not.toContain('mining-secure-address');
+  });
+
+  it("a test machine's own address is named in words, never printed as a host to trust", () => {
+    for (const host of ['127.0.0.1', '198.51.100.1', 'pool.official-test.invalid', 'localhost']) {
+      const data = { host, port: '3999', secureUrl: `stratum+ssl://${host}:4000`, accountId: 'a', workerNamePattern: null };
+      const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
+      expect(out).toContain(
+        `data-testid="mining-pool-address" lang="und" dir="ltr" title="${host}:3999">TEST address on this test machine`,
+      );
+      expect(out).toContain(`data-testid="mining-secure-address" lang="und" dir="ltr" title="stratum+ssl://${host}:4000">TEST address`);
+      expect(out).toContain('aria-label="Copy pool address"');
+    }
+  });
+
+  it("the /mining room reads the same way: a test machine's address in words, the account id as its short reference", () => {
+    const data = {
+      host: '127.0.0.1',
+      port: '3999',
+      secureUrl: null,
+      accountId: '8a96885b-cd8f-4a1e-9b1c-0123456789ab',
+      workerNamePattern: null,
+    };
+    const out = html(<ConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
+    expect(out).toContain('title="127.0.0.1:3999">TEST address on this test machine');
+    expect(out).toContain('title="8a96885b-cd8f-4a1e-9b1c-0123456789ab">8A96885B<');
+    expect(out).not.toMatch(/>127\.0\.0\.1|>8a96885b-/);
   });
 
   it('a published secure address is shown to copy as stored', () => {

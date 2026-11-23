@@ -1021,7 +1021,11 @@ export default function Pnl({ search = '' }: { search?: string }) {
           <InfoTip data-testid="if-tip" text={t('Realised rule')} label={t('How realised is worked out')} side="end" />
         </div>
         <p data-testid="money-total" className="lt-figure" data-figure="realised">
-          <Amount value={usd(view.realisedUsd, copy, true)} hidden={hideBalances} />
+          {view.realisedUsd === null && data.sales.length === 0 ? (
+            t('Figure no sales')
+          ) : (
+            <Amount value={usd(view.realisedUsd, copy, true)} hidden={hideBalances} />
+          )}
         </p>
       </div>,
       <div key="unrealised">
@@ -1032,6 +1036,14 @@ export default function Pnl({ search = '' }: { search?: string }) {
         <p data-testid="money-total" className="lt-figure" data-figure="unrealised">
           <Amount value={usd(view.unrealisedUsd, copy, true)} hidden={hideBalances} />
         </p>
+        {view.unrealisedUsd === null && missingData && missingData.items.length > 0 ? (
+          <p className="lt-hint" data-testid="unrealised-why">
+            {t('Unrealised cost missing')}{' '}
+            <a className="lt-link" href="#missing-cost">
+              {t('Enter what you paid')}
+            </a>
+          </p>
+        ) : null}
       </div>,
     ];
     body = (
