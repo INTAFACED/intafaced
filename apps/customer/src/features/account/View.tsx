@@ -15,7 +15,6 @@ import {
   usePreferenceObservation,
 } from '../../shared/preferences';
 import { TradingSettings } from './TradingSettings';
-import { tradingSettingsCopy } from './trading-settings-copy';
 import { useAccountViewStatus } from './ViewSync';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';

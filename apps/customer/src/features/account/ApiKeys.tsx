@@ -7,7 +7,6 @@ import { useResource } from '../../shared/resource';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { SettingsTemplate, Sheet as KitSheet } from '@intafaced/ui/lit/templates';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { apiVersionCopy } from './api-version-copy';
 import { Failure, Loading } from './kit-parts';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
@@ -120,7 +119,6 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
  */
 export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
-  const versionTitle = apiVersionCopy.useCopy().t('title');
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKeys(api, signal), `developer-keys:${userId}`);
   // The names of the sub-accounts keys are bound to; a key whose sub-account is not listed shows its id instead.
