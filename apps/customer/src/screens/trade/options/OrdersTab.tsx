@@ -192,7 +192,7 @@ export function OrdersTab({
       align: 'end',
       cell: (o) => (
         <span className="inline-flex items-center gap-2">
-          {rowNote[o.id] ? <span className="text-xs text-fg-2">{rowNote[o.id]}</span> : null}
+          {rowNote[o.id] ? <span className="lt-hint">{rowNote[o.id]}</span> : null}
           {o.recoveryRequired ? (
             <Button variant="secondary" size={28} loading={checking === o.id} onClick={() => void checkRow(o)}>
               {t('Check status')}
