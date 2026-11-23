@@ -7,7 +7,7 @@
 import { Children, isValidElement, useId, useState, type ReactElement, type ReactNode } from 'react';
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
-import { Button, Figure, Select } from '@intafaced/ui/lit';
+import { Button, Field, Figure, Select } from '@intafaced/ui/lit';
 import { Skeleton } from '@intafaced/ui/lit/templates';
 import { useSaidOnce } from '../components';
 import { usePreferences } from '../../../../shared/preferences';
@@ -23,11 +23,12 @@ import { uiCopy } from '../ui/copy';
 import { DateTime, formatDateTime } from '../ui/DateTime';
 import { useExactMoneyScope } from '../ui/ExactMoneyScope';
 import { formatMoney, isRounded } from '../ui/format';
+import { countText, type ListFilters } from '../ui/FilterRow';
 import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
-import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
+import { STALE_AFTER_SECONDS, activeHalts, lagParts, spanParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -580,7 +581,18 @@ export function HeroFigure({ value, asset, testId }: { value: string; asset: str
 }
 
 /** One line per asset (`MoneyLines` in `../components`). Two assets are never added together; none is a dash, not zero. */
-export function MoneyLines({ items, emptyLabel, test = false }: { items: readonly AssetAmount[]; emptyLabel?: string; test?: boolean }) {
+export function MoneyLines({
+  items,
+  emptyLabel,
+  test = false,
+  sign,
+}: {
+  items: readonly AssetAmount[];
+  emptyLabel?: string;
+  test?: boolean;
+  /** `minus`: each line is a fee taken or a debit, shown "−1.20 USDT". */
+  sign?: 'minus' | 'plus';
+}) {
   const { t } = portalCopy.useCopy();
   if (items.length === 0)
     return (
@@ -593,7 +605,7 @@ export function MoneyLines({ items, emptyLabel, test = false }: { items: readonl
     <span className="lt-lines">
       {items.map((item) => (
         <span key={item.assetCode}>
-          <MoneyText value={item.amount} asset={item.assetCode} test={test} />
+          <MoneyText value={item.amount} asset={item.assetCode} test={test} sign={sign} />
         </span>
       ))}
     </span>
@@ -708,5 +720,180 @@ export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: Pa
         {reason}
       </small>
     </div>
+  );
+}
+
+/**
+ * A list's one slim filter row (`FilterRow` in `../ui/FilterRow`): Search, Status, Date (Today, 7d, 30d, custom), Asset
+ * and More filters, each shown only when the page passes its options, then the honest count and Clear filters. All of it
+ * lives in the address (`useListFilters`).
+ */
+export function FilterRow({
+  filters,
+  statuses,
+  assets,
+  more,
+  searchHint,
+  shown,
+  hasMore,
+  total,
+  label,
+}: {
+  filters: ListFilters;
+  statuses?: ReadonlyArray<readonly [value: string, label: string]>;
+  assets?: readonly string[];
+  more?: ReactNode;
+  /** One line under Search saying what it matches, when it matches less than a person would guess. */
+  searchHint?: string;
+  shown?: number;
+  hasMore?: boolean;
+  total?: number | null;
+  label: string;
+}) {
+  const { t } = uiCopy.useCopy();
+  const [open, setOpen] = useState(false);
+  const active = Boolean(filters.search || filters.status || filters.date || filters.asset);
+  return (
+    <div className="lt-stack" role="search" aria-label={label}>
+      <div className="lt-field-row">
+        <Field
+          label={t('search')}
+          value={filters.search}
+          onChange={(e) => filters.setSearch(e.target.value)}
+          {...(searchHint ? { hint: searchHint } : {})}
+        />
+        {statuses && (
+          <SelectField
+            label={t('status')}
+            value={filters.status}
+            onChange={filters.setStatus}
+            options={[['', t('allStatuses')] as const, ...statuses]}
+          />
+        )}
+        <SelectField
+          label={t('date')}
+          value={filters.date}
+          onChange={filters.setDate}
+          options={[
+            ['', t('anyDate')],
+            ['today', t('today')],
+            ['7d', t('last7')],
+            ['30d', t('last30')],
+            ['custom', t('custom')],
+          ]}
+        />
+        {assets && assets.length > 0 && (
+          <SelectField
+            label={t('asset')}
+            value={filters.asset}
+            onChange={filters.setAsset}
+            options={[['', t('allAssets')] as const, ...assets.map((a) => [a, a] as const)]}
+          />
+        )}
+      </div>
+      {filters.date === 'custom' && (
+        <div className="lt-field-row">
+          <Field label={t('from')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
+          <Field label={t('to')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
+        </div>
+      )}
+      {more && (
+        <div>
+          <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {t('moreFilters')}
+          </Button>
+          {open && <div className="lt-field-row">{more}</div>}
+        </div>
+      )}
+      <p className="lt-muted" role="status">
+        {shown !== undefined ? countText(t, shown, Boolean(hasMore), total) : ''}
+        {active && (
+          <>
+            {' '}
+            <Button
+              tone="quiet"
+              onClick={() => {
+                filters.setSearch('');
+                filters.setStatus('');
+                filters.setDate('');
+                filters.setFrom('');
+                filters.setTo('');
+                filters.setAsset('');
+              }}
+            >
+              {t('clearFilters')}
+            </Button>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The top of a record's own page (`DetailHeader` in `../ui/DetailHeader`): a way back, the record's headline (for money,
+ * the amount and its status), one line saying what this is, and at most one action.
+ */
+export function DetailHeader({
+  back,
+  title,
+  status,
+  subtitle,
+  action,
+}: {
+  back: { href: string; label: string };
+  title: ReactNode;
+  status?: ReactNode;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <header className="lt-stack">
+      <a className="lt-link" href={back.href}>
+        {back.label}
+      </a>
+      <h2>
+        {title}
+        {status && <> {status}</>}
+      </h2>
+      {subtitle && <p className="lt-muted">{subtitle}</p>}
+      {action ? <div className="lt-actions">{action}</div> : null}
+    </header>
+  );
+}
+
+/** Where this record leads (`RelatedLinks` in `../ui/RelatedLinks`): only links the page can actually follow. */
+export function RelatedLinks({ links }: { links: ReadonlyArray<{ href: string; label: string }> }) {
+  const { t } = uiCopy.useCopy();
+  if (links.length === 0) return null;
+  return (
+    <nav aria-label={t('related')}>
+      <h3>{t('related')}</h3>
+      <ul className="lt-list">
+        {links.map((link) => (
+          <li key={link.href}>
+            <a className="lt-link" href={link.href}>
+              {link.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/** A length of time in words ("3 h", "just now"): the age of a request and the time left on it (`SpanText` in `../components`). */
+export function SpanText({ ms }: { ms: number }) {
+  const { t } = portalCopy.useCopy();
+  const span = spanParts(ms);
+  if (span.unit === 'minutes' && span.n === 0) return <>{t('spanNow')}</>;
+  return (
+    <>
+      {span.unit === 'minutes'
+        ? t('spanMinutes', { n: span.n })
+        : span.unit === 'hours'
+          ? t('spanHours', { n: span.n })
+          : t('spanDays', { n: span.n })}
+    </>
   );
 }
