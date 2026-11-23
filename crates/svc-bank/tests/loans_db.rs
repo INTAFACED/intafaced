@@ -409,7 +409,7 @@ fn abandon_adopts_a_booked_draw_the_loan_goes_active_and_the_collateral_stays_lo
     let lossy = open_with_lost_draw_reply(&k);
     assert_eq!(k.status(LOAN_ID), "pending");
     let r = service::abandon_pending(&deps(&k, &lossy), LOAN_ID).unwrap();
-    assert_eq!(r.released, 0);
+    assert_eq!(r.released, Amount::ZERO);
     assert_eq!(r.ledger_tx_id, None);
     assert!(r.adopted);
     let draw_tx = r.draw_ledger_tx_id.clone().unwrap();

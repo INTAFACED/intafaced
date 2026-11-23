@@ -55,6 +55,8 @@ WORKDIR /app
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# The lockfile names these patches; `--frozen-lockfile` fails without them.
+COPY patches ./patches
 
 COPY apps/admin/package.json                 apps/admin/
 COPY apps/customer/package.json              apps/customer/

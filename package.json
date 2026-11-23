@@ -10,7 +10,6 @@
   "type": "module",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
-    "postinstall": "test -n \"$CI\" || test ! -f tooling/scripts/tsc-shims.mjs || node tooling/scripts/tsc-shims.mjs",
     "build": "turbo run build",
     "mobile": "pnpm --filter mobile native:stage",
     "dev": "turbo run dev",
@@ -119,6 +118,10 @@
       "glob@>=9.0.0 <14.0.2": "14.0.4",
       "minimatch@>=7.0.0 <11.0.1": "11.0.6",
       "tmp@<0.2.6": "0.2.7"
+    },
+    "patchedDependencies": {
+      "typescript@7.0.2": "patches/typescript@7.0.2.patch",
+      "typescript@5.9.3": "patches/typescript@5.9.3.patch"
     }
   }
 }

@@ -407,7 +407,7 @@ function ProposalForm({
     if (result.ok || result.reason === 'uncertain') onDone();
   }
   return (
-    <form aria-label={name} onSubmit={(e) => void submit(e)} className="more-grid">
+    <form aria-label={name} onSubmit={(e) => void submit(e)} className="lt-stack">
       <h3>{name}</h3>
       {access && <p role="note">{accessNote(access, t)}</p>}
       {!editing && (
@@ -482,7 +482,7 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
   }
   const name = t('cancelFor', { title: proposal.title ?? t('untitled') });
   return (
-    <form aria-label={name} onSubmit={(e) => void submit(e)} className="more-grid">
+    <form aria-label={name} onSubmit={(e) => void submit(e)} className="lt-stack">
       <h3>{name}</h3>
       <p role="note">{t('cancelNote')}</p>
       <TextArea label={t('cancelReason')} value={reason} onChange={setReason} />

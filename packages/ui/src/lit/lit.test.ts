@@ -139,6 +139,7 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     'text-1',
     'text-2',
     'text-3',
+    'text-disabled',
     'accent-text',
     'up-text',
     'down-text',
@@ -306,5 +307,23 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
     }
+  });
+});
+
+describe('the kit draws the arrows its faces lack', () => {
+  // Archivo and Geist carry no ▲ ▼ → ← ↗, so a typed one falls back to a system face (look gate run 45061471946: ▲ in
+  // WenQuanYi Zen Hei). The kit draws them: lt-arrow-up, lt-arrow-down, lt-arrow-go, lt-arrow-back, lt-arrow-out.
+  it('no kit component types one outside a comment', () => {
+    const typed = walk(here)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .flatMap((f) =>
+        readFileSync(f, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''))
+          .split('\n')
+          .map((line, i) => ({ at: `${f.slice(here.length)}:${i + 1}`, code: line.replace(/\/\/.*$/, '') }))
+          .filter(({ code }) => /[▲▼→←↗]/.test(code))
+          .map(({ at }) => at),
+      );
+    expect(typed).toEqual([]);
   });
 });

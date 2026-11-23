@@ -64,9 +64,7 @@ export function TradingAccountRoom() {
   const { t } = tradingAccountCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
-  const off = (state: RoomState) => (
-    <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} explain={<p className="lt-hint">{t('eyebrow')}</p>} />
-  );
+  const off = (state: RoomState) => <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} />;
   if (!userId)
     return off({
       kind: 'empty',
@@ -98,12 +96,7 @@ export function TradingAccountRoom() {
             <Owned>{(owner) => <Room owner={owner} status={status} />}</Owned>
           </div>
         }
-        explain={
-          <div className="lt-stack">
-            <p className="lt-hint">{t('eyebrow')}</p>
-            <p className="lt-hint">{t('ledgerNote')}</p>
-          </div>
-        }
+        explain={<p className="lt-hint">{t('ledgerNote')}</p>}
       />
     </VenueFrame>
   );

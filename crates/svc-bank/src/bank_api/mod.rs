@@ -233,7 +233,7 @@ fn spent_today(
     now: Instant,
 ) -> Option<String> {
     let start = now.0 - now.0.rem_euclid(DAY_MS);
-    let mut spent: Amount = 0;
+    let mut spent: Amount = Amount::ZERO;
     for m in moves {
         if m.moved_at.0 < start {
             return Some(format_amount(spent));

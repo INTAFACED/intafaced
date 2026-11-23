@@ -45,8 +45,8 @@ export function KycCaseDetail(props: KycCaseDetailProps) {
         </p>
         <h1>KYC case</h1>
         <p className="dk-muted">
-          Case <code data-testid="kyc-case-id">{caseId}</code> of account <code>{userId}</code>, read as you from identity. Nothing is
-          decided on this page; review decisions are on the Identity desk’s case queue.
+          Case <code data-testid="kyc-case-id">{caseId}</code> of account <code>{userId}</code>, read as you from identity. A case that
+          waits for review is approved from its row, with a second founder’s approval.
         </p>
       </header>
       {denied ? (

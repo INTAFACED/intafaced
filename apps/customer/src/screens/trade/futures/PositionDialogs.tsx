@@ -244,7 +244,7 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
       >
         <Input kind="decimal" value={value} onValueChange={setValue} precision={2} trailing="x" />
       </Field>
-      <div className="flex flex-wrap gap-2">
+      <div className="lt-actions">
         {leveragePresets(cap).map((preset) => (
           <Button
             key={preset}
@@ -328,7 +328,7 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
       >
         <Input kind="decimal" value={sizeRaw} onValueChange={setSizeRaw} precision={8} />
       </Field>
-      <div role="group" aria-label={t('Close share group')} className="flex flex-wrap gap-2">
+      <div role="group" aria-label={t('Close share group')} className="lt-actions">
         {[25, 50, 75, 100].map((pct) => (
           <Button
             key={pct}
@@ -474,7 +474,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
     const size = part.trim() === '' || parts[leg] ? null : part.trim();
     const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
     return (
-      <div className="flex flex-col gap-2">
+      <div className="lt-stack">
         <Field
           label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
           hint={side === null ? undefined : t(`Protect side ${side}`)}
@@ -733,7 +733,7 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
       }
     >
       {position.leverage === null ? <p className="text-warn">{t('Reverse no leverage')}</p> : null}
-      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="flex flex-col gap-2">
+      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="lt-stack">
         <h3 className="text-sm font-medium">{t('Reverse review', { to: sideWord(t, to) })}</h3>
         {review.status === 'loading' && position.leverage !== null ? (
           <p className="lt-muted">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
@@ -880,7 +880,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         </>
       }
     >
-      <div className="flex flex-col gap-1">
+      <div className="lt-stack">
         <span className="lt-muted">{t('Stop kind')}</span>
         <SegmentedControl
           aria-label={t('Stop kind')}
@@ -894,7 +894,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
         />
         <p className="text-2xs text-fg-2">{t(`Stop kind how ${kind}`)}</p>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="lt-stack">
         <span className="lt-muted">{t('Stop source')}</span>
         <SegmentedControl
           aria-label={t('Stop source')}

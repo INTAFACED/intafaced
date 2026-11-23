@@ -62,7 +62,12 @@ export function composeCardsArea(
           switches: (userId) => testPartner.switches(userId),
           // Its provisional dispute credits count in the same spendable figure (the issuer keeps them),
           // and the TEST partner's credited pay-ins (J-bank-31 #4: what the person paid themselves shows on the card).
-          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId) + payInCredited(options.payInRail, userId, assetId),
+          // A card drawn on the person's partner account spends what that account holds and nothing beside it: a
+          // credited pay-in is already in it, and a hold never takes the account below zero.
+          credited: (userId, assetId, drawn) =>
+            drawn ? 0n : testCardCredited(cardIssuer, userId, assetId) + payInCredited(options.payInRail, userId, assetId),
+          // The person's own account at the TEST partner, which the TEST card draws on when the partner holds one.
+          funds: testPartner.cardFunds,
         })
       : null);
   const partnerCardHolds: PartnerCardHolds | null = unguardedHolds

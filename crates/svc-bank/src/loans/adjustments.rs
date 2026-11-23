@@ -72,7 +72,7 @@ pub fn parse_correction(t: &Terms) -> Result<(Amount, String), Refusal> {
         ));
     }
     let amount = amount_text(&t.amount)?;
-    if amount == 0 {
+    if amount == Amount::ZERO {
         return Err(invalid("An interest correction of zero changes nothing"));
     }
     let reason = service_kit::money::js_trim(&t.reason).to_owned();
@@ -229,7 +229,7 @@ fn assert_correctable(
             format!("Loan {loan_id} has a sale or an uncovered shortfall still open"),
         ));
     }
-    if amount < 0 {
+    if amount < Amount::ZERO {
         let debt = outstanding(c, loan_id)?;
         if -amount > debt.interest {
             return Err(refuse(
@@ -361,7 +361,7 @@ pub fn interest_rows(d: &Deps<'_>, l: &Loan) -> Result<Json, Refusal> {
                 &[&l.id],
             )
             .map_err(|e| pg(&e))?;
-        let mut corrected: Amount = 0;
+        let mut corrected: Amount = Amount::ZERO;
         let mut corrections = Vec::new();
         for r in tx
             .query(
@@ -462,10 +462,10 @@ fn repay_legs(l: &Loan, principal: Amount, interest: Amount) -> Legs {
         "credit",
         principal + interest,
     )];
-    if principal > 0 {
+    if principal > Amount::ZERO {
         legs.push((reserve_account(&l.debt_asset_id), "debit", principal));
     }
-    if interest > 0 {
+    if interest > Amount::ZERO {
         legs.push((
             super::service::house_fees(&l.debt_asset_id),
             "debit",
@@ -539,7 +539,8 @@ pub fn ledger_check(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<Json, Refusa
                 legs: Some(repay_legs(l, principal, interest)),
             });
         }
-        let (mut locked, mut released, mut sold): (Amount, Amount, Amount) = (0, 0, 0);
+        let (mut locked, mut released, mut sold): (Amount, Amount, Amount) =
+            (Amount::ZERO, Amount::ZERO, Amount::ZERO);
         for r in tx
             .query(
                 "SELECT sequence::int8, direction::text, amount::text, ledger_tx_id

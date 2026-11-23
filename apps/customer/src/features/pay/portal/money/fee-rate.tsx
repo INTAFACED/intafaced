@@ -17,7 +17,7 @@ export function EffectiveRatesList({ rates, children }: { rates: readonly Effect
     <div>
       <ul className="pp-lines" style={{ listStyle: 'none', padding: 0, margin: 0 }} aria-label={t('rateListLabel')}>
         {rates.map((r) => (
-          <li key={r.assetCode} className="pp-line">
+          <li key={r.assetCode}>
             <strong className="lt-num">{rateText(t, r)}</strong>{' '}
             <span className="pp-unit" lang="zxx">
               {r.assetCode}

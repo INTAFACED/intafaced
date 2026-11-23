@@ -5,7 +5,7 @@ import { memberRoleSchema } from '../schemas';
 //
 // Parsed tolerantly: unknown keys are ignored, and a capability key that is missing reads as false. The service
 // is the authority; this only decides what to show and what to disable.
-export const membershipSchema = z.object({
+const membershipSchema = z.object({
   merchantId: z.string(),
   role: memberRoleSchema,
   status: z.enum(['pending', 'active', 'suspended', 'closed']),
@@ -22,5 +22,5 @@ export const membershipSchema = z.object({
 });
 export type Membership = z.infer<typeof membershipSchema>;
 /** Owner first, as the service orders them. Empty means the person has no business here. */
-export const myAccessSchema = z.object({ memberships: z.array(membershipSchema) });
+const myAccessSchema = z.object({ memberships: z.array(membershipSchema) });
 export type MyAccess = z.infer<typeof myAccessSchema>;

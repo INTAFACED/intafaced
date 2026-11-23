@@ -15,6 +15,11 @@ export async function partnerBookMoves(userId) {
   return (await venueRecord(userId, '/moves', {}, PARTNER_BOOK, null)).value;
 }
 
+/** Every account the TEST partner holds for `userId`, main balances and spaces, with the amount in each, as its own book lists them. */
+export async function partnerBookAccounts(userId) {
+  return (await venueRecord(userId, '/accounts', {}, PARTNER_BOOK, null)).value;
+}
+
 /**
  * The TEST partner bank and ramp's switches for one person (CUSTODY-DELTA §4; svc-bank `partner/test-partner.ts`). The
  * stack runs the TEST partner (`BANK_TEST_PARTNER=test`); each switch is that person's only and starts off.

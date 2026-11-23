@@ -111,7 +111,7 @@ fn lock_user(tx: &mut impl GenericClient, user_id: &str) -> Result<(), StoreErro
 fn sum_of(rows: &[postgres::Row]) -> Result<Amount, StoreError> {
     match rows.first() {
         Some(r) => amount_text(&r.try_get::<_, String>(0)?),
-        None => Ok(0),
+        None => Ok(Amount::ZERO),
     }
 }
 
@@ -555,11 +555,11 @@ fn exposure(
             r.try_get::<_, String>(1)?
         );
         let sealed: bool = r.try_get(2)?;
-        let tokens = |i: usize| -> Result<Amount, StoreError> {
+        let tokens = |i: usize| -> Result<i128, StoreError> {
             let t: Option<String> = r.try_get(i)?;
             t.as_deref()
                 .unwrap_or("0")
-                .parse::<Amount>()
+                .parse::<i128>()
                 .map_err(|e| StoreError::new(e.to_string(), None))
         };
         let group = UsageGroup {
@@ -575,7 +575,7 @@ fn exposure(
             None => windows.push((key, sealed, vec![group])),
         }
     }
-    let (mut owed, mut sealed_unpaid) = (0, 0);
+    let (mut owed, mut sealed_unpaid) = (Amount::ZERO, Amount::ZERO);
     for (_, sealed, groups) in &windows {
         let cost = window_cost(groups).map_err(|e| StoreError::new(e.0, None))?;
         owed += cost;
@@ -792,7 +792,7 @@ pub fn reserve(pool: &Pool, input: &ReserveInput<'_>) -> Result<Reservation, Hol
         }
         if let Some((funds, agent)) = input.funds {
             let (owed_all, sealed_unpaid) = exposure(tx, input.user_id, asset_id)?;
-            let grace = input.overage_grace.unwrap_or(0);
+            let grace = input.overage_grace.unwrap_or(Amount::ZERO);
             let owed = owed_all - sealed_unpaid.min(grace);
             let read = funds.available(pool, input.user_id, asset_id, agent, input.session_id);
             let worst = format_amount(amount);

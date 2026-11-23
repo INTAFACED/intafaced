@@ -39,7 +39,7 @@ export function RoomFrame({
 }) {
   return (
     <Page width="full" density="dense" landmark={false}>
-      <div className="flex flex-col gap-3">
+      <div className="lt-stack">
         <ModeStrip active={mode} />
         <PageHeader title={title} description={description} meta={meta} actions={actions} density="dense" />
       </div>

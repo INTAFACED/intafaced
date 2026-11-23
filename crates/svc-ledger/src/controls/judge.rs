@@ -214,7 +214,7 @@ pub fn fold_assets(assets: &[Evidence], unset_source: bool) -> Result<Status, St
         return Ok(Status::Unset);
     }
     for a in assets {
-        if a.difference.is_some_and(|d| d != 0) && !within(a)? {
+        if a.difference.is_some_and(|d| d != Amount::ZERO) && !within(a)? {
             return Ok(Status::Fail);
         }
     }
@@ -227,7 +227,10 @@ pub fn fold_assets(assets: &[Evidence], unset_source: bool) -> Result<Status, St
 /// `foldResiduals(assets, unsetSource)`: with named items no tolerance applies, and a known residual fails ahead of
 /// everything else.
 pub fn fold_residuals(assets: &[Evidence], unset_source: bool) -> Status {
-    if assets.iter().any(|a| a.residual.is_some_and(|r| r != 0)) {
+    if assets
+        .iter()
+        .any(|a| a.residual.is_some_and(|r| r != Amount::ZERO))
+    {
         return Status::Fail;
     }
     if assets.iter().any(|a| a.tolerance.is_none()) {
@@ -264,11 +267,17 @@ pub fn equal_assets(
 ) -> Result<Vec<Evidence>, String> {
     let mut out = Vec::new();
     for id in sorted_ids(observed, expected) {
-        let left = get(observed, &id).or(missing_ledger_is_zero.then_some(0));
-        let right = get(expected, &id).or(missing_is_zero.then_some(0));
+        let left = get(observed, &id).or(missing_ledger_is_zero.then_some(Amount::ZERO));
+        let right = get(expected, &id).or(missing_is_zero.then_some(Amount::ZERO));
         let tol = Tolerance::for_asset(tolerance, &id)?;
         let (Some(l), Some(r)) = (left, right) else {
-            out.push(asset_row(&id, left.unwrap_or(0), None, tol, false)?);
+            out.push(asset_row(
+                &id,
+                left.unwrap_or(Amount::ZERO),
+                None,
+                tol,
+                false,
+            )?);
             continue;
         };
         out.push(asset_row(&id, l, Some(r), tol, true)?);
@@ -323,8 +332,12 @@ pub fn threshold_assets(
         } else {
             amount > bound
         };
-        let mut difference = if outside { minus(amount, bound)? } else { 0 };
-        if !pass && difference == 0 {
+        let mut difference = if outside {
+            minus(amount, bound)?
+        } else {
+            Amount::ZERO
+        };
+        if !pass && difference == Amount::ZERO {
             difference = minus(amount, bound)?;
         }
         out.push(Evidence {
@@ -350,7 +363,7 @@ pub fn fold_threshold(assets: &[Evidence]) -> Result<Status, String> {
         return Ok(Status::Error);
     }
     for a in assets {
-        if a.difference.is_some_and(|d| d != 0) && !within(a)? {
+        if a.difference.is_some_and(|d| d != Amount::ZERO) && !within(a)? {
             return Ok(Status::Fail);
         }
     }
@@ -367,7 +380,9 @@ pub struct Drift {
 }
 
 fn of(list: &[(String, Amount)], id: &str) -> Amount {
-    list.iter().find(|(k, _)| k == id).map_or(0, |(_, v)| *v)
+    list.iter()
+        .find(|(k, _)| k == id)
+        .map_or(Amount::ZERO, |(_, v)| *v)
 }
 
 /// `withDrift(rows, book, tolerance)`: an asset with an account whose cached balance its entries do not explain fails,
@@ -401,7 +416,7 @@ pub fn with_drift(
         out.push(asset_row(
             asset,
             *size,
-            Some(0),
+            Some(Amount::ZERO),
             Tolerance::for_asset(tolerance, asset)?,
             true,
         )?);
@@ -430,12 +445,12 @@ pub fn with_items(
             continue;
         }
         let tol = Tolerance::for_asset(tolerance, asset)?;
-        rows.push(asset_row(asset, 0, None, tol, false)?);
+        rows.push(asset_row(asset, Amount::ZERO, None, tol, false)?);
     }
     rows.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
     rows.into_iter()
         .map(|mut r| {
-            let sum = get(&sums, &r.asset_id).unwrap_or(0);
+            let sum = get(&sums, &r.asset_id).unwrap_or(Amount::ZERO);
             r.reconciling_items = Some(sum);
             r.residual = match r.difference {
                 Some(d) => Some(minus(d, sum)?),
@@ -478,8 +493,8 @@ mod tests {
         assert_eq!(fold_assets(&[], false).unwrap(), Status::NothingToCompare);
         let t = tol("0");
         let rows = equal_assets(
-            &vec![("USDT".to_owned(), 5)],
-            &vec![("USDT".to_owned(), 5)],
+            &vec![("USDT".to_owned(), Amount::from_scaled(5))],
+            &vec![("USDT".to_owned(), Amount::from_scaled(5))],
             Some(&t),
             true,
             true,
@@ -502,8 +517,16 @@ mod tests {
             min: true,
             by_asset: vec![("USDT".to_owned(), "10".to_owned())],
         };
-        let rows = threshold_assets(&vec![("USDT".to_owned(), 4)], &min, Some(&t)).unwrap();
-        assert_eq!(rows[0].difference, Some(4 - 10_000_000_000_000_000_000));
+        let rows = threshold_assets(
+            &vec![("USDT".to_owned(), Amount::from_scaled(4))],
+            &min,
+            Some(&t),
+        )
+        .unwrap();
+        assert_eq!(
+            rows[0].difference,
+            Some(Amount::from_scaled(4) - Amount::whole(10))
+        );
         assert_eq!(fold_threshold(&rows).unwrap(), Status::Fail);
     }
 

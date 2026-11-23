@@ -541,15 +541,36 @@ test(`${J} #5 reads funding and balances: the programme's figures as the partner
     Reconciliation: 'matches',
   });
   // The programme's figures, as the partner reports them: this TEST partner's own record reports none, so the desk shows
-  // "not known", never 0.
+  // "not known" for each asset, never 0. The app's USDC row (this step's captures) is there, so the table is never empty.
   expect((await partnerRecord(bank.userId, '/terms')).programmeFigures).toBeNull();
   await expect(page.getByTestId('cp-programme-figures-failed')).toHaveCount(0);
-  if ((await page.getByTestId('cp-programme-figures-empty').count()) > 0) {
-    await expect(page.getByTestId('cp-programme-figures-empty')).toHaveText('The partner reports no programme figure.');
-  } else {
-    for (const row of await tableRows(page, 'cp-programme-figures')) expect(row['Partner’s figure']).toBe('not known');
-  }
+  const silent = await tableRows(page, 'cp-programme-figures');
+  expect(silent.find((r) => r.Asset === 'USDC')).toEqual({ Asset: 'USDC', 'Partner’s figure': 'not known', 'Partner’s time': 'not known' });
+  for (const row of silent) expect(row).toMatchObject({ 'Partner’s figure': 'not known', 'Partner’s time': 'not known' });
   await page.context().close();
+
+  // The same partner reporting its programme figures, for one restart: the desk shows each as the partner's own record
+  // holds it, its held plus captured, with the partner's time.
+  restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'reported');
+  try {
+    const reported = (await partnerRecord(bank.userId, '/terms')).programmeFigures;
+    expect(Object.keys(reported).sort()).toEqual(['BTC', 'USDC']);
+    const reportedPage = await desk(browser);
+    await reportedPage.goto(`/bank-ops/cards/cardholders/${holder.id}`);
+    await expect(reportedPage.getByTestId('cp-cardholder')).toBeVisible();
+    await expect(reportedPage.getByTestId('cp-programme-figures-failed')).toHaveCount(0);
+    const shown = await tableRows(reportedPage, 'cp-programme-figures');
+    for (const asset of ['USDC', 'BTC']) {
+      const row = shown.find((r) => r.Asset === asset);
+      expect(row['Partner’s figure']).toBe(decimal(units(reported[asset].held) + units(reported[asset].captured)));
+      expect(row['Partner’s time']).not.toBe('not known');
+    }
+    expect(shown.find((r) => r.Asset === 'USDC')['Partner’s figure']).toBe('25');
+    expect(shown.find((r) => r.Asset === 'BTC')['Partner’s figure']).toBe('0.0005');
+    await reportedPage.context().close();
+  } finally {
+    restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
+  }
 });
 
 test(`${J} #6 opens programme funding: who funds the programme and any reserve the partner requires, or "not known", never shown as zero; the settlement reconciliation against the partner's figures and the stablecoin conversion shown; fund, defund and auto reload where the partner offers them`, async ({

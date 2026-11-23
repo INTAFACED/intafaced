@@ -135,7 +135,12 @@ export interface PublicRestDeps {
    * (`spot/ticker-stats.ts`). Optional: a mount without it serves the old
    * top-of-book ticker with null rollups — never invented numbers.
    */
-  tickerStats?(marketIds: readonly string[], nowMs: number): Promise<Map<string, TickerStats24h>>;
+  /** `newestPrintMs`: each market's newest public print, as just read; stats cached before it are read again. */
+  tickerStats?(
+    marketIds: readonly string[],
+    nowMs: number,
+    newestPrintMs?: ReadonlyMap<string, number>,
+  ): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
   /**
@@ -1021,12 +1026,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     try {
       // Top of book only — ticker is BBO + last, not full depth.
       const ts = now();
-      const [depth, tape, stats] = await Promise.all([
-        deps.depth(market.id, 1),
-        deps.publicTape(market.id, 1),
-        // Stats are best effort: a failed stats query serves null rollups, never a 5xx ticker.
-        deps.tickerStats ? deps.tickerStats([market.id], ts).catch(() => undefined) : Promise.resolve(undefined),
-      ]);
+      const [depth, tape] = await Promise.all([deps.depth(market.id, 1), deps.publicTape(market.id, 1)]);
+      // The stats are read after the last print, so they include it (J-cex-spot-14 #8). They are best effort: a failed
+      // stats query serves null rollups, never a 5xx ticker.
+      const printed = tape[0] ? new Map([[market.id, tape[0].ts.getTime()]]) : undefined;
+      const stats = deps.tickerStats ? await deps.tickerStats([market.id], ts, printed).catch(() => undefined) : undefined;
       return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null));
     } catch (err) {
       // MatchingNoBookError → 404 trade.no_book. MatchingUnavailable → 502.
@@ -1050,17 +1054,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
     const markets = await deps.markets(limit);
     const ts = now();
-    const out: Record<string, ReturnType<typeof presentTicker>> = {};
-    // Stats are best effort: a failed stats query serves null rollups, never a 5xx map.
-    const stats = deps.tickerStats
-      ? await deps
-          .tickerStats(
-            markets.map((m) => m.id),
-            ts,
-          )
-          .catch(() => undefined)
-      : undefined;
-
+    const books: Array<{ market: Market; depth: EngineDepth; last: PublicTapePrint | null }> = [];
     await Promise.all(
       markets.map(async (market) => {
         let depth: EngineDepth;
@@ -1071,9 +1065,29 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           throw err;
         }
         const tape = await deps.publicTape(market.id, 1);
-        out[market.symbol] = presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null, { sparkline: true });
+        books.push({ market, depth, last: tape[0] ?? null });
       }),
     );
+    // The stats are read after every last print, so each row's volume, high and low include its last price (J-cex-spot-14
+    // #8). They are best effort: a failed stats query serves null rollups, never a 5xx map.
+    const printed = new Map(books.flatMap((b) => (b.last ? [[b.market.id, b.last.ts.getTime()] as const] : [])));
+    const stats = deps.tickerStats
+      ? await deps
+          .tickerStats(
+            markets.map((m) => m.id),
+            ts,
+            printed,
+          )
+          .catch(() => undefined)
+      : undefined;
+
+    const out: Record<string, ReturnType<typeof presentTicker>> = {};
+    const byId = new Map(books.map((b) => [b.market.id, b]));
+    for (const market of markets) {
+      const book = byId.get(market.id);
+      if (book)
+        out[market.symbol] = presentTicker(market.symbol, book.depth, book.last, ts, stats?.get(market.id) ?? null, { sparkline: true });
+    }
 
     return reply.code(200).send(out);
   });
