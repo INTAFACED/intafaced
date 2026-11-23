@@ -29,7 +29,8 @@
  *   - It moves no money and posts nothing: the stack's own start readies it (TEST gates, TEST market maker, TEST
  *     content), exactly as `verify launch` readies a journeys shard.
  *   - TEST funds only, shown by a check, not by a name: every process the stack started is read for every address in
- *     its environment, and one that names anything but this machine (127.0.0.1, localhost, ::1) is a finding. With
+ *     its environment, and one that names anything but this machine (127.0.0.1, localhost, ::1) or the beta's own
+ *     public host (BETA_OWN_HOSTS: the tunnel brings it back to this stack) is a finding. With
  *     no route off the machine, no service can reach a real chain, venue, bank or card rail. The page must carry the
  *     stack's TEST banner. A failed check stops the stack: it fails closed, never open.
  *   - It never sets or invents a sanctions screening list. Without the owner's TEST screening file in the beta state
@@ -43,6 +44,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -55,7 +57,7 @@ export const BETA_LINK = `http://localhost:${3210 + 1000 * BETA_SLOT}/`;
 /** The TEST mailbox page: the codes and links the beta stack "mails" into its LOCAL-TEST outbox file. */
 export const MAILBOX_PORT = 6290;
 const MAILBOX_LINK = `http://localhost:${MAILBOX_PORT}/`;
-/** The stack's own banner text (local-test-stack.mjs BANNER_TEXT); the page must carry it. */
+/** The TEST banner's words (apps/customer/deployment/test-banner.mjs BANNER_TEXT); the page must carry them. */
 const BANNER_MARK = 'TEST FUNDS';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 /**
@@ -146,6 +148,13 @@ export function ensureAnvil(paths, sh = (cmd, args) => spawnSync(cmd, args, { en
 // ── The TEST funds check ────────────────────────────────────────────────────
 
 const NO_HOSTS = new Set();
+
+/**
+ * The beta's own public host, the one host off loopback this box's beta passes: the tunnel brings it back to this stack's
+ * own loopback, so an address on it reaches nothing else. The stack's TEST owner values name it (the help centre on the
+ * official-channel list, J-identity-13 #1). Any other host, a sibling name on the same domain included, still fails.
+ */
+export const BETA_OWN_HOSTS = Object.freeze(new Set([new URL(PUBLIC_ORIGIN).host]));
 
 /**
  * The public test networks' hosts a hosted beta may reach (#10208), each exactly: the Hyperliquid test network's API
@@ -535,7 +544,7 @@ function ensureCheckout(paths) {
 const roundIo = {
   git,
   run,
-  check: checkStack,
+  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
   readied: readiedNow,
   anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -811,7 +820,7 @@ async function main(argv) {
     const marker = readJson(path.join(state, 'LOCAL-TEST-STACK.json'), {});
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
     const h = rest.indexOf('--hosted');
-    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : NO_HOSTS;
+    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : state === paths.state ? BETA_OWN_HOSTS : NO_HOSTS;
     const c = await checkStack(state, link, allow);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);

@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   ANVIL_IMAGE,
   BETA_LINK,
+  BETA_OWN_HOSTS,
   BETA_SLOT,
   MAILBOX_PORT,
   UPDATE_EVERY_MS,
@@ -115,6 +116,29 @@ test('fundsCheck fails on a route off the machine, naming the process, key and h
   assert.equal(r.ok, false);
   assert.ok(r.lines.includes('FAIL pay (pid 21): RAIL_URL names https://rail.bank-live.com, off this machine'), r.lines.join('\n'));
   assert.ok(!r.lines.join('\n').includes('zzz'));
+});
+
+test("the beta's own round passes the stack's TEST official-channel list, which names the beta's help centre, and nothing else off the machine", () => {
+  // The value the stack gives svc-support (tooling/profiles/test-owner-values/support.json): with NO_HOSTS the beta
+  // refused it and stopped the stack on 23 Nov 2026 (#10305).
+  const profile = JSON.parse(fs.readFileSync(new URL('../profiles/test-owner-values/support.json', import.meta.url), 'utf8'));
+  const channels = profile.values.SUPPORT_OFFICIAL_CHANNELS.value;
+  assert.deepEqual([...BETA_OWN_HOSTS], ['beta.intafaced.com']);
+  const records = { support: { pid: 41 } };
+  const support = { SUPPORT_OFFICIAL_CHANNELS: channels, EDGE_URL: 'http://127.0.0.1:17500' };
+  const before = fundsCheck({ records, readEnviron: () => environ(support), page: PAGE });
+  assert.equal(before.ok, false, 'without the allow the beta host is off the machine');
+  const pass = fundsCheck({ records, readEnviron: () => environ(support), page: PAGE, allow: BETA_OWN_HOSTS });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  for (const off of [
+    'https://intafaced.com/help',
+    'https://evil.intafaced.com/x',
+    'https://beta.intafaced.com.evil.xyz/',
+    'https://api.hyperliquid-testnet.xyz',
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...support, OTHER_URL: off }), page: PAGE, allow: BETA_OWN_HOSTS });
+    assert.equal(r.ok, false, off);
+  }
 });
 
 test('fundsCheck fails closed: no process, no readable process, no page, or a page with no TEST banner', () => {

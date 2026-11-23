@@ -15,7 +15,7 @@ export function AuthErrorsCatalogue() {
       <p>{t('lead')}</p>
       <section aria-labelledby="dev-auth-errors">
         <h2 id="dev-auth-errors">{t('tableTitle')}</h2>
-        <table className="lt-table" data-testid="auth-errors-catalogue">
+        <table className="lt-table" data-stack="always" data-testid="auth-errors-catalogue">
           <thead>
             <tr>
               <th scope="col">{t('colCode')}</th>
@@ -40,15 +40,15 @@ export function AuthErrorsCatalogue() {
                 <th scope="row">
                   <code>{entry.code}</code>
                 </th>
-                <td>{entry.status}</td>
-                <td>{entry.intafacedCode ? <code>{entry.intafacedCode}</code> : t('noDetail')}</td>
-                <td>{cls.t(severityKey(entry.severity))}</td>
-                <td>{cls.t(categoryKey(entry.category))}</td>
-                <td>
+                <td data-label={t('colStatus')}>{entry.status}</td>
+                <td data-label={t('colDetail')}>{entry.intafacedCode ? <code>{entry.intafacedCode}</code> : t('noDetail')}</td>
+                <td data-label={cls.t('colSeverity')}>{cls.t(severityKey(entry.severity))}</td>
+                <td data-label={cls.t('colCategory')}>{cls.t(categoryKey(entry.category))}</td>
+                <td data-label={t('colCause')}>
                   {t(causeKey(entry.cause))}
                   {entry.answeredBy === 'trade' ? <small> {t('answeredByTrade')}</small> : null}
                 </td>
-                <td>
+                <td data-label={t('colFix')}>
                   {entry.cause === 'scope' ? (
                     <a className="lt-link" href="/developers/permissions">
                       {t(fixKey(entry.cause))}

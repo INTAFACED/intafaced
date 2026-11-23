@@ -80,6 +80,11 @@ export const TRPC = {
     );
     return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
   },
+  // quant: a new developer, as J-algo-dev-01 #1 starts: none of the three quick start steps done, no strategy saved,
+  // none shared with them; the sharing ID is the TEST account's own id.
+  'quant:quickStart': () => ({ strategy: false, backtest: false, paperRun: false }),
+  'quant:studio.list': () => ({ strategies: [], nextCursor: null }),
+  'quant:team.shared': () => ({ accountId: owner, strategies: [] }),
   // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
   'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
 };

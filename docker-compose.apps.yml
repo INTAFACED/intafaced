@@ -456,6 +456,15 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Mail (#9165). Pass-through only, no compose default. Blank: a dev stack runs without mail; APP_ENV staging or
+      # prod refuses to boot until the host sets IDENTITY_MAIL_TRANSPORT=http-gateway and the gateway's settings.
+      # The gateway key is a secret: host `.env` only.
+      IDENTITY_MAIL_TRANSPORT: ${IDENTITY_MAIL_TRANSPORT:-}
+      IDENTITY_MAIL_GATEWAY_URL: ${IDENTITY_MAIL_GATEWAY_URL:-}
+      IDENTITY_MAIL_GATEWAY_KEY: ${IDENTITY_MAIL_GATEWAY_KEY:-}
+      IDENTITY_MAIL_FROM: ${IDENTITY_MAIL_FROM:-}
+      IDENTITY_MAIL_LINK_BASE: ${IDENTITY_MAIL_LINK_BASE:-}
+      IDENTITY_MAIL_CONSOLE_LINK_BASE: ${IDENTITY_MAIL_CONSOLE_LINK_BASE:-}
       # Access-token signing keys for rotation (id:secret list). Pass-through only — no compose default, no invented key.
       IDENTITY_AUTH_KEYS: ${IDENTITY_AUTH_KEYS:-}
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
