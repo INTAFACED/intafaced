@@ -40,19 +40,13 @@ import {
 } from './activity-view';
 import { OrdersPanel, TradesPanel } from './TradeTabs';
 import { moneyCopy } from './copy';
+import { Amount, Button, Skeleton, StateBlock, Tabs, TabsList, TabsTab } from './ui-deps';
 import {
-  Amount,
-  Button,
   fmtAmount,
   isHiddenPath,
   navigate,
   quotePlaces,
   refusalCopy,
-  Skeleton,
-  StateBlock,
-  Tabs,
-  TabsList,
-  TabsTab,
   useActivity,
   type ActivityFeed,
   type ActivityKind,
@@ -81,6 +75,7 @@ import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { SourceActivity } from './SourceActivity';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -170,11 +165,11 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
       </label>
       <label className="money-bar__field">
         <span>{t('From date')}</span>
-        <input type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
+        <DateInput type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
       </label>
       <label className="money-bar__field">
         <span>{t('To date')}</span>
-        <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
+        <DateInput type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
       </label>
       <label className="money-bar__field">
         <span>{t('Order')}</span>
@@ -382,7 +377,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
               {title}
             </a>
             {sub ? (
-              <span data-testid="money-act__sub" className="money-act__sub">
+              <span data-testid="money-act__sub" className="lt-hint">
                 {sub}
               </span>
             ) : null}

@@ -98,6 +98,65 @@ test('planted: a customer-balance posting in a service outside the inventory fai
   }
 });
 
+test('planted: a Rust service posting a customer-balance recipe outside the inventory fails; its test module does not', () => {
+  const dir = sandbox();
+  try {
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+    mkdirSync(join(dir, 'crates/svc-planted/src'), { recursive: true });
+    const file = join(dir, 'crates/svc-planted/src/pay.rs');
+    writeFileSync(file, 'pub fn pay(l: &dyn Ledger) {\n    l.post_recipe(&Recipe::Deposit { amount });\n}\n');
+    let v = runCustodyLayerCheck(dir).violations;
+    assert.deepEqual(
+      v.map((x) => [x.check, x.file, x.reason.split(',')[0]]),
+      [['customer-balance-posting', 'crates/svc-planted/src/pay.rs', 'posts deposit']],
+    );
+    // A recipe named by its string, as svc-academy's client sends it.
+    writeFileSync(file, 'pub fn pay(l: &dyn Ledger) {\n    l.post_recipe("deposit", body);\n}\n');
+    v = runCustodyLayerCheck(dir).violations;
+    assert.equal(v.length, 1);
+    assert.equal(v[0].file, 'crates/svc-planted/src/pay.rs');
+    // Only in the test module: not a posting site.
+    writeFileSync(
+      file,
+      'pub fn none() {}\n#[cfg(test)]\nmod tests {\n    fn t(l: &dyn Ledger) { l.post_recipe(&Recipe::Deposit { amount }); }\n}\n',
+    );
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+    // The agents' real fee charge, with its inventory row removed, fails.
+    const inv = JSON.parse(readFileSync(join(dir, 'tooling/ci/custody-layer-inventory.json'), 'utf8'));
+    delete inv.sites['crates/svc-agents/src/metering/meter.rs'];
+    writeFileSync(join(dir, 'tooling/ci/custody-layer-inventory.json'), JSON.stringify(inv));
+    v = runCustodyLayerCheck(dir).violations;
+    assert.ok(v.some((x) => x.check === 'customer-balance-posting' && x.file === 'crates/svc-agents/src/metering/meter.rs'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("planted: a Rust file posting a customer-balance recipe through its crate's recipe wrapper fails", () => {
+  const dir = sandbox();
+  try {
+    mkdirSync(join(dir, 'crates/svc-planted/src'), { recursive: true });
+    // The wrapper: one fn that posts whatever recipe it is handed (svc-bank's loans::service::post).
+    writeFileSync(
+      join(dir, 'crates/svc-planted/src/post.rs'),
+      'pub fn post(l: &dyn Ledger, recipe: &str, input: &Json) {\n    l.post_recipe(recipe, input, key);\n}\n',
+    );
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+    const file = join(dir, 'crates/svc-planted/src/sweep.rs');
+    writeFileSync(file, 'pub fn sweep(l: &dyn Ledger) {\n    post(l, "loanLiquidate", &input)?;\n}\n');
+    let v = runCustodyLayerCheck(dir).violations;
+    assert.deepEqual(
+      v.map((x) => [x.check, x.file, x.reason.split(',')[0]]),
+      [['customer-balance-posting', 'crates/svc-planted/src/sweep.rs', 'posts loanLiquidate']],
+    );
+    // A method of the same name on something else is not the wrapper.
+    writeFileSync(file, 'pub fn sweep(c: &Client) {\n    c.post("loanLiquidate");\n}\n');
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('planted: turning the default on, or removing the runtime refusal, fails', () => {
   for (const [file, from, to] of [
     [

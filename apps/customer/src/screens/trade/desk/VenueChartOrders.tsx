@@ -20,6 +20,7 @@
  */
 import { useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { Button, Surface } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { useChartOverlay, useChartPriceLines } from '../../../shared/chart-overlay';
 import { chartValue } from '../../../shared/chart-value';
@@ -478,14 +479,14 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       : null;
 
   return (
-    <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-toolbar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal !== null ? (
-        <p className="dk-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
+        <p className="lt-hint" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
           {refusal}
         </p>
       ) : owner === null ? (
-        <p className="dk-note" role="status" data-testid="chart-trading-refusal">
+        <p className="lt-hint" role="status" data-testid="chart-trading-refusal">
           {t('No wallet')}
         </p>
       ) : null}
@@ -535,12 +536,14 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
                 }}
               />
             </label>
-            <button type="submit">{t('Place')}</button>
+            <Button type="submit" tone="primary">
+              {t('Place')}
+            </Button>
           </fieldset>
         </form>
       )}
       {review && (
-        <div className="ct-review" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
+        <Surface material="raised" className="lt-toolbar" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
           <p>
             {t('Review line', {
               side: sideWord(review.intent.side),
@@ -557,32 +560,38 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
             })}
           </p>
           <p>{t('Review before send')}</p>
-          <button type="button" onClick={confirm} disabled={busy || locked}>
+          <Button tone="primary" onClick={confirm} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setReview(null)} disabled={busy}>
+          </Button>
+          <Button onClick={() => setReview(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
-        </div>
+          </Button>
+        </Surface>
       )}
       {lost && (
-        <button type="button" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
+        <Button tone="primary" onClick={sendAgain} disabled={busy || locked} data-testid="chart-send-again">
           {t('Send again')}
-        </button>
+        </Button>
       )}
       {move?.stage === 'protect' && (
-        <div className="ct-review" role="alertdialog" aria-label={t('Protection title')} data-testid="chart-protection">
+        <Surface
+          material="raised"
+          className="lt-toolbar"
+          role="alertdialog"
+          aria-label={t('Protection title')}
+          data-testid="chart-protection"
+        >
           <p>{t('Protection ask', { price: displayAmount(move.price), distance: move.distance, limit: move.limit })}</p>
-          <button type="button" disabled={busy || locked} onClick={() => void work(() => reviewMove(move.order, move.price))}>
+          <Button disabled={busy || locked} onClick={() => void work(() => reviewMove(move.order, move.price))}>
             {t('Protection continue')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
-        </div>
+          </Button>
+        </Surface>
       )}
       {move?.stage === 'review' && (
-        <div className="ct-review" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
+        <Surface material="raised" className="lt-toolbar" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
           <p>
             {t('Move line', {
               side: sideWord(move.order.side),
@@ -596,13 +605,13 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
           <p data-testid="chart-move-lock" data-lock={move.preview.lock.amount}>
             {t('Move lock', { lock: `${displayAmount(move.preview.lock.amount)} ${move.preview.lock.asset}` })}
           </p>
-          <button type="button" onClick={confirmMove} disabled={busy || locked}>
+          <Button tone="primary" onClick={confirmMove} disabled={busy || locked}>
             {t('Confirm')}
-          </button>
-          <button type="button" onClick={() => setMove(null)} disabled={busy}>
+          </Button>
+          <Button onClick={() => setMove(null)} disabled={busy}>
             {t('Cancel')}
-          </button>
-        </div>
+          </Button>
+        </Surface>
       )}
       {note && (
         <p

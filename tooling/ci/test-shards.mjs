@@ -32,7 +32,6 @@ export const SPLIT = {
   '@intafaced/svc-identity': 3,
   '@intafaced/svc-p2p': 2,
   '@intafaced/svc-trade': 2,
-  '@intafaced/svc-bank': 2,
 };
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', '.turbo', 'coverage']);

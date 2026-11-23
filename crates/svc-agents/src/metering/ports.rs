@@ -670,32 +670,8 @@ impl Affiliates for AffiliatesHttp {
     }
 }
 
-/// The event bus's publish side (`JetStreamEventBus.publish`).
-pub trait Bus: Send + Sync {
-    /// Publishes one envelope, deduplicated by `msg_id` (the event's idempotency key).
-    fn publish(&self, subject: &str, msg_id: &str, envelope: &Json) -> Result<(), String>;
-}
-
-/// No bus: a publish fails, as `JetStreamEventBus` would with no connection.
-pub struct NoBus;
-
-impl Bus for NoBus {
-    fn publish(&self, _: &str, _: &str, _: &Json) -> Result<(), String> {
-        Err("svc-agents: no event bus is wired".to_owned())
-    }
-}
-
-/// The bus over NATS JetStream, into the agents' own stream.
-pub struct JetStreamBus(pub Arc<service_kit::nats::JetStream>);
-
-impl Bus for JetStreamBus {
-    fn publish(&self, subject: &str, msg_id: &str, envelope: &Json) -> Result<(), String> {
-        self.0
-            .publish(subject, msg_id, envelope.compact().as_bytes())
-            .map(|_| ())
-            .map_err(|e| e.0)
-    }
-}
+/// The event bus's publish side: the one in service-kit, which only its outbox relay calls.
+pub use service_kit::outbox::{Bus, JetStreamBus, NoBus};
 
 /// An object from fields built up one by one, in their order.
 fn obj(fields: Vec<(&str, Json)>) -> Json {

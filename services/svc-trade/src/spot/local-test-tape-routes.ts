@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { LocalTestTapeError, localTestTapeRetimeSchema, retimeLocalTestTape } from './local-test-tape.js';
 
 export const LOCAL_TEST_TAPE_RETIME_PATH = '/internal/local-test/tape-retime' as const;

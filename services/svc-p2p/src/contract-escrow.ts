@@ -14,7 +14,8 @@
  *   · `P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS`: how long a contract dispute runs before anyone may settle it by the
  *     refund both parties agreed when the deal opened.
  */
-import { forwardedPrincipalHeaders, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
 import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import { PROTOCOL_ESCROW_DEAL, PROTOCOL_ESCROW_STATUS } from '@intafaced/contracts/protocol-chain-procedures';
 import type { ProtocolEscrowStatus as EscrowStatusReply } from '@intafaced/contracts/protocol-escrow';

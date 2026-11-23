@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { KNOWN_DEV_PRIVATE_KEYS } from '@intafaced/config';
 import { getContractAddress, type Address } from 'viem';
 import {
   BANNED_LIVE_CHAIN_IDS,
@@ -53,6 +54,19 @@ describe('parseSepoliaDeployEnv', () => {
 
   it('refuses missing RPC', () => {
     expect(() => parseSepoliaDeployEnv(base({ PROTOCOL_RPC_URL: undefined }))).toThrow(/PROTOCOL_RPC_URL is unset/);
+  });
+
+  it('refuses a ws RPC: svc-indexer reads the chain over HTTP', () => {
+    expect(() => parseSepoliaDeployEnv(base({ PROTOCOL_RPC_URL: 'wss://base-sepolia-rpc.publicnode.com' }))).toThrow(
+      /PROTOCOL_RPC_URL must be an http\(s\) URL/,
+    );
+  });
+
+  it('refuses every public Anvil/Hardhat key, with or without 0x', () => {
+    for (const key of KNOWN_DEV_PRIVATE_KEYS) {
+      expect(() => parseSepoliaDeployEnv(base({ PROTOCOL_DEPLOYER_KEY: key }))).toThrow(/public Anvil\/Hardhat key/);
+      expect(() => parseSepoliaDeployEnv(base({ PROTOCOL_DEPLOYER_KEY: key.slice(2).toUpperCase() }))).toThrow(/public Anvil\/Hardhat key/);
+    }
   });
 });
 

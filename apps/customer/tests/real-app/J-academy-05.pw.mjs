@@ -358,9 +358,9 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   // The rank page shows the rank and lifetime XP the ladder holds now, and the fee perk the identity service reads for it.
   const panel = page.getByTestId('rank-perks');
   const lifetime = panel.locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
-  const fee = panel.locator('.rank-perks__rows dt').first().locator('xpath=following-sibling::dd[1]');
+  const fee = panel.getByTestId('rank-perks__rows').locator('dt').first().locator('xpath=following-sibling::dd[1]');
   const whole = (n) => new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(n));
-  await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
+  await expect(panel.getByTestId('rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
   await expect(lifetime).toHaveText(whole(rank.xp));
   await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
 
@@ -388,7 +388,7 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   expect(after.nextRankAt).toBe(rank.nextRankAt);
   expect(await perksNow()).toEqual(perks);
   await page.reload();
-  await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
+  await expect(panel.getByTestId('rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
   await expect(lifetime).toHaveText(whole(rank.xp));
   await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
 

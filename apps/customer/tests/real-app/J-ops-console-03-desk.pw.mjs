@@ -213,17 +213,9 @@ test('J-ops-console-03 #4 an account address prefix finds the account with its v
   expect(mine).toMatchObject({ address: `user:${funded.userId}`, debits: String(DEPOSITS), credits: '0', balance: String(DEPOSITS) });
   const row = accounts.locator(`tr[data-account="${mine.accountId}"]`);
   await expect(row).toContainText(`user:${funded.userId}`);
-  expect((await row.locator('td').allInnerTexts()).map((t) => t.trim())).toEqual([
-    `user:${funded.userId}`,
-    ASSET,
-    'available',
-    '—',
-    String(DEPOSITS),
-    '0',
-    String(DEPOSITS),
-    String(DEPOSITS),
-    'Metadata',
-  ]);
+  await expect
+    .poll(async () => (await row.locator('td').allInnerTexts()).map((t) => t.trim()))
+    .toEqual([`user:${funded.userId}`, ASSET, 'available', '—', String(DEPOSITS), '0', String(DEPOSITS), String(DEPOSITS), 'Metadata']);
 
   // A prefix that names no owner type is refused before anything is sent.
   await accounts.getByLabel('Address prefix').fill('fees');

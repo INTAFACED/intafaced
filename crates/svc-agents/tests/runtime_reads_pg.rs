@@ -20,7 +20,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -102,7 +102,7 @@ impl FakeLedger {
                 .available
                 .get(user)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     fn house(&self) -> String {
@@ -123,15 +123,15 @@ impl Ledger for FakeLedger {
         else {
             panic!("only the custodial fee charge is expected here, got {recipe:?}");
         };
-        let have = b.available.get(user_id).copied().unwrap_or(0);
+        let have = b.available.get(user_id).copied().unwrap_or(Amount::ZERO);
         if have < *amount {
             return Err(LedgerError {
                 code: Some("ledger.insufficient_funds".to_owned()),
                 message: format!("Insufficient funds: requested {}", format_amount(*amount)),
             });
         }
-        *b.available.entry(user_id.clone()).or_default() -= amount;
-        b.house += amount;
+        *b.available.entry(user_id.clone()).or_default() -= *amount;
+        b.house += *amount;
         let tx = format!("tx-{}", b.by_key.len() + 1);
         b.by_key.insert(key, tx.clone());
         Ok(tx)
@@ -625,7 +625,7 @@ fn a_person_run_is_stored_completed_with_its_reply_metered_cost_and_three_events
     assert_eq!(seen_before_engine, ["running"]);
     let run_id = text(&ran, "runId");
     assert_eq!(ran.get("metered"), Some(&Json::Bool(true)));
-    assert!(amt(&text(&ran, "cost")) > 0);
+    assert!(amt(&text(&ran, "cost")) > Amount::ZERO);
     let (state, reply, cost, metered) = w.stored(&run_id);
     assert_eq!(
         (state.as_str(), reply, metered),

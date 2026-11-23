@@ -268,7 +268,7 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   const extension = rowNamed(page, /^Fib extension \d+$/);
   const [a, b, c] = pricesOf(await pointText(extension).textContent());
   const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
-  expect(await figureLines(extension).allTextContents()).toEqual(expected);
+  await expect.poll(async () => await figureLines(extension).allTextContents()).toEqual(expected);
 });
 
 test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored and editable like any drawing`, async () => {
@@ -284,7 +284,7 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
   const pattern = rowNamed(page, /^Pattern \d+$/);
   await expect(pattern).toHaveAttribute('data-kind', 'pattern');
-  expect(pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
+  await expect.poll(async () => pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
   // Editable like any drawing: dragging its first point moves that point only.
   await select(pattern, /^Pattern \d+$/);
   const patternBefore = pricesOf(await pointText(pattern).textContent());
@@ -364,7 +364,14 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
 });
 
-test(`${J} #5 places a long position box with entry, stop and target: the risk to reward and the distances, and no order`, async () => {
+test(`${J} #5 places a long position box with entry, stop and target: the risk to reward and the distances, and no order`, async ({
+  stepPicture,
+}) => {
+  // The person clears the chart first (Clear all, confirmed), so the box's own labels are the ones on it: steps 1 to 4's
+  // levels drawn over it hid its target and ratio in the step's picture.
+  await pick(page, 'Clear all');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(rows(page)).toHaveCount(0);
   expect(await openOrders(who), 'the fresh account has no open order before the box').toEqual([]);
   const orderWrites = [];
   const watch = (req) => {
@@ -395,6 +402,12 @@ test(`${J} #5 places a long position box with entry, stop and target: the risk t
   // No order exists: the page sent nothing to an order route, and the account's open orders on Edge are still none.
   expect(orderWrites, 'requests to an order route while the box was placed').toEqual([]);
   expect(await openOrders(who), "the account's open orders after the position box").toEqual([]);
+  // The step's picture: the whole page, so the box on the chart and its row with every figure are both in it. The row sits
+  // in the drawing dock, which scrolls on its own under the chart: it is scrolled to the row's top first (the picture
+  // takes the window to the top, and leaves the dock where it is).
+  await expect(rows(page)).toHaveCount(1);
+  await box.evaluate((el) => el.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' }));
+  await stepPicture(page);
 });
 
 test(`${J} #6 measures between two bars and two prices: the bars, the price difference at the tick and the time span`, async () => {

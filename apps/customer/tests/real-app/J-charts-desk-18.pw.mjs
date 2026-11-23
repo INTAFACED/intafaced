@@ -124,7 +124,7 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     // The newest gap starts at the first minute after the last tick's own minute: no candle was traded since.
     const firstEmpty = new Date((Math.floor(lastTick / MINUTE) + 1) * MINUTE).toISOString();
     await expect(gaps.first()).toHaveAttribute('data-from', firstEmpty);
-    expect(Number(await gaps.first().locator('td').nth(2).textContent())).toBeGreaterThanOrEqual(1);
+    await expect.poll(async () => Number(await gaps.first().locator('td').nth(2).textContent())).toBeGreaterThanOrEqual(1);
   });
 
   test(`${J} #2 opens the feed event journal for a market: each drop and reconnect with time, reason and actor (system), read-only`, async ({

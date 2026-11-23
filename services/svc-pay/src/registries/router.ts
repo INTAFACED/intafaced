@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -9,8 +9,6 @@ import {
   listInputSchema,
   networkSaveInputSchema,
   networkViewSchema,
-  registryEventViewSchema,
-  registryHistoryInputSchema,
   registryPreviewInputSchema,
   registryPreviewSchema,
   venueSaveInputSchema,
@@ -20,6 +18,9 @@ import {
   type VenueHealthView,
 } from './schemas.js';
 import { RegistryService } from './service.js';
+import { PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /** What a mount supplies besides the founder authority. */
 export type RegistriesMountDeps = Omit<RegistriesRouterDeps, 'founderAuthority'>;
@@ -101,10 +102,11 @@ export function createRegistriesRouter(deps: RegistriesRouterDeps) {
       .input(registryPreviewInputSchema)
       .output(registryPreviewSchema)
       .query(({ input }) => wrap(() => service.preview(input))),
-    history: founder
-      .input(registryHistoryInputSchema)
-      .output(z.array(registryEventViewSchema))
-      .query(({ input }) => wrap(() => service.history(input.registry, input.entryKey, input.limit))),
+    history: mountRecord(
+      PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
+      ({ input }) => wrap(() => service.history(input.registry, input.entryKey, input.limit)),
+      { refusalOf: payRefusal, founder },
+    ),
   });
 }
 export type RegistriesRouter = ReturnType<typeof createRegistriesRouter>;

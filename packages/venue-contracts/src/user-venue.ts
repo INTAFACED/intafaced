@@ -362,6 +362,35 @@ export interface SetAccountModeIntent {
 }
 
 /**
+ * Switch one perpetual between one-way and hedge mode on the owner's account (J-derivatives-05 #3), signed by the owner's
+ * wallet. Offered only on a venue whose descriptor declares more than one of `positionModes`. The venue refuses a switch
+ * while the account holds a position or a resting order on `symbol`, in its own words.
+ */
+export interface SetPositionModeIntent {
+  readonly kind: 'set_position_mode';
+  readonly symbol: string;
+  readonly mode: VenuePositionMode;
+  /** The business key of this change (`position-mode:<owner>:<symbol>:<mode>:<draft>`). */
+  readonly changeKey: string;
+}
+
+/**
+ * Move the whole open position on `symbol`, with the margin it holds, between the owner's main account and one of its
+ * sub-accounts (J-derivatives-05 #7), signed by the owner's wallet on the MAIN account. Offered only on a venue whose
+ * descriptor declares `positionMoves`. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface MovePositionIntent {
+  readonly kind: 'move_position';
+  /** The sub-account's venue id, as `create_sub_account` returned it. */
+  readonly subAccount: string;
+  /** `into_sub_account`: main → sub. `out_of_sub_account`: sub → main. */
+  readonly direction: 'into_sub_account' | 'out_of_sub_account';
+  readonly symbol: string;
+  /** The business key of this move (`position-move:<owner>:<draft>`): a retry re-sends the same bytes, so it moves once. */
+  readonly moveKey: string;
+}
+
+/**
  * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
  * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
  * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
@@ -412,6 +441,39 @@ export interface VaultTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Move HYPE (the venue's staking asset) between the account's spot balance and its staking balance, signed by the owner's
+ * wallet on the main account (J-cex-spot-21 #2 #7; Hyperliquid: `cDeposit` and `cWithdraw`). Into staking it moves at
+ * once; back to spot it waits in the venue's unstaking queue for the venue's own time, and the venue refuses a new one
+ * while its limit of pending withdrawals is already pending. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface StakingTransferIntent {
+  readonly kind: 'staking_transfer';
+  readonly direction: 'to_staking' | 'to_spot';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`stake-move:<owner>:<direction>:<draft>`): a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
+/**
+ * Delegate staked HYPE to one validator, or undelegate it back to the staking balance, signed by the owner's wallet on the
+ * main account (J-cex-spot-21 #3 #6; Hyperliquid: `tokenDelegate`). The venue sets the delegation's lock-up and refuses an
+ * undelegation before it ends, naming the time it ends.
+ */
+export interface StakingDelegateIntent {
+  readonly kind: 'staking_delegate';
+  /** The validator's address, as `staking()` lists it. */
+  readonly validator: string;
+  readonly direction: 'delegate' | 'undelegate';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`delegation:<owner>:<validator>:<direction>:<draft>`). */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | PlaceUserOrdersIntent
@@ -431,7 +493,11 @@ export type VenueIntent =
   | UpdateIsolatedMarginIntent
   | SpotPerpsTransferIntent
   | SetAccountModeIntent
-  | VaultTransferIntent;
+  | SetPositionModeIntent
+  | MovePositionIntent
+  | VaultTransferIntent
+  | StakingTransferIntent
+  | StakingDelegateIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -446,15 +512,22 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'market_margin_transfer',
   'spot_perps_transfer',
   'set_account_mode',
+  'set_position_mode',
+  'move_position',
   'vault_transfer',
+  'staking_transfer',
+  'staking_delegate',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
 export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
   'create_sub_account',
   'sub_account_transfer',
+  'move_position',
   'market_margin_transfer',
   'vault_transfer',
+  'staking_transfer',
+  'staking_delegate',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -736,7 +809,12 @@ export interface UserVenueBalance {
 export interface UserVenueLockSplit {
   readonly inOrders: Amount;
   readonly margin: Amount;
+  /** Staked and not delegated (J-cex-spot-21 #8: the staking balance). */
   readonly staked: Amount;
+  /** Delegated to validators (J-cex-spot-21 #8); absent on a venue or asset with none. With it the parts still add to `locked`. */
+  readonly delegated?: Amount;
+  /** Waiting in the venue's unstaking queue (J-cex-spot-21 #8); absent on a venue or asset with none. */
+  readonly unstaking?: Amount;
 }
 
 export interface UserVenueFill {
@@ -788,9 +866,11 @@ export interface UserVenueOrder {
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
    * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
    * other trigger order attached to the same entry filled first, so this one never closes what that one already did;
-   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time.
+   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time;
+   * `self_trade` when the account's own new order would have traded with it and the venue's self-trade rule
+   * (`selfTrade`, `cancel_resting`) cancelled it instead (J-derivatives-04 #7).
    */
-  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null;
 }
 
 /**
@@ -1006,6 +1086,91 @@ export interface UserVenueVaultHoldings {
   readonly positions: readonly UserVenueVaultPosition[];
   readonly accountValue: { readonly asset: string; readonly amount: Amount } | null;
   readonly transfers: readonly UserVenueVaultTransfer[];
+}
+
+// ── Staking, as the venue publishes it (J-cex-spot-21) ─────────────────────────────────────────────────────────────
+// Staking is the venue's: it lists the validators, sets the reward rate, the delegation lock-up, the unstaking queue and
+// its limit, and the fee discount a stake earns on its own fee. Every figure is the venue's; `null` is one it does not
+// publish, never a zero or a guess of ours.
+
+/** One validator the venue lists, as it reports it. */
+export interface UserVenueValidator {
+  /** What a `staking_delegate` names. */
+  readonly address: string;
+  readonly name: string;
+  /** The validator's commission on rewards, in whole basis points; `null`: not published. */
+  readonly commissionBps: number | null;
+  /** What is delegated to it, in the staking asset; `null`: not published. */
+  readonly totalStake: Amount | null;
+  readonly status: 'active' | 'jailed' | 'inactive';
+}
+
+/** One staking tier of the venue's fee discount: from `fromStaked` staked, `discountBps` off the venue's own fee. */
+export interface UserVenueStakingTier {
+  readonly name: string;
+  readonly fromStaked: Amount;
+  /** Whole basis points off the venue's fee (1000 is 10%). */
+  readonly discountBps: number;
+}
+
+/** The venue's staking terms (J-cex-spot-21 #1). */
+export interface UserVenueStaking {
+  /** The asset staked (HYPE). */
+  readonly asset: string;
+  readonly validators: readonly UserVenueValidator[];
+  /** The yearly reward rate, in whole basis points; `null`: not published. */
+  readonly rewardRateBps: number | null;
+  /** The fee-discount tiers, lowest first; `null`: not published. */
+  readonly discountTiers: readonly UserVenueStakingTier[] | null;
+  /** How long a delegation is locked before it can be undelegated, in seconds; `null`: not published. */
+  readonly delegationLockUpSeconds: number | null;
+  /** How long a move from staking to spot waits in the queue, in seconds; `null`: not published. */
+  readonly unstakingQueueSeconds: number | null;
+  /** The most staking withdrawals the venue lets wait at once; `null`: not published. */
+  readonly maxPendingWithdrawals: number | null;
+}
+
+/** The account's staking as the venue reports it (J-cex-spot-21 #2 #3 #6 #7 #8). */
+export interface UserVenueStakingAccount {
+  readonly asset: string;
+  /** Staked and not delegated: the staking balance. */
+  readonly staked: Amount;
+  readonly delegations: readonly {
+    readonly validator: string;
+    readonly name: string;
+    readonly amount: Amount;
+    /** When the venue lets it be undelegated. */
+    readonly lockUpEndsAt: Date;
+  }[];
+  /** Moves from staking to spot waiting in the venue's queue, oldest first, each with the time the venue says it arrives. */
+  readonly pending: readonly { readonly amount: Amount; readonly requestedAt: Date; readonly arrivesAt: Date; readonly nonce: string }[];
+  /** Moves that came through the queue to spot, newest first. */
+  readonly arrived: readonly { readonly amount: Amount; readonly requestedAt: Date; readonly arrivedAt: Date; readonly nonce: string }[];
+  /** The rewards the venue paid the account's delegations, in all and newest first. */
+  readonly rewards: {
+    readonly total: Amount;
+    readonly recent: readonly { readonly validator: string; readonly amount: Amount; readonly rewardedAt: Date }[];
+  };
+}
+
+/**
+ * The venue's staking discount on its own fee for one account (J-cex-spot-21 #4): the stake it counts, the tier and its
+ * discount, and each listed market's venue rates before and after it, as the venue charges them. Our builder fee is not
+ * the venue's fee and the discount never touches it.
+ */
+export interface VenueStakingDiscount {
+  readonly asset: string;
+  readonly countedStake: Amount;
+  /** `null`: below the first tier. */
+  readonly tierName: string | null;
+  /** Whole basis points off the venue's fee; 0 below the first tier. */
+  readonly discountBps: number;
+  readonly markets: readonly {
+    readonly symbol: string;
+    readonly kind: 'spot' | 'perpetual';
+    readonly before: VenueFeeRates;
+    readonly after: VenueFeeRates;
+  }[];
 }
 
 /** The venue's own insurance fund or vault: its name, what it holds, where to read it and its rule, as it publishes them. */
@@ -1667,6 +1832,8 @@ export interface VenueAccountFees {
   readonly perpetual: VenueFeeRates;
   /** When the venue last placed the account in its tier; `null` when it does not say. */
   readonly tierUpdatedAt: Date | null;
+  /** The venue's staking discount on its own fee (J-cex-spot-21 #4); absent or `null`: the venue reports none. */
+  readonly stakingDiscount?: VenueStakingDiscount | null;
 }
 
 /**
@@ -1795,10 +1962,16 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * declared is never offered.
    */
   readonly positionModes?: readonly VenuePositionMode[];
+  /**
+   * True when the venue moves an open position, with its margin, between the owner's main account and a sub-account
+   * (`move_position`, J-derivatives-05 #7). A venue that declares nothing moves none: the room refuses the move in words.
+   */
+  readonly positionMoves?: boolean;
 }
 
 /** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
 export type VenuePositionMode = 'one_way' | 'hedge';
+const VENUE_POSITION_MODES: readonly VenuePositionMode[] = ['one_way', 'hedge'];
 
 /** The position modes `venue` offers: what it declares, or one-way only when it declares none. */
 export function positionModesOf(venue: UserVenueDescriptor): readonly VenuePositionMode[] {
@@ -2046,10 +2219,19 @@ export interface UserVenue {
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
   /** The account's mode, its spot and perps balances in standard mode, and its daily action count (J-derivatives-29). */
   accountMode?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>>;
+  /**
+   * The position mode the account holds `symbol` in, as the venue reports it (J-derivatives-05 #3). A venue with one mode
+   * need not offer the read: its descriptor's one mode is the mode.
+   */
+  positionMode?(account: UserVenueAccount, symbol: string): Promise<AsOf<VenuePositionMode>>;
   /** The vaults the venue lists, each with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
   vaults?(): Promise<AsOf<readonly UserVenueVault[]>>;
   /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
   vaultHoldings?(account: UserVenueAccount): Promise<AsOf<UserVenueVaultHoldings>>;
+  /** The venue's staking terms: validators, reward rate, discount tiers, lock-up, queue and its limit (J-cex-spot-21 #1). */
+  staking?(): Promise<AsOf<UserVenueStaking>>;
+  /** The account's staking balance, delegations, queued and arrived withdrawals and rewards (J-cex-spot-21). */
+  stakingAccount?(account: UserVenueAccount): Promise<AsOf<UserVenueStakingAccount>>;
 
   /**
    * The account's position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3).
@@ -2198,6 +2380,23 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     }
     assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
+  if (intent.kind === 'staking_transfer' || intent.kind === 'staking_delegate') {
+    const directions = intent.kind === 'staking_transfer' ? ['to_staking', 'to_spot'] : ['delegate', 'undelegate'];
+    if (!directions.includes(intent.direction)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `${intent.kind} direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (intent.kind === 'staking_delegate' && (typeof intent.validator !== 'string' || intent.validator.trim() === '')) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a delegation names its validator' });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: `a ${intent.kind} must be positive` });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
   if (intent.kind === 'vault_transfer') {
     if (intent.direction !== 'deposit' && intent.direction !== 'withdraw') {
       throw new VenueRefusalError({
@@ -2223,6 +2422,26 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
       });
     }
     assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'set_position_mode') {
+    if (!VENUE_POSITION_MODES.includes(intent.mode)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `position mode "${String(intent.mode)}" is not one the venue knows`,
+      });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'move_position') {
+    if (intent.direction !== 'into_sub_account' && intent.direction !== 'out_of_sub_account') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `move direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
 }
 
@@ -2255,15 +2474,23 @@ export function assertSignatureMatches(prepared: PreparedVenueAction, signature:
  * A TEST venue (simulator, testnet, partner sandbox) is refused unless
  * `appEnv` is exactly `dev` or `test` — the same rule as `isExplicitDevOrTest`
  * (packages/config/src/app-env.ts), restated here so this package keeps no
- * config dependency. Pass the RAW `process.env.APP_ENV`, never a parsed config
- * value that defaults to `dev`: unset, blank and anything else count as live.
+ * config dependency — or the process is in the beta posture: `appEnv` exactly
+ * `staging` and `betaPosture` (raw `INTAFACED_BETA_POSTURE`) exactly
+ * `test-networks` (`isBetaPosture`, same file). Pass the RAW values, never a
+ * parsed config value that defaults to `dev`: unset, blank and anything else
+ * count as live.
  */
-export function refuseTestVenueOutsideTest(venue: UserVenueDescriptor, appEnv: string | null | undefined): void {
-  if (isTestVenue(venue) && appEnv !== 'dev' && appEnv !== 'test') {
+export function refuseTestVenueOutsideTest(
+  venue: UserVenueDescriptor,
+  appEnv: string | null | undefined,
+  betaPosture?: string | null,
+): void {
+  const beta = appEnv === 'staging' && betaPosture === 'test-networks';
+  if (isTestVenue(venue) && appEnv !== 'dev' && appEnv !== 'test' && !beta) {
     throw new VenueRefusalError({
       venueId: venue.id,
       code: 'test_venue_outside_test',
-      detail: `${venue.displayName} is a TEST venue and is refused outside APP_ENV dev or test (APP_ENV: ${appEnv ?? 'unset'})`,
+      detail: `${venue.displayName} is a TEST venue and is refused outside APP_ENV dev or test and the beta posture (APP_ENV: ${appEnv ?? 'unset'})`,
     });
   }
 }

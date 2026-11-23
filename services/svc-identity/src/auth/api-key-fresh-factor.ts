@@ -9,35 +9,11 @@
  */
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
-import { z } from 'zod';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, type ApiKeyActionScope, type PayStepUpFactorProof } from './auth-service.js';
 import { userCopy } from '../user-copy.js';
 import { inTransaction } from './api-key-request-sign.js';
-
-export const factorProofSchema = z.union([
-  z.object({ totpCode: z.string().regex(/^\d{6}$/) }).strict(),
-  z
-    .object({
-      webauthn: z.object({
-        id: z.string().min(1),
-        rawId: z.string().min(1),
-        type: z.literal('public-key'),
-        response: z.object({
-          clientDataJSON: z.string().min(1),
-          authenticatorData: z.string().min(1),
-          signature: z.string().min(1),
-          userHandle: z.string().nullish(),
-        }),
-        clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
-      }),
-    })
-    .strict(),
-  z.object({ proofId: z.string().guid() }).strict(),
-]);
-
-/** Optional on the wire so a missing proof is the typed refusal, not a parse error. */
-export const optionalFactorProof = factorProofSchema.optional();
+import { optionalFactorProof } from '@intafaced/contracts/identity-call-schemas';
 
 export interface ApiKeyFactorGate {
   withApiKeyAction<T>(
@@ -173,3 +149,4 @@ export async function narrowOrGuardedAllowlistChange<T>(args: {
   const { nextFrom, norm, ...rest } = args;
   return narrowOrGuardedChange({ ...rest, narrows: (current: string[]) => narrowsAllowlist(current, nextFrom(current), norm) });
 }
+export { optionalFactorProof };

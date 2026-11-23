@@ -1,21 +1,22 @@
+// volt-room: /pay/settings/notifications
+// volt-room: portal:settings-notifications
 import { extensionCopy as c, portalCopy } from './copy';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Button, ChoiceGroup as Tabs } from '@intafaced/ui';
-import { Field } from '../../ui-kit';
-import { PaySection } from '../../components';
 import { DateTime } from '../ui/DateTime';
-import { Gate, ListShell, MoreFooter, SelectField } from '../components';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../hooks';
 import { useSession } from '../../../session';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
-import { Timeline } from '../ui/Timeline';
 import { actorName } from './account/actors';
+import { accountCopy } from './account/copy';
+import { SettingsRoom } from '../volt/SettingsRoom';
 import { isDecimalThreshold } from './model';
 import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
 import { notificationKinds, type Notification, type NotificationKind, type Preference, type PreferenceChange } from '../schemas';
+import { Gate, ListShell, MoreFooter, Section, SelectField, Timeline } from '../volt/parts';
+import { Button, Checkbox, Field, Segmented } from '@intafaced/ui/lit';
 
 type View = 'feed' | 'preferences';
 
@@ -118,23 +119,25 @@ export function NotificationsView({
   const [markState, setMarkState] = useState<'idle' | 'busy' | string>('idle');
   const unread = feed.status === 'ready' ? feed.items.filter((n) => n.readAt === null).length : 0;
   return (
-    <div className="stack">
+    <div>
       {!hideTabs && (
-        <Tabs
-          items={['feed', 'preferences']}
+        <Segmented
+          options={[
+            { value: 'feed', label: t('tabFeed') },
+            { value: 'preferences', label: t('tabPreferences') },
+          ]}
           value={view}
           onChange={(v) => setView(v as View)}
           label={t('notifViews')}
-          labels={{ feed: t('tabFeed'), preferences: t('tabPreferences') }}
         />
       )}
       {view === 'feed' ? (
-        <PaySection
+        <Section
           title={t('feedTitle')}
           description={t('feedBody')}
           action={
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={markState === 'busy' || unread === 0}
               onClick={async () => {
                 setMarkState('busy');
@@ -148,12 +151,8 @@ export function NotificationsView({
             </Button>
           }
         >
-          {markState !== 'idle' && markState !== 'busy' && (
-            <p className="error-text" role="alert">
-              {markState}
-            </p>
-          )}
-          <div className="pp-filter-row">
+          {markState !== 'idle' && markState !== 'busy' && <p role="alert">{markState}</p>}
+          <div className="lt-toolbar">
             <SelectField
               label={t('filterKind')}
               value={kind}
@@ -163,10 +162,9 @@ export function NotificationsView({
                 ...notificationKinds.map((k) => [k, t(`notifKind_${k}` as 'notifKind_dispute_due')] as const),
               ]}
             />
-            <label className="pp-check">
-              <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />
+            <Checkbox checked={unreadOnly} onCheckedChange={setUnreadOnly}>
               {t('unreadOnly')}
-            </label>
+            </Checkbox>
           </div>
           <ListShell
             state={feed}
@@ -178,7 +176,7 @@ export function NotificationsView({
           >
             {(rows) => (
               <>
-                <ul className="pp-feed" aria-label={t('feedTitle')}>
+                <ul aria-label={t('feedTitle')}>
                   {rows.map((n) => (
                     <FeedItem key={n.notificationId} n={n} portal={portal} reload={reload} />
                   ))}
@@ -187,10 +185,10 @@ export function NotificationsView({
               </>
             )}
           </ListShell>
-        </PaySection>
+        </Section>
       ) : (
-        <PaySection title={t('prefsTitle')} description={t('prefsBody')}>
-          <p className="pp-callout" role="note">
+        <Section title={t('prefsTitle')} description={t('prefsBody')}>
+          <p className="lt-hint" role="note">
             {t('inAppOnly')}
           </p>
           <Gate resource={prefs} retry={reloadPrefs} rows={4}>
@@ -204,10 +202,10 @@ export function NotificationsView({
               />
             )}
           </Gate>
-        </PaySection>
+        </Section>
       )}
       {view === 'preferences' && (
-        <PaySection title={c.t('prefHistoryTitle')} description={c.t('prefHistoryBody')}>
+        <Section title={c.t('prefHistoryTitle')} description={c.t('prefHistoryBody')}>
           <ListShell
             state={history}
             retry={reloadHistory}
@@ -227,7 +225,7 @@ export function NotificationsView({
               </>
             )}
           </ListShell>
-        </PaySection>
+        </Section>
       )}
     </div>
   );
@@ -250,33 +248,28 @@ function FeedItem({ n, portal, reload }: { n: Notification; portal: PortalApi; r
   const [error, setError] = useState('');
   const href = subjectHref(n);
   return (
-    <li className={`pp-feed-item${n.readAt === null ? ' pp-feed-item--unread' : ''}`}>
-      <span className="pp-feed-dot" aria-hidden="true" />
-      <div className="pp-feed-main">
-        <span className="pp-feed-kind">
+    <li data-unread={n.readAt === null || undefined}>
+      <div>
+        <span>
           {t(`notifKind_${n.kind}` as 'notifKind_dispute_due')}
-          {n.readAt === null && <span className="pp-sr"> ({t('unread')})</span>}
+          {n.readAt === null && <span className="lt-sr"> ({t('unread')})</span>}
         </span>
         <strong>{n.title}</strong>
-        {n.body && <p className="muted">{n.body}</p>}
-        <small className="muted">
+        {n.body && <p className="lt-hint">{n.body}</p>}
+        <small className="lt-hint">
           <DateTime value={n.createdAt} />
         </small>
-        {error && (
-          <small className="error-text" role="alert">
-            {error}
-          </small>
-        )}
+        {error && <small role="alert">{error}</small>}
       </div>
-      <div className="pp-actions">
+      <div className="lt-actions">
         {href && (
-          <a className="text-link" href={href}>
+          <a className="lt-link" href={href}>
             {t('open')}
           </a>
         )}
         {n.readAt === null && (
           <Button
-            variant="ghost"
+            tone="quiet"
             onClick={async () => {
               const result = await portal.markRead([n.notificationId]);
               if (!result.ok) return setError(refusalText(result));
@@ -320,12 +313,12 @@ function PrefRow({
   }, [pref.kind, dirty, onDirty]);
   const kind: NotificationKind = pref.kind;
   return (
-    <li data-testid="pp-pref" className="pp-pref" aria-disabled={lockedReason ? true : undefined}>
+    <li data-testid="pp-pref" aria-disabled={lockedReason ? true : undefined}>
       <div>
         <strong>{t(`notifKind_${kind}` as 'notifKind_dispute_due')}</strong>
-        <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
+        <p className="lt-hint">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
         {saved.updatedAt && (
-          <small className="muted">
+          <small className="lt-hint">
             {saved.updatedBy ? c.t('preferenceChangedBy', { actor: actor(saved.updatedBy) }) : c.t('preferenceChanged')}{' '}
             <DateTime value={saved.updatedAt} />
           </small>
@@ -342,13 +335,13 @@ function PrefRow({
           />
         )}
         {lockedReason && (
-          <small className="muted" id={`pp-pref-locked-${kind}`}>
+          <small className="lt-hint" id={`pp-pref-locked-${kind}`}>
             {lockedReason}
           </small>
         )}
       </div>
-      <div className="pp-pref-controls">
-        <label className="pp-check">
+      <div className="lt-actions">
+        <label className="lt-field">
           <input
             type="checkbox"
             checked={on}
@@ -359,7 +352,7 @@ function PrefRow({
           {t('inApp')}
         </label>
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={lockedReason !== null || !dirty || invalid || state === 'busy'}
           onClick={async () => {
             setState('busy');
@@ -378,15 +371,11 @@ function PrefRow({
           {state === 'busy' ? t('saving') : t('save')}
         </Button>
         {state === 'saved' && (
-          <small className="pp-confirmed" role="status">
+          <small className="lt-hint" role="status">
             {t('saved')}
           </small>
         )}
-        {state !== 'idle' && state !== 'busy' && state !== 'saved' && (
-          <small className="error-text" role="alert">
-            {state}
-          </small>
-        )}
+        {state !== 'idle' && state !== 'busy' && state !== 'saved' && <small role="alert">{state}</small>}
       </div>
     </li>
   );
@@ -417,7 +406,7 @@ function PreferenceRows({
   }, []);
   useUnsavedForm(dirtyKinds.size > 0, c.t('draftWarning'));
   return (
-    <ul className="pp-prefs">
+    <ul>
       {rows.map((pref) => (
         <PrefRow
           key={pref.kind}
@@ -431,4 +420,10 @@ function PreferenceRows({
       ))}
     </ul>
   );
+}
+
+/** `/pay/settings/notifications` on the settings template: which kinds of message to hear about, and who changed that. */
+export function NotificationPreferencesRoom({ portal }: { portal: PortalApi }) {
+  const { t } = accountCopy.useCopy();
+  return <SettingsRoom explain={<p>{t('notifPrefsExplain')}</p>}>{() => <Notifications portal={portal} preferencesOnly />}</SettingsRoom>;
 }

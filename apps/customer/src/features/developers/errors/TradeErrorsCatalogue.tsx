@@ -1,6 +1,6 @@
+import { DocPage, GoLink } from '../DocPage';
 import { categoryKey, errorClassCopy, severityKey } from './error-class-copy';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
-import { docsCopy } from '../developers-docs-copy';
 import { tradeErrorsCopy, causeKey, fixKey } from './trade-errors-copy';
 
 /**
@@ -12,10 +12,10 @@ export function TradeErrorsCatalogue() {
   const cls = errorClassCopy.useCopy();
   return (
     <>
-      <section className="pub-card" aria-labelledby="dev-trade-errors">
+      <section aria-labelledby="dev-trade-errors">
         <h2 id="dev-trade-errors">{t('tableTitle')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table dev-text-table" data-testid="trade-errors-catalogue">
+        <div>
+          <table className="lt-table" data-testid="trade-errors-catalogue">
             <thead>
               <tr>
                 <th scope="col">{t('colCode')}</th>
@@ -54,9 +54,7 @@ export function TradeErrorsCatalogue() {
           </table>
         </div>
       </section>
-      <a className="text-link" href="/developers/errors/auth">
-        {t('authLink')} →
-      </a>
+      <GoLink href="/developers/errors/auth">{t('authLink')}</GoLink>
     </>
   );
 }
@@ -64,17 +62,9 @@ export function TradeErrorsCatalogue() {
 /** /developers/errors: the order error catalogue, as one of the portal's written pages. */
 export function ErrorsPage({ title }: { title: string }) {
   const { t } = tradeErrorsCopy.useCopy();
-  const docs = docsCopy.useCopy();
   return (
-    <div className="pub-page" data-testid="developers-errors">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('lead')}</p>
-      </header>
+    <DocPage id="errors" title={title} lead={t('lead')}>
       <TradeErrorsCatalogue />
-      <a className="text-link" href="/developers">
-        ← {docs.t('back')}
-      </a>
-    </div>
+    </DocPage>
   );
 }

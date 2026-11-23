@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { serviceOfRequest } from './s2s-door.js';
 import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
@@ -437,13 +438,20 @@ if (env.PAY_URL) {
   });
 }
 // Lifetime can be published without a mail port. With either one missing, every
-// reset request refuses auth.reset_unwired. The only transport this process
-// can install is the local-outbox file, and only when APP_ENV is exactly dev
-// or test. Staging and production stay unwired. No provider is configured.
+// reset request refuses auth.reset_unwired. The local-outbox file runs only when
+// APP_ENV is exactly dev or test; a hosted stack names its mail gateway, and a
+// staging or prod start without a transport refuses. No provider is configured here.
 const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+  gateway: {
+    url: env.IDENTITY_MAIL_GATEWAY_URL,
+    key: env.IDENTITY_MAIL_GATEWAY_KEY,
+    from: env.IDENTITY_MAIL_FROM,
+    linkBase: env.IDENTITY_MAIL_LINK_BASE,
+    consoleLinkBase: env.IDENTITY_MAIL_CONSOLE_LINK_BASE,
+  },
 });
 // Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
 const sms = openIdentitySms({
@@ -769,6 +777,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    ...(env.REGISTRATION_EMAIL_ALLOWLIST ? { registrationAllowlist: env.REGISTRATION_EMAIL_ALLOWLIST } : {}),
     extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
     // One budget per person across every replica and restart (#4689).
     handleLookupLimiter: new PgHandleLookupLimiter(sql),

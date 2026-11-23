@@ -103,14 +103,14 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
   const shown = filterPayees(saved, text);
   if (moved)
     return (
-      <div className="bd-recipient" role="alert">
+      <div className="lt-stack" role="alert">
         <h4 className="bd-subhead">
           <Copy k="changedTitle" />
         </h4>
         <p>
           <Copy k="changedBody" params={{ handle: moved.handle }} />
         </p>
-        <div className="actions">
+        <div className="lt-actions">
           <Button
             onClick={() => {
               if (userId)
@@ -128,7 +128,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
       </div>
     );
   return (
-    <div className="bd-recipient">
+    <div className="lt-stack">
       <form
         className="bd-recipient__search"
         onSubmit={(event) => {
@@ -136,7 +136,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
           void lookup(text);
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>
             <Copy k="label" />
           </span>
@@ -183,7 +183,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
               </li>
             ))}
           </ul>
-          <small className="money-caption">
+          <small className="lt-muted">
             <Copy k="savedNote" />
           </small>
         </section>
@@ -203,7 +203,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
             ))}
           </ul>
         ) : (
-          <small className="money-caption">
+          <small className="lt-muted">
             <Copy k="recentNone" />
           </small>
         )}

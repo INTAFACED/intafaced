@@ -79,16 +79,20 @@ test(`${J} part of #5 the verified owner saves where payouts go, confirming it w
   expect(refused).toEqual([]);
 });
 
-// #5 in the running app: the owner saves a wallet in the Destinations room with no code, and svc-pay keeps it Unverified;
-// a payout of a posted TEST settlement to it is refused by svc-pay's typed code and nothing moves. Verifying it (the
-// address typed again and a fresh authenticator code) starts the hold: svc-pay answers Held with the time it becomes
-// Active, the stack's TEST PAY_DESTINATION_HOLD_SECONDS later (45 s, tooling/profiles/test-owner-values/pay.json), and
-// a payout is still refused. Once that time passes svc-pay reads it Active. Throughout, the one destination (same id, same
-// masked address) is in both lists: the Destinations room and the Pay out form's Destination choice.
+// #5 in the running app: the owner adds a payout destination (a wallet) and links the bank account (its IBAN, on the
+// stack's TEST card rails, the one payout network here that takes a bank account), both in the Destinations room with no
+// code, and svc-pay keeps each Unverified; a payout of a posted TEST settlement to either is refused by svc-pay's typed
+// code and nothing moves. Verifying one (its number typed again and a fresh authenticator code) starts its hold: svc-pay
+// answers Held with the time it becomes Active, the stack's TEST PAY_DESTINATION_HOLD_SECONDS later (45 s,
+// tooling/profiles/test-owner-values/pay.json), and a payout to it is still refused. Once that time passes svc-pay reads
+// it Active. The bank account goes first, so the room shows it Active beside the wallet, still Unverified and still
+// refused; then the wallet goes the same way. Throughout, each destination (same id, same masked number) is in both
+// lists: the Destinations room and the Pay out form's Destination choice.
 test(`${J} #5 a new payout destination reads Unverified and cannot receive a payout; after verifying it is Active after the hold; the same destination appears in both lists`, async ({
   page,
+  stepPicture,
 }) => {
-  test.setTimeout(480_000);
+  test.setTimeout(600_000);
   const owner = await businessReadyPerson(page, 'mpu', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Payout Hold Ltd');
   await verifiedBusiness(page, owner, merchantId);
@@ -104,7 +108,9 @@ test(`${J} #5 a new payout destination reads Unverified and cannot receive a pay
   const settlement = await api.mutate('settlement.run', { merchantId, window: new Date().toISOString().slice(0, 10), assetId: 'USDT' });
   expect(settlement.status).toBe('posted');
   const settlementBefore = await api.query('settlement.get', { settlementId: settlement.id });
+  // svc-pay's own list of this business's destinations, compared whatever order it gives them in.
   const listed = async () => (await api.query('merchant.payoutDestinations.list', { merchantId, limit: 10 })).items;
+  const byId = (items) => [...items].sort((a, b) => a.id.localeCompare(b.id));
   const refusalOf = (call) =>
     call.then(
       () => 'not refused',
@@ -115,92 +121,165 @@ test(`${J} #5 a new payout destination reads Unverified and cannot receive a pay
     owner.step = fresh.step;
     return fresh.code;
   };
+  // The owner after "Confirm it's you", who may pay out. A payout names its destination by that destination's network.
+  const payerNow = async () => api.steppedUp(merchantId, ['pay:payout'], await confirmCode());
+  const payoutTo = (payer, d) => refusalOf(payer.mutate('settlement.payout', { settlementId: settlement.id, railId: d.railId }));
+  const nothingMoved = async () => expect(await api.query('settlement.get', { settlementId: settlement.id })).toEqual(settlementBefore);
 
-  // Saved in the room: no code is asked for, and svc-pay keeps it Unverified.
-  const wallet = `0x${'5e'.repeat(20)}`;
-  await page.getByLabel('Payout network').selectOption({ label: 'Crypto network' });
-  await page.getByLabel('Wallet address *').fill(wallet);
-  await page.getByRole('button', { name: 'Save destination' }).click();
-  const save = page.getByRole('dialog', { name: 'Review: Save destination' });
-  await expect(save).toContainText(wallet);
-  await expect(save.getByLabel('6-digit code from your authenticator app *')).toHaveCount(0);
-  const added = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.payoutDestinations.add');
-  await save.getByRole('button', { name: 'Save destination' }).click();
-  expect((await added).status()).toBe(200);
-  await expect(page.getByText('Destination saved. It is unverified and can’t receive a payout until you verify it.')).toBeVisible();
-  const [unverified, ...others] = await listed();
-  expect(others).toEqual([]);
-  expect(unverified).toMatchObject({ merchantId, railId: 'crypto-native', kind: 'crypto', state: 'unverified', activatesAt: null });
-  expect(unverified.destinationMasked).toMatch(/5e5e$/);
-  expect(unverified.destinationMasked).not.toContain(wallet);
+  // The first list, the Destinations room: its table (the Status cell is the second column) and its manage list.
   const table = page.getByRole('region', { name: 'Saved destinations' });
-  const row = table.getByRole('row').filter({ hasText: unverified.destinationMasked });
-  await expect(row).toHaveCount(1);
-  await expect(row).toContainText('Unverified');
+  const rowOf = (d) => table.getByRole('row').filter({ hasText: d.destinationMasked });
+  const statusOf = (d) => rowOf(d).getByRole('cell').nth(1);
+  const itemOf = (d) =>
+    page.getByRole('list', { name: 'Manage saved destinations' }).getByRole('listitem').filter({ hasText: d.destinationMasked });
+  // The second list: the Pay out form's Destination choice.
+  const choiceOf = (d) => page.getByLabel('Destination').locator('option').filter({ hasText: d.destinationMasked });
 
-  // It cannot receive a payout: svc-pay refuses by its code before any admission or hold, and the settlement is unchanged.
-  const payer = await api.steppedUp(merchantId, ['pay:payout'], await confirmCode());
-  const payout = () => payer.mutate('settlement.payout', { settlementId: settlement.id, railId: 'crypto-native' });
-  expect(await refusalOf(payout())).toEqual({ status: 412, code: 'pay.payout_destination_unverified' });
-  expect(await api.query('settlement.get', { settlementId: settlement.id })).toEqual(settlementBefore);
+  // Saved in the room: no code is asked for, and the room says it is unverified and can't receive a payout.
+  const saveInRoom = async ({ network, field, ref }) => {
+    await page.getByLabel('Payout network').selectOption({ label: network });
+    await page.getByLabel(field).fill(ref);
+    await page.getByRole('button', { name: 'Save destination' }).click();
+    const save = page.getByRole('dialog', { name: 'Review: Save destination' });
+    await expect(save).toContainText(network);
+    await expect(save).toContainText(ref);
+    await expect(save.getByLabel('6-digit code from your authenticator app *')).toHaveCount(0);
+    const added = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.payoutDestinations.add');
+    await save.getByRole('button', { name: 'Save destination' }).click();
+    expect((await added).status()).toBe(200);
+    await expect(page.getByText('Destination saved. It is unverified and can’t receive a payout until you verify it.')).toBeVisible();
+  };
+  // Verified in the room: the number typed again and a fresh code. svc-pay answers Held with the time it becomes Active,
+  // the stack's TEST hold of 45 seconds from the verification, and the room's Status cell names that same time.
+  const verifyInRoom = async (d, { field, ref }) => {
+    await page.goto('/pay/payouts/destinations');
+    await itemOf(d).getByRole('button', { name: 'Verify' }).click();
+    const verify = page.getByRole('dialog', { name: 'Review: Verify' });
+    await verify.getByLabel(field).fill(ref);
+    await verify.getByLabel('6-digit code from your authenticator app *').fill(await confirmCode());
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.setPayoutDestination');
+    const verifiedAt = Date.now();
+    await verify.getByRole('button', { name: 'Verify' }).click();
+    const verifiedRes = await answered;
+    expect(verifiedRes.status()).toBe(200);
+    const verified = (await verifiedRes.json()).result.data;
+    expect(verified).toEqual({ status: 'held', railId: d.railId, kind: d.kind, ref, activatesAt: expect.any(String) });
+    const holdEnd = Date.parse(verified.activatesAt);
+    expect(holdEnd - verifiedAt).toBeGreaterThan(40_000);
+    expect(holdEnd - verifiedAt).toBeLessThanOrEqual(50_000);
+    await expect(page.getByText('Destination verified. It becomes active at the time shown in the list.')).toBeVisible();
+    await expect(statusOf(d)).toContainText('Waiting until');
+    await expect(statusOf(d).locator('time')).toHaveAttribute('datetime', verified.activatesAt);
+    await expect(rowOf(d)).not.toContainText('Unverified');
+    await expect(itemOf(d).getByRole('button', { name: 'Verify' })).toHaveCount(0);
+    return { activatesAt: verified.activatesAt, holdEnd };
+  };
+  // After the hold svc-pay reads it Active, and not before the time it gave.
+  const activeAfter = async (d, holdEnd) => {
+    await expect
+      .poll(async () => (await listed()).find((x) => x.id === d.id)?.state, {
+        timeout: Math.max(holdEnd - Date.now(), 0) + 60_000,
+        intervals: [2_000],
+      })
+      .toBe('active');
+    expect(Date.now()).toBeGreaterThanOrEqual(holdEnd);
+  };
 
-  // The second list: the Pay out form offers the same destination, marked Unverified.
-  const choice = () => page.getByLabel('Destination').locator('option').filter({ hasText: unverified.destinationMasked });
+  // The owner adds a payout destination, a wallet: svc-pay keeps it Unverified, masked to its ends.
+  const walletAddress = `0x${'5e'.repeat(20)}`;
+  await saveInRoom({ network: 'Crypto network', field: 'Wallet address *', ref: walletAddress });
+  const [wallet, ...others] = await listed();
+  expect(others).toEqual([]);
+  expect(wallet).toMatchObject({ merchantId, railId: 'crypto-native', kind: 'crypto', state: 'unverified', activatesAt: null });
+  expect(wallet.destinationMasked).toMatch(/5e5e$/);
+  expect(wallet.destinationMasked).not.toContain(walletAddress);
+  await expect(rowOf(wallet)).toHaveCount(1);
+  await expect(statusOf(wallet)).toHaveText('Unverified');
+
+  // And links the bank account, by its IBAN (a published example number, not a real account): svc-pay keeps it Unverified
+  // too, a second destination beside the wallet, and shows only its last four digits.
+  const iban = 'GB82WEST12345698765432';
+  await saveInRoom({ network: 'Card rails (test)', field: 'Bank account number (IBAN) or IFSC *', ref: iban });
+  const saved = await listed();
+  expect(saved).toHaveLength(2);
+  const bank = saved.find((d) => d.id !== wallet.id);
+  expect(bank).toMatchObject({ merchantId, railId: 'card-sandbox', kind: 'bank', state: 'unverified', activatesAt: null });
+  expect(bank.destinationMasked).toBe('••••5432');
+  expect(saved.find((d) => d.id === wallet.id)).toEqual(wallet);
+  await expect(rowOf(bank)).toHaveCount(1);
+  await expect(rowOf(bank)).toContainText('Bank account ••••5432');
+  await expect(statusOf(bank)).toHaveText('Unverified');
+  await expect(statusOf(wallet)).toHaveText('Unverified');
+  await expect(page.getByText(iban)).toHaveCount(0);
+
+  // Neither can receive a payout: svc-pay refuses by its code before any admission or hold, and the settlement is unchanged.
+  const payer = await payerNow();
+  expect(await payoutTo(payer, wallet)).toEqual({ status: 412, code: 'pay.payout_destination_unverified' });
+  expect(await payoutTo(payer, bank)).toEqual({ status: 412, code: 'pay.payout_destination_unverified' });
+  await nothingMoved();
+
+  // The second list: the Pay out form offers the same two destinations, each marked Unverified.
   await page.goto('/pay/payouts/new');
-  await expect(choice()).toHaveCount(1);
-  await expect(choice()).toHaveText(/Unverified/);
-  await expect(choice()).toHaveAttribute('value', unverified.id);
+  for (const d of [wallet, bank]) {
+    await expect(choiceOf(d)).toHaveCount(1);
+    await expect(choiceOf(d)).toHaveText(/Unverified/);
+    await expect(choiceOf(d)).toHaveAttribute('value', d.id);
+  }
 
-  // Verified in the room: the address typed again and a fresh code. svc-pay answers Held with the time it becomes Active.
+  // The bank account is verified: Held in svc-pay until the time it gave, still no payout, and the wallet as it was.
+  const bankHold = await verifyInRoom(bank, { field: 'Bank account number (IBAN) or IFSC *', ref: iban });
+  expect(byId(await listed())).toEqual(byId([{ ...bank, state: 'held', activatesAt: bankHold.activatesAt }, wallet]));
+  expect(await payoutTo(payer, bank)).toEqual({ status: 412, code: 'pay.payout_destination_held' });
+  await nothingMoved();
+  await expect(statusOf(wallet)).toHaveText('Unverified');
+  await page.goto('/pay/payouts/new');
+  await expect(choiceOf(bank)).toHaveText(/Not active yet/);
+  await expect(choiceOf(bank)).toHaveAttribute('value', bank.id);
+
+  // After the hold svc-pay reads the bank account Active, and both lists show it with nothing pending on it, beside the
+  // wallet, which nobody verified: still Unverified in both lists, and a payout to it still refused.
+  await activeAfter(bank, bankHold.holdEnd);
+  const bankActive = { ...bank, state: 'active', activatesAt: null };
+  expect(byId(await listed())).toEqual(byId([bankActive, wallet]));
   await page.goto('/pay/payouts/destinations');
-  const item = page
-    .getByRole('list', { name: 'Manage saved destinations' })
-    .getByRole('listitem')
-    .filter({ hasText: unverified.destinationMasked });
-  await item.getByRole('button', { name: 'Verify' }).click();
-  const verify = page.getByRole('dialog', { name: 'Review: Verify' });
-  await verify.getByLabel('Wallet address *').fill(wallet);
-  await verify.getByLabel('6-digit code from your authenticator app *').fill(await confirmCode());
-  const answered = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/merchant.setPayoutDestination');
-  const verifiedAt = Date.now();
-  await verify.getByRole('button', { name: 'Verify' }).click();
-  const verifiedRes = await answered;
-  expect(verifiedRes.status()).toBe(200);
-  const verified = (await verifiedRes.json()).result.data;
-  expect(verified).toEqual({ status: 'held', railId: 'crypto-native', kind: 'crypto', ref: wallet, activatesAt: expect.any(String) });
-  // The stack's TEST hold is 45 seconds from the verification.
-  const holdEnd = Date.parse(verified.activatesAt);
-  expect(holdEnd - verifiedAt).toBeGreaterThan(40_000);
-  expect(holdEnd - verifiedAt).toBeLessThanOrEqual(50_000);
-  await expect(page.getByText('Destination verified. It becomes active at the time shown in the list.')).toBeVisible();
-  const [held] = await listed();
-  expect(held).toEqual({ ...unverified, state: 'held', activatesAt: verified.activatesAt });
-  // The Status cell (the table's second column) names the service's own end of the hold.
-  const status = row.getByRole('cell').nth(1);
-  await expect(status).toContainText('Waiting until');
-  await expect(status.locator('time')).toHaveAttribute('datetime', verified.activatesAt);
-  await expect(row).not.toContainText('Unverified');
-  await expect(item.getByRole('button', { name: 'Verify' })).toHaveCount(0);
-  // Still no payout while it is held.
-  expect(await refusalOf(payout())).toEqual({ status: 412, code: 'pay.payout_destination_held' });
-  expect(await api.query('settlement.get', { settlementId: settlement.id })).toEqual(settlementBefore);
+  await expect(statusOf(bank)).toHaveText('Active');
+  await expect(rowOf(bank)).not.toContainText(/Unverified|Waiting until/);
+  await expect(itemOf(bank).getByRole('button', { name: 'Verify' })).toHaveCount(0);
+  await expect(statusOf(wallet)).toHaveText('Unverified');
+  await expect(itemOf(wallet).getByRole('button', { name: 'Verify' })).toBeVisible();
+  // The step's picture: the Destinations room with the verified bank account Active beside the Unverified wallet.
+  await stepPicture();
   await page.goto('/pay/payouts/new');
-  await expect(choice()).toHaveText(/Not active yet/);
-  await expect(choice()).toHaveAttribute('value', unverified.id);
+  await expect(choiceOf(bank)).toHaveCount(1);
+  await expect(choiceOf(bank)).not.toHaveText(/Unverified|Not active yet/);
+  await expect(choiceOf(bank)).toHaveAttribute('value', bank.id);
+  await expect(choiceOf(wallet)).toHaveText(/Unverified/);
+  await expect(choiceOf(wallet)).toHaveAttribute('value', wallet.id);
+  const payerLater = await payerNow();
+  expect(await payoutTo(payerLater, wallet)).toEqual({ status: 412, code: 'pay.payout_destination_unverified' });
+  await nothingMoved();
 
-  // After the hold svc-pay reads it Active, and both lists show the same destination with nothing pending on it.
-  await expect
-    .poll(async () => (await listed())[0]?.state, { timeout: Math.max(holdEnd - Date.now(), 0) + 60_000, intervals: [2_000] })
-    .toBe('active');
-  expect(Date.now()).toBeGreaterThanOrEqual(holdEnd);
-  expect(await listed()).toEqual([{ ...unverified, state: 'active', activatesAt: null }]);
-  await page.goto('/pay/payouts/destinations');
-  await expect(status).toHaveText('Active');
-  await expect(row).not.toContainText(/Unverified|Waiting until/);
+  // The wallet goes the same way: Held once verified, still no payout, then Active after its own hold, in both lists.
+  const walletHold = await verifyInRoom(wallet, { field: 'Wallet address *', ref: walletAddress });
+  expect(byId(await listed())).toEqual(byId([bankActive, { ...wallet, state: 'held', activatesAt: walletHold.activatesAt }]));
+  expect(await payoutTo(payerLater, wallet)).toEqual({ status: 412, code: 'pay.payout_destination_held' });
+  await nothingMoved();
   await page.goto('/pay/payouts/new');
-  await expect(choice()).toHaveCount(1);
-  await expect(choice()).not.toHaveText(/Unverified|Not active yet/);
-  await expect(choice()).toHaveAttribute('value', unverified.id);
+  await expect(choiceOf(wallet)).toHaveText(/Not active yet/);
+  await expect(choiceOf(wallet)).toHaveAttribute('value', wallet.id);
+  await activeAfter(wallet, walletHold.holdEnd);
+  expect(byId(await listed())).toEqual(byId([bankActive, { ...wallet, state: 'active', activatesAt: null }]));
+  await page.goto('/pay/payouts/destinations');
+  for (const d of [wallet, bank]) {
+    await expect(statusOf(d)).toHaveText('Active');
+    await expect(rowOf(d)).not.toContainText(/Unverified|Waiting until/);
+  }
+  await page.goto('/pay/payouts/new');
+  for (const d of [wallet, bank]) {
+    await expect(choiceOf(d)).toHaveCount(1);
+    await expect(choiceOf(d)).not.toHaveText(/Unverified|Not active yet/);
+    await expect(choiceOf(d)).toHaveAttribute('value', d.id);
+  }
   expect(refused).toEqual([]);
 });
 

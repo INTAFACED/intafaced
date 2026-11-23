@@ -12,6 +12,7 @@
 )]
 
 use service_kit::json::{self, Json};
+use service_kit::money::Amount;
 use svc_ledger::chain::{self, HashEntry, HashTx};
 use svc_ledger::errors::Failure;
 use svc_ledger::posting::gate::{self, Caller};
@@ -166,7 +167,7 @@ fn every_recorded_post_is_judged_hashed_and_refused_as_the_typescript_does() {
         };
         let held = strs(c.get("held").unwrap());
         for (i, e) in r.entries.iter().enumerate() {
-            let ours: Vec<Json> = [-1, 0, 1]
+            let ours: Vec<Json> = [-Amount::UNIT, Amount::ZERO, Amount::UNIT]
                 .iter()
                 .map(|n| Json::Bool(e.account.balance_allowed(Wide::of(*n))))
                 .collect();
@@ -176,7 +177,9 @@ fn every_recorded_post_is_judged_hashed_and_refused_as_the_typescript_does() {
                 "{label}: leg {i} balance rule"
             );
             assert_eq!(
-                e.account.held_for_refusal(Wide::of(-5)).format(),
+                e.account
+                    .held_for_refusal(Wide::of(-Amount::from_scaled(5)))
+                    .format(),
                 held[i],
                 "{label}: leg {i} held"
             );
@@ -226,5 +229,10 @@ fn a_sum_past_i128_stays_exact() {
     );
     let back = w.plus_amount(-max).plus_amount(-max);
     assert_eq!(back.amount(), Some(max));
-    assert_eq!(Wide::of(-3).plus_amount(5).format(), "0.000000000000000002");
+    assert_eq!(
+        Wide::of(-Amount::from_scaled(3))
+            .plus_amount(Amount::from_scaled(5))
+            .format(),
+        "0.000000000000000002"
+    );
 }

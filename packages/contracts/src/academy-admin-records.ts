@@ -34,7 +34,7 @@ import {
   academyWithdrawAssignmentInputSchema,
   academyWithdrawLessonInputSchema,
 } from './academy-courses.js';
-import { academyCourseGradebookInputSchema } from './academy-course-gradebook.js';
+import { academyCourseGradebookInputSchema, academyCourseGradebookSchema } from './academy-course-gradebook.js';
 import {
   academyGradeReportFileInputSchema,
   academyGradeReportFileSchema,
@@ -49,11 +49,19 @@ import {
   academySetCourseItemPrerequisitesInputSchema,
 } from './academy-course-item-rules.js';
 import {
+  academyAddLearnerNoteInputSchema,
+  academyGrantAccessInputSchema,
+  academyGrantLearnerExtensionInputSchema,
+  academyLearnerChangeSchema,
   academyLearnerInputSchema,
   academyLearnerPageSchema,
   academyLearnerProgressSchema,
   academyLearnersInputSchema,
   academyLearnersSchema,
+  academyMarkCompleteForInputSchema,
+  academyReinstateAccessInputSchema,
+  academyUntagLearnerInputSchema,
+  academyVoidQuizAttemptInputSchema,
 } from './academy-learner-desk.js';
 import {
   academyAdminCourseQuizSchema,
@@ -1065,6 +1073,184 @@ export const ACADEMY_ADMIN_GRANT_CERT_EXCEPTION = defineProcedure({
   output: academyCertExceptionSchema,
   samples: [
     { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', certId: 'placeholder', reason: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_ADD_LEARNER_NOTE = defineProcedure({
+  ...base,
+  name: 'academy.admin.addLearnerNote',
+  kind: 'mutation',
+  path: 'admin.addLearnerNote',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.permission_denied': 'FORBIDDEN', 'academy.reason_required': 'BAD_REQUEST', 'academy.revision_stale': 'CONFLICT' },
+  input: academyAddLearnerNoteInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', body: 'placeholder', key: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_MARK_COMPLETE_FOR = defineProcedure({
+  ...base,
+  name: 'academy.admin.markCompleteFor',
+  kind: 'mutation',
+  path: 'admin.markCompleteFor',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.curriculum_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+  },
+  input: academyMarkCompleteForInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', itemSlug: 'placeholder', reason: 'placeholder', key: 'placeholder' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_VOID_QUIZ_ATTEMPT = defineProcedure({
+  ...base,
+  name: 'academy.admin.voidQuizAttempt',
+  kind: 'mutation',
+  path: 'admin.voidQuizAttempt',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.attempt_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+  },
+  input: academyVoidQuizAttemptInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', attemptId: '33333333-3333-4333-8333-333333333333', reason: 'placeholder' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantLearnerExtension',
+  kind: 'mutation',
+  path: 'admin.grantLearnerExtension',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.curriculum_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyGrantLearnerExtensionInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        userId: '33333333-3333-4333-8333-333333333333',
+        itemSlug: 'placeholder',
+        until: '2026-01-01T00:00:00.000Z',
+        reason: 'placeholder',
+        key: 'placeholder',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_UNTAG_LEARNER = defineProcedure({
+  ...base,
+  name: 'academy.admin.untagLearner',
+  kind: 'mutation',
+  path: 'admin.untagLearner',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.permission_denied': 'FORBIDDEN', 'academy.reason_required': 'BAD_REQUEST' },
+  input: academyUntagLearnerInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', tag: 'placeholder', reason: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** `admin.grantAccess`: the samples are written by hand, since the door's stored sample ends in the past, which the door refuses. */
+export const ACADEMY_ADMIN_GRANT_ACCESS = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantAccess',
+  kind: 'mutation',
+  path: 'admin.grantAccess',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.grant_expired': 'FORBIDDEN',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyGrantAccessInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', pathSlug: 'foundations', reason: 'placeholder', expiresAt: null },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** `admin.reinstateAccess`: the samples are written by hand, since the door's stored sample ends in the past, which the door refuses. */
+export const ACADEMY_ADMIN_REINSTATE_ACCESS = defineProcedure({
+  ...base,
+  name: 'academy.admin.reinstateAccess',
+  kind: 'mutation',
+  path: 'admin.reinstateAccess',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.grant_active': 'CONFLICT',
+    'academy.grant_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.revision_stale': 'CONFLICT',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyReinstateAccessInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        userId: '33333333-3333-4333-8333-333333333333',
+        grantId: '33333333-3333-4333-8333-333333333333',
+        reason: 'placeholder',
+        expiresAt: null,
+        n: 1,
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+export const ACADEMY_ADMIN_COURSE_GRADEBOOK = defineProcedure({
+  ...base,
+  name: 'academy.admin.courseGradebook',
+  kind: 'query',
+  path: 'admin.courseGradebook',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.course_not_found': 'NOT_FOUND', 'academy.permission_denied': 'FORBIDDEN', 'academy.role_not_found': 'NOT_FOUND' },
+  input: academyCourseGradebookInputSchema,
+  output: academyCourseGradebookSchema,
+  samples: [
+    { verdict: 'accept', input: { courseId: '33333333-3333-4333-8333-333333333333' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

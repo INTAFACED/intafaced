@@ -1,23 +1,15 @@
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { ComplianceCase, ComplianceEntityType, ComplianceInbox } from '@intafaced/contracts';
 import {
   COMPLIANCE_CASE_KINDS,
   COMPLIANCE_CASE_TYPES,
   COMPLIANCE_ENTITY_TYPES,
   complianceCaseSchema,
-  complianceCasesListInputSchema,
-  complianceCasesListOutputSchema,
-  complianceInboxEntrySchema,
-  complianceInboxSchema,
   complianceQueueBusinessKey,
-  complianceQueueDefineInputSchema,
-  router,
-  scopedProcedure,
-  type ComplianceCase,
-  type ComplianceEntityType,
-  type ComplianceInbox,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-compliance-cases';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   COMPLIANCE_CASE_ALREADY_OPEN,
   COMPLIANCE_CASE_NOT_FOUND,
@@ -31,6 +23,17 @@ import {
 } from '../codes.js';
 import { assertOpsListLimit } from '../list-limit.js';
 import { isMember, mergeFilter, type CaseCursor, type ComplianceStore } from './store.js';
+import {
+  OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+  OPS_COMPLIANCE_INBOXES_DEFINE,
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+} from '@intafaced/contracts/ops-compliance-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -110,50 +113,52 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
   };
 
   const inboxes = router({
-    list: reader.output(z.object({ inboxes: z.array(complianceInboxEntrySchema) })).query(({ ctx }) =>
-      guarded(async () => {
-        const s = need();
-        const at = now();
-        const rows = await s.inboxesFor(ctx.principal.userId);
-        const entries = await Promise.all(
-          rows.map(async ({ inbox, favourite }) => {
-            const { members: _members, ...visible } = inbox;
-            return { inbox: visible, member: true, favourite, openCount: await s.openCount(inbox.id, at) };
-          }),
-        );
-        return { inboxes: entries };
-      }),
+    list: mountRecord(
+      OPS_COMPLIANCE_INBOXES_LIST,
+      ({ ctx }) =>
+        guarded(async () => {
+          const s = need();
+          const at = now();
+          const rows = await s.inboxesFor(ctx.principal.userId);
+          const entries = await Promise.all(
+            rows.map(async ({ inbox, favourite }) => {
+              const { members: _members, ...visible } = inbox;
+              return { inbox: visible, member: true, favourite, openCount: await s.openCount(inbox.id, at) };
+            }),
+          );
+          return { inboxes: entries };
+        }),
+      opsRefusal,
     ),
 
     /** For the access panel: who owns the inbox and whether the caller is a member. No rows, no count. */
-    access: reader
-      .input(z.object({ inboxId: z.string().min(1).max(128) }))
-      .output(z.object({ inboxId: z.string(), name: z.string(), owner: z.string(), member: z.boolean() }))
-      .query(({ input, ctx }) =>
+    access: mountRecord(
+      OPS_COMPLIANCE_INBOXES_ACCESS,
+      ({ input, ctx }) =>
         guarded(async () => {
           const inbox = await need().getInbox(input.inboxId);
           if (!inbox) throw new OpsError(COMPLIANCE_INBOX_NOT_FOUND, 'No such inbox.');
           return { inboxId: inbox.id, name: inbox.name, owner: inbox.owner, member: isMember(inbox, ctx.principal.userId) };
         }),
-      ),
+      opsRefusal,
+    ),
 
-    setFavourite: reader
-      .input(z.object({ inboxId: z.string().min(1).max(128), favourite: z.boolean() }))
-      .output(z.object({ inboxId: z.string(), favourite: z.boolean() }))
-      .mutation(({ input, ctx }) =>
+    setFavourite: mountRecord(
+      OPS_COMPLIANCE_INBOXES_SET_FAVOURITE,
+      ({ input, ctx }) =>
         guarded(async () => {
           const s = need();
           await memberInbox(s, input.inboxId, ctx.principal.userId);
           await s.setFavourite(ctx.principal.userId, input.inboxId, input.favourite, now());
           return { inboxId: input.inboxId, favourite: input.favourite };
         }),
-      ),
+      opsRefusal,
+    ),
 
     /** Defines a queue. The business key is `compliance:queue:<name>:<version>`: a repeat returns the stored definition. */
-    define: scopedProcedure('admin:write', guards)
-      .input(complianceQueueDefineInputSchema)
-      .output(complianceInboxSchema)
-      .mutation(({ input, ctx }) =>
+    define: mountRecord(
+      OPS_COMPLIANCE_INBOXES_DEFINE,
+      ({ input, ctx }) =>
         guarded(async () => {
           const s = need();
           if (!ctx.principal.mfa) {
@@ -178,14 +183,14 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
             owner,
           );
         }),
-      ),
+      opsRefusal,
+    ),
   });
 
   const cases = router({
-    list: reader
-      .input(complianceCasesListInputSchema)
-      .output(complianceCasesListOutputSchema)
-      .query(({ input, ctx }) =>
+    list: mountRecord(
+      OPS_COMPLIANCE_CASES_LIST,
+      ({ input, ctx }) =>
         guarded(async () => {
           const s = need();
           const limit = assertOpsListLimit(input.limit, COMPLIANCE_CASES_LIST_LIMIT_UNSET);
@@ -206,12 +211,12 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
             groups: input.groupByReviewLevel ? found.groups : null,
           };
         }),
-      ),
+      opsRefusal,
+    ),
 
-    getById: reader
-      .input(z.object({ id: z.string().trim().min(1).max(128) }))
-      .output(complianceCaseSchema)
-      .query(({ input, ctx }) =>
+    getById: mountRecord(
+      OPS_COMPLIANCE_CASES_GET_BY_ID,
+      ({ input, ctx }) =>
         guarded(async () => {
           const s = need();
           const found = await s.getCase(input.id);
@@ -219,19 +224,20 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
           await memberInbox(s, found.inboxId, ctx.principal.userId);
           return found;
         }),
-      ),
+      opsRefusal,
+    ),
 
     /** The next open, unassigned case of the inbox in stable order. Null is an honest empty, not an error. */
-    next: reader
-      .input(z.object({ inboxId: z.string().min(1).max(128) }))
-      .output(z.object({ case: complianceCaseSchema.nullable() }))
-      .query(({ input, ctx }) =>
+    next: mountRecord(
+      OPS_COMPLIANCE_CASES_NEXT,
+      ({ input, ctx }) =>
         guarded(async () => {
           const s = need();
           const inbox = await memberInbox(s, input.inboxId, ctx.principal.userId);
           return { case: await s.nextUnassigned(inbox.id, inbox.filter, now()) };
         }),
-      ),
+      opsRefusal,
+    ),
 
     /** Stores a case. The case id is the business key, so a replay returns the stored case. */
     open: reader

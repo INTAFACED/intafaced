@@ -24,6 +24,12 @@ export type Room = {
    * after sign-in; every other public room (sign-in, sign-up, recovery, the front page) sends a signed-in person home.
    */
   returnAfterSignIn?: true;
+  /**
+   * A public room that keeps the public frame for a signed-in person: a sign-in, sign-up or recovery step, or a page an
+   * emailed link opens. Every other public room (help, status, notices, fees, developers…) opens inside the app frame,
+   * with the app header, whenever a session exists.
+   */
+  publicFrame?: true;
 };
 
 export type Area = 'public' | 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'team' | 'web3';

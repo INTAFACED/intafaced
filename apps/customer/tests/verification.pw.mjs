@@ -232,7 +232,7 @@ for (const [name, corrupt] of [
     const s = await network(context);
     s['kyc.status'] = (r) => reply(r, { tier: 'basic', records: corrupt(s.rows) });
     await login(page);
-    await expect(page.locator('.failure')).toBeVisible();
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
     await expect(records(page)).not.toContainText(a);
     expect(count(s)).toBe(0);
   });
@@ -242,7 +242,7 @@ test('failed GET hides selection, retry is read only, and independent request re
   await page.getByRole('button', { name: 'Inspect record ' + a, exact: true }).click();
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected record', exact: true })).toHaveCount(0);
   await review(page);
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -271,11 +271,11 @@ for (const status of ['approved', 'pending'])
     });
     await login(page);
     await submit(page, status === 'approved' ? 'basic' : 'full', 'DE');
-    await expect(originals(page)).toContainText('A record was returned.');
+    await expect(originals(page)).toContainText('Request received');
     await expect(originals(page)).toContainText(b);
     await expect(originals(page)).toContainText('US');
     await expect(originals(page)).toContainText('DE');
-    await expect(originals(page)).toContainText('does not say a new record was created');
+    await expect(originals(page)).toContainText('If you already had a request open, that one is shown');
     expect(count(s)).toBe(1);
     expect(await journal(page)).toBeNull();
     await shot(page, 'known-existing-' + status);
@@ -294,7 +294,7 @@ for (const [name, extra] of [
     await login(page);
     await submit(page);
     await expect(originals(page)).toContainText('Original result unknown');
-    await expect(originals(page)).not.toContainText('A record was returned.');
+    await expect(originals(page)).not.toContainText('Request received');
     expect(JSON.parse(await journal(page))).toHaveLength(1);
     expect(count(s)).toBe(1);
   });
@@ -320,7 +320,7 @@ test('unknown A → native Help/return → B exactly one reviewed POST → A ori
   s.owner = other;
   await login(page);
   await submit(page, 'basic', 'FR');
-  await expect(originals(page)).toContainText('A record was returned.');
+  await expect(originals(page)).toContainText('Request received');
   expect(s.writes.filter((w) => w.procedure === 'kyc.submit' && w.actor === other)).toHaveLength(1);
   await signOut(page);
   s.owner = owner;
@@ -359,7 +359,7 @@ test('known cleanup failure stays known; exact local finalization sends no POST'
   }, key);
   await submit(page);
   await expect(originals(page)).toContainText('Local record still saved');
-  await expect(originals(page)).toContainText('A record was returned.');
+  await expect(originals(page)).toContainText('Request received');
   await expect(originals(page)).not.toContainText('Original result unknown');
   const original = await journal(page);
   await page.evaluate(() => window.restoreVerificationStorage());
@@ -449,7 +449,7 @@ test('late reply after native route departure keeps durable original and cannot 
   await nativeReturn(page);
   await expect(originals(page)).toContainText('Original result unknown');
   expect(await journal(page)).toBe(before);
-  await expect(originals(page)).not.toContainText('A record was returned.');
+  await expect(originals(page)).not.toContainText('Request received');
 });
 test('independent saved originals are retained and never replaced by list/null/new login', async ({ context, page }) => {
   const s = await network(context, { rows: [], tier: 'none' });
@@ -506,7 +506,7 @@ test('real SessionProvider refresh during held POST leaves original durable unkn
   await expect.poll(() => s.refreshes).toBe(1);
   hold.release();
   await expect(originals(page)).toContainText('Original result unknown');
-  await expect(originals(page)).not.toContainText('A record was returned.');
+  await expect(originals(page)).not.toContainText('Request received');
   expect(await journal(page)).toBe(before);
   expect(count(s)).toBe(1);
 });
@@ -536,7 +536,7 @@ test('native locale change preserves frozen review terms and only exact two-fiel
   await review(page, 'institutional', 'fr');
   await changeLocale(context, 'fr');
   await expect(page.getByRole('dialog')).toContainText('Institutionnel');
-  await page.getByRole('dialog').locator('.button--primary').click();
+  await page.getByRole('dialog').locator(':is(.button--primary, .lt-button-primary)').click();
   await expect(page.locator('.verification__original')).toContainText('Un dossier a été renvoyé.');
   expect(s.privateWrites.filter((r) => r.procedure === 'kyc.submit').map((r) => r.input)).toEqual([
     { tier: 'institutional', jurisdiction: 'FR' },
@@ -584,7 +584,7 @@ test('unknown320 plus failed current GET retains original; retry only reads', as
   const before = await journal(page);
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
   await expect(records(page)).not.toContainText(a);
   await shot(page, 'unknown320-failed-current-read');
   delete s['kyc.status'];

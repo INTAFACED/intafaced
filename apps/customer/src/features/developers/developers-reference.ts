@@ -1113,6 +1113,22 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
   },
   {
+    name: 'venuePositionMode',
+    method: 'GET',
+    path: '/api/v1/venue/position-mode',
+    product: 'accounts',
+
+    summary: 'The position mode, one-way or hedge, your account holds one venue perpetual in, as the venue reports it',
+  },
+  {
+    name: 'venueStakingAccount',
+    method: 'GET',
+    path: '/api/v1/venue/staking-account',
+    product: 'accounts',
+
+    summary: 'Your staking balance, delegations with each lock-up’s end, the unstaking queue and rewards, as the venue reports them',
+  },
+  {
     name: 'venueVaultHoldings',
     method: 'GET',
     path: '/api/v1/venue/vault-holdings',
@@ -1167,6 +1183,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
+  },
+  {
+    name: 'venueStaking',
+    method: 'GET',
+    path: '/api/v1/venue/staking',
+    product: 'accounts',
+
+    summary: 'The venue’s validators, reward rate, staking fee-discount tiers, lock-up and unstaking queue as it publishes them',
   },
   {
     name: 'venueVaults',
@@ -2130,6 +2154,7 @@ export const STREAM_REFERENCE: readonly Stream[] = [
   { door: 'private', channel: 'orders', product: 'spot', private: true },
   { door: 'private', channel: 'fills', product: 'spot', private: true },
   { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'private', channel: 'balances', product: 'accounts', private: true },
   { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
 

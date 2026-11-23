@@ -171,8 +171,9 @@ jobs:
   # force-push), so its checks, journeys and seal run on a head that holds the fix and it merges if it is otherwise green.
   # A re-run can't: it keeps its old merge commit, which still holds the break. (Failure it prevents: main red on
   # J-campaigns-01 from 15:45 UTC on 12 Nov held 11 armed pull requests, and each waited for a person to update it.)
-  # An App token: a branch updated with GITHUB_TOKEN starts no workflow. Its key is INTAFACED_APP_KEY in `ci-review`,
-  # which allows main alone, as main-bisect.yml's revert-open. See tooling/ci/journeys-revive.mjs heldTick.
+  # An App token, for the branch update alone: a branch updated with GITHUB_TOKEN starts no workflow. Its key is
+  # INTAFACED_APP_KEY in `ci-review`, which allows main alone, as main-bisect.yml's revert-open. See
+  # tooling/ci/journeys-revive.mjs heldTick.
   held:
     name: Bring pull requests held by main's lost reds onto a fresh head
     if: >-
@@ -184,7 +185,9 @@ jobs:
     environment: ci-review
     permissions:
       contents: read
-      issues: write # name a refusal; the App token keeps its own scope
+      actions: read # every read goes on this token, not the App's, whose hourly budget every agent's reads share (project-state #3718)
+      pull-requests: read # the open pull requests
+      issues: write # name a refusal; the App token, minted only for a branch update, keeps its own scope
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

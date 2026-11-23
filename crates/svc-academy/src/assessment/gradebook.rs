@@ -8,7 +8,7 @@ use postgres::GenericClient;
 
 use crate::db::Store;
 use service_kit::json::Json;
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div_count, parse_amount};
 use service_kit::schema::js_trim;
 
 use super::trail::EFFECTIVE_SCORE;
@@ -18,27 +18,39 @@ use super::{
 };
 use crate::errors::Refusal;
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
-const HOUR_MS: Amount = 3_600_000;
-const DAY_MS: Amount = 86_400_000;
-const CENT: Amount = SCALE / 100;
+// A score, a weight and a deduction here are fractions, not money: a plain scaled integer (10^-18) that borrows the
+// ledger client's decimal reading, writing and division through the three helpers below.
+const SCALE: i128 = 1_000_000_000_000_000_000;
+const HOUR_MS: i128 = 3_600_000;
+const DAY_MS: i128 = 86_400_000;
+const CENT: i128 = SCALE / 100;
 
-/// A stored or validated decimal as an amount (a value the schema or the database already holds to form).
-fn amount(text: &str) -> Amount {
-    parse_amount(text).unwrap_or(0)
+/// A stored or validated decimal as a scaled fraction (a value the schema or the database already holds to form).
+fn amount(text: &str) -> i128 {
+    parse_amount(text).unwrap_or(Amount::ZERO).scaled()
+}
+
+/// A scaled fraction as the shortest decimal string (`formatAmount`).
+pub fn format_fraction(value: i128) -> String {
+    format_amount(Amount::from_scaled(value))
+}
+
+/// `a * b / d` on scaled fractions, cut toward zero (`divideScaled`).
+fn fraction_mul_div(a: i128, b: i128, d: i128) -> i128 {
+    mul_div_count(a, b, d, Rounding::Trunc)
 }
 
 /// `fractionOf(score, points)`: null when there are no points to divide by.
-pub fn fraction_of(score: &str, points: &str) -> Option<Amount> {
+pub fn fraction_of(score: &str, points: &str) -> Option<i128> {
     let bottom = amount(points);
-    (bottom != 0).then(|| mul_div(amount(score), SCALE, bottom, Rounding::Trunc))
+    (bottom != 0).then(|| fraction_mul_div(amount(score), SCALE, bottom))
 }
 
 /// `typeAverage(scores, dropLowest)`.
 pub fn type_average(
-    scores: &[(String, Amount)],
+    scores: &[(String, i128)],
     drop_lowest: i64,
-) -> (Option<Amount>, Vec<String>, Vec<String>) {
+) -> (Option<i128>, Vec<String>, Vec<String>) {
     if scores.is_empty() {
         return (None, Vec::new(), Vec::new());
     }
@@ -51,22 +63,22 @@ pub fn type_average(
         .unwrap_or(0)
         .min(sorted.len() - 1);
     let (dropped, kept) = sorted.split_at(drop);
-    let sum: Amount = kept.iter().map(|s| s.1).sum();
+    let sum: i128 = kept.iter().map(|s| s.1).sum();
     let mut counted: Vec<String> = kept.iter().map(|s| s.0.clone()).collect();
     counted.sort();
     let mut dropped: Vec<String> = dropped.iter().map(|s| s.0.clone()).collect();
     dropped.sort();
     (
-        Some(sum / Amount::try_from(kept.len()).unwrap_or(1)),
+        Some(sum / i128::try_from(kept.len()).unwrap_or(1)),
         counted,
         dropped,
     )
 }
 
 /// `weightedTotal(types)`.
-pub fn weighted_total(types: &[(String, Option<Amount>)]) -> Option<Amount> {
-    let mut weights: Amount = 0;
-    let mut sum: Amount = 0;
+pub fn weighted_total(types: &[(String, Option<i128>)]) -> Option<i128> {
+    let mut weights: i128 = 0;
+    let mut sum: i128 = 0;
     for (weight, average) in types {
         let Some(avg) = average else { continue };
         let w = amount(weight);
@@ -77,14 +89,14 @@ pub fn weighted_total(types: &[(String, Option<Amount>)]) -> Option<Amount> {
 }
 
 /// `weightSum(weights)`.
-pub fn weight_sum<'a>(weights: impl Iterator<Item = &'a str>) -> Amount {
+pub fn weight_sum<'a>(weights: impl Iterator<Item = &'a str>) -> i128 {
     weights.map(amount).sum()
 }
 
 /// `policyOf(row)`: a late policy as the contract carries it, or none.
 pub fn policy_of(grace: Option<&str>, deduction: Option<&str>) -> Option<(String, String)> {
     match (grace, deduction) {
-        (Some(g), Some(d)) => Some((format_amount(amount(g)), format_amount(amount(d)))),
+        (Some(g), Some(d)) => Some((format_fraction(amount(g)), format_fraction(amount(d)))),
         _ => None,
     }
 }
@@ -130,17 +142,17 @@ pub fn late_score(
         return (entered.to_owned(), None);
     };
     let grace_ms = amount(grace) * HOUR_MS / SCALE;
-    let late_ms = Amount::from(submitted_at - due) - grace_ms;
+    let late_ms = i128::from(submitted_at - due) - grace_ms;
     if late_ms <= 0 {
         return (entered.to_owned(), None);
     }
     let days = (late_ms + DAY_MS - 1) / DAY_MS;
     let asked = days * amount(deduction);
     let share = asked.min(SCALE);
-    let off = ((mul_div(amount(points), share, SCALE, Rounding::Trunc) + CENT - 1) / CENT) * CENT;
+    let off = ((fraction_mul_div(amount(points), share, SCALE) + CENT - 1) / CENT) * CENT;
     let kept = amount(entered) - off;
-    let score = format_amount(kept.max(0));
-    if score == format_amount(amount(entered)) {
+    let score = format_fraction(kept.max(0));
+    if score == format_fraction(amount(entered)) {
         (entered.to_owned(), None)
     } else {
         (score, Some(entered.to_owned()))
@@ -170,7 +182,9 @@ fn normal(types: &[Json]) -> Vec<Json> {
                 ),
                 (
                     "weight",
-                    Json::String(format_amount(amount(field_str(t, "weight").unwrap_or("0")))),
+                    Json::String(format_fraction(amount(
+                        field_str(t, "weight").unwrap_or("0"),
+                    ))),
                 ),
                 (
                     "dropLowest",
@@ -186,7 +200,7 @@ fn normal(types: &[Json]) -> Vec<Json> {
 }
 
 /// `quizScore(policy, attempts)`.
-fn quiz_score(policy: Option<&str>, attempts: &[(i32, Amount)]) -> Amount {
+fn quiz_score(policy: Option<&str>, attempts: &[(i32, i128)]) -> i128 {
     let mut by_number = attempts.to_vec();
     by_number.sort_by_key(|a| a.0);
     let firsts = by_number.first().map_or(0, |a| a.1);
@@ -194,8 +208,8 @@ fn quiz_score(policy: Option<&str>, attempts: &[(i32, Amount)]) -> Amount {
         Some("latest") => by_number.last().map_or(0, |a| a.1),
         Some("first") => firsts,
         Some("average") => {
-            by_number.iter().map(|a| a.1).sum::<Amount>()
-                / Amount::try_from(by_number.len().max(1)).unwrap_or(1)
+            by_number.iter().map(|a| a.1).sum::<i128>()
+                / i128::try_from(by_number.len().max(1)).unwrap_or(1)
         }
         _ => by_number.iter().fold(firsts, |best, a| best.max(a.1)),
     }
@@ -230,8 +244,8 @@ fn items<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Vec<Item>, Refu
 #[derive(Clone)]
 struct Cell {
     state: &'static str,
-    score: Option<Amount>,
-    entered: Option<Amount>,
+    score: Option<i128>,
+    entered: Option<i128>,
 }
 
 const NOT_ATTEMPTED: Cell = Cell {
@@ -249,10 +263,10 @@ const PENDING: Cell = Cell {
 type CellKey = (String, String);
 
 /// One assignment type's line for a learner: `(id, title, score, counted item ids, dropped item ids)`.
-type TypeRow = (String, String, Option<Amount>, Vec<String>, Vec<String>);
+type TypeRow = (String, String, Option<i128>, Vec<String>, Vec<String>);
 
-fn opt_fraction(f: Option<Amount>) -> Json {
-    f.map_or(Json::Null, |v| Json::String(format_amount(v)))
+fn opt_fraction(f: Option<i128>) -> Json {
+    f.map_or(Json::Null, |v| Json::String(format_fraction(v)))
 }
 
 fn strings(v: &[String]) -> Json {
@@ -388,7 +402,7 @@ pub fn view_in<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json, Ref
         .map(|i| (i.id.as_str(), i.scoring_policy.as_deref()))
         .collect();
     // Insertion order matters for the cells only by key, so a map keyed like the TypeScript's suffices.
-    let mut graded: Vec<(CellKey, Vec<(i32, Amount)>)> = Vec::new();
+    let mut graded: Vec<(CellKey, Vec<(i32, i128)>)> = Vec::new();
     for a in &attempts {
         let item_id: String = cell(a, "item_id")?;
         if !quiz_policy.contains_key(item_id.as_str()) {
@@ -440,7 +454,7 @@ pub fn view_in<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json, Ref
             let by_type: Vec<TypeRow> = types
                 .iter()
                 .map(|t| {
-                    let scored: Vec<(String, Amount)> = array(field(t, "itemIds"))
+                    let scored: Vec<(String, i128)> = array(field(t, "itemIds"))
                         .iter()
                         .filter_map(|i| {
                             if let Json::String(s) = i {
@@ -611,7 +625,7 @@ pub fn save_policy(
             return refuse(
                 format!(
                     "academy.weights_invalid sum={}: the weights must add up to exactly 1",
-                    format_amount(sum)
+                    format_fraction(sum)
                 ),
                 "academy.weights_invalid",
             );
@@ -756,21 +770,21 @@ mod tests {
     #[test]
     fn fractions_cut_and_drop_lowest() {
         assert_eq!(
-            fraction_of("2", "3").map(format_amount).as_deref(),
+            fraction_of("2", "3").map(format_fraction).as_deref(),
             Some("0.666666666666666666")
         );
         assert_eq!(fraction_of("1", "0"), None);
         let s = |id: &str, v: &str| (id.to_owned(), amount(v));
         let (avg, counted, dropped) = type_average(&[s("b", "0.5"), s("a", "0.5"), s("c", "1")], 1);
-        assert_eq!(avg.map(format_amount).as_deref(), Some("0.75"));
+        assert_eq!(avg.map(format_fraction).as_deref(), Some("0.75"));
         assert_eq!(counted, vec!["b".to_owned(), "c".to_owned()]);
         assert_eq!(dropped, vec!["a".to_owned()]);
         let (avg, _, dropped) = type_average(&[s("a", "0.2")], 3);
-        assert_eq!(avg.map(format_amount).as_deref(), Some("0.2"));
+        assert_eq!(avg.map(format_fraction).as_deref(), Some("0.2"));
         assert!(dropped.is_empty());
         assert_eq!(
             weighted_total(&[("0.6".into(), Some(amount("0.5"))), ("0.4".into(), None)])
-                .map(format_amount)
+                .map(format_fraction)
                 .as_deref(),
             Some("0.5")
         );

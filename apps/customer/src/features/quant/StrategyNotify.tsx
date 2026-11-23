@@ -3,12 +3,13 @@ import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-s
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { channelStatus } from '../../screens/notifications/notify-api';
-import { Read, Select, TextArea } from '../more';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
 import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from '@intafaced/contracts/quant-alert-procedures';
+import { Button } from '@intafaced/ui/lit';
+import { CheckField, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -50,8 +51,8 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
   return (
     <section aria-label={t('channelsTitle')} data-testid="quant-notify">
       <h3>{t('channelsTitle')}</h3>
-      <p className="muted">{t('channelsIntro')}</p>
-      <Read resource={settings.resource} retry={settings.reload}>
+      <p>{t('channelsIntro')}</p>
+      <KitRead resource={settings.resource} retry={settings.reload}>
         {(saved) => {
           const chosen: Set<Choice> = picked ?? new Set<Choice>(saved.channels.filter((c) => c !== 'inapp'));
           const unconfigured = (channel: Choice) =>
@@ -83,26 +84,21 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
               </p>
               <fieldset>
                 <legend>{t('channelsTitle')}</legend>
-                <label className="quant-check-line">
-                  <input className="quant-run-check" type="checkbox" checked disabled /> {t('inappAlways')}
-                </label>
+                <CheckField label={t('inappAlways')} checked disabled onChange={() => undefined} />
                 {CHOICES.map((channel) => (
-                  <label key={channel} className="quant-check-line">
-                    <input
-                      className="quant-run-check"
-                      type="checkbox"
-                      checked={chosen.has(channel)}
-                      onChange={(event) => {
-                        const next = new Set(chosen);
-                        if (event.currentTarget.checked) next.add(channel);
-                        else next.delete(channel);
-                        setPicked(next);
-                        setNote(null);
-                        setRefused(null);
-                      }}
-                    />{' '}
-                    {t(channel)}
-                  </label>
+                  <CheckField
+                    key={channel}
+                    label={t(channel)}
+                    checked={chosen.has(channel)}
+                    onChange={(checked) => {
+                      const next = new Set(chosen);
+                      if (checked) next.add(channel);
+                      else next.delete(channel);
+                      setPicked(next);
+                      setNote(null);
+                      setRefused(null);
+                    }}
+                  />
                 ))}
               </fieldset>
               {CHOICES.filter((channel) => chosen.has(channel) && unconfigured(channel)).map((channel) => (
@@ -110,10 +106,10 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
                   {t('vendorNotice', { channel: t(channel) })}
                 </p>
               ))}
-              <Button onClick={() => void save()} disabled={busy}>
+              <Button tone="primary" onClick={() => void save()} disabled={busy}>
                 {t('save')}
               </Button>
-              {busy && <Loading label={t('saving')} />}
+              {busy && <Waiting label={t('saving')} />}
               {note && (
                 <p role="status" data-testid="quant-notify-note">
                   {note}
@@ -124,11 +120,11 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
                   {refused}
                 </p>
               )}
-              {failure && <Failure result={failure} retry={() => void save()} />}
+              {failure && <FailureNote result={failure} retry={() => void save()} />}
             </>
           );
         }}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -147,13 +143,13 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
   return (
     <section aria-label={t('alertsTitle')} data-testid="quant-alerts">
       <h3>{t('alertsTitle')}</h3>
-      <p className="muted">{t('alertsIntro')}</p>
+      <p>{t('alertsIntro')}</p>
       {note && (
         <p role="status" data-testid="quant-alerts-note">
           {note}
         </p>
       )}
-      <Read resource={list.resource} retry={list.reload}>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(data) => (
           <>
             {opening ? (
@@ -169,6 +165,7 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
               />
             ) : (
               <Button
+                tone="primary"
                 onClick={() => {
                   setNote(null);
                   setOpening(true);
@@ -178,9 +175,9 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
               </Button>
             )}
             {data.alerts.length === 0 ? (
-              <EmptyState title={t('noAlerts')} />
+              <EmptyNote title={t('noAlerts')} />
             ) : (
-              <DataTable label={t('alertsTitle')} headers={[t('version'), t('event'), t('template'), t('createdAt')]}>
+              <ScrollTable label={t('alertsTitle')} headers={[t('version'), t('event'), t('template'), t('createdAt')]}>
                 {data.alerts.map((alert) => (
                   <tr key={alert.alertId} data-testid="quant-alert" data-alert-id={alert.alertId} data-version={alert.strategyVersion}>
                     <td>{t('versionOf', { version: alert.strategyVersion })}</td>
@@ -189,11 +186,11 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
                     <td lang="zxx">{utcText(alert.createdAt)}</td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
             )}
           </>
         )}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -236,7 +233,7 @@ function AlertForm(props: {
         void create();
       }}
     >
-      <Select
+      <SelectField
         label={t('version')}
         value={version}
         onChange={setVersion}
@@ -244,26 +241,26 @@ function AlertForm(props: {
           .sort((a, b) => b.version - a.version)
           .map((row) => ({ value: String(row.version), label: t('versionOf', { version: row.version }) }))}
       />
-      <TextArea label={t('template')} value={template} onChange={setTemplate} maxLength={QUANT_ALERT_TEMPLATE_MAX} />
-      <p className="muted">{t('fields', { fields: QUANT_ALERT_FIELDS.map((field) => `{${field}}`).join(', ') })}</p>
+      <TextAreaField label={t('template')} value={template} onChange={setTemplate} maxLength={QUANT_ALERT_TEMPLATE_MAX} />
+      <p>{t('fields', { fields: QUANT_ALERT_FIELDS.map((field) => `{${field}}`).join(', ') })}</p>
       {template.trim() && (
         <p data-testid="quant-alert-preview" lang="zxx">
           {t('preview', { text: preview })}
         </p>
       )}
-      <Button type="submit" disabled={busy}>
+      <Button tone="primary" type="submit" disabled={busy}>
         {t('create')}
       </Button>
-      <Button type="button" variant="secondary" onClick={props.onCancel} disabled={busy}>
+      <Button tone="secondary" type="button" onClick={props.onCancel} disabled={busy}>
         {t('cancel')}
       </Button>
-      {busy && <Loading label={t('creating')} />}
+      {busy && <Waiting label={t('creating')} />}
       {invalid && (
         <p role="alert" data-testid="quant-alert-refusal" data-code="alert.template_invalid">
           {t('invalid', { detail: invalid })}
         </p>
       )}
-      {failure && <Failure result={failure} retry={() => void create()} />}
+      {failure && <FailureNote result={failure} retry={() => void create()} />}
     </form>
   );
 }

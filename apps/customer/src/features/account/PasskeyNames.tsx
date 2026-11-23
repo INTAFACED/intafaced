@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Field, Loading } from '../../shared/ui';
+import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { passkeyNamesCopy as copy } from './passkey-names-copy';
@@ -142,7 +143,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
     return (
       <form
         ref={form}
-        className="stack"
+
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
           event.preventDefault();
@@ -160,18 +161,18 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
           data-security-sensitive="true"
         />
         {problemText && (
-          <p className="error-text" role="alert">
+          <p className="lt-hint" role="alert">
             {problemText}
           </p>
         )}
-        <div className="row">
-          <Button type="submit" disabled={busy}>
+        <div className="lt-actions">
+          <Button tone="primary" type="submit" disabled={busy}>
             {busy ? t('working') : t('save')}
           </Button>
-          <Button variant="secondary" disabled={busy} onClick={() => form.current && onConfirm('passkey', form.current)}>
+          <Button tone="secondary" disabled={busy} onClick={() => form.current && onConfirm('passkey', form.current)}>
             {t('savePasskey')}
           </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => (setEditing(null), setProblem(null))}>
+          <Button tone="quiet" disabled={busy} onClick={() => (setEditing(null), setProblem(null))}>
             {t('cancel')}
           </Button>
         </div>
@@ -185,26 +186,26 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
   return (
     <section
       data-testid="security__passkey-names"
-      className="security__passkey-names security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <p className="muted">{list.maxPerAccount === null ? t('noLimit') : t('limit', { count: list.maxPerAccount })}</p>
+      <p className="lt-hint">{list.maxPerAccount === null ? t('noLimit') : t('limit', { count: list.maxPerAccount })}</p>
       {note && (
-        <p className="notice" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       )}
       {failure && <Failure result={failure} />}
-      <div className="security__second-step" role="group" aria-label={t('secondStepTitle')}>
+      <div role="group" aria-label={t('secondStepTitle')}>
         <h3>{t('secondStepTitle')}</h3>
         <p>{list.secondStep ? t('secondStepOn') : list.passkeys.length === 0 ? t('secondStepNeedsPasskey') : t('secondStepOff')}</p>
         {editing?.kind === 'secondStep' ? (
           confirmForm((method, element) => void secondStep(!list.secondStep, method, element), null)
         ) : list.secondStep || list.passkeys.length > 0 ? (
-          <Button variant="secondary" onClick={() => open({ kind: 'secondStep' })}>
+          <Button tone="secondary" onClick={() => open({ kind: 'secondStep' })}>
             {list.secondStep ? t('turnOff') : t('turnOn')}
           </Button>
         ) : null}
@@ -212,29 +213,25 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       {list.passkeys.length === 0 ? (
         <EmptyState title={t('empty')} />
       ) : (
-        <ul data-testid="security__rows" className="security__rows">
+        <ul data-testid="security__rows">
           {list.passkeys.map((key) => (
             <li
               key={key.credentialId}
               data-testid="security__row"
-              className={
-                editing && 'credentialId' in editing && editing.credentialId === key.credentialId
-                  ? 'security__row security__row--editing'
-                  : 'security__row'
-              }
+              data-editing={editing && 'credentialId' in editing && editing.credentialId === key.credentialId ? '' : undefined}
             >
               <div>
                 <strong>{key.label ?? t('unnamed')}</strong>{' '}
-                <span data-testid="security__ref" className="security__ref">
+                <span data-testid="security__ref" className="lt-ref">
                   {t(key.kind)}
                 </span>
-                <span className="muted">
+                <span className="lt-hint">
                   {' · '}
                   {t('added', { time: stamp(key.createdAt, timeZone) })}
                   {' · '}
                   {key.lastUsedAt ? t('lastUsed', { time: stamp(key.lastUsedAt, timeZone) }) : t('neverUsed')}
                 </span>
-                <span className="security__purposes">{usedFor(key.purposes)}</span>
+                <span>{usedFor(key.purposes)}</span>
               </div>
               {editing?.kind === 'rename' && editing.credentialId === key.credentialId ? (
                 confirmForm(
@@ -244,11 +241,11 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
               ) : editing?.kind === 'purposes' && editing.credentialId === key.credentialId ? (
                 confirmForm(
                   (method, element) => void choose(key.credentialId, method, element),
-                  <fieldset className="stack">
+                  <fieldset>
                     <legend>{t('purposesLegend')}</legend>
-                    <p className="muted">{t('purposesHint')}</p>
+                    <p className="lt-hint">{t('purposesHint')}</p>
                     {PASSKEY_PURPOSES.map((purpose) => (
-                      <label key={purpose} className="security__check">
+                      <label key={purpose}>
                         <input
                           type="checkbox"
                           name={`purpose-${purpose}`}
@@ -263,14 +260,14 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
               ) : (
                 <>
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     aria-label={t('renameLabel', { id: key.label ?? key.credentialId })}
                     onClick={() => open({ kind: 'rename', credentialId: key.credentialId })}
                   >
                     {t('rename')}
                   </Button>
                   <Button
-                    variant="secondary"
+                    tone="secondary"
                     aria-label={t('chooseLabel', { id: key.label ?? key.credentialId })}
                     onClick={() => open({ kind: 'purposes', credentialId: key.credentialId })}
                   >
@@ -282,8 +279,8 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
           ))}
         </ul>
       )}
-      <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={reload}>
           {t('refresh')}
         </Button>
       </div>

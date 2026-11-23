@@ -11,6 +11,7 @@ import {
   type PayCallResult,
   type TierView,
   type TreasuryData,
+  payRecordRead,
 } from '@/lib/merchants';
 import type { FounderMerchantSection, FounderMerchantSectionPage, MerchantMetricsSnapshot } from '@intafaced/contracts';
 import type { FounderScreen } from './screens';
@@ -28,6 +29,7 @@ import {
   loadRiskSummary,
   loadSection,
 } from './reads';
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from '@intafaced/contracts/pay-fraud-procedures';
 
 export interface FraudRow {
   id: string;
@@ -121,10 +123,9 @@ export async function loadOps(
     expiresAt: ctx.session.expiresAt,
   };
   if (screen.id === 'F30' || screen.id === 'F31')
-    data.fraud = await payCall(
+    data.fraud = await payRecordRead(
       ctx,
-      'fraud.listOpenReviews',
-      'GET',
+      PAY_FRAUD_LIST_OPEN_REVIEWS,
       { limit: 100, ...(merchant ? { merchantId: merchant } : {}) },
       parseFraud,
     );

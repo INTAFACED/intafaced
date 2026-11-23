@@ -157,7 +157,7 @@ fn classify(hold: Option<&str>, required: Amount) -> Option<HoldVerdict> {
     let Ok(held) = parse_amount(text) else {
         return Some(HoldVerdict::Unreadable);
     };
-    if held <= 0 {
+    if held <= Amount::ZERO {
         Some(HoldVerdict::Missing)
     } else if held < required {
         Some(HoldVerdict::Short)
@@ -183,7 +183,7 @@ pub fn enforce_replay_holds(
     for order in &subjects {
         let verdict = match lookup.read(order) {
             // Margin needs no amount to compare with: any positive balance confirms it.
-            Ok(Some(Hold::FuturesMargin(m))) => classify(Some(&m), 0),
+            Ok(Some(Hold::FuturesMargin(m))) => classify(Some(&m), Amount::ZERO),
             Ok(hold) => {
                 let text = match &hold {
                     Some(Hold::Order(t)) => Some(t.as_str()),

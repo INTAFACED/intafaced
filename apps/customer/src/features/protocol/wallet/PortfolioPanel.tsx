@@ -2,27 +2,25 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { ProtocolPortfolio } from '@intafaced/contracts/protocol-portfolio';
 import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
 import { usePreferences } from '../../../shared/preferences';
-import { Button, DataTable, EmptyState, Failure, Loading, Page, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Failure, Loading, Panel } from '../volt/parts';
 import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { portfolioCopy, type PortfolioTranslate } from './portfolio-copy';
 import { tokenAmount, usdDisplay } from './portfolio-format';
 import { usePolled } from './use-polled';
+import { conventionPath } from './portfolio-paths';
 import { useWallet } from './WalletProvider';
 
 /** How often the portfolio is read again while it is open: a new block can change any figure. */
 const READ_EVERY_MS = 3_000;
 
-/** Every convention with its own page under /wallet/conventions/<id>. */
-export const CONVENTIONS = ['pnl', 'drawdown', 'prices', 'entry', 'modes'] as const;
 /** The ones the profit and loss view links. */
 const PNL_CONVENTIONS = ['pnl', 'drawdown', 'prices', 'entry'] as const;
-export type Convention = (typeof CONVENTIONS)[number];
-export const conventionPath = (id: Convention) => `/wallet/conventions/${id}`;
 export const holdingPath = (token: string) => `/wallet/tokens/${token.toLowerCase()}`;
 
 /** The connected wallet's portfolio, read again every few seconds; null with no wallet on this network. */
-function usePortfolio() {
+export function usePortfolio() {
   const wallet = useWallet();
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
@@ -35,7 +33,7 @@ function usePortfolio() {
   return { connected, ...read };
 }
 
-function ReadState({
+export function ReadState({
   failure,
   retry,
   t,
@@ -54,7 +52,7 @@ function ReadState({
     );
   return (
     <>
-      <p className="muted">{t('readFailed')}</p>
+      <p className="lt-hint">{t('readFailed')}</p>
       <Failure result={failure} retry={retry} />
     </>
   );
@@ -73,7 +71,7 @@ export function PortfolioPanel({ positions }: { positions?: ReactNode }) {
   return (
     <>
       <Panel title={t('portfolioTitle')} aria-label={t('portfolioTitle')} data-portfolio>
-        <p className="muted">{t('portfolioNote')}</p>
+        <p className="lt-hint">{t('portfolioNote')}</p>
         {!connected ? (
           <EmptyState title={t('needsWallet')} />
         ) : !data ? (
@@ -81,19 +79,19 @@ export function PortfolioPanel({ positions }: { positions?: ReactNode }) {
         ) : (
           <>
             <Totals data={data} t={t} />
-            <div className="protocol-actions" role="group" aria-label={t('portfolioTitle')}>
+            <div className="lt-actions" role="group" aria-label={t('portfolioTitle')}>
               <Button
-                variant={view === 'holdings' ? 'primary' : 'secondary'}
+                tone={view === 'holdings' ? 'primary' : 'secondary'}
                 aria-pressed={view === 'holdings'}
                 onClick={() => setView('holdings')}
               >
                 {t('holdingsButton')}
               </Button>
-              <Button variant={view === 'pnl' ? 'primary' : 'secondary'} aria-pressed={view === 'pnl'} onClick={() => setView('pnl')}>
+              <Button tone={view === 'pnl' ? 'primary' : 'secondary'} aria-pressed={view === 'pnl'} onClick={() => setView('pnl')}>
                 {t('pnlButton')}
               </Button>
               <Button
-                variant={view === 'positions' ? 'primary' : 'secondary'}
+                tone={view === 'positions' ? 'primary' : 'secondary'}
                 aria-pressed={view === 'positions'}
                 onClick={() => setView('positions')}
               >
@@ -117,10 +115,10 @@ export function PortfolioPanel({ positions }: { positions?: ReactNode }) {
 function Totals({ data, t }: { data: ProtocolPortfolio; t: PortfolioTranslate }) {
   return (
     <>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('totalLabel')}</dt>
-          <dd className="numeric" data-testid="portfolio-total">
+          <dd className="lt-mono" data-testid="portfolio-total">
             {usdDisplay(data.totalUsd)}
           </dd>
         </div>
@@ -154,11 +152,11 @@ function Holdings({ data, t }: { data: ProtocolPortfolio; t: PortfolioTranslate 
         data.holdings.map((row) => (
           <tr key={row.token} data-token={row.token}>
             <td>
-              <a href={holdingPath(row.token)}>{row.name}</a> <span className="muted">{row.symbol}</span>
+              <a href={holdingPath(row.token)}>{row.name}</a> <span className="lt-hint">{row.symbol}</span>
             </td>
-            <td className="numeric">{tokenAmount(row.balance, row.decimals)}</td>
-            <td className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
-            <td className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
+            <td className="lt-mono">{tokenAmount(row.balance, row.decimals)}</td>
+            <td className="lt-mono">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</td>
+            <td className="lt-mono">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</td>
           </tr>
         ))
       )}
@@ -173,16 +171,16 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
       {data.pnl === null ? (
         <EmptyState title={t('pnlNone')} />
       ) : (
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('pnlLabel')}</dt>
-            <dd className="numeric" data-testid="pnl">
+            <dd className="lt-mono" data-testid="pnl">
               {usdDisplay(data.pnl.usd)}
             </dd>
           </div>
           <div>
             <dt>{t('drawdownLabel')}</dt>
-            <dd className="numeric" data-testid="max-drawdown">
+            <dd className="lt-mono" data-testid="max-drawdown">
               {data.drawdown === null
                 ? t('drawdownNone')
                 : t('drawdownText', {
@@ -197,7 +195,7 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
         </dl>
       )}
       {data.pnl && (
-        <p className="muted" data-testid="pnl-excludes">
+        <p className="lt-hint" data-testid="pnl-excludes">
           {t('pnlExcludes', {
             deposits: usdDisplay(data.pnl.depositsUsd),
             withdrawals: usdDisplay(data.pnl.withdrawalsUsd),
@@ -205,7 +203,7 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
           })}
         </p>
       )}
-      <ul aria-label={t('conventionsLabel')} className="protocol-actions">
+      <ul aria-label={t('conventionsLabel')} className="lt-actions">
         {PNL_CONVENTIONS.map((id) => (
           <li key={id}>
             <a href={conventionPath(id)}>{t(`conv_${id}`)}</a>
@@ -213,83 +211,5 @@ function ProfitAndLoss({ data, t }: { data: ProtocolPortfolio; t: PortfolioTrans
         ))}
       </ul>
     </Panel>
-  );
-}
-
-/**
- * /wallet/tokens/<address> (J-dex-protocol-06 #3): one token the wallet holds, with its entry price, the price at the
- * block each amount of it arrived, saying so.
- */
-export function HoldingPage({ token }: { token: string }) {
-  const { language } = usePreferences();
-  const { t } = portfolioCopy.forLocale(language);
-  const { connected, data, failure, reload } = usePortfolio();
-  const row = data?.holdings.find((entry) => entry.token.toLowerCase() === token.toLowerCase()) ?? null;
-  return (
-    <Page title={row?.name ?? token} description={t('portfolioNote')}>
-      <p>
-        <a href="/wallet">{t('tokenBack')}</a>
-      </p>
-      {!connected ? (
-        <EmptyState title={t('needsWallet')} />
-      ) : !data ? (
-        <ReadState failure={failure} retry={reload} t={t} />
-      ) : !row ? (
-        <EmptyState title={t('tokenMissing')} />
-      ) : (
-        <Panel title={row.name} aria-label={row.name}>
-          <dl className="protocol-facts">
-            <div>
-              <dt>{t('entryLabel')}</dt>
-              <dd className="numeric" data-testid="entry-price">
-                {row.entry === null
-                  ? t('entryNone')
-                  : row.entry.arrivals === 1
-                    ? t('entryOne', { price: usdDisplay(row.entry.usd), block: row.entry.lastBlock })
-                    : t('entryMany', {
-                        price: usdDisplay(row.entry.usd),
-                        count: String(row.entry.arrivals),
-                        first: row.entry.firstBlock,
-                        last: row.entry.lastBlock,
-                      })}
-                {row.entry && row.entry.unpriced > 0 && <> {t('entryUnpriced', { count: String(row.entry.unpriced) })}</>}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('tokenBalance')}</dt>
-              <dd className="numeric">
-                {tokenAmount(row.balance, row.decimals)} {row.symbol}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('tokenPrice')}</dt>
-              <dd className="numeric">{row.usd === null ? t(`noPrice_${row.reason ?? 'no_route'}`) : usdDisplay(row.usd)}</dd>
-            </div>
-            <div>
-              <dt>{t('tokenValue')}</dt>
-              <dd className="numeric">{row.valueUsd === null ? '—' : usdDisplay(row.valueUsd)}</dd>
-            </div>
-          </dl>
-          <p className="muted">
-            <a href={conventionPath('entry')}>{t('conv_entry')}</a>
-          </p>
-        </Panel>
-      )}
-    </Page>
-  );
-}
-
-/** /wallet/conventions/<id>: one convention the portfolio follows, in plain words. */
-export function ConventionPage({ id }: { id: string }) {
-  const { language } = usePreferences();
-  const { t } = portfolioCopy.forLocale(language);
-  const known = (CONVENTIONS as readonly string[]).includes(id) ? (id as Convention) : null;
-  return (
-    <Page title={known ? t(`conv_${known}`) : t('conventionMissing')}>
-      {known && <p>{t(`conv_${known}_body`)}</p>}
-      <p>
-        <a href="/wallet">{t('tokenBack')}</a>
-      </p>
-    </Page>
   );
 }

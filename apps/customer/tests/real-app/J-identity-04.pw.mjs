@@ -266,7 +266,7 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await names.getByRole('button', { name: /^Rename passkey/ }).click();
   const name = names.getByLabel(/Name \(1 to 64 characters\)/i);
   await name.fill('x'.repeat(70));
-  expect((await name.inputValue()).length).toBeLessThanOrEqual(64);
+  await expect.poll(async () => (await name.inputValue()).length).toBeLessThanOrEqual(64);
   await name.fill('   ');
   await names.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   await expect(names.getByRole('alert')).toContainText('Use 1 to 64 characters');

@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createDb } from '@intafaced/db';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { JetStreamEventBus } from '@intafaced/events';
 import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import type { Address } from 'viem';
@@ -157,6 +157,8 @@ const embeddedWalletSetting = embeddedWalletFromSetting(
   env.PROTOCOL_EMBEDDED_WALLET_PROVIDER,
   env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
   process.env.APP_ENV,
+  fetch,
+  process.env.INTAFACED_BETA_POSTURE,
 );
 // The gas-sponsor setting (J-wallet-24 #2): blank is unset, so no sponsored deposit; any value refuses to boot.
 const gasSponsor = gasSponsorFromSetting(env.PROTOCOL_GAS_SPONSOR);

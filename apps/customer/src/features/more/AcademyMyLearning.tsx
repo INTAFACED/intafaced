@@ -1,14 +1,14 @@
-import { type AcademyAccessGrant, type AcademyMyCourse } from '@intafaced/contracts/academy-catalogue';
+import { type AcademyMyCourse } from '@intafaced/contracts/academy-catalogue';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { EmptyState, Loading, Panel } from '../../shared/ui';
 import { useApi, useSession } from '../session';
-import { Details } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
-import { AcademyRefusal, ProgressBar, pathLabel } from './AcademyLmsParts';
+import { pathLabel } from './academy-labels';
+import { AcademyRefusal } from './academy-refusal';
+import { ProgressMeter } from './academy-kit-parts';
+import { EmptyNote, Section, Waiting } from './volt-parts';
 import { ACADEMY_MY_LEARNING } from '@intafaced/contracts/academy-my-learning-procedures';
-import { ACADEMY_MY_ACCESS_GRANTS } from '@intafaced/contracts/academy-my-access-grants-procedures';
 
 const itemHref = (slug: string) => `/academy/${encodeURIComponent(slug)}`;
 const SECTIONS = [
@@ -17,22 +17,22 @@ const SECTIONS = [
   ['future_start', 'myFutureStart', 'myNothingFuture'],
 ] as const;
 
-/** My learning on the Learning tab (AC-catalogue-02): the caller's enrolled courses, by state, with real progress. */
+/** My learning on the Learning tab (AC-catalogue-02), drawn with the kit: the caller's enrolled courses, by state, with real progress. */
 export function AcademyMyLearning() {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
   const mine = useResource((signal) => api.call(ACADEMY_MY_LEARNING, undefined, { signal }), `my-learning:${userId}`);
   return (
-    <Panel title={t('myLearning')}>
+    <Section title={t('myLearning')} className="lt-stack">
       {mine.resource.status === 'loading' ? (
-        <Loading />
+        <Waiting />
       ) : mine.resource.status === 'failed' ? (
         <AcademyRefusal failure={mine.resource.failure} retry={mine.reload} />
       ) : (
         <MyLearningView courses={mine.resource.data} />
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -40,24 +40,24 @@ export function AcademyMyLearning() {
 export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[] }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
-  if (courses.length === 0) return <EmptyState title={t('myNoCourses')} />;
+  if (courses.length === 0) return <EmptyNote title={t('myNoCourses')} />;
   return (
-    <div className="academy-lms-stack" data-academy-my-learning="true">
+    <div className="lt-stack" data-academy-my-learning="true">
       {SECTIONS.map(([status, title, empty]) => {
         const rows = courses.filter((row) => row.status === status);
         return (
-          <section key={status} aria-label={t(title)} data-my-learning-section={status}>
+          <section key={status} className="lt-stack" aria-label={t(title)} data-my-learning-section={status}>
             <h3>{t(title)}</h3>
             {rows.length === 0 ? (
-              <p className="muted">{t(empty)}</p>
+              <p className="lt-hint">{t(empty)}</p>
             ) : (
-              <ul className="academy-public-cards">
+              <ul className="lt-stack">
                 {rows.map((row) => (
-                  <li key={row.slug} className="academy-lms-card" data-my-course={row.slug}>
-                    <a className="academy-learning-link" href={academyCourseHref(row.slug)}>
+                  <li key={row.slug} className="lt-stack" data-my-course={row.slug}>
+                    <a className="lt-link lt-link-alone" href={academyCourseHref(row.slug)}>
                       {pathLabel(t, row.slug)}
                     </a>
-                    <span data-testid="academy-lms-meta" className="academy-lms-meta">
+                    <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
                       <span>
                         <Copy k="myProgress" params={{ completed: row.completed, items: row.items }} />
                       </span>
@@ -69,12 +69,12 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
                         )}
                       </time>
                     </span>
-                    <ProgressBar
+                    <ProgressMeter
                       percent={(row.completed / row.items) * 100}
                       label={t('myProgress', { completed: row.completed, items: row.items })}
                     />
                     {row.status !== 'future_start' && (
-                      <a className="button button--secondary" href={itemHref(row.resumeItemSlug ?? row.firstItemSlug)}>
+                      <a className="lt-button lt-button-secondary" href={itemHref(row.resumeItemSlug ?? row.firstItemSlug)}>
                         {row.resumeItemSlug ? t('myContinue') : t('myStartCourse')}
                       </a>
                     )}
@@ -86,58 +86,5 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
         );
       })}
     </div>
-  );
-}
-
-const SOURCE_KEYS = {
-  free: 'accessSourceFree',
-  purchase: 'accessSourcePurchase',
-  staff: 'accessSourceStaff',
-  invitation: 'accessSourceInvitation',
-} as const satisfies Record<AcademyAccessGrant['source'], string>;
-
-/** The access records on /academy/progress (AC-access-grants-01): one per course, with source and expiry. */
-export function AcademyAccessGrants() {
-  const api = useApi();
-  const { userId } = useSession();
-  const { t } = copy.useCopy();
-  const grants = useResource((signal) => api.call(ACADEMY_MY_ACCESS_GRANTS, undefined, { signal }), `access-grants:${userId}`);
-  return (
-    <Panel title={t('accessTitle')}>
-      {grants.resource.status === 'loading' ? (
-        <Loading />
-      ) : grants.resource.status === 'failed' ? (
-        <AcademyRefusal failure={grants.resource.failure} retry={grants.reload} />
-      ) : (
-        <AccessGrantsView grants={grants.resource.data} />
-      )}
-    </Panel>
-  );
-}
-
-export function AccessGrantsView({ grants }: { grants: readonly AcademyAccessGrant[] }) {
-  const { t } = copy.useCopy();
-  const { language } = usePreferences();
-  if (grants.length === 0) return <EmptyState title={t('accessNone')} />;
-  return (
-    <ul className="academy-public-cards" data-academy-access="true">
-      {grants.map((row) => (
-        <li key={row.slug} className="academy-lms-card" data-access-grant={row.slug}>
-          <a className="academy-learning-link" href={academyCourseHref(row.slug)}>
-            {pathLabel(t, row.slug)}
-          </a>
-          <Details
-            items={[
-              [t('accessSource'), t(SOURCE_KEYS[row.source])],
-              [t('accessGranted'), <time dateTime={row.grantedAt}>{formatDay(row.grantedAt, language)}</time>],
-              [
-                t('accessExpires'),
-                row.expiresAt ? <time dateTime={row.expiresAt}>{formatDay(row.expiresAt, language)}</time> : t('accessNoExpiry'),
-              ],
-            ]}
-          />
-        </li>
-      ))}
-    </ul>
   );
 }

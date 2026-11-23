@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { PayFailure, PayState } from './components';
 import type { PersonalPayApi } from './pay-api';
 import { remarkCopy } from './p2p-remark-copy';
@@ -35,10 +35,10 @@ function NoteRulesFor({ method, pay }: { method: string; pay: PersonalPayApi }) 
   );
   if (distinct.length === 0) return null;
   return (
-    <div className="stack" data-testid="order-note-rules">
+    <div className="lt-stack" data-testid="order-note-rules">
       <strong>{t('noteTitle')}</strong>
       {distinct.map((row) => (
-        <div key={row.country} className="stack" data-testid="order-note-rules-market">
+        <div key={row.country} className="lt-stack" data-testid="order-note-rules-market">
           {distinct.length > 1 && row.country !== '*' ? <span>{row.country}</span> : null}
           <p lang="und">{row.noteRules!.guidance}</p>
           {row.noteRules!.forbidden.length > 0 ? (
@@ -134,29 +134,29 @@ function RemarkForm({ trade, pay, onOpened }: { trade: Trade; pay: PersonalPayAp
   return (
     <details className="p2p-order-other" data-testid="order-remark-report">
       <summary>{t('title')}</summary>
-      <p className="muted">{t('why')}</p>
+      <p className="lt-muted">{t('why')}</p>
       <form
-        className="stack"
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>{t('remark')}</span>
           <textarea value={remark} onChange={(event) => setRemark(event.target.value)} />
         </label>
         {quoted === '' ? (
-          <p className="muted">{t('remarkMissing')}</p>
+          <p className="lt-muted">{t('remarkMissing')}</p>
         ) : tooLong ? (
-          <p className="muted">{t('tooLong', { max: String(REMARK_MAX) })}</p>
+          <p className="lt-muted">{t('tooLong', { max: String(REMARK_MAX) })}</p>
         ) : null}
-        <Button type="submit" variant="secondary" disabled={sending || quoted === '' || tooLong}>
+        <Button type="submit" tone="secondary" disabled={sending || quoted === '' || tooLong}>
           {t('report')}
         </Button>
       </form>
       {refusal ? (
-        <p className="failure" role="status">
+        <p className="lt-refusal" role="status">
           {refusal}
         </p>
       ) : failure ? (

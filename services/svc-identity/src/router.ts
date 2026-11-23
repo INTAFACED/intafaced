@@ -12,30 +12,13 @@ import { SignInChallengeError, type SignInAdmission, type SignInChallengeService
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
-import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
-import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
 import { TradingCheckError, type TradingChecksDesk } from './kyc/trading-checks.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
-import {
-  kycSelfieDecideInputSchema,
-  kycSelfieForComplianceSchema,
-  kycSelfieHandoffCheckInputSchema,
-  kycSelfieHandoffCheckSchema,
-  kycSelfieHandoffSchema,
-  kycSelfieReadSchema,
-  kycSelfieSchema,
-  kycSelfieSubmitInputSchema,
-} from '@intafaced/contracts/identity-kyc-selfie';
-import {
-  kycPoaReadInputSchema,
-  kycPoaReadSchema,
-  kycPoaSubmissionSchema,
-  kycPoaSubmitInputSchema,
-} from '@intafaced/contracts/identity-kyc-poa';
+import { kycSelfieHandoffCheckInputSchema, kycSelfieHandoffCheckSchema } from '@intafaced/contracts/identity-kyc-selfie';
 import { kycProfileDraftExactSchema, kycProfileSaveStepInputSchema } from '@intafaced/contracts/identity-kyc-profile';
 import {
   IDENTITY_KYC_DOCUMENT_TYPES_READ,
@@ -44,25 +27,11 @@ import {
   IDENTITY_KYC_PROFILE_SUBMIT,
   IDENTITY_KYC_PROFILE_UPLOAD,
 } from '@intafaced/contracts/identity-kyc-profile-procedures';
-import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
-import {
-  kycTradingChecksResultSchema,
-  kycTradingChecksRunInputSchema,
-  kycTradingChecksSchema,
-} from '@intafaced/contracts/identity-kyc-trading-checks';
 import { z } from 'zod';
-import {
-  router,
-  publicProcedure,
-  personProcedure,
-  protectedProcedure,
-  scopedProcedure,
-  serviceProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
-import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
-import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
+import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
+import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
 import {
   callFounderControl,
   identityFreezeInputSchema,
@@ -94,7 +63,6 @@ import {
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
   KycRecordsListLimitUnsetError,
-  SELF_FREEZE_REASONS,
   SUB_ACCOUNT_KINDS,
   SubAccountsListLimitUnsetError,
   WebauthnListLimitUnsetError,
@@ -125,7 +93,6 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
-import { SESSION_KEY_PATTERN, SHARE_SURFACES } from './affiliates/share-tag.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
 import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
 import {
@@ -160,7 +127,7 @@ import { WaitlistError, type WaitlistPosition, type WaitlistService } from './wa
 import type { WaitlistWave } from './waitlist/waitlist-store.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
-import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
+import { guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { SocialError, SocialSignin } from './social/social-signin.js';
 import { signinMethodTrpc, walletAnswerFields, walletChallengeInput, walletChallengeOutput } from './signin-methods-router.js';
 import { userCopy } from './user-copy.js';
@@ -181,6 +148,101 @@ import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accou
 import { type SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-router.js';
 import { revokeCauseOf } from './auth/revoke-all-api-keys.js';
+import {
+  sessionOutput,
+  socialProviderName,
+  waveOutput,
+  waitlistPlaceOutput,
+  kycRecordOutput,
+  partnerForCustomer,
+  lapseOutput,
+  rebindForCustomer,
+} from '@intafaced/contracts/identity-call-schemas';
+import {
+  IDENTITY_AUTH_CHALLENGE,
+  IDENTITY_AUTH_DEVICE_APPROVE,
+  IDENTITY_AUTH_DEVICE_COMPLETE,
+  IDENTITY_AUTH_CHANGE_PASSWORD,
+  IDENTITY_AUTH_SELF_FREEZE_STATUS,
+  IDENTITY_AUTH_SELF_FREEZE,
+  IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION,
+  IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+  IDENTITY_AUTH_LOGIN_WITH_CODE,
+  IDENTITY_AUTH_LOGIN_CODE_RESEND,
+  IDENTITY_AUTH_CONFIRM_EMAIL,
+  IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY,
+  IDENTITY_AUTH_PASSWORD_RESET_LIMITS,
+  IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+  IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+  IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+  IDENTITY_AUTH_SIGN_UP_START,
+  IDENTITY_AUTH_SIGN_UP_RESEND,
+  IDENTITY_AUTH_OAUTH_START,
+  IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
+  IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
+} from '@intafaced/contracts/identity-auth-procedures';
+import {
+  IDENTITY_WAITLIST_WAVES_LIST,
+  IDENTITY_WAITLIST_WAVES_RELEASE,
+  IDENTITY_WAITLIST_MINE,
+} from '@intafaced/contracts/identity-waitlist-procedures';
+import {
+  IDENTITY_KYC_HISTORY_FOR,
+  IDENTITY_KYC_SELFIE_LIST_FOR,
+  IDENTITY_KYC_SELFIE_DECIDE,
+  IDENTITY_KYC_PENDING,
+  IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_APPROVE,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+  IDENTITY_KYC_CAPABILITIES_GET_FOR,
+  IDENTITY_KYC_CAPABILITIES_SET,
+  IDENTITY_KYC_SUBMIT,
+  IDENTITY_KYC_ATTEMPTS_READ,
+  IDENTITY_KYC_CAPABILITIES_GET,
+  IDENTITY_KYC_HISTORY,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_READ,
+  IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT,
+  IDENTITY_KYC_SELFIE_READ,
+  IDENTITY_KYC_SELFIE_SUBMIT,
+  IDENTITY_KYC_SELFIE_HANDOFF_START,
+  IDENTITY_KYC_TRADING_CHECKS_READ,
+  IDENTITY_KYC_TRADING_CHECKS_RUN,
+} from '@intafaced/contracts/identity-kyc-procedures';
+import { IDENTITY_SUB_ACCOUNTS_CREATE, IDENTITY_SUB_ACCOUNTS_REVOKE } from '@intafaced/contracts/identity-sub-accounts-procedures';
+import {
+  IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
+  IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
+  IDENTITY_AFFILIATES_APPLY_PARTNER,
+  IDENTITY_AFFILIATES_MY_SUB_TREE,
+  IDENTITY_AFFILIATES_CREATE_SHARE,
+  IDENTITY_AFFILIATES_REVOKE_SHARE,
+  IDENTITY_AFFILIATES_MY_CODE,
+  IDENTITY_AFFILIATES_CREATE_CODE,
+  IDENTITY_AFFILIATES_MY_REFERRER,
+  IDENTITY_AFFILIATES_MY_LAPSE,
+  IDENTITY_AFFILIATES_MY_ANCESTORS,
+  IDENTITY_AFFILIATES_MY_ACCRUALS,
+  IDENTITY_AFFILIATES_SHARE_STATS,
+  IDENTITY_AFFILIATES_SHARE_TAG,
+  IDENTITY_AFFILIATES_ATTACH_WINDOW,
+  IDENTITY_AFFILIATES_MY_REBIND,
+  IDENTITY_AFFILIATES_WITHDRAW_REBIND,
+  IDENTITY_AFFILIATES_SHARE_TAG_HIT,
+} from '@intafaced/contracts/identity-affiliates-procedures';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
+import {
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+} from '@intafaced/contracts/identity-api-keys-procedures';
 
 /**
  * svc-identity's API (§4.1).
@@ -678,13 +740,6 @@ export function toTrpcError(err: unknown): TRPCError {
   }
 }
 
-const signUpAccepted = z.object({
-  accepted: z.literal(true),
-  next: z.literal('confirm_email'),
-  flowId: z.string().guid(),
-  resendAfterSeconds: z.number().int().positive(),
-});
-
 /** A sign-up refusal for the wire. Its code goes in `cause`, so the page can name it. */
 function signUpTrpcError(err: unknown): TRPCError {
   if (!(err instanceof SignUpError)) return toTrpcError(err);
@@ -712,12 +767,6 @@ function signUpTrpcError(err: unknown): TRPCError {
   }
 }
 
-const loginCodeAccepted = z.object({
-  accepted: z.literal(true),
-  flowId: z.string().guid(),
-  resendAfterSeconds: z.number().int().positive(),
-});
-
 /** Code sign-in refusals: a lockout or an early resend is 429 with its seconds, a blank setting or switched-off mail 412. */
 function loginCodeTrpcError(err: unknown): TRPCError {
   if (!(err instanceof LoginCodeError)) return toTrpcError(err);
@@ -734,36 +783,6 @@ function loginCodeTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
   }
 }
-
-const sessionOutput = z.object({
-  accessToken: z.string(),
-  /**
-   * Present for a native or API client (no Origin). Omitted when the
-   * request is a browser session: the refresh token is only in the
-   * httpOnly `ifc_rt` cookie. Optional so both shapes parse.
-   */
-  refreshToken: z.string().optional(),
-  expiresAt: z.string(),
-  userId: z.string().guid(),
-  /** A device key just trusted, for a native or API client only (a browser gets the `ifc_dk` cookie instead). */
-  deviceKey: z.string().optional(),
-  /** Present only when this sign-in's second step spent a recovery code: how many codes the account has left. */
-  recoveryCodesLeft: z.number().int().min(0).optional(),
-});
-
-/** The tiers a user can ask for. `none` is the absence of a record, not a request. */
-const submittableTier = z.enum(['basic', 'full', 'institutional']);
-
-const kycRecordOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  tier: z.enum(['none', 'basic', 'full', 'institutional']),
-  jurisdiction: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected', 'expired']),
-  reviewedAt: z.string().nullable(),
-  expiresAt: z.string().nullable(),
-  createdAt: z.string(),
-});
 
 /** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
 function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
@@ -827,8 +846,6 @@ const kycDocListOutput = kycDocMetaOutput.extend({
   reviewTier: z.enum(['none', 'basic', 'full', 'institutional']).nullable(),
 });
 
-const socialProviderName = z.string().regex(/^[a-z0-9-]{1,32}$/);
-
 /** No registry configured is the same as no provider registered. */
 function socialOrNone(social: SocialSignin | undefined): SocialSignin {
   return social ?? new SocialSignin(null as never, { providers: new Map(), flowTtlSeconds: undefined });
@@ -857,33 +874,12 @@ function toSocialTrpcError(err: unknown): TRPCError {
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-const waitlistPlaceOutput = z.object({
-  position: z.number().int().positive(),
-  referralCode: z.string(),
-  referredCount: z.number().int().min(0),
-  queueLength: z.number().int().min(0),
-  /** Place among those still waiting (more referrals first, ties by join order); null once released. */
-  rank: z.number().int().positive().nullable(),
-  waiting: z.number().int().min(0),
-  release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-});
-
 function waitlistPlaceView(out: WaitlistPosition): z.infer<typeof waitlistPlaceOutput> {
   return {
     ...out,
     release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
   };
 }
-
-const waveOutput = z.object({
-  waveNumber: z.number().int().positive(),
-  size: z.number().int().positive(),
-  releasedCount: z.number().int().positive(),
-  flagKey: z.string(),
-  releasedBy: z.string().guid(),
-  approvedBy: z.string().guid(),
-  releasedAt: z.string(),
-});
 
 function waveView(w: WaitlistWave): z.infer<typeof waveOutput> {
   return {
@@ -897,30 +893,7 @@ function waveView(w: WaitlistWave): z.infer<typeof waveOutput> {
   };
 }
 
-const rebindStateSchema = z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']);
-/** What the person sees of their own referrer change request. The deciding operator is not named. */
-const rebindForCustomer = z.object({
-  requestId: z.string().uuid(),
-  state: rebindStateSchema,
-  fromReferrerId: z.string().uuid().nullable(),
-  toReferrerId: z.string().uuid(),
-  reason: z.string(),
-  decisionReason: z.string().nullable(),
-  createdAt: z.string(),
-  reviewEndsAt: z.string().nullable(),
-  decidedAt: z.string().nullable(),
-  appliedAt: z.string().nullable(),
-});
 const rebindForOperator = rebindForCustomer.extend({ userId: z.string().uuid(), decidedBy: z.string().uuid().nullable() });
-/** An ended referral relationship (CM-referral-01 RF-4): who it was with, from when, the last activity and the end. */
-const lapseOutput = z.object({
-  userId: z.string().uuid(),
-  referrerId: z.string().uuid(),
-  attributedAt: z.string(),
-  lastActivityAt: z.string(),
-  periodSeconds: z.number().int(),
-  lapsedAt: z.string(),
-});
 const lapseView = (l: ReferralLapse): z.infer<typeof lapseOutput> => ({
   userId: l.userId,
   referrerId: l.referrerId,
@@ -947,21 +920,6 @@ function operatorRebind(r: RebindRequest): z.infer<typeof rebindForOperator> {
   return { ...customerRebind(r), userId: r.userId, decidedBy: r.decidedBy };
 }
 
-/**
- * What the person sees of their own partner application (CM-referral-05). An approval shows its reason; a rejection
- * shows its category and the reapply date, never the operator's notes or name.
- */
-const partnerForCustomer = z.object({
-  applicationId: z.string().uuid(),
-  state: z.enum(['submitted', 'approved', 'rejected']),
-  qualifiedCount: z.number().int().nonnegative(),
-  requiredCount: z.number().int().positive(),
-  approvalReason: z.string().nullable(),
-  rejectCategory: z.enum(PARTNER_REJECT_CATEGORIES).nullable(),
-  reapplyAt: z.string().nullable(),
-  createdAt: z.string(),
-  decidedAt: z.string().nullable(),
-});
 const partnerForOperator = partnerForCustomer.extend({
   userId: z.string().uuid(),
   decidedBy: z.string().uuid().nullable(),
@@ -994,6 +952,11 @@ export function createIdentityRouter(
      * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
      */
     registrationOpen?: boolean;
+    /**
+     * Invited addresses (lowercase) that may still sign up while `registrationOpen` is false. Ignored while open;
+     * unset or empty leaves a closed registration closed to everyone.
+     */
+    registrationAllowlist?: ReadonlySet<string>;
     /**
      * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
      * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
@@ -1174,8 +1137,16 @@ export function createIdentityRouter(
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
-  /** The owner's registration switch. Unset refuses as unset; closed says so with its own code. */
-  function assertRegistrationOpen(): void {
+  const registrationAllowlist = options.registrationAllowlist?.size ? options.registrationAllowlist : undefined;
+  const registrationClosed = () =>
+    new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
+
+  /**
+   * The owner's registration switch. Unset refuses as unset; closed says so with its own code. Closed with an
+   * invited list lets a listed `email` through; a door that has no address yet (`email` omitted) passes, and the
+   * address is checked where it is known (signUpConfirm checks the draft's own address before making the account).
+   */
+  function assertRegistrationOpen(email?: string | null): void {
     if (options.registrationOpen === undefined) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
@@ -1183,9 +1154,14 @@ export function createIdentityRouter(
         cause: { code: 'identity.registration_open_unset' },
       });
     }
-    if (!options.registrationOpen) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
-    }
+    if (options.registrationOpen) return;
+    if (!registrationAllowlist) throw registrationClosed();
+    if (email !== undefined) assertInvitedEmail(email);
+  }
+
+  /** Closed with an invited list: only a listed address may make an account. */
+  function assertInvitedEmail(email: string | null): void {
+    if (!email || !registrationAllowlist?.has(email.trim().toLowerCase())) throw registrationClosed();
   }
 
   function requireReferral(): ReferralService {
@@ -1515,27 +1491,10 @@ export function createIdentityRouter(
     }),
 
     auth: router({
-      register: publicProcedure
-        .input(
-          z.object({
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().email(),
-            password: z.string().min(12).max(200),
-            region: z.string().length(2).optional(),
-            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
-            deviceKey: z.string().min(16).max(128).optional(),
-            /**
-             * Optional referrer at signup. Same law as `affiliates.attribute`
-             * (self/cycle/depth/unknown refuse loud). Blank = no edge.
-             * Account is created first; a failed attribute still leaves the user
-             * (they can fix referrer via attribute later if product allows once).
-             */
-            referrerId: z.string().guid().optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
-          assertRegistrationOpen();
+      register: mountRecord(
+        IDENTITY_AUTH_REGISTER,
+        async ({ input, ctx }) => {
+          assertRegistrationOpen(input.email);
           if (options.directRegister !== true) {
             throw new TRPCError({
               code: 'FORBIDDEN',
@@ -1557,7 +1516,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
@@ -1566,9 +1527,11 @@ export function createIdentityRouter(
        * is not set, and product law has a page name a blank setting rather than hide it. It tells nothing about any
        * account, and a person typing a password is owed it; it says only on or unset, never the list or its size.
        */
-      signUpPasswordScreening: publicProcedure
-        .output(z.object({ breachedList: z.enum(['on', 'unset']) }))
-        .query(() => ({ breachedList: breachedPasswordScreening() })),
+      signUpPasswordScreening: mountRecord(
+        IDENTITY_AUTH_SIGN_UP_PASSWORD_SCREENING,
+        () => ({ breachedList: breachedPasswordScreening() }),
+        kycProfileRefusal,
+      ),
 
       /**
        * Sign-up, step 1 (I-signin-sessions-18, I-kyc-compliance-06). Eligibility first (age, country,
@@ -1576,35 +1539,10 @@ export function createIdentityRouter(
        * and one that already has an account, and opens no session. Phone sign-up needs an SMS provider and
        * answers `vendor.sms` in this build; email sign-up works without it.
        */
-      signUpStart: publicProcedure
-        .input(
-          z.object({
-            channel: z.enum(['email', 'phone']),
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().trim().email().max(320).optional(),
-            phone: z.string().trim().max(20).optional(),
-            password: z.string().max(200),
-            country: z.string().trim().length(2),
-            /** ISO 3166-2 subdivision of residence (`CA-QC`); asked for where a subdivision is blocked on its own. */
-            subdivision: z.string().trim().min(4).max(6).optional(),
-            /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
-            nationality: z.string().trim().min(2).max(6).optional(),
-            /** A US citizen, green-card holder or US resident, wherever they live. Left out is refused by the service, never read as no. */
-            usPerson: z.boolean().optional(),
-            dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
-            accountType: z.enum(ACCOUNT_TYPES),
-            referrerId: z.string().guid().optional(),
-            /**
-             * The invitation link the person signed up from (CM-referral-01, ENGINE RF-1): its referrer is attached when
-             * the account is made, outside the late-attach window. An unknown or revoked link names no one; it never
-             * blocks the sign-up.
-             */
-            inviteToken: z.string().guid().optional(),
-          }),
-        )
-        .output(signUpAccepted)
-        .mutation(async ({ input }) => {
-          assertRegistrationOpen();
+      signUpStart: mountRecord(
+        IDENTITY_AUTH_SIGN_UP_START,
+        async ({ input }) => {
+          assertRegistrationOpen(input.email ?? null);
           try {
             if (input.channel === 'phone') {
               throw new SignUpError(
@@ -1619,20 +1557,23 @@ export function createIdentityRouter(
           } catch (err) {
             throw signUpTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Sign-up, step 1b: another code once the resend interval has passed. Same answer for either kind of address. */
-      signUpResend: publicProcedure
-        .input(z.object({ flowId: z.string().guid() }))
-        .output(signUpAccepted)
-        .mutation(async ({ input }) => {
+      signUpResend: mountRecord(
+        IDENTITY_AUTH_SIGN_UP_RESEND,
+        async ({ input }) => {
           assertRegistrationOpen();
           try {
             return await auth.signUpResend(input);
           } catch (err) {
             throw signUpTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Sign-up, step 2: the right code makes the account, marks the email proved and opens the first session.
@@ -1645,7 +1586,14 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
           try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) });
+            const done = await auth.signUpConfirm({
+              ...input,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, undefined),
+              // Closed with an invited list: a code asked for while registration was open makes no account for an
+              // address not on the list. Checked inside the confirm, so the refusal makes nothing and spends nothing.
+              ...(options.registrationOpen === false ? { admit: (email: string) => assertInvitedEmail(email) } : {}),
+            });
             if (done.referrerId) {
               // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
               try {
@@ -1712,28 +1660,22 @@ export function createIdentityRouter(
        * `auth.login` once that answered `auth.challenge_required`. Says nothing about any account. Blank owner settings
        * refuse `identity.challenge_unconfigured`.
        */
-      challenge: publicProcedure.output(signInChallengeSchema).mutation(() => {
-        try {
-          if (!options.signInChallenge) throw new SignInChallengeError('identity.challenge_unconfigured');
-          return options.signInChallenge.issue();
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      challenge: mountRecord(
+        IDENTITY_AUTH_CHALLENGE,
+        () => {
+          try {
+            if (!options.signInChallenge) throw new SignInChallengeError('identity.challenge_unconfigured');
+            return options.signInChallenge.issue();
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
-      login: publicProcedure
-        .input(
-          z.object({
-            identifier: z.string().min(1),
-            password: z.string().min(1),
-            totpCode: z.string().optional(),
-            deviceKey: z.string().min(16).max(128).optional(),
-            /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
-            challenge: signInChallengeProofSchema.optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      login: mountRecord(
+        IDENTITY_AUTH_LOGIN,
+        async ({ input, ctx }) => {
           const address = requestIpAls.getStore();
           let admission: SignInAdmission | undefined;
           let wrongPassword = false;
@@ -1753,7 +1695,9 @@ export function createIdentityRouter(
               console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
             });
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge
@@ -1797,45 +1741,39 @@ export function createIdentityRouter(
        * Sign-in by a mailed code, step 1 (I-signin-sessions-19, -20). Takes an email or handle and answers the same
        * for every name, with no session: only an active account is mailed a six-digit code.
        */
-      loginCodeRequest: publicProcedure
-        .input(z.object({ identifier: z.string().trim().min(1).max(320) }))
-        .output(loginCodeAccepted)
-        .mutation(async ({ input }) => {
+      loginCodeRequest: mountRecord(
+        IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+        async ({ input }) => {
           try {
             return await auth.loginCodeRequest(input);
           } catch (err) {
             throw loginCodeTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Sign-in by a mailed code, step 1b: a new code once the resend interval has passed; the old one stops working. */
-      loginCodeResend: publicProcedure
-        .input(z.object({ flowId: z.string().guid() }))
-        .output(loginCodeAccepted)
-        .mutation(async ({ input }) => {
+      loginCodeResend: mountRecord(
+        IDENTITY_AUTH_LOGIN_CODE_RESEND,
+        async ({ input }) => {
           try {
             return await auth.loginCodeResend(input);
           } catch (err) {
             throw loginCodeTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Sign-in by a mailed code, step 2: the right code opens one session. A wrong code counts toward the owner's
        * lockout, a used one is refused, and an account with an authenticator still answers `auth.mfa_required` until
        * its code comes too (the mailed code stays unspent meanwhile).
        */
-      loginWithCode: publicProcedure
-        .input(
-          z.object({
-            flowId: z.string().guid(),
-            code: z.string().trim().min(1).max(12),
-            totpCode: z.string().trim().min(1).max(64).optional(),
-            deviceKey: z.string().min(16).max(128).optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      loginWithCode: mountRecord(
+        IDENTITY_AUTH_LOGIN_WITH_CODE,
+        async ({ input, ctx }) => {
           try {
             return sessionWire(
               ctx,
@@ -1844,23 +1782,26 @@ export function createIdentityRouter(
           } catch (err) {
             throw loginCodeTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Social sign-in, step 1. With no provider registered this answers the allowlisted `idp.social`.
        * The same answer for every provider name, so a name tells a caller nothing.
        */
-      oauthStart: publicProcedure
-        .input(z.object({ provider: socialProviderName }).strict())
-        .output(z.object({ provider: z.string(), authorizationUrl: z.string(), expiresAt: z.string() }).strict())
-        .mutation(async ({ input }) => {
+      oauthStart: mountRecord(
+        IDENTITY_AUTH_OAUTH_START,
+        async ({ input }) => {
           try {
             const started = await socialOrNone(options.social).start({ provider: input.provider, purpose: 'signin' });
             return { provider: started.provider, authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt.toISOString() };
           } catch (err) {
             throw toSocialTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Social sign-in, step 2. Signs in only an account that already linked this provider identity;
@@ -1946,19 +1887,9 @@ export function createIdentityRouter(
        * device and signs in at once. The flow's secret, which only that browser holds, proves it is the one asking. A
        * wrong code counts toward the owner's lockout.
        */
-      deviceApprove: publicProcedure
-        .input(
-          z
-            .object({
-              flowId: z.string().guid(),
-              secret: z.string().min(16).max(128),
-              code: z.string().trim().min(1).max(12),
-              deviceKey: z.string().min(16).max(128).optional(),
-            })
-            .strict(),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      deviceApprove: mountRecord(
+        IDENTITY_AUTH_DEVICE_APPROVE,
+        async ({ input, ctx }) => {
           try {
             return sessionWire(
               ctx,
@@ -1967,20 +1898,17 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * New-device sign-in, after a trusted session approved it: the waiting browser completes once with its secret.
        * Not approved yet answers `auth.device_authorisation_pending`; a second completion `auth.device_authorisation_used`.
        */
-      deviceComplete: publicProcedure
-        .input(
-          z
-            .object({ flowId: z.string().guid(), secret: z.string().min(16).max(128), deviceKey: z.string().min(16).max(128).optional() })
-            .strict(),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      deviceComplete: mountRecord(
+        IDENTITY_AUTH_DEVICE_COMPLETE,
+        async ({ input, ctx }) => {
           try {
             return sessionWire(
               ctx,
@@ -1989,7 +1917,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       refresh: publicProcedure
         .input(
@@ -2031,11 +1961,13 @@ export function createIdentityRouter(
         }),
 
       // The signed-in person only: an API key or a sub-account token must not sign its owner out everywhere.
-      logoutAll: personProcedure()
-        .output(z.object({ revoked: z.number() }))
-        .mutation(async ({ ctx }) => ({
+      logoutAll: mountRecord(
+        IDENTITY_AUTH_LOGOUT_ALL,
+        async ({ ctx }) => ({
           revoked: await auth.logoutAll(ctx.principal.userId),
-        })),
+        }),
+        kycProfileRefusal,
+      ),
 
       /**
        * Change the signed-in user's password. User sessions only (an API key or
@@ -2043,10 +1975,9 @@ export function createIdentityRouter(
        * with any second factor also needs an `mfa` session. Revokes every OTHER
        * session; the caller's stays. Rules: auth-service `changePassword`.
        */
-      changePassword: protectedProcedure
-        .input(z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().max(200) }))
-        .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ ctx, input }) => {
+      changePassword: mountRecord(
+        IDENTITY_AUTH_CHANGE_PASSWORD,
+        async ({ ctx, input }) => {
           try {
             await auth.changePassword({
               userId: ctx.principal.userId,
@@ -2064,16 +1995,17 @@ export function createIdentityRouter(
             }
             throw toFactorError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Self-service freeze (I-account-lifecycle-08). Needs the current password; revokes every session and key.
        * Not the staff freeze and not the ledger freeze.
        */
-      selfFreeze: protectedProcedure
-        .input(z.object({ reason: z.enum(SELF_FREEZE_REASONS), password: z.string().min(1).max(200) }))
-        .output(z.object({ frozen: z.literal(true), reason: z.enum(SELF_FREEZE_REASONS), since: z.string(), changed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+      selfFreeze: mountRecord(
+        IDENTITY_AUTH_SELF_FREEZE,
+        async ({ ctx, input }) => {
           try {
             const done = await auth.selfFreeze({
               userId: ctx.principal.userId,
@@ -2088,45 +2020,51 @@ export function createIdentityRouter(
             }
             throw toFactorError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
-      selfFreezeStatus: protectedProcedure
-        .output(z.object({ frozen: z.boolean(), reason: z.enum(SELF_FREEZE_REASONS).nullable(), since: z.string().nullable() }))
-        .query(async ({ ctx }) => {
+      selfFreezeStatus: mountRecord(
+        IDENTITY_AUTH_SELF_FREEZE_STATUS,
+        async ({ ctx }) => {
           const s = await auth.selfFreezeStatus(ctx.principal.userId);
           return { frozen: s.frozen, reason: s.reason, since: s.since ? s.since.toISOString() : null };
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Signed-out password reset, step 1 (D-38). Same answer whether or not
        * the email is registered. The one-time code is mailed, never returned.
        * The password hash does not change here.
        */
-      requestPasswordReset: publicProcedure
-        .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
-        .mutation(async ({ input }) => {
+      requestPasswordReset: mountRecord(
+        IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+        async ({ input }) => {
           try {
             return await auth.requestPasswordReset({ email: input.email });
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Username recovery. Same shape and same answer as `requestPasswordReset`: the username is mailed to a
        * known address, and nothing in the answer says whether the address has an account.
        */
-      requestHandleRecovery: publicProcedure
-        .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
-        .mutation(async ({ input }) => {
+      requestHandleRecovery: mountRecord(
+        IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY,
+        async ({ input }) => {
           try {
             return await auth.requestHandleRecovery({ email: input.email });
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Whether recovery mail can leave the server at all. The page shows its "not live" card only when this
@@ -2140,48 +2078,44 @@ export function createIdentityRouter(
        * The owner's reset request cap: how many codes one address may ask for inside the window (J-identity-03 #2).
        * Null while the reset is unwired, so the page names no number it doesn't have. The same for every visitor.
        */
-      passwordResetLimits: publicProcedure
-        .output(z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable())
-        .query(() => auth.passwordResetLimits()),
+      passwordResetLimits: mountRecord(IDENTITY_AUTH_PASSWORD_RESET_LIMITS, () => auth.passwordResetLimits(), kycProfileRefusal),
 
       /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
        * and ends the old sessions. This does not sign the caller in.
        */
-      completePasswordReset: publicProcedure
-        .input(
-          z.object({
-            // Absent from the mailed link (J-identity-03 #2): the code alone names its flow.
-            email: z.string().trim().email().max(320).optional(),
-            code: z.string().trim().min(1).max(200),
-            newPassword: z.string().max(200),
-          }),
-        )
-        .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ input }) => {
+      completePasswordReset: mountRecord(
+        IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+        async ({ input }) => {
           try {
             await auth.completePasswordReset(input);
             return { ok: true as const };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Signed-in email confirmation, step 1. The link goes to this account's
        * own address. The response does not say whether a message was sent.
        * An API key is not a session.
        */
-      requestEmailConfirmation: protectedProcedure.output(z.object({ accepted: z.literal(true) })).mutation(async ({ ctx }) => {
-        if (ctx.principal.kid) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
-        }
-        try {
-          return await auth.requestEmailConfirmation({ userId: ctx.principal.userId });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      requestEmailConfirmation: mountRecord(
+        IDENTITY_AUTH_REQUEST_EMAIL_CONFIRMATION,
+        async ({ ctx }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
+          }
+          try {
+            return await auth.requestEmailConfirmation({ userId: ctx.principal.userId });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Email confirmation by the six-digit code from the same mail, typed by the signed-in person on Account (J-identity-01
@@ -2213,17 +2147,18 @@ export function createIdentityRouter(
        * Email confirmation, step 2. The token is the proof. A link that ran out or was already used is refused by name
        * (the 256-bit token names no account); a wrong or rebound token is one refusal.
        */
-      confirmEmail: publicProcedure
-        .input(z.object({ token: z.string().trim().min(1).max(500) }))
-        .output(z.object({ confirmed: z.literal(true) }))
-        .mutation(async ({ input }) => {
+      confirmEmail: mountRecord(
+        IDENTITY_AUTH_CONFIRM_EMAIL,
+        async ({ input }) => {
           try {
             await auth.confirmEmail({ token: input.token });
             return { confirmed: true as const };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * THE STEP-UP CHALLENGE.
@@ -2244,14 +2179,18 @@ export function createIdentityRouter(
        * WebAuthn options for step-up (passkey withdraw). Challenge kind is
        * `step-up` so a passwordless-login assertion cannot be reused here.
        */
-      stepUpOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnStepUp(ctx.principal.userId);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      stepUpOptions: mountRecord(
+        IDENTITY_AUTH_STEP_UP_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnStepUp(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       stepUp: protectedProcedure
         .input(
@@ -2372,19 +2311,9 @@ export function createIdentityRouter(
        * sub-account, is refused. No refresh token: a refresh returns to the main account. Rules: auth-service
        * `subAccountSession`.
        */
-      subAccountSession: protectedProcedure
-        .input(z.object({ subAccountId: z.string().guid() }))
-        .output(
-          z.object({
-            accessToken: z.string(),
-            expiresAt: z.string(),
-            userId: z.string(),
-            subAccountId: z.string(),
-            label: z.string(),
-            refreshable: z.literal(false),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
+      subAccountSession: mountRecord(
+        IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+        async ({ ctx, input }) => {
           try {
             if (ctx.principal.kid || ctx.principal.sub_account) {
               throw new AuthError('Only the main account, signed in, can switch to a sub-account', 'auth.sub_account_denied');
@@ -2398,19 +2327,23 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
     }),
 
     totp: router({
-      enrol: protectedProcedure
-        .output(z.object({ secret: z.string(), uri: z.string(), recoveryCodes: z.array(z.string()) }))
-        .mutation(async ({ ctx }) => {
+      enrol: mountRecord(
+        IDENTITY_TOTP_ENROL,
+        async ({ ctx }) => {
           try {
             return await auth.startTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
           } catch (err) {
             throw toFactorError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       confirm: protectedProcedure
         .input(z.object({ secret: z.string().min(16), code: z.string().regex(/^\d{6}$/) }))
@@ -2433,14 +2366,18 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
-        } catch (err) {
-          throw toFactorError(err);
-        }
-      }),
+      registerOptions: mountRecord(
+        IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          } catch (err) {
+            throw toFactorError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       registerVerify: protectedProcedure
         .input(
@@ -2466,14 +2403,18 @@ export function createIdentityRouter(
           }
         }),
 
-      authOptions: publicProcedure.input(z.object({ identifier: z.string().min(1) })).mutation(async ({ input }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnAuthentication(input.identifier);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      authOptions: mountRecord(
+        IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+        async ({ input }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnAuthentication(input.identifier);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       authVerify: publicProcedure
         .input(
@@ -2529,10 +2470,9 @@ export function createIdentityRouter(
        * Retire one enrolled authenticator. Self-only via principal.
        * Missing/foreign id → removed:false (never confirms existence).
        */
-      remove: protectedProcedure
-        .input(z.object({ credentialId: z.string().min(1) }))
-        .output(z.object({ removed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+      remove: mountRecord(
+        IDENTITY_WEBAUTHN_REMOVE,
+        async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
             const removed = await auth.removeWebauthnCredential(
@@ -2544,7 +2484,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toFactorError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
     }),
 
     /**
@@ -2577,23 +2519,9 @@ export function createIdentityRouter(
        * overridden. An ownership check would be a check on a value the caller
        * supplies; not accepting the value is stronger.
        */
-      submit: scopedProcedure('identity:write')
-        .input(
-          z.object({
-            tier: submittableTier,
-            /** ISO-3166 alpha-2. The matrix is keyed on it, so it is not free text. */
-            jurisdiction: z.string().length(2).toUpperCase(),
-            /**
-             * Deliberately absent: a client-supplied `providerRef` was a free-text
-             * side-channel into `kyc_records.provider_ref` (§10 PII isolation —
-             * "pointer never holds a name or DOB"). Opaque refs are minted by the
-             * encrypted document store (or operator tools) when that store lands;
-             * user submit only opens a pending row.
-             */
-          }),
-        )
-        .output(kycRecordOutput)
-        .mutation(async ({ ctx, input }) => {
+      submit: mountRecord(
+        IDENTITY_KYC_SUBMIT,
+        async ({ ctx, input }) => {
           try {
             return presentKyc(
               await auth.submitKyc({
@@ -2605,7 +2533,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** The caller's own records, and the tier they currently add up to. Limit required — omit never dumps records. */
       status: scopedProcedure('identity:read')
@@ -2652,19 +2582,9 @@ export function createIdentityRouter(
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */
-      approve: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            recordId: z.string().guid(),
-            /** When the verification lapses. Null means it does not. */
-            expiresAt: z.string().datetime({ offset: true }).nullish(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(kycRecordOutput)
-        .mutation(async ({ ctx, input }) => {
+      approve: mountRecord(
+        IDENTITY_KYC_APPROVE,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             refuseAgentKycReview(ctx);
@@ -2686,7 +2606,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The other half of a review. Grants nothing. Dual-control matches approve. A reject names a code from the owner's
@@ -2695,20 +2617,9 @@ export function createIdentityRouter(
        * sees only when `noteVisible`, and `kycRejected` goes out after commit. A retry with the same code returns the
        * stored result; another code on a rejected case refuses `kyc.case_state`.
        */
-      reject: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            recordId: z.string().guid(),
-            reasonCode: kycReasonCodeSchema,
-            customerNote: z.string().trim().min(1).max(500).nullish(),
-            noteVisible: z.boolean().optional(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(kycRecordOutput)
-        .mutation(async ({ ctx, input }) => {
+      reject: mountRecord(
+        IDENTITY_KYC_REJECT,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             refuseAgentKycReview(ctx);
@@ -2742,34 +2653,38 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The caller's own verification cases, newest first, with each one's history and, for a reject, the owner's reason
        * and fix guidance (I-kyc-compliance-01). No `userId` input: nobody reads another person's cases through this.
        */
-      history: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(kycHistoryOutputSchema)
-        .query(async ({ ctx, input }) => {
+      history: mountRecord(
+        IDENTITY_KYC_HISTORY,
+        async ({ ctx, input }) => {
           try {
             return { cases: await auth.listKycCases(ctx.principal.userId, input.limit, options.kycRejectReasons ?? new Map()) };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Compliance reads any person's cases, the same shape the person sees. An unknown user is `auth.not_found`. */
-      historyFor: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }))
-        .output(kycHistoryOutputSchema)
-        .query(async ({ input }) => {
+      historyFor: mountRecord(
+        IDENTITY_KYC_HISTORY_FOR,
+        async ({ input }) => {
           try {
             return { cases: await auth.listKycCases(input.userId, input.limit, options.kycRejectReasons ?? new Map()) };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Proof of address (I-kyc-compliance-11, J-identity-08 #5): asked for after level Basic is approved. `read` gives
@@ -2777,20 +2692,20 @@ export function createIdentityRouter(
        * vault under the photo caps and the submission for review. No `userId` input on the customer doors.
        */
       proofOfAddress: router({
-        read: scopedProcedure('identity:read')
-          .input(kycPoaReadInputSchema)
-          .output(kycPoaReadSchema)
-          .query(async ({ ctx, input }) => {
+        read: mountRecord(
+          IDENTITY_KYC_PROOF_OF_ADDRESS_READ,
+          async ({ ctx, input }) => {
             try {
               return await requireKycPoa().read(ctx.principal.userId, input.country);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        submit: scopedProcedure('identity:write')
-          .input(kycPoaSubmitInputSchema)
-          .output(kycPoaSubmissionSchema)
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        submit: mountRecord(
+          IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT,
+          async ({ ctx, input }) => {
             try {
               const bytes = canonicalBase64(input.bytesBase64);
               const { bytesBase64: _bytes, ...rest } = input;
@@ -2798,17 +2713,20 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        listFor: scopedProcedure('admin:compliance')
-          .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(50) }).strict())
-          .output(z.object({ submissions: z.array(kycPoaSubmissionSchema) }))
-          .query(async ({ input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        listFor: mountRecord(
+          IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
+          async ({ input }) => {
             try {
               return { submissions: await requireKycPoa().listFor(input.userId, input.limit) };
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -2818,19 +2736,20 @@ export function createIdentityRouter(
        * the account that made it.
        */
       selfie: router({
-        read: scopedProcedure('identity:read')
-          .output(kycSelfieReadSchema)
-          .query(async ({ ctx }) => {
+        read: mountRecord(
+          IDENTITY_KYC_SELFIE_READ,
+          async ({ ctx }) => {
             try {
               return await requireKycSelfie().read(ctx.principal.userId);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        submit: scopedProcedure('identity:write')
-          .input(kycSelfieSubmitInputSchema)
-          .output(kycSelfieSchema)
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        submit: mountRecord(
+          IDENTITY_KYC_SELFIE_SUBMIT,
+          async ({ ctx, input }) => {
             try {
               const bytes = canonicalBase64(input.bytesBase64);
               return await requireKycSelfie().submit(ctx.principal.userId, {
@@ -2841,17 +2760,21 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         handoff: router({
-          start: scopedProcedure('identity:write')
-            .output(kycSelfieHandoffSchema)
-            .mutation(async ({ ctx }) => {
+          start: mountRecord(
+            IDENTITY_KYC_SELFIE_HANDOFF_START,
+            async ({ ctx }) => {
               try {
                 return await requireKycSelfie().startHandoff(ctx.principal.userId);
               } catch (err) {
                 throw toTrpcError(err);
               }
-            }),
+            },
+            kycProfileRefusal,
+          ),
           check: scopedProcedure('identity:read')
             .input(kycSelfieHandoffCheckInputSchema)
             .output(kycSelfieHandoffCheckSchema)
@@ -2863,25 +2786,25 @@ export function createIdentityRouter(
               }
             }),
         }),
-        listFor: scopedProcedure('admin:compliance')
-          .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(50) }).strict())
-          .output(z.object({ selfies: z.array(kycSelfieForComplianceSchema) }))
-          .query(async ({ input }) => {
+        listFor: mountRecord(
+          IDENTITY_KYC_SELFIE_LIST_FOR,
+          async ({ input }) => {
             try {
               return { selfies: await requireKycSelfie().listFor(input.userId, input.limit) };
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         /**
          * The person's decision after comparing the selfie (its frame opened through `getDocument`) with the ID photo.
          * Same class as a review: MFA, never an agent, never the reviewer's own, and the four-eyes approval binds the
          * selfie and the decision. Checked before the approval is spent.
          */
-        decide: scopedProcedure('admin:compliance')
-          .input(kycSelfieDecideInputSchema)
-          .output(kycSelfieForComplianceSchema)
-          .mutation(async ({ ctx, input }) => {
+        decide: mountRecord(
+          IDENTITY_KYC_SELFIE_DECIDE,
+          async ({ ctx, input }) => {
             try {
               requireMfa(ctx.principal);
               refuseAgentKycReview(ctx);
@@ -2906,7 +2829,9 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -2938,26 +2863,29 @@ export function createIdentityRouter(
        * the account for a person to review and answers only `held`. No ID document, selfie or ID vendor.
        */
       tradingChecks: router({
-        read: scopedProcedure('identity:read')
-          .output(kycTradingChecksSchema)
-          .query(async ({ ctx }) => {
+        read: mountRecord(
+          IDENTITY_KYC_TRADING_CHECKS_READ,
+          async ({ ctx }) => {
             try {
               return await requireTradingChecks().read(ctx.principal.userId);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        run: scopedProcedure('identity:write')
-          .input(kycTradingChecksRunInputSchema)
-          .output(kycTradingChecksResultSchema)
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        run: mountRecord(
+          IDENTITY_KYC_TRADING_CHECKS_RUN,
+          async ({ ctx, input }) => {
             try {
               const result = await requireTradingChecks().run(ctx.principal.userId, input);
               return { state: result.outcome };
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
       profile: router({
         read: mountRecord(
@@ -3026,15 +2954,17 @@ export function createIdentityRouter(
        * when none is set; the rejections in the window; when a new request opens again. No `userId` input.
        */
       attempts: router({
-        read: scopedProcedure('identity:read')
-          .output(kycAttemptsSchema)
-          .query(async ({ ctx }) => {
+        read: mountRecord(
+          IDENTITY_KYC_ATTEMPTS_READ,
+          async ({ ctx }) => {
             try {
               return await auth.kycAttempts(ctx.principal.userId);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -3044,45 +2974,38 @@ export function createIdentityRouter(
        */
       capabilities: router({
         /** The caller's own capabilities. No `userId` input. */
-        get: scopedProcedure('identity:read')
-          .output(kycCapabilitiesOutputSchema)
-          .query(async ({ ctx }) => {
+        get: mountRecord(
+          IDENTITY_KYC_CAPABILITIES_GET,
+          async ({ ctx }) => {
             try {
               return await auth.listKycCapabilities(ctx.principal.userId, options.kycCapabilityReasons ?? new Map());
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         /** Compliance reads any person's capabilities. An unknown user is `auth.not_found`. */
-        getFor: scopedProcedure('admin:compliance')
-          .input(z.object({ userId: z.string().guid() }))
-          .output(kycCapabilitiesOutputSchema)
-          .query(async ({ input }) => {
+        getFor: mountRecord(
+          IDENTITY_KYC_CAPABILITIES_GET_FOR,
+          async ({ input }) => {
             try {
               return await auth.listKycCapabilities(input.userId, options.kycCapabilityReasons ?? new Map());
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         /**
          * Switch one capability off for good. The only state compliance sets here is `inactive`; levels turn
          * capabilities on. The code comes from the owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`;
          * unset refuses `kyc.reason_codes_unset`), and the
          * four-eyes approval binds the person, the capability and the code. Checked before the approval is spent.
          */
-        set: scopedProcedure('admin:compliance')
-          .input(
-            z.object({
-              userId: z.string().guid(),
-              capability: kycCapabilitySchema,
-              state: z.literal('inactive'),
-              reasonCode: kycReasonCodeSchema,
-              approvalId: z.string().max(128).nullish(),
-              operationId: z.string().max(128).nullish(),
-            }),
-          )
-          .output(kycCapabilitiesOutputSchema)
-          .mutation(async ({ ctx, input }) => {
+        set: mountRecord(
+          IDENTITY_KYC_CAPABILITIES_SET,
+          async ({ ctx, input }) => {
             try {
               requireMfa(ctx.principal);
               refuseAgentKycReview(ctx);
@@ -3106,20 +3029,23 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /** The review queue. Without it `approve` needs a record id nobody can find. Limit required — omit never invents 50. */
-      pending: scopedProcedure('admin:compliance')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(z.array(kycRecordOutput))
-        .query(async ({ input }) => {
+      pending: mountRecord(
+        IDENTITY_KYC_PENDING,
+        async ({ input }) => {
           try {
             return (await auth.listPendingKyc(input.limit)).map(presentKyc);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * §10 — operator stores a KYC document into the encrypted vault.
@@ -3429,28 +3355,9 @@ export function createIdentityRouter(
           }
         }),
 
-      create: scopedProcedure('identity:write')
-        .input(
-          z.object({
-            name: z.string().min(1).max(64),
-            scopes: z.array(z.string()).min(1),
-            domainWhitelist: z.array(z.string()).optional(),
-            /** pay.public-api step 4 — sandbox keys route to the sandbox rail. */
-            mode: z.enum(['live', 'sandbox']).optional(),
-            /** A TOTP code, passkey assertion or proof id verified in the last five minutes. */
-            factorProof: optionalFactorProof,
-          }),
-        )
-        .output(
-          z.object({
-            id: z.string(),
-            key: z.string(),
-            prefix: z.string(),
-            mode: z.enum(['live', 'sandbox']),
-            scopes: z.array(z.string()),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
+      create: mountRecord(
+        IDENTITY_API_KEYS_CREATE,
+        async ({ ctx, input }) => {
           try {
             // `grantorScopes` comes from the verified principal, never from the
             // body. A key is a delegation of THIS session's authority, so the
@@ -3489,28 +3396,14 @@ export function createIdentityRouter(
             }
             throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Limit required — omit never dumps API keys. */
-      list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              prefix: z.string(),
-              scopes: z.array(z.string()),
-              lastUsedAt: z.string().nullable(),
-              revoked: z.boolean(),
-              mode: z.enum(['live', 'sandbox']),
-              requireSignature: z.boolean(),
-              requireNonEmptyIpAllowlist: z.boolean(),
-              ipAllowlist: z.array(z.string()),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_API_KEYS_LIST,
+        async ({ ctx, input }) => {
           try {
             const keys = await auth.listApiKeys(ctx.principal.userId, input.limit);
             return keys.map((k) => ({
@@ -3528,14 +3421,17 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
-      revoke: scopedProcedure('identity:write')
-        .input(z.object({ keyId: z.string().guid() }))
-        .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => ({
+      revoke: mountRecord(
+        IDENTITY_API_KEYS_REVOKE,
+        async ({ ctx, input }) => ({
           revoked: await auth.revokeApiKey(ctx.principal.userId, input.keyId, revokeCauseOf(ctx.principal)),
-        })),
+        }),
+        kycProfileRefusal,
+      ),
     }),
 
     /**
@@ -3570,17 +3466,9 @@ export function createIdentityRouter(
       ...createSubAccountDeleteProcedures(options.subAccountDelete),
       ...createSubAccountFeatureProcedures(options.subAccountFeatures),
       ...createSubAccountEditProcedures(options.subAccountEdit),
-      create: scopedProcedure('identity:write')
-        .input(
-          z.object({
-            label: z.string().min(1).max(64),
-            purpose: z.string().max(200).optional(),
-            kind: z.enum(SUB_ACCOUNT_KINDS).optional(),
-            nickname: z.string().max(64).optional(),
-          }),
-        )
-        .output(z.object({ id: z.string().guid() }))
-        .mutation(async ({ ctx, input }) => {
+      create: mountRecord(
+        IDENTITY_SUB_ACCOUNTS_CREATE,
+        async ({ ctx, input }) => {
           try {
             return await auth.createSubAccount(ctx.principal.userId, input.label, input.purpose, {
               kind: input.kind,
@@ -3589,7 +3477,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Limit required — omit never dumps partitions. */
       list: scopedProcedure('identity:read')
@@ -3630,10 +3520,9 @@ export function createIdentityRouter(
        * Soft-disable. Self-only via principal.userId → parent_user_id.
        * No ledger posts — balances under this id are untouched.
        */
-      revoke: scopedProcedure('identity:write')
-        .input(z.object({ subAccountId: z.string().guid() }))
-        .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+      revoke: mountRecord(
+        IDENTITY_SUB_ACCOUNTS_REVOKE,
+        async ({ ctx, input }) => {
           // Revoke is the same act as delete, so it carries the same assets and open-orders check, and fails closed.
           try {
             if (!options.subAccountDelete) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
@@ -3642,7 +3531,9 @@ export function createIdentityRouter(
             subAccountDeleteToTrpc(err);
           }
           return { revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId) };
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Single-row ownership door (SPEC-SUBACCOUNTS §2 / D26-P1-I1).
@@ -3729,33 +3620,22 @@ export function createIdentityRouter(
        * One-tap share token mapped to this principal's user id (the referrer).
        * Idempotent while unrevoked. Hits are a counter, not money.
        */
-      createShare: scopedProcedure('identity:write')
-        .output(
-          z.object({
-            token: z.string().guid(),
-            referrerId: z.string().guid(),
-            hits: z.number().int(),
-          }),
-        )
-        .mutation(async ({ ctx }) => {
+      createShare: mountRecord(
+        IDENTITY_AFFILIATES_CREATE_SHARE,
+        async ({ ctx }) => {
           try {
             const rec = await requireShare().createShare(ctx.principal.userId);
             return { token: rec.token, referrerId: rec.referrerId, hits: rec.hits };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
-      revokeShare: scopedProcedure('identity:write')
-        .output(
-          z.object({
-            token: z.string().guid(),
-            referrerId: z.string().guid(),
-            hits: z.number().int(),
-            revokedAt: z.string(),
-          }),
-        )
-        .mutation(async ({ ctx }) => {
+      revokeShare: mountRecord(
+        IDENTITY_AFFILIATES_REVOKE_SHARE,
+        async ({ ctx }) => {
           try {
             const rec = await requireShare().revokeShare(ctx.principal.userId);
             return {
@@ -3767,39 +3647,39 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * One-tap share (RC-campaigns-06, J-campaigns-05 #2): a signed tag for the caller's live link on one surface,
        * `<token>.<surface>.<signature>`. It never makes a link (no live link: `share.not_found`). A blank signing key
        * refuses `share.key_unset`; the key is never returned.
        */
-      shareTag: scopedProcedure('identity:write')
-        .input(z.object({ surface: z.enum(SHARE_SURFACES) }))
-        .output(z.object({ tag: z.string(), token: z.string().guid(), surface: z.enum(SHARE_SURFACES) }))
-        .mutation(async ({ ctx, input }) => {
+      shareTag: mountRecord(
+        IDENTITY_AFFILIATES_SHARE_TAG,
+        async ({ ctx, input }) => {
           try {
             return await requireShare().createTag(ctx.principal.userId, input.surface);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Visits per surface on the caller's live link, every surface listed (zero when none). No live link: share.not_found. */
-      shareStats: scopedProcedure('identity:read')
-        .output(
-          z.object({
-            token: z.string().guid(),
-            surfaces: z.array(z.object({ surface: z.enum(SHARE_SURFACES), visits: z.number().int().nonnegative() })),
-          }),
-        )
-        .query(async ({ ctx }) => {
+      shareStats: mountRecord(
+        IDENTITY_AFFILIATES_SHARE_STATS,
+        async ({ ctx }) => {
           try {
             return await requireShare().surfaceStats(ctx.principal.userId);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Public visit of a signed share tag. An edited tag is refused `share.tag_invalid` and counts nothing; a revoked
@@ -3807,22 +3687,17 @@ export function createIdentityRouter(
        * token for the invitation page, never a count, the referrer's id or an email (counts are the referrer's own read). Limited per IP by the
        * owner's value; a blank one keeps this door shut (`share.rate_unset`). Attribution stays with shareHits.
        */
-      shareTagHit: publicProcedure
-        .input(z.object({ tag: z.string().min(1).max(200), sessionKey: z.string().regex(SESSION_KEY_PATTERN) }))
-        .output(
-          z.object({
-            token: z.string().guid(),
-            surface: z.enum(SHARE_SURFACES),
-            counted: z.boolean(),
-          }),
-        )
-        .mutation(async ({ input }) => {
+      shareTagHit: mountRecord(
+        IDENTITY_AFFILIATES_SHARE_TAG_HIT,
+        async ({ input }) => {
           try {
             return await requireShare().tagHit(input.tag, input.sessionKey, requestIpAls.getStore());
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Public hit. Signed-out: increment only. Signed-in: increment then
@@ -3859,17 +3734,9 @@ export function createIdentityRouter(
           }
         }),
 
-      myReferrer: scopedProcedure('identity:read')
-        .output(
-          z
-            .object({
-              userId: z.string().guid(),
-              referrerId: z.string().guid(),
-              attributedAt: z.string(),
-            })
-            .nullable(),
-        )
-        .query(async ({ ctx }) => {
+      myReferrer: mountRecord(
+        IDENTITY_AFFILIATES_MY_REFERRER,
+        async ({ ctx }) => {
           try {
             const edge = await requireReferral().edgeOf(ctx.principal.userId);
             if (!edge) return null;
@@ -3881,48 +3748,45 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** This person's short referral code, or null before they asked for one (CM-referral-01). */
-      myCode: scopedProcedure('identity:read')
-        .output(z.object({ code: z.string(), createdAt: z.string() }).nullable())
-        .query(async ({ ctx }) => {
+      myCode: mountRecord(
+        IDENTITY_AFFILIATES_MY_CODE,
+        async ({ ctx }) => {
           try {
             const rec = await requireReferralCodes().codeOf(ctx.principal.userId);
             return rec ? { code: rec.code, createdAt: rec.createdAt.toISOString() } : null;
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Makes this person's code on the first call; repeats return the same one. Blank length refuses. */
-      createCode: scopedProcedure('identity:write')
-        .output(z.object({ code: z.string(), createdAt: z.string() }))
-        .mutation(async ({ ctx }) => {
+      createCode: mountRecord(
+        IDENTITY_AFFILIATES_CREATE_CODE,
+        async ({ ctx }) => {
           try {
             const rec = await requireReferralCodes().createCode(ctx.principal.userId);
             return { code: rec.code, createdAt: rec.createdAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Whether this person may still attach a referrer through a link, measured on the server from the account's
        * creation (J-campaigns-05 #4 and #5). A blank owner window reads `unset`; nothing is invented.
        */
-      attachWindow: scopedProcedure('identity:read')
-        .output(
-          z.object({
-            state: z.enum(['unset', 'open', 'closed']),
-            accountCreatedAt: z.string(),
-            windowSeconds: z.number().int().nullable(),
-            closesAt: z.string().nullable(),
-            /** Set when an earlier relationship lapsed: the window runs again from then (RF-4). */
-            reopenedAt: z.string().nullable(),
-          }),
-        )
-        .query(async ({ ctx }) => {
+      attachWindow: mountRecord(
+        IDENTITY_AFFILIATES_ATTACH_WINDOW,
+        async ({ ctx }) => {
           try {
             const age = await requireReferral().accountAge(ctx.principal.userId);
             if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
@@ -3937,7 +3801,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Ask for a reviewed change of referrer (J-campaigns-05 #5): the invitation link names the new referrer, the
@@ -3958,28 +3824,31 @@ export function createIdentityRouter(
         }),
 
       /** This person's latest referrer change request and its state, or null. */
-      myRebind: scopedProcedure('identity:read')
-        .output(rebindForCustomer.nullable())
-        .query(async ({ ctx }) => {
+      myRebind: mountRecord(
+        IDENTITY_AFFILIATES_MY_REBIND,
+        async ({ ctx }) => {
           try {
             const rec = await requireReferralRebind().latestOf(ctx.principal.userId);
             return rec ? customerRebind(rec) : null;
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** The person withdraws their own open request. */
-      withdrawRebind: scopedProcedure('identity:write')
-        .input(z.object({ requestId: z.string().uuid() }))
-        .output(rebindForCustomer)
-        .mutation(async ({ ctx, input }) => {
+      withdrawRebind: mountRecord(
+        IDENTITY_AFFILIATES_WITHDRAW_REBIND,
+        async ({ ctx, input }) => {
           try {
             return customerRebind(await requireReferralRebind().withdraw(ctx.principal.userId, input.requestId));
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Requests waiting for a second person (founder-ops queue). Operator session with a second factor. */
       rebindQueue: scopedProcedure('admin:compliance')
@@ -4017,41 +3886,44 @@ export function createIdentityRouter(
        * Partner eligibility (J-campaigns-07 #1): my qualified invitees against the owner's required count. A blank count
        * refuses with `partner.eligibility_unset`; nothing is recorded by reading it.
        */
-      partnerEligibility: scopedProcedure('identity:read')
-        .output(
-          z.object({ requiredCount: z.number().int().positive(), qualifiedCount: z.number().int().nonnegative(), eligible: z.boolean() }),
-        )
-        .query(async ({ ctx }) => {
+      partnerEligibility: mountRecord(
+        IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
+        async ({ ctx }) => {
           try {
             return await requirePartners().eligibility(ctx.principal.userId);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Files my partner application (J-campaigns-07 #2). Pressing twice files one; an open or approved one comes back. */
-      applyPartner: scopedProcedure('identity:write')
-        .input(z.object({}).strict().optional())
-        .output(partnerForCustomer)
-        .mutation(async ({ ctx }) => {
+      applyPartner: mountRecord(
+        IDENTITY_AFFILIATES_APPLY_PARTNER,
+        async ({ ctx }) => {
           try {
             return customerPartner(await requirePartners().apply(ctx.principal.userId));
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** My latest partner application, or null. */
-      myPartnerApplication: scopedProcedure('identity:read')
-        .output(partnerForCustomer.nullable())
-        .query(async ({ ctx }) => {
+      myPartnerApplication: mountRecord(
+        IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
+        async ({ ctx }) => {
           try {
             const a = await requirePartners().latestOf(ctx.principal.userId);
             return a ? customerPartner(a) : null;
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** Partner applications waiting for an operator, oldest first. Operator session with a second factor. */
       partnerQueue: scopedProcedure('admin:compliance')
@@ -4095,15 +3967,9 @@ export function createIdentityRouter(
        * My own sub-tree as an approved partner (J-campaigns-07 #4): the people below me, level by level to the programme
        * depth; anyone deeper is counted, never named. Blank depth refuses with `affiliate.programme_depth_unset`.
        */
-      mySubTree: scopedProcedure('identity:read')
-        .output(
-          z.object({
-            depth: z.number().int().positive(),
-            members: z.array(z.object({ handle: z.string(), level: z.number().int().positive(), joinedAt: z.string() })),
-            beyondDepth: z.number().int().nonnegative(),
-          }),
-        )
-        .query(async ({ ctx }) => {
+      mySubTree: mountRecord(
+        IDENTITY_AFFILIATES_MY_SUB_TREE,
+        async ({ ctx }) => {
           try {
             const tree = await requirePartners().subTree(ctx.principal.userId);
             return {
@@ -4114,24 +3980,18 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Where this person's referral relationship stands against the owner's inactivity period (J-campaigns-05 #7): the
        * date it ends without a fee event, and their latest ended relationship. A blank period reads `unset`; no end date
        * is invented.
        */
-      myLapse: scopedProcedure('identity:read')
-        .output(
-          z.object({
-            state: z.enum(['unset', 'none', 'active']),
-            periodSeconds: z.number().int().nullable(),
-            lastActivityAt: z.string().nullable(),
-            endsAt: z.string().nullable(),
-            ended: lapseOutput.nullable(),
-          }),
-        )
-        .query(async ({ ctx }) => {
+      myLapse: mountRecord(
+        IDENTITY_AFFILIATES_MY_LAPSE,
+        async ({ ctx }) => {
           try {
             const lapse = requireReferralLapse();
             const [standing, ended] = await Promise.all([lapse.standingOf(ctx.principal.userId), lapse.latestOf(ctx.principal.userId)]);
@@ -4145,7 +4005,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /** The lapse log for founder-ops, newest first. Operator session with a second factor. */
       lapseLog: scopedProcedure('admin:compliance')
@@ -4160,15 +4022,17 @@ export function createIdentityRouter(
           }
         }),
 
-      myAncestors: scopedProcedure('identity:read')
-        .output(z.array(z.string().guid()))
-        .query(async ({ ctx }) => {
+      myAncestors: mountRecord(
+        IDENTITY_AFFILIATES_MY_ANCESTORS,
+        async ({ ctx }) => {
           try {
             return await requireReferral().ancestorsOf(ctx.principal.userId);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Affiliate self-view of durable commission accruals only.
@@ -4177,27 +4041,9 @@ export function createIdentityRouter(
        * Limit required — omit never invents 100. Owner/query may pass 100 explicitly.
        * Payout is a separate admin procedure (affiliates.payout) — refuse-closed without owner rates + ledger.
        */
-      myAccruals: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(500) }))
-        .output(
-          z.object({
-            rows: z.array(
-              z.object({
-                feeEventId: z.string(),
-                beneficiaryId: z.string().guid(),
-                payerId: z.string().guid(),
-                hop: z.number().int(),
-                rate: z.string(),
-                feeAmount: z.string(),
-                commissionAmount: z.string(),
-                asset: z.string(),
-                accruedAt: z.string(),
-                sourceModule: z.string(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ ctx, input }) => {
+      myAccruals: mountRecord(
+        IDENTITY_AFFILIATES_MY_ACCRUALS,
+        async ({ ctx, input }) => {
           try {
             const store = requireAccruals();
             // Self-only: never accept a foreign beneficiaryId.
@@ -4219,7 +4065,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Operator freeze beneficiary — skips accrual; no payout path here.
@@ -4852,14 +4700,18 @@ export function createIdentityRouter(
        * The signed-in caller's own place (RC-campaigns-05's drop room, J-campaigns-20 #4): the entry whose email is this
        * account's confirmed email, or null when it never joined. An unconfirmed email refuses `waitlist.email_unverified`.
        */
-      mine: protectedProcedure.output(waitlistPlaceOutput.nullable()).query(async ({ ctx }) => {
-        try {
-          const out = await requireWaitlist().mine(() => auth.selfEmail(ctx.principal.userId));
-          return out ? waitlistPlaceView(out) : null;
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      mine: mountRecord(
+        IDENTITY_WAITLIST_MINE,
+        async ({ ctx }) => {
+          try {
+            const out = await requireWaitlist().mine(() => auth.selfEmail(ctx.principal.userId));
+            return out ? waitlistPlaceView(out) : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Referral-ranked waves (RC-campaigns-03, J-campaigns-20 #3). `list` shows the owner's wave size (null while blank),
@@ -4868,34 +4720,22 @@ export function createIdentityRouter(
        * waiting entries once; the same wave again returns the stored wave and spends no approval.
        */
       waves: router({
-        list: scopedProcedure('admin:read')
-          .output(
-            z.object({
-              waveSize: z.number().int().positive().nullable(),
-              nextWave: z.number().int().positive(),
-              waiting: z.number().int().min(0),
-              waves: z.array(waveOutput),
-            }),
-          )
-          .query(async () => {
+        list: mountRecord(
+          IDENTITY_WAITLIST_WAVES_LIST,
+          async () => {
             try {
               const out = await requireWaitlist().waves();
               return { ...out, waves: out.waves.map(waveView) };
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
 
-        release: scopedProcedure('admin:write')
-          .input(
-            z.object({
-              waveNumber: z.number().int().positive(),
-              approvalId: z.string().max(128).nullish(),
-              operationId: z.string().max(128).nullish(),
-            }),
-          )
-          .output(z.object({ wave: waveOutput, created: z.boolean() }))
-          .mutation(async ({ ctx, input }) => {
+        release: mountRecord(
+          IDENTITY_WAITLIST_WAVES_RELEASE,
+          async ({ ctx, input }) => {
             try {
               requireMfa(ctx.principal);
               const out = await requireWaitlist().release(
@@ -4912,7 +4752,9 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       list: scopedProcedure('admin:read')

@@ -73,7 +73,7 @@ export function PlanRuleText({ resource, reload }: { resource: Resource<AccountT
       {parts.code && (
         <>
           {' '}
-          <small className="muted">{planRuleCopy.t('reference', { code: parts.code })}</small>
+          <small className="lt-muted">{planRuleCopy.t('reference', { code: parts.code })}</small>
         </>
       )}
     </>
@@ -91,7 +91,7 @@ export function PlanRule({ plan }: { plan: ReturnType<typeof usePlanTerms> }) {
   return (
     <div data-testid="plan-rule">
       <h4 className="bd-subhead">{t('title')}</h4>
-      <div className="money-caption">
+      <div className="lt-muted">
         <PlanRuleText resource={plan.resource} reload={plan.reload} />
       </div>
     </div>

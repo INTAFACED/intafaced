@@ -1,8 +1,15 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk';
+import { type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { refusalOf } from '@/lib/agents-log';
 import { handlesFor, type FleetAnswer } from '@/lib/agents-fleet';
 import type { OutsideAction } from './model';
+import {
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+} from '@intafaced/contracts/trade-admin-procedures';
+import { IDENTITY_API_KEY_OPS_REVOKE } from '@intafaced/contracts/identity-api-key-ops-procedures';
 
 /**
  * The outside assistant connections desk's hops (J-agents-21 #15), always as the signed-in founder through svc-edge:
@@ -54,7 +61,7 @@ const parseOwner = (raw: unknown): { keyId: string; userId: string } | null =>
 export async function runOutside(ctx: FounderCallContext, action: OutsideAction): Promise<FleetAnswer> {
   switch (action.action) {
     case 'connections': {
-      const result = await founderCall(ctx, 'trade', 'admin.agentDesk.connections', 'GET', undefined, parseConnections);
+      const result = await founderRecordRead(ctx, TRADE_ADMIN_AGENT_DESK_CONNECTIONS, undefined, parseConnections);
       if (result.kind !== 'ok') return refusalOf(result);
       const rows = result.data.rows as Json[];
       const { handles, unread } = await handlesFor(ctx, [
@@ -64,7 +71,7 @@ export async function runOutside(ctx: FounderCallContext, action: OutsideAction)
       return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread } };
     }
     case 'audit': {
-      const result = await founderCall(ctx, 'trade', 'admin.agentDesk.audit', 'GET', undefined, parseAudit);
+      const result = await founderRecordRead(ctx, TRADE_ADMIN_AGENT_DESK_AUDIT, undefined, parseAudit);
       if (result.kind !== 'ok') return refusalOf(result);
       const rows = result.data.rows as Json[];
       const { handles, unread } = await handlesFor(ctx, [...rows.map((r) => r.operatorId), ...rows.map((r) => r.userId)]);
@@ -73,22 +80,18 @@ export async function runOutside(ctx: FounderCallContext, action: OutsideAction)
     case 'quarantine': {
       if (action.reason === null) return { kind: 'refused', code: 'agents.desk_reason_required', status: 400 };
       // The person the key belongs to, from svc-trade's own record of the key's connection, never from the browser.
-      const owner = await founderCall(ctx, 'trade', 'admin.agentDesk.connection', 'GET', { keyId: action.keyId }, parseOwner);
+      const owner = await founderRecordRead(ctx, TRADE_ADMIN_AGENT_DESK_CONNECTION, { keyId: action.keyId }, parseOwner);
       if (owner.kind !== 'ok') return refusalOf(owner);
-      const revoked = await founderCall(
+      const revoked = await founderRecordRead(
         ctx,
-        'identity',
-        'apiKeyOps.revoke',
-        'POST',
+        IDENTITY_API_KEY_OPS_REVOKE,
         { userId: owner.data.userId, keyId: action.keyId, reason: action.reason, clientRequestId: action.requestId },
         parseAny,
       );
       if (revoked.kind !== 'ok') return refusalOf(revoked);
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'trade',
-        'admin.agentDesk.quarantine',
-        'POST',
+        TRADE_ADMIN_AGENT_DESK_QUARANTINE,
         { keyId: action.keyId, reason: action.reason, requestId: action.requestId },
         parseAny,
       );

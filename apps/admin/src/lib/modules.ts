@@ -77,6 +77,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/ledger-freeze', 'ledger'],
   ['/api/ledger-lookup', 'ledger'],
   ['/api/ledger-reconciliation', 'ledger'],
+  ['/api/ledger-reversals', 'ledger'],
   ['/api/pay-halts', 'ledger'],
   ['/api/restore', 'ledger'],
   ['/api/compliance', 'jurisdiction'],

@@ -1,6 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
+  sectionsLabel: 'Linked account sections',
+  explain:
+    'A linked account is your own account at another bank, where cash outs are paid. Every account starts unverified and only a banking partner can verify one; linking and removing each ask you to confirm it is you.',
   title: 'Linked bank accounts',
   description: 'Your own accounts at other banks, to add money from and to cash out to.',
   open: 'Linked bank accounts',
@@ -47,6 +50,9 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Secciones de cuentas vinculadas',
+  explain:
+    'Una cuenta vinculada es tu propia cuenta en otro banco, donde se pagan los retiros de efectivo. Cada cuenta empieza sin verificar y solo un banco asociado puede verificarla; vincular y quitar te piden confirmar que eres tú.',
   title: 'Cuentas bancarias vinculadas',
   description: 'Tus propias cuentas en otros bancos, para añadir dinero desde ellas y retirar a ellas.',
   open: 'Cuentas bancarias vinculadas',
@@ -93,6 +99,9 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Sections des comptes liés',
+  explain:
+    'Un compte lié est votre propre compte dans une autre banque, où les retraits en espèces sont versés. Chaque compte commence non vérifié et seul un partenaire bancaire peut le vérifier ; lier et retirer vous demandent de confirmer que c’est bien vous.',
   title: 'Comptes bancaires liés',
   description: 'Vos propres comptes dans d’autres banques, pour ajouter de l’argent depuis eux et retirer vers eux.',
   open: 'Comptes bancaires liés',

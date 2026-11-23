@@ -6,6 +6,7 @@
 //! are run by the kit's matcher on the lowercased text; the two that capture (`VALUE_INSTRUCTION` and the remember
 //! request) are matched by hand here, in the order JavaScript's backtracking tries them.
 
+use service_kit::money::Amount;
 use std::sync::LazyLock;
 
 use service_kit::json::{self, Json};
@@ -210,7 +211,7 @@ pub fn value_instruction(text: &str) -> Option<Payload> {
     let c: Vec<char> = text.chars().collect();
     let (amount, asset, dest) = (0..c.len()).find_map(|s| value_match_at(&c, s))?;
     let units = parse_amount(&amount).ok()?;
-    if units <= 0 {
+    if units <= Amount::ZERO {
         return None;
     }
     let destination = js_trim(&dest)

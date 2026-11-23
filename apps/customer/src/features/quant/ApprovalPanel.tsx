@@ -8,17 +8,17 @@ import type { QuantApprovalState } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field } from '../../shared/ui';
-import { Read } from '../more';
+import { EmptyNote, FailureNote, KitRead, ScrollTable } from '../more';
 import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
+import { Button, Field } from '@intafaced/ui/lit';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 
 /**
- * Live approval (RC-algo-dev-01; J-algo-dev-16 #4), on the owner's strategy page and on a teammate's view of it. The owner
+ * Live approval (RC-algo-dev-01; J-algo-dev-16 #4, J-algo-dev-06 #3), on the owner's strategy page and on a teammate's view of it. The owner
  * sets the account's policy and asks for a review of a version; a teammate approves or rejects it. Whether the newest
  * version may go live is the service's reading, and the live runner refuses a start the same way.
  */
@@ -56,6 +56,13 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
 
   const view = (data: QuantApprovalState) => {
     const pending = data.approvals.find((row) => row.decision === 'pending' && row.current);
+    // Any change voids a review: new risk settings void the version's own, a code change makes a new version none counts
+    // for. With the rule on, a strategy reviewed before and no review counting for the newest version, the panel asks again.
+    const again =
+      data.policy.required === true &&
+      !data.live.allowed &&
+      data.approvals.length > 0 &&
+      !data.approvals.some((row) => row.strategyVersion === data.version && row.current);
     return (
       <>
         <p data-testid="quant-approval-policy" data-required={data.policy.required === null ? '' : String(data.policy.required)}>
@@ -64,7 +71,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         </p>
         {owner && (
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={busy}
             onClick={() =>
               void act(() =>
@@ -82,8 +89,14 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         <p data-testid="quant-approval-live" data-allowed={data.live.allowed} data-code={data.live.code ?? ''} data-version={data.version}>
           {data.live.allowed ? t('apLiveAllowed', { version: data.version }) : t('apLiveBlocked', { version: data.version })}
         </p>
+        {again && (
+          <p role="status" data-testid="quant-approval-again" data-version={data.version}>
+            {t('apAgain', { version: data.version })}
+          </p>
+        )}
         {owner && (
           <Button
+            tone="primary"
             disabled={busy}
             onClick={() => void act(() => api.call(QUANT_APPROVAL_REQUEST, { strategyId: data.strategyId, strategyVersion: data.version }))}
           >
@@ -91,9 +104,9 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
           </Button>
         )}
         {data.approvals.length === 0 ? (
-          <EmptyState title={t('apNone')} />
+          <EmptyNote title={t('apNone')} />
         ) : (
-          <DataTable
+          <ScrollTable
             label={t('apTitle')}
             headers={[t('apColVersion'), t('apColDecision'), t('apColReviewer'), t('apColRequested'), t('apColState')]}
           >
@@ -116,12 +129,13 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
                 <td>{row.current ? t('apCurrent') : t('apStale')}</td>
               </tr>
             ))}
-          </DataTable>
+          </ScrollTable>
         )}
         {pending && (
           <div data-testid="quant-approval-decide" data-approval-id={pending.approvalId}>
             <Field label={t('apReason')} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
             <Button
+              tone="primary"
               disabled={busy}
               onClick={() =>
                 void act(() =>
@@ -137,7 +151,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
               {t('apApprove', { version: pending.strategyVersion })}
             </Button>
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={busy}
               onClick={() =>
                 void act(() =>
@@ -161,20 +175,20 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
   return (
     <section aria-label={t('apTitle')} data-testid="quant-approval">
       <h3>{t('apTitle')}</h3>
-      <p className="muted">{t('apIntro')}</p>
+      <p>{t('apIntro')}</p>
       {kept ? (
         view(kept)
       ) : (
-        <Read resource={state.resource} retry={state.reload}>
+        <KitRead resource={state.resource} retry={state.reload}>
           {() => null}
-        </Read>
+        </KitRead>
       )}
       {refused && (
         <p role="alert" data-testid="quant-approval-refusal" data-code={refused.code}>
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} />}
+      {failure && <FailureNote result={failure} />}
     </section>
   );
 }

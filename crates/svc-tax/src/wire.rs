@@ -93,6 +93,8 @@ impl From<Failure> for Error {
                 message: format!("{} — {}", e.code, e.message),
                 intafaced_code: None,
                 cause: Some(e.code.to_owned()),
+                preview: None,
+                spend: None,
             },
             Failure::Internal(message) => Error::plain("INTERNAL_SERVER_ERROR", message),
         }

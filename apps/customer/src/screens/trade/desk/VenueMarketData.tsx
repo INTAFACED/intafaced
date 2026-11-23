@@ -113,25 +113,25 @@ export function VenueMarketPanel({
       <ReadProblem failure={failure} venueName={venueName} />
       <dl className="dk-stats dk-venue-ticker" data-testid="venue-ticker">
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Last price')}</dt>
+          <dt className="lt-hint">{t('Last price')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-last" data-trade-id={last?.tradeId}>
             {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best bid')}</dt>
+          <dt className="lt-hint">{t('Best bid')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-best-bid">
             {bid ? price(bid.price) : t('Side empty')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best ask')}</dt>
+          <dt className="lt-hint">{t('Best ask')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-best-ask">
             {ask ? price(ask.price) : t('Side empty')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Market data as of')}</dt>
+          <dt className="lt-hint">{t('Market data as of')}</dt>
           <dd className="dk-stat-value" data-testid="venue-market-as-of">
             {book.data ? asOfText(book.data.asOf) : '…'}
           </dd>
@@ -155,7 +155,7 @@ export function VenueMarketPanel({
             </div>
             <div className="dk-chart-canvas">
               {chart === null ? (
-                <p className="muted" role="status">
+                <p className="lt-muted" role="status">
                   {t('Reading the venue')}
                 </p>
               ) : chart.length === 0 ? (
@@ -198,24 +198,24 @@ export function VenueMarketPanel({
                 ].map((l) => (
                   <tr key={`${l.side}:${l.price}`} data-testid="venue-book-row" data-side={l.side}>
                     <td>{l.side === 'bid' ? t('Bid') : t('Ask')}</td>
-                    <td className="numeric" data-testid="venue-book-price">
+                    <td className="lt-num" data-testid="venue-book-price">
                       {price(l.price)}
                     </td>
-                    <td className="numeric" data-testid="venue-book-amount">
+                    <td className="lt-num" data-testid="venue-book-amount">
                       {price(l.amount)}
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <p className="muted" role="status">
+              <p className="lt-muted" role="status">
                 {t('Reading the venue')}
               </p>
             )}
           </TabsPanel>
           <TabsPanel value="tape">
             {tape.data && tape.data.value.length === 0 ? (
-              <p className="muted">{t('No print')}</p>
+              <p className="lt-muted">{t('No print')}</p>
             ) : tape.data ? (
               <DataTable
                 label={t('Last trades')}
@@ -225,17 +225,17 @@ export function VenueMarketPanel({
                   <tr key={p.tradeId} data-testid="venue-tape-row" data-trade-id={p.tradeId} data-side={p.takerSide ?? 'unknown'}>
                     <td>{new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' })}</td>
                     <td>{p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published')}</td>
-                    <td className="numeric" data-testid="venue-tape-price">
+                    <td className="lt-num" data-testid="venue-tape-price">
                       {price(p.price)}
                     </td>
-                    <td className="numeric" data-testid="venue-tape-amount">
+                    <td className="lt-num" data-testid="venue-tape-amount">
                       {price(p.amount)}
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <p className="muted" role="status">
+              <p className="lt-muted" role="status">
                 {t('Reading the venue')}
               </p>
             )}

@@ -10,7 +10,7 @@
   "callers": [
     { "path": "accessOf", "type": "query", "caller": "scope" },
     { "path": "burnedSupply", "type": "query", "caller": "scope" },
-    { "path": "buyback.runWindow", "type": "mutation", "caller": "public" },
+    { "path": "buyback.runWindow", "type": "mutation", "caller": "service" },
     { "path": "buybackRuns", "type": "query", "caller": "scope" },
     { "path": "castVote", "type": "mutation", "caller": "scope" },
     { "path": "closeProposal", "type": "mutation", "caller": "scope" },
@@ -46,7 +46,7 @@
     { "path": "launch.issuer.set", "type": "mutation", "caller": "scope" },
     { "path": "listProposals", "type": "query", "caller": "scope" },
     { "path": "listStakes", "type": "query", "caller": "scope" },
-    { "path": "mintEpoch", "type": "mutation", "caller": "public" },
+    { "path": "mintEpoch", "type": "mutation", "caller": "service" },
     { "path": "myVotes", "type": "query", "caller": "scope" },
     { "path": "nextEmissionEpoch", "type": "query", "caller": "scope" },
     { "path": "recordBuyback", "type": "mutation", "caller": "scope" },
@@ -61,7 +61,7 @@
     { "path": "voteMessage", "type": "query", "caller": "scope" },
     { "path": "votingPower.history", "type": "query", "caller": "scope" },
     { "path": "votingPower.ofProposal", "type": "query", "caller": "scope" },
-    { "path": "yield.runWindow", "type": "mutation", "caller": "public" },
+    { "path": "yield.runWindow", "type": "mutation", "caller": "service" },
     { "path": "yieldHistory", "type": "query", "caller": "scope" }
   ],
   "inputs": {

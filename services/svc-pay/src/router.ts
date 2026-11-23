@@ -1,5 +1,6 @@
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { payWithdrawalSchema } from '@intafaced/contracts/pay-money-room';
 import {
   PAY_WITHDRAWAL_CANCEL,
@@ -29,47 +30,15 @@ import {
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
+import { payPageSchema, paySettlementDetailViewSchema, paySettlementViewSchema } from '@intafaced/contracts/pay-merchant-reads';
 import {
   payCheckoutSettingsGetInputSchema,
   payCheckoutSettingsSchema,
-  payCreateLinkInputSchema,
-  payCreateLinkOutputSchema,
-  payGetLinkInputSchema,
-  payLinkListInputSchema,
-  payLinkListItemSchema,
-  payLinkListPageSchema,
-  payMerchantFailureSchema,
-  payPageSchema,
-  payPaymentAttemptSchema,
-  payPaymentConfirmationsSchema,
-  payPaymentListInputSchema,
-  payPaymentListSummarySchema,
-  payPricingSnapshotViewSchema,
-  paySettlementClearingSchema,
-  paySettlementDetailViewSchema,
-  paySettlementLineSchema,
-  paySettlementViewSchema,
-  paySettlementLinesInputSchema,
-  payPayoutDestinationItemSchema,
   payDestinationAddOutputSchema,
-  payDestinationCancelHoldInputSchema,
-  payDestinationRemoveOutputSchema,
-  payDestinationCancelHoldOutputSchema,
-  payPayoutDestinationListInputSchema,
-  payPayoutLifecycleInputSchema,
-  payPayoutLifecycleSchema,
-  payRefundGetInputSchema,
   payRefundItemSchema,
   payRefundListInputSchema,
-  paySettlementListInputSchema,
-  payStatementListInputSchema,
-  payStatementPageSchema,
-  merchantStarterFeeSchema,
-  router,
-  scopedProcedure,
-  publicProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-portal-reads';
+import { router, scopedProcedure, publicProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
 import { credentialAuthority } from './payment-authority.js';
@@ -103,13 +72,11 @@ import {
 } from './merchant-payout-destination.js';
 import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js';
 import type { RailRegistry } from './rails/registry.js';
-import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
 import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
 import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
-import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   loadDestinationHoldSeconds,
   notifyMerchantOwners,
@@ -148,90 +115,58 @@ import {
 } from './fraud/dispute-case.js';
 import { describeCmsPluginStatus } from './plugins/cms-status.js';
 import { describePluginsPolicy } from './plugins/plugins-policy.js';
-import {
-  CMS_PLUGIN_FAMILIES,
-  CMS_PLUGIN_SOCKET,
-  getCmsPluginStatus,
-  PAY_PLUGIN_CMS_UNWIRED,
-  SHIPPED_CMS_PLUGIN_FAMILY,
-  UNWIRED_CMS_PLUGIN_FAMILIES,
-} from './plugins/cms-unwired.js';
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { ownMerchantRead } from './own-merchant-read.js';
-import { OnboardingDraftStore, onboardingDraftSaveInputSchema, onboardingDraftSchema } from './onboarding-draft.js';
+import { OnboardingDraftStore } from './onboarding-draft.js';
+import { assetIdSchema, amountSchema, paymentView } from '@intafaced/contracts/pay-call-schemas';
+import { PAY_DEPOSIT_CREDIT } from '@intafaced/contracts/pay-deposit-procedures';
+import {
+  PAY_PAYMENT_GET,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_LIST,
+  PAY_PAYMENT_AUTHORIZE,
+  PAY_PAYMENT_CAPTURE,
+  PAY_PAYMENT_CREATE,
+  PAY_PAYMENT_REFUNDS_GET,
+  PAY_PAYMENT_REFUND,
+} from '@intafaced/contracts/pay-payment-procedures';
+import {
+  PAY_MERCHANT_STARTER_FEE,
+  PAY_MERCHANT_ME,
+  PAY_MERCHANT_BALANCES,
+  PAY_MERCHANT_LIST_LINKS,
+  PAY_MERCHANT_DEACTIVATE_LINK,
+  PAY_MERCHANT_GET_LINK,
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+  PAY_MERCHANT_PROFILE,
+  PAY_MERCHANT_CREATE_LINK,
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
+} from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedures';
+import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
+import {
+  PAY_SETTLEMENT_LIST,
+  PAY_SETTLEMENT_GET,
+  PAY_SETTLEMENT_RELEASE,
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+} from '@intafaced/contracts/pay-settlement-procedures';
+import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from '@intafaced/contracts/pay-fraud-procedures';
 
-/**
- * svc-pay's internal tRPC surface (§2 — cross-service calls go through
- * packages/contracts).
- *
- * MONEY CROSSES THIS BOUNDARY AS A DECIMAL STRING, always, in both directions.
- * `amountSchema` rejects anything else, including a JSON number, so a caller
- * that has been doing float arithmetic finds out here rather than 18 decimal
- * places later.
- *
- * Every procedure that moves value carries a scope AND the jurisdiction guard
- * (`{ module: 'pay' }`). §22: pay is a custodial Fiat Plane module — value
- * lands in a ledger account we control — so the matrix applies. Lane A
- * (permissionless merchant contracts, §24) is a different service on the
- * Protocol Plane and does not route through here.
- */
-
-const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
-
-const assetIdSchema = z.string().min(1).max(16);
-
-const paymentView = z.object({
-  id: z.string().guid(),
-  merchantId: z.string().guid(),
-  profileId: z.string().guid().nullable(),
-  amount: amountSchema,
-  assetId: assetIdSchema,
-  method: z.string(),
-  railAdapter: z.string(),
-  railRef: z.string().nullable(),
-  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
-  capturedAmount: amountSchema,
-  refundedAmount: amountSchema,
-  createdAt: z.string().datetime({ offset: true }),
-  /** Stored when the fee was decided. Null when no snapshot row exists. Never recomputed. */
-  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
-  /** Catalog code and sentence. Null when the payment has not failed. */
-  failure: payMerchantFailureSchema.nullable(),
-});
+/** A JSON object column read back from Postgres: the records type it as JSON, so it is checked as JSON at the edge. */
+const jsonRecordSchema = z.record(z.string(), jsonValueSchema);
 
 /** RC-merchant-10: one captured payment whose funds the rail still holds. `availableOn` is the rail's day, or null. */
-/**
- * A checkout session on the wire.
- *
- * NOTHING HERE IDENTIFIES ANYTHING BUT THIS SESSION. No merchantId, no linkId,
- * no paymentId, no railAdapter — the caller is anonymous, so the response
- * carries what one payer needs in order to pay and nothing they could use to
- * enumerate a merchant or correlate two links.
- */
-const checkoutSessionView = z.object({
-  id: z.string().guid(),
-  status: z.enum(['open', 'completed', 'expired', 'cancelled']),
-  label: z.string(),
-  amount: amountSchema,
-  currency: assetIdSchema,
-  method: z.string(),
-  expiresAt: z.string().datetime({ offset: true }),
-  instruction: z.object({ reference: z.string(), amount: amountSchema, currency: assetIdSchema }).nullable(),
-  /** RC-merchant-09: the bank transfer arrived and is held for a payer-name review; nothing more should be sent. */
-  heldForReview: z.boolean().optional(),
-});
-
-const depositView = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  assetId: assetIdSchema,
-  amount: amountSchema,
-  rail: z.string(),
-  railRef: z.string(),
-  status: z.enum(['pending', 'credited']),
-  createdAt: z.string().datetime({ offset: true }),
-});
 
 /** The published withdrawalView: one schema, the customer's record of it (`@intafaced/contracts/pay-money-room`). */
 const withdrawalView = payWithdrawalSchema;
@@ -445,22 +380,15 @@ export function createPayRouter(
       .query(() => ({ ok: true as const, service: 'svc-pay', rails: rails.ids() })),
 
     /** Public payment-link resolve — checkout intent only, no merchant secrets. */
-    resolveLink: publicProcedure
-      .input(z.object({ token: z.string().min(8).max(200) }))
-      .output(
-        z.object({
-          id: z.string().guid(),
-          merchantId: z.string().guid(),
-          profileId: z.string().guid().nullable(),
-          label: z.string(),
-          amount: amountSchema.nullable(),
-          currency: z.string().nullable(),
-          expiresAt: z.string().nullable(),
-          remainingUses: z.number().int().nullable(),
-          checkoutConfig: z.record(z.string(), z.unknown()),
+    resolveLink: mountRecord(
+      PAY_RESOLVE_LINK,
+      ({ input }) =>
+        wrap(async () => {
+          const link = await pay.resolvePaymentLink(input.token);
+          return { ...link, checkoutConfig: jsonRecordSchema.parse(link.checkoutConfig) };
         }),
-      )
-      .query(({ input }) => wrap(() => pay.resolvePaymentLink(input.token))),
+      payRefusal,
+    ),
 
     /**
      * HOSTED CHECKOUT — the public, unauthenticated payment path (§6.1).
@@ -485,24 +413,9 @@ export function createPayRouter(
      *     paid; only a verified rail webhook can.
      */
     checkout: router({
-      open: publicProcedure
-        .input(
-          z.object({
-            token: z.string().min(8).max(200),
-            /** Honoured only on a link that fixes no amount. Otherwise ignored. */
-            amount: amountSchema.optional(),
-            /** Honoured only on a link that fixes no currency. Otherwise ignored. */
-            assetId: assetIdSchema.optional(),
-            /** Payer-stated ISO country. Blank → pay.routing_input_missing. Not a rail id. */
-            geoCountry: z.string().max(8).optional(),
-            /** Method (`crypto`/`card`), never a rail adapter id. */
-            method: z.string().max(32).optional(),
-            /** RC-merchant-09: the name on the bank account a bank transfer comes from. Checked by the service. */
-            payerName: z.string().max(1000).optional(),
-          }),
-        )
-        .output(z.object({ sessionToken: z.string(), session: checkoutSessionView }))
-        .mutation(({ input }) =>
+      open: mountRecord(
+        PAY_CHECKOUT_OPEN,
+        ({ input }) =>
           wrap(async () => {
             const { sessionToken, session } = await pay.openCheckoutSession({
               linkToken: input.token,
@@ -514,7 +427,8 @@ export function createPayRouter(
             });
             return { sessionToken, session };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Poll a session by its OWN token.
@@ -523,10 +437,7 @@ export function createPayRouter(
        * capability and a session is one payer's: addressing sessions by the link
        * token would let anybody holding the URL read a stranger's checkout.
        */
-      status: publicProcedure
-        .input(z.object({ sessionToken: z.string().min(8).max(200) }))
-        .output(checkoutSessionView)
-        .query(({ input }) => wrap(() => pay.getCheckoutSession(input.sessionToken))),
+      status: mountRecord(PAY_CHECKOUT_STATUS, ({ input }) => wrap(() => pay.getCheckoutSession(input.sessionToken)), payRefusal),
     }),
 
     /**
@@ -537,35 +448,9 @@ export function createPayRouter(
      * console cannot answer "can users withdraw today" from health alone; a
      * sandbox is perfectly healthy at simulating.
      */
-    railHealth: ownMerchantRead()
-      .output(
-        z.array(
-          z.object({
-            id: z.string(),
-            /**
-             * DERIVED FROM THE PORT, not restated here.
-             *
-             * These two were hand-written literal unions — a second copy of a
-             * vocabulary that already has an authority in `rails/rail-adapter.ts`.
-             * The copy is what goes stale. Widening `RailCapability` for card
-             * operations, or `RailMode` to carry `absent`, left this schema
-             * narrower than the thing it describes, and a zod OUTPUT schema that
-             * is narrower than its payload does not report a drift: it throws at
-             * serialisation time, on an operator dashboard, in production.
-             *
-             * Reading the constants makes the compiler the thing that notices,
-             * which it did — this line failed to build the moment the port grew.
-             */
-            capabilities: z.array(z.enum(RAIL_CAPABILITIES)),
-            mode: z.enum(RAIL_MODES),
-            usable: z.boolean(),
-            healthy: z.boolean(),
-            latencyMs: z.number(),
-            reason: z.string().optional(),
-          }),
-        ),
-      )
-      .query(async ({ ctx }) => {
+    railHealth: mountRecord(
+      PAY_RAIL_HEALTH,
+      async ({ ctx }) => {
         // Platform-wide, so a pay:onboard caller sees it only once it owns a business or works on one's team. Rail
         // health names no merchant, so a member of a business still in review sees it, as that business's owner does.
         const onTeam = async () =>
@@ -586,7 +471,9 @@ export function createPayRouter(
           latencyMs: h.latencyMs,
           reason: h.reason,
         }));
-      }),
+      },
+      payRefusal,
+    ),
 
     merchant: router({
       ...portal?.merchant,
@@ -662,23 +549,9 @@ export function createPayRouter(
         .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
 
       /** Current merchant for the principal — null when not yet onboarded. */
-      me: ownMerchantRead()
-        .output(
-          z
-            .object({
-              id: z.string().guid(),
-              userId: z.string().guid(),
-              mode: z.enum(['gateway', 'psp', 'payfac']),
-              status: z.enum(['pending', 'active', 'suspended', 'closed']),
-              kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-              kybRef: z.string().nullable(),
-              feeBps: z.number().nullable(),
-              /** Null when the starter fee is not set. `local_test` is not INTAFACED pricing. */
-              starterFee: merchantStarterFeeSchema.nullable(),
-            })
-            .nullable(),
-        )
-        .query(({ ctx }) =>
+      me: mountRecord(
+        PAY_MERCHANT_ME,
+        ({ ctx }) =>
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -696,64 +569,58 @@ export function createPayRouter(
               starterFee: fee.starterFee,
             };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * The published starter fee, including for a caller who has no merchant yet.
        * Null means the fee is not configured.
        */
-      starterFee: ownMerchantRead()
-        .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
-        .query(() => ({ starterFee })),
+      starterFee: mountRecord(PAY_MERCHANT_STARTER_FEE, () => ({ starterFee }), payRefusal),
 
       /**
        * The business step's saved draft for the signed-in person (J-merchant-02 #1), or null. Kept before any account
        * exists, so leaving the page or signing out never drops what was typed. Never another person's: keyed by session.
        */
-      onboardingDraft: ownMerchantRead()
-        .output(onboardingDraftSchema)
-        .query(({ ctx }) =>
+      onboardingDraft: mountRecord(
+        PAY_MERCHANT_ONBOARDING_DRAFT,
+        ({ ctx }) =>
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
             return new OnboardingDraftStore(portalSql).get(userId);
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Saves the business step's draft for the signed-in person, newest `seq` winning. It opens no account. */
-      saveOnboardingDraft: scopedProcedure('pay:onboard', { module: 'pay' })
-        .input(onboardingDraftSaveInputSchema)
-        .output(onboardingDraftSchema)
-        .mutation(({ ctx, input }) =>
+      saveOnboardingDraft: mountRecord(
+        PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+        ({ ctx, input }) =>
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
             return new OnboardingDraftStore(portalSql).save(userId, input.fields, input.seq);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * KYB stub submit — dossier reference only. Does not invent a partner decision.
        * Digital KYB vendors are `pay.psp`.
        */
-      submitKyb: scopedProcedure('pay:onboard', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().guid(), kybRef: z.string().min(1).max(128) }))
-        .output(
-          z.object({
-            id: z.string().guid(),
-            kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-            kybRef: z.string().nullable(),
-          }),
-        )
-        .mutation(({ ctx, input }) =>
+      submitKyb: mountRecord(
+        PAY_MERCHANT_SUBMIT_KYB,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.submitKyb');
             const merchant = await pay.submitKyb({ ...input, actor: { id: ctx.principal.userId, scope: 'pay:onboard' } });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Operator digital-KYB decide (`pay.psp`). `admin:compliance` — not merchant `pay:write`.
@@ -841,22 +708,15 @@ export function createPayRouter(
           }),
         ),
 
-      profile: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().guid(),
-            checkoutConfig: z.record(z.string(), z.unknown()).optional(),
-            feeRouting: z.record(z.string(), z.unknown()).optional(),
-            domains: z.array(z.string()).optional(),
-          }),
-        )
-        .output(z.object({ id: z.string().guid(), merchantId: z.string().guid() }))
-        .mutation(({ ctx, input }) =>
+      profile: mountRecord(
+        PAY_MERCHANT_PROFILE,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.profile');
             return pay.createProfile(input);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * The checkout profile the write above stored, newest row for this merchant.
@@ -887,10 +747,9 @@ export function createPayRouter(
        * Same key and same body returns the original link, including that token.
        * Same key and a different body is `pay.idempotency_conflict`.
        */
-      createLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(payCreateLinkInputSchema)
-        .output(payCreateLinkOutputSchema)
-        .mutation(({ ctx, input }) =>
+      createLink: mountRecord(
+        PAY_MERCHANT_CREATE_LINK,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.createLink');
             if (input.idempotencyKey !== undefined) {
@@ -918,49 +777,43 @@ export function createPayRouter(
             });
             return { ...link, expiresAt: link.expiresAt.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
-      listLinks: ownMerchantRead()
-        .input(payLinkListInputSchema)
-        .output(payLinkListPageSchema)
-        .query(({ ctx, input }) =>
+      listLinks: mountRecord(
+        PAY_MERCHANT_LIST_LINKS,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.listLinks');
             return pay.listPaymentLinks(input.merchantId, input);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * One link, including its checkout path when the credential was stored.
        * Same gate as listLinks: the owner, or a PayFac grant of `payment.link`.
        * The team role table has no link permission, so a stored role is not the owner.
        */
-      getLink: ownMerchantRead()
-        .input(payGetLinkInputSchema)
-        .output(payLinkListItemSchema)
-        .query(({ ctx, input }) =>
+      getLink: mountRecord(
+        PAY_MERCHANT_GET_LINK,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.getLink');
             return pay.getPaymentLink(input.merchantId, input.linkId);
           }),
-        ),
+        payRefusal,
+      ),
 
-      deactivateLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().guid(),
-            linkId: z.string().guid(),
-            /** Shown to the holder of a deactivated link. Omit or blank stores none. */
-            message: z.string().max(500).optional(),
-          }),
-        )
-        .output(z.object({ deactivated: z.boolean() }))
-        .mutation(({ ctx, input }) =>
+      deactivateLink: mountRecord(
+        PAY_MERCHANT_DEACTIVATE_LINK,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.deactivateLink');
             return pay.deactivatePaymentLink(input.merchantId, input.linkId, input.message);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * What we owe this merchant but have not settled, and the settled proceeds
@@ -969,10 +822,9 @@ export function createPayRouter(
        * the two are independent on purpose, which is what makes reconciliation
        * meaningful (Doctrine §0.6).
        */
-      balances: ownMerchantRead()
-        .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema }))
-        .output(z.object({ clearing: amountSchema, available: amountSchema }))
-        .query(({ ctx, input }) =>
+      balances: mountRecord(
+        PAY_MERCHANT_BALANCES,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.balances');
             return {
@@ -980,7 +832,8 @@ export function createPayRouter(
               available: formatAmount(await pay.merchantBalance(input.merchantId, input.assetId)),
             };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Saved destinations for this merchant. Masked. Screening is not stored,
@@ -1037,10 +890,9 @@ export function createPayRouter(
          * Owner only, interactive, never an API key; no step-up, since it only lowers risk. Idempotent: an
          * unverified destination answers `changed: false`. An active one refuses `pay.payout_destination_not_held`.
          */
-        cancelHold: scopedProcedure('pay:write', { module: 'pay' })
-          .input(payDestinationCancelHoldInputSchema)
-          .output(payDestinationCancelHoldOutputSchema)
-          .mutation(({ ctx, input }) =>
+        cancelHold: mountRecord(
+          PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+          ({ ctx, input }) =>
             wrap(async () =>
               destinationChange.cancelHold({
                 caller: destinationCaller(ctx.principal),
@@ -1048,34 +900,35 @@ export function createPayRouter(
                 destinationId: input.destinationId,
               }),
             ),
-          ),
-        list: ownMerchantRead()
-          .input(payPayoutDestinationListInputSchema)
-          .output(payPageSchema(payPayoutDestinationItemSchema))
-          .query(({ ctx, input }) =>
+          payRefusal,
+        ),
+        list: mountRecord(
+          PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
               return pay.listPayoutDestinations(input);
             }),
-          ),
-        setDefault: scopedProcedure('pay:write', { module: 'pay' })
-          .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
-          .output(payPayoutDestinationItemSchema)
-          .mutation(({ ctx, input }) =>
+          payRefusal,
+        ),
+        setDefault: mountRecord(
+          PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.setDefault');
               return pay.setDefaultPayoutDestination(input);
             }),
-          ),
-        remove: scopedProcedure('pay:write', { module: 'pay' })
-          .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
-          .output(payDestinationRemoveOutputSchema)
-          .mutation(({ ctx, input }) =>
+          payRefusal,
+        ),
+        remove: mountRecord(
+          PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.remove');
               return pay.removePayoutDestination(input);
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       /**
@@ -1083,16 +936,16 @@ export function createPayRouter(
        * one page shows captures and payouts. Reserve is `not_booked`.
        */
       statement: router({
-        list: ownMerchantRead()
-          .input(payStatementListInputSchema)
-          .output(payStatementPageSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_MERCHANT_STATEMENT_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
               return pay.listStatement(input);
             }),
-          ),
+          payRefusal,
+        ),
       }),
     }),
 
@@ -1100,23 +953,9 @@ export function createPayRouter(
 
     payment: router({
       ...paymentPrivacyProcedures(portalSql, paymentPrivacy),
-      create: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            requestId: z.string().guid().optional(),
-            merchantId: z.string().guid(),
-            profileId: z.string().guid().nullish(),
-            amount: amountSchema,
-            assetId: assetIdSchema,
-            method: z.string().min(1),
-            railAdapter: z.string().min(1),
-            instrument: z.object({ kind: z.string(), token: z.string().optional(), address: z.string().optional() }).optional(),
-            customerRef: z.string().optional(),
-            metadata: z.record(z.string(), z.string()).optional(),
-          }),
-        )
-        .output(paymentView)
-        .mutation(({ ctx, input }) =>
+      create: mountRecord(
+        PAY_PAYMENT_CREATE,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.payment.create');
             return paymentOut(
@@ -1131,12 +970,12 @@ export function createPayRouter(
               true,
             );
           }),
-        ),
+        payRefusal,
+      ),
 
-      authorize: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().guid() }))
-        .output(paymentView)
-        .mutation(({ ctx, input }) =>
+      authorize: mountRecord(
+        PAY_PAYMENT_AUTHORIZE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.authorize');
@@ -1146,12 +985,12 @@ export function createPayRouter(
               true,
             );
           }),
-        ),
+        payRefusal,
+      ),
 
-      capture: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().guid(), amount: amountSchema.optional() }))
-        .output(paymentView)
-        .mutation(({ ctx, input }) =>
+      capture: mountRecord(
+        PAY_PAYMENT_CAPTURE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.capture');
@@ -1165,26 +1004,13 @@ export function createPayRouter(
               true,
             );
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Its own scope. Refunding is not the same authority as taking payment. */
-      refund: scopedProcedure('pay:refund', { module: 'pay' })
-        // refundId is the caller's idempotency key. Without it the service invented
-        // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
-        // already succeeded booked a second refund. A retry must carry the same id.
-        .input(
-          z.object({
-            paymentId: z.string().guid(),
-            amount: amountSchema,
-            refundId: z
-              .string()
-              .min(1)
-              .max(200)
-              .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
-          }),
-        )
-        .output(paymentView)
-        .mutation(({ ctx, input }) =>
+      refund: mountRecord(
+        PAY_PAYMENT_REFUND,
+        ({ ctx, input }) =>
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
@@ -1197,18 +1023,12 @@ export function createPayRouter(
               true,
             );
           }),
-        ),
+        payRefusal,
+      ),
 
-      get: ownMerchantRead()
-        .input(z.object({ paymentId: z.string().guid() }))
-        .output(
-          paymentView.extend({
-            attempts: z.array(payPaymentAttemptSchema),
-            /** While the payment is open and its rail waits for confirmations: how deep, how deep it must be, as of when. */
-            confirmations: payPaymentConfirmationsSchema.nullable(),
-          }),
-        )
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_PAYMENT_GET,
+        ({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
             // learn which merchant it belongs to — so what the check protects
@@ -1223,13 +1043,13 @@ export function createPayRouter(
             const body = await paymentOut(payment, audience, false);
             return { ...body, attempts: attempts.map((a) => ({ ...a, railRef: railRefFor(a.railRef, audience) })), confirmations };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
-      list: ownMerchantRead()
-        .input(payPaymentListInputSchema)
-        .output(payPageSchema(paymentView.extend(paymentListPrivacySchema.shape)).extend({ summary: payPaymentListSummarySchema }))
-        .query(({ ctx, input }) =>
+      list: mountRecord(
+        PAY_PAYMENT_LIST,
+        ({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
             const page = await pay.listPayments({ ...input, searchRailRef: seesClearRailRef(audience) });
@@ -1256,44 +1076,13 @@ export function createPayRouter(
               summary: page.summary,
             };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** The append-only state history (§6.1). Read-only, by construction. */
-      history: ownMerchantRead()
-        .input(
-          z.object({
-            paymentId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.payment_history_limit_unset`
-             * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(
-          z.array(
-            z.union([
-              z.object({
-                id: z.string().guid(),
-                event: z.string(),
-                payload: z.record(z.string(), z.unknown()),
-                railEventId: z.string().nullable(),
-                ts: z.string().datetime({ offset: true }),
-              }),
-              z
-                .object({
-                  id: z.string().guid(),
-                  event: z.string(),
-                  ts: z.string().datetime({ offset: true }),
-                  amount: amountSchema.nullable(),
-                  assetId: assetIdSchema.nullable(),
-                  failure: payMerchantFailureSchema.nullable(),
-                })
-                .strict(),
-            ]),
-          ),
-        )
-        .query(({ ctx, input }) =>
+      history: mountRecord(
+        PAY_PAYMENT_HISTORY,
+        ({ ctx, input }) =>
           wrap(async () => {
             // The payment row is read first only to learn its merchant; the
             // event log is never touched for a caller who does not own it.
@@ -1307,14 +1096,15 @@ export function createPayRouter(
               return events.map((e) => ({
                 id: e.id,
                 event: e.event,
-                payload: e.payload,
+                payload: jsonRecordSchema.parse(e.payload),
                 railEventId: e.railEventId,
                 ts: e.ts.toISOString(),
               }));
             }
             return events.map((e) => projectTeamHistoryEvent(e));
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Account-wide refund projection. The write stays on `payment.refund`. */
       refunds: router({
@@ -1328,10 +1118,9 @@ export function createPayRouter(
             }),
           ),
 
-        get: ownMerchantRead()
-          .input(payRefundGetInputSchema)
-          .output(payRefundItemSchema)
-          .query(({ ctx, input }) =>
+        get: mountRecord(
+          PAY_PAYMENT_REFUNDS_GET,
+          ({ ctx, input }) =>
             wrap(async () => {
               const located = await pay.locateRefund(input.refundEventId);
               await refuseAsMissing(
@@ -1340,7 +1129,8 @@ export function createPayRouter(
               );
               return pay.readRefund(input.refundEventId);
             }),
-          ),
+          payRefusal,
+        ),
       }),
     }),
 
@@ -1356,16 +1146,9 @@ export function createPayRouter(
         ),
 
       /** Value leaves the book here, so it carries its own scope. */
-      payout: scopedProcedure('pay:payout', { module: 'pay' })
-        .input(
-          z.object({
-            settlementId: z.string().guid(),
-            railId: z.string().min(1),
-            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }).optional(),
-          }),
-        )
-        .output(paySettlementViewSchema)
-        .mutation(({ ctx, input }) =>
+      payout: mountRecord(
+        PAY_SETTLEMENT_PAYOUT,
+        ({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.payout');
@@ -1381,12 +1164,12 @@ export function createPayRouter(
               }),
             );
           }),
-        ),
+        payRefusal,
+      ),
 
-      get: ownMerchantRead()
-        .input(z.object({ settlementId: z.string().guid() }))
-        .output(paySettlementDetailViewSchema)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_SETTLEMENT_GET,
+        ({ ctx, input }) =>
           wrap(async () => {
             // A settlement names gross, fees and net for a window — another
             // merchant's revenue and the rate we charge them.
@@ -1396,41 +1179,41 @@ export function createPayRouter(
             const audience = await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
             return settlementDetailOut(settlement, audience);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Merchant fleet list (ops truth). Read-only — no freeze, no payout.
        */
-      list: ownMerchantRead()
-        .input(paySettlementListInputSchema)
-        .output(payPageSchema(paySettlementDetailViewSchema))
-        .query(({ ctx, input }) =>
+      list: mountRecord(
+        PAY_SETTLEMENT_LIST,
+        ({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
             const page = await pay.listSettlements(input);
             return { items: page.items.map((item) => settlementDetailOut(item, audience)), nextCursor: page.nextCursor };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * RC-merchant-10: captured payments whose funds the rail still holds, so clearing can show what it waits on and
        * the day the rail named. Read-only.
        */
-      clearing: ownMerchantRead()
-        .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema.optional() }))
-        .output(paySettlementClearingSchema)
-        .query(({ ctx, input }) =>
+      clearing: mountRecord(
+        PAY_SETTLEMENT_CLEARING,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
             return { held: await pay.heldClearing(input.merchantId, input.assetId) };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Payments included in one settlement, oldest first. */
-      lines: ownMerchantRead()
-        .input(paySettlementLinesInputSchema)
-        .output(payPageSchema(paySettlementLineSchema))
-        .query(({ ctx, input }) =>
+      lines: mountRecord(
+        PAY_SETTLEMENT_LINES,
+        ({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
@@ -1446,22 +1229,23 @@ export function createPayRouter(
               nextCursor: page.nextCursor,
             };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * G3 — unstick a pending freeze so payments can enter a later window.
        * Moves no ledger value. Requires write (ops / merchant owner).
        */
-      release: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ settlementId: z.string().guid(), reason: z.string().min(1) }))
-        .output(paySettlementViewSchema)
-        .mutation(({ ctx, input }) =>
+      release: mountRecord(
+        PAY_SETTLEMENT_RELEASE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.release');
             return toSettlementOut(await pay.releasePendingSettlement(input));
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Composed payout timeline. `status` is derived from the events.
@@ -1469,16 +1253,16 @@ export function createPayRouter(
        * synthetic event (`timeKnown: false`) floors that status. The read
        * never reports a status lower than the column.
        */
-      lifecycle: ownMerchantRead()
-        .input(payPayoutLifecycleInputSchema)
-        .output(payPayoutLifecycleSchema)
-        .query(({ ctx, input }) =>
+      lifecycle: mountRecord(
+        PAY_SETTLEMENT_LIFECYCLE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementRead(ctx.principal.userId, input.settlementId, settlement.merchantId);
             return pay.readPayoutLifecycle(input.settlementId);
           }),
-        ),
+        payRefusal,
+      ),
     }),
 
     /**
@@ -1787,20 +1571,9 @@ export function createPayRouter(
           }),
         ),
 
-      listOpenReviews: scopedProcedure('admin:treasury', { module: 'pay' })
-        .input(
-          z
-            .object({
-              merchantId: z.string().min(1).optional(),
-              /**
-               * Page size. Optional so omit reaches `pay.fraud_review_list_limit_unset`.
-               * Blank is not 50; pass 50 explicitly. Read stays single-operator.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .optional(),
-        )
-        .query(async ({ input }) => {
+      listOpenReviews: mountRecord(
+        PAY_FRAUD_LIST_OPEN_REVIEWS,
+        async ({ input }) => {
           try {
             const rows = fraudReviews
               ? await fraudReviews.listOpen(input?.merchantId, input?.limit)
@@ -1827,7 +1600,9 @@ export function createPayRouter(
             }
             throw e;
           }
-        }),
+        },
+        payRefusal,
+      ),
 
       claimReview: scopedProcedure('admin:treasury', { module: 'pay' })
         .input(z.object({ id: z.string().min(1) }))
@@ -2193,22 +1968,9 @@ export function createPayRouter(
        * what a balance can DO — `orders.create` needs `basic`, and the
        * withdrawal below is gated — not on being allowed to receive one.
        */
-      credit: scopedProcedure('admin:treasury')
-        .input(
-          z.object({
-            userId: z.string().guid(),
-            assetId: assetIdSchema,
-            amount: amountSchema,
-            railId: z.string().min(1),
-            /** The rail's own reference. Half the business key, so it is required. */
-            railRef: z.string().min(1).max(200),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(depositView.extend({ confirmOperatorId: z.string() }))
-        .mutation(({ ctx, input }) =>
+      credit: mountRecord(
+        PAY_DEPOSIT_CREDIT,
+        ({ ctx, input }) =>
           wrap(async () => {
             const confirmOperatorId = await consumePayApproval(
               approvals,
@@ -2239,7 +2001,8 @@ export function createPayRouter(
               confirmOperatorId,
             };
           }),
-        ),
+        payRefusal,
+      ),
     }),
 
     /**

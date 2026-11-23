@@ -7,12 +7,8 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  supportContactSetKey,
-  type SupportContactChannels,
-  type SupportContactSetInput,
-  type SupportContactSetting,
-} from '@intafaced/contracts';
+import type { SupportContactChannels, SupportContactSetInput, SupportContactSetting } from '@intafaced/contracts';
+import { supportContactSetKey } from '@intafaced/contracts/support-contact';
 
 export type ContactValues = Pick<SupportContactChannels, SupportContactSetting>;
 

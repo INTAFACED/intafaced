@@ -2,7 +2,8 @@ import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { z } from 'zod';
 import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } from './contract-escrow.js';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { mergeRouters, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { mergeRouters, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecords, type RefusalOf, type ServiceParts, mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   P2P_MERCHANTS_PRESENCE,

@@ -64,7 +64,7 @@
  *   - open: svc-matching POST /markets/:id/open consumes an identity action approval proposed by
  *     operator A and approved by a different signed-in operator B who passed a TOTP second factor
  *     (services/svc-identity/src/action-approval-router.ts). Only svc-trade may call that route, so the
- *     stack signs as svc-trade with its own internal secret (services/svc-matching/src/router.ts, TRADE_ONLY).
+ *     stack signs as svc-trade with its own internal secret (crates/svc-matching/src/door/mod.rs, TRADE_ONLY).
  *   - verify: identity kyc.submit by the account itself, then kyc.approve by operator A, which needs
  *     scope admin:compliance, a TOTP session and a consumed approval from operator B
  *     (services/svc-identity/src/router.ts, kyc.approve). User sessions never carry admin:compliance, so the
@@ -222,7 +222,7 @@ export function lifecycleIsFresh(publication, now = new Date(), renewBelowDays =
   return Date.parse(publication.expiresAt) - now.getTime() > renewBelowDays * 86_400_000;
 }
 
-/** Same hash services/svc-matching/src/action-approval-consume.ts computes for a matching action. */
+/** Same hash crates/svc-matching/src/approval.rs computes for a matching action. */
 export function matchingPayloadHash(actionType, fields) {
   return `sha256:${crypto
     .createHash('sha256')
@@ -237,7 +237,7 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (crates/svc-matching/src/door/venue.rs). */
 export function bookProposal(action, marketId) {
   if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
@@ -1815,7 +1815,8 @@ export async function publishWithdrawQuotePolicy(ctx) {
 
 /**
  * LOCAL TEST custody transaction policy (svc-pay `founderAdmin.custody.policy`, W-custody-ops-07), not an owner value: allow a
- * TEST send out to a wallet on the crypto-native rail, which on this stack is the in-memory MemoryChain. svc-pay refuses every
+ * TEST send out to a wallet on the TEST withdrawal networks (`TEST_DEPOSIT_NETWORKS`; on this stack the crypto-native rail's
+ * in-memory MemoryChain). A rule's `networks` names the withdrawal's chain network, never the rail id (#10148). svc-pay refuses every
  * send out of the platform while no policy is published (`pay.guard_custody_policy_unset`; PAY_CUSTODY_POLICY defaults to
  * required), so J-wallet-05 #6 and #4 need one. A send inside the platform (J-wallet-07) is not a custody transaction and never
  * reads it. Published the way the service requires: a draft, then a `policy` config task that founder a proposes and founder b,
@@ -1825,7 +1826,7 @@ export const TEST_CUSTODY_POLICY_RULES = Object.freeze([
   Object.freeze({
     id: 'TEST-allow-wallet-sends',
     action: 'allow',
-    match: Object.freeze({ networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] }),
+    match: Object.freeze({ networks: TEST_DEPOSIT_NETWORKS.map((n) => n.networkId), destinationKinds: ['crypto'], txTypes: ['transfer'] }),
   }),
 ]);
 export const TEST_CUSTODY_CONFIG_QUORUM = Object.freeze({ kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
@@ -3404,6 +3405,11 @@ export async function scopedConsoleSession(ctx, without) {
   };
 }
 
+/** The CLI's help: every command and its arguments, printed for one this script does not know. */
+export function gatesUsage() {
+  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -3605,10 +3611,7 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
-        2,
-      );
+      die(gatesUsage(), 2);
     }
   } catch (err) {
     die(String(err.message ?? err));

@@ -1,13 +1,14 @@
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { type ApiKeyCallsInput, type ApiKeyCallsOutput } from '@intafaced/contracts/api-keys';
 import { IDENTITY_DEVELOPER_KEYS_CALLS } from '@intafaced/contracts/identity-developer-keys-procedures';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field, Select } from '@intafaced/ui/lit';
 import { useSession } from '../session';
+import { Failure, Loading } from './kit-parts';
 
-const copy = defineCopy('api-key-call-log', {
+export const keyCallLogCopy = defineCopy('api-key-call-log', {
   title: 'Call log',
   lead: 'Each call this key made, as the server answered it. A body or a header value is never kept, and neither is the key.',
   colAt: 'Time',
@@ -58,7 +59,7 @@ export function filterFromForm(form: HTMLFormElement): Filter {
  * which reads again and moves the as-of time.
  */
 export function KeyCallLog({ keyId }: { keyId: string }) {
-  const { t, requestedLocale } = copy.useCopy();
+  const { t, requestedLocale } = keyCallLogCopy.useCopy();
   const { api, userId } = useSession();
   const [filter, setFilter] = useState<{ value: Filter; round: number }>({ value: {}, round: 0 });
   const { resource, reload } = useResource(
@@ -71,14 +72,13 @@ export function KeyCallLog({ keyId }: { keyId: string }) {
   );
   const at = (iso: string) => `${when.format(new Date(iso))} UTC`;
   const log = resource.status === 'ready' ? resource.data : null;
-  const statusId = useId();
 
   return (
-    <section data-testid="security__card" className="api-keys__detail security__card" aria-labelledby="api-key-call-log">
+    <section data-testid="security__card" aria-labelledby="api-key-call-log">
       <h2 id="api-key-call-log">{t('title')}</h2>
-      <p className="muted">{t('lead')}</p>
+      <p className="lt-hint">{t('lead')}</p>
       <form
-        className="api-keys__form"
+        className="lt-toolbar"
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
           event.preventDefault();
@@ -87,21 +87,16 @@ export function KeyCallLog({ keyId }: { keyId: string }) {
           setFilter((prev) => ({ value, round: prev.round + 1 }));
         }}
       >
-        <label className="field" htmlFor={statusId}>
-          <span id={`${statusId}-label`}>{t('status')}</span>
-          <select id={statusId} name="status" defaultValue="" aria-labelledby={`${statusId}-label`}>
-            <option value="">{t('statusAll')}</option>
-            {CALL_LOG_STATUSES.map((status) => (
-              <option key={status} value={String(status)}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label={t('status')}
+          name="status"
+          defaultValue=""
+          options={[{ value: '', label: t('statusAll') }, ...CALL_LOG_STATUSES.map((status) => String(status))]}
+        />
         <Field label={t('from')} hint={t('dayHint')} name="from" type="date" />
         <Field label={t('to')} hint={t('dayHint')} name="to" type="date" />
-        <div className="api-keys__actions">
-          <Button type="submit" variant="secondary" disabled={resource.status === 'loading'}>
+        <div className="lt-actions">
+          <Button type="submit" tone="secondary" disabled={resource.status === 'loading'}>
             {t('refresh')}
           </Button>
         </div>
@@ -110,8 +105,8 @@ export function KeyCallLog({ keyId }: { keyId: string }) {
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       {log && (
         <>
-          <div className="api-keys__table-wrap">
-            <table className="api-keys__table" aria-labelledby="api-key-call-log">
+          <div>
+            <table className="lt-table" aria-labelledby="api-key-call-log">
               <thead>
                 <tr>
                   <th scope="col">{t('colAt')}</th>
@@ -130,7 +125,7 @@ export function KeyCallLog({ keyId }: { keyId: string }) {
                       <code lang="und">
                         {call.method} {call.path}
                       </code>
-                      {call.outsideIpList && <small className="api-keys__note error-text">{t('outside')}</small>}
+                      {call.outsideIpList && <small className="lt-hint">{t('outside')}</small>}
                     </td>
                     <td>{call.status}</td>
                     <td>
@@ -141,7 +136,7 @@ export function KeyCallLog({ keyId }: { keyId: string }) {
               </tbody>
             </table>
           </div>
-          {log.calls.length === 0 && <p className="muted">{t('empty')}</p>}
+          {log.calls.length === 0 && <p className="lt-hint">{t('empty')}</p>}
           <p data-testid="api-keys__calls-as-of">
             <time dateTime={log.asOf}>{t('asOf', { at: at(log.asOf) })}</time>
           </p>

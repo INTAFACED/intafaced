@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { academyIssuedCertDesignSchema } from './academy-cert-designs.js';
+import { academyVideoPositionSchema } from './academy-catalogue.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-academy's records share, moved from the service so the records and every caller read one copy. */
@@ -221,3 +222,13 @@ export const certGrantOut = z.object({
   /** AC-certificates-03: the design revision this certificate prints, or null when it was issued before any was active. */
   design: academyIssuedCertDesignSchema.nullable().optional(),
 });
+
+export const enrollmentOut = z.object({
+  userId: z.string().guid(),
+  pathSlug: z.string(),
+  enrolledAt: z.iso.datetime({ offset: true }),
+});
+
+export const leaveOut = enrollmentOut.extend({ leftAt: z.iso.datetime({ offset: true }) });
+
+export const videoProgressOut = academyVideoPositionSchema;

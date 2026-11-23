@@ -110,27 +110,27 @@
 <section class="lt-region" data-region="step" aria-label="This step">
 <div>
 <form aria-label="Report a scam">
-<label class="field">
+<label class="lt-field">
 <span>Have you sent money</span>
 <select name="when">
 <option value="after_sending">Yes, I already sent money</option>
 <option value="before_sending">No, someone is asking me to</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Amount</span>
 <input inputmode="decimal" autocomplete="off" value="" name="amount">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Currency or asset</span>
 <input autocomplete="off" maxlength="16" value="USDT" name="asset">
 </label>
-<label class="field">
-<span>Transfer id</span>
+<label class="lt-field">
+<span>Transfer reference</span>
 <input autocomplete="off" maxlength="64" aria-describedby="scam-transfer-hint" value="" name="transfer">
-<small id="scam-transfer-hint">The id on the transfer’s receipt. It must be a transfer you sent.</small>
+<small id="scam-transfer-hint">The reference on the transfer’s receipt, letters and numbers. It must be a transfer you sent.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>How they contacted you</span>
 <select name="contactedBy">
 <option value="phone_call">A phone call</option>
@@ -142,12 +142,12 @@
 <option value="other">Another way</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>What happened (optional)</span>
 <textarea name="details" maxlength="5000" rows="5">
 </textarea>
 </label>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Send scam report</button>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send scam report</button>
 </form>
 </div>
 </section>
@@ -160,7 +160,7 @@
 <p>We will never ask you to move money to a "safe account", and never ask for your password or codes.</p>
 <p>One report per transfer: reporting the same transfer again shows the same acknowledgement.</p>
 <p>
-<a class="text-link" href="/help/mule-policy">Read our money mule policy</a>
+<a class="lt-link" href="/help/mule-policy">Read our money mule policy</a>
 </p>
 <p role="alert">Your earlier messages could not be read. You can still send one. Try again in a moment to see the list.</p>
 </div>

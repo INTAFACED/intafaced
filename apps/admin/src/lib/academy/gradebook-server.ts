@@ -26,6 +26,7 @@ import {
   ACADEMY_ADMIN_COURSE_GRADE_REPORTS,
   ACADEMY_ADMIN_GRADE_REPORT_FILE,
   ACADEMY_ADMIN_MAKE_GRADE_REPORT,
+  ACADEMY_ADMIN_COURSE_GRADEBOOK,
 } from '@intafaced/contracts/academy-admin-records';
 
 /**
@@ -48,7 +49,7 @@ const readReportFile = parseWith(academyGradeReportFileSchema);
 
 export async function loadGradebook(ctx: FounderCallContext, courseId: string): Promise<GradebookView> {
   const [book, stored] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.courseGradebook', 'GET', { courseId }, readGradebook),
+    founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_GRADEBOOK, { courseId }, readGradebook),
     founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_GRADE_REPORTS, { courseId }, readReports),
   ]);
   return { gradebook: partFrom(book, (d) => d, ACADEMY), reports: partFrom(stored, (d) => d, ACADEMY), asOf: new Date().toISOString() };

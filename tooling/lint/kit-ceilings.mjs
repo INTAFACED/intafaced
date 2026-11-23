@@ -5,16 +5,18 @@
  * The rules are garden/no-restyled-kit-part, garden/no-raw-control and garden/no-raw-type-class
  * (tooling/lint/oxlint-plugin-garden/kit-look-rules.js). Their counts per file of apps/customer/src live in
  * apps/customer/kit-ceilings.json. kit-ceilings.test.mjs fails when a file's count passes its ceiling (a file with no entry
- * has a ceiling of zero), when a ceiling is above the file's count (stale: lower it), and when the file raises a ceiling or
- * adds a file that main's copy does not hold. The lint ratchet separately fails a change whose touched files gain a finding.
+ * has a ceiling of zero), and when the change raises a ceiling or adds a file that main's copy does not hold (main's copy
+ * where this change forked from it). A ceiling above its file's count is stale and passes on every PR, so no batch into main
+ * edits this shared file; `node tooling/design/volt-prune.mjs`, run in its own PR, lowers it (`lowered`). A file git sees as
+ * renamed or moved since main (`git diff -M`) is the same file: its new path inherits its old path's ceiling, so a move that
+ * keeps or lowers its count passes. The lint ratchet separately fails a change whose touched files gain a finding.
  *
  * Usage:
- *   node tooling/lint/kit-ceilings.mjs            print each rule's total and what is over or stale; exit 1 if any
- *   node tooling/lint/kit-ceilings.mjs --write    lower the ceilings to today's counts; refuses to raise any
+ *   node tooling/lint/kit-ceilings.mjs            print each rule's total and what is over its ceiling; exit 1 if any
  * Never raise a ceiling or add a file to pass: replace the raw control or class with the kit's part.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG, ruleOf } from '../ci/lint-ratchet.mjs';
@@ -54,11 +56,35 @@ export function countTree(cwd = ROOT, paths = [SCOPE]) {
 }
 
 /**
- * What breaks the ceilings: [{ kind: 'over'|'stale'|'raised', rule, file, count, ceiling, was }].
- * `over`: a count above its ceiling (no entry is a ceiling of 0). `stale`: a ceiling above its count. `raised`: a ceiling
- * above main's (`base`), or a file main's copy does not hold. `base` null skips the raised check.
+ * { <new path>: <old path> } for each file under the customer app that git reports renamed or moved between `ref`'s merge
+ * base with HEAD and the working tree (committed and staged moves alike; stage a plain `mv` with `git add` first).
  */
-export function judge(counts, ceilings, base = null) {
+export function renamesSince(ref, cwd = ROOT) {
+  const out = {};
+  if (!ref) return out;
+  const base = spawnSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8' });
+  if (base.status !== 0) return out;
+  const diff = spawnSync('git', ['diff', '-M', '--name-status', '--diff-filter=R', '-z', base.stdout.trim(), '--', SCOPE], {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (diff.status !== 0) throw new Error(`git diff -M failed: ${diff.stderr}`);
+  const parts = diff.stdout.split('\0').filter(Boolean);
+  for (let i = 0; i + 2 < parts.length; i += 3) out[parts[i + 2]] = parts[i + 1];
+  return out;
+}
+
+/** A file's entry in `table`, or, for a renamed file with no entry of its own, its old path's. */
+const inherited = (table, file, renames) => table[file] ?? (renames[file] !== undefined ? table[renames[file]] : undefined);
+
+/**
+ * What breaks the ceilings: [{ kind: 'over'|'raised', rule, file, count, ceiling, was }].
+ * `over`: a count above its ceiling (no entry is a ceiling of 0). `raised`: a ceiling above main's (`base`), or a file
+ * main's copy does not hold. `base` null skips the raised check. A ceiling above its count (stale) passes. `renames`
+ * ({ <new path>: <old path> }, from renamesSince) lets a moved file's ceiling be judged against main's for its old path.
+ */
+export function judge(counts, ceilings, base = null, renames = {}) {
   const out = [];
   for (const rule of RULES) {
     const have = counts[rule] ?? {};
@@ -67,12 +93,12 @@ export function judge(counts, ceilings, base = null) {
       const count = have[file] ?? 0;
       const ceiling = cap[file] ?? 0;
       if (count > ceiling) out.push({ kind: 'over', rule, file, count, ceiling });
-      else if (ceiling > count) out.push({ kind: 'stale', rule, file, count, ceiling });
     }
     if (!base) continue;
     const was = base[rule] ?? {};
     for (const [file, ceiling] of Object.entries(cap)) {
-      if (ceiling > (was[file] ?? 0)) out.push({ kind: 'raised', rule, file, ceiling, was: was[file] ?? 0 });
+      const before = inherited(was, file, renames) ?? 0;
+      if (ceiling > before) out.push({ kind: 'raised', rule, file, ceiling, was: before });
     }
   }
   return out;
@@ -80,32 +106,46 @@ export function judge(counts, ceilings, base = null) {
 
 const FIX = {
   over: (p) => `${p.file}: ${p.rule} ${p.count}, ceiling ${p.ceiling}. Use the kit's part instead (the lint message names it).`,
-  stale: (p) => `${p.file}: ${p.rule} ${p.count}, ceiling ${p.ceiling}. Lower it: node tooling/lint/kit-ceilings.mjs --write`,
   raised: (p) => `${p.file}: ${p.rule} ceiling ${p.ceiling}, main's ${p.was}. Never raise a ceiling or add a file: use the kit's part.`,
 };
 export const describe = (p) => `${p.kind}: ${FIX[p.kind](p)}`;
 
-/** The ceilings written from today's counts, refusing any that would rise above `ceilings`. */
-export function lowered(counts, ceilings) {
-  const up = judge(counts, ceilings).filter((p) => p.kind === 'over');
+/**
+ * The ceilings written from today's counts, refusing any that would rise above `ceilings`. A renamed file (`renames`) is
+ * held to its old path's ceiling when it has none of its own, so its entry moves to the new path; a gone file's entry drops.
+ */
+export function lowered(counts, ceilings, renames = {}) {
+  const moved = Object.fromEntries(
+    RULES.map((r) => {
+      const cap = { ...ceilings[r] };
+      for (const file of Object.keys(counts[r] ?? {})) {
+        const ceiling = inherited(cap, file, renames);
+        if (ceiling !== undefined) cap[file] = ceiling;
+      }
+      return [r, cap];
+    }),
+  );
+  const up = judge(counts, moved).filter((p) => p.kind === 'over');
   if (up.length) throw new Error(`refused: these would raise a ceiling\n${up.map(describe).join('\n')}`);
   return Object.fromEntries(RULES.map((r) => [r, counts[r] ?? {}]));
 }
 
+/** The commit this change forked from `ref` at (`git merge-base`), or `ref` itself when the history is too shallow to say. */
+export function forkPoint(ref, cwd = ROOT) {
+  if (!ref) return ref;
+  const base = spawnSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8' });
+  return base.status === 0 && base.stdout.trim() ? base.stdout.trim() : ref;
+}
+
 export const readCeilings = (root = ROOT) => JSON.parse(readFileSync(join(root, CEILINGS), 'utf8'));
-const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
+export const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const counts = countTree();
   const ceilings = readCeilings();
-  if (process.argv.includes('--write')) {
-    writeFileSync(join(ROOT, CEILINGS), formatCeilings(lowered(counts, ceilings)));
-    console.log(`wrote ${CEILINGS}`);
-  } else {
-    for (const r of RULES)
-      console.log(`${r}: ${Object.values(counts[r]).reduce((a, b) => a + b, 0)} in ${Object.keys(counts[r]).length} files`);
-    const problems = judge(counts, ceilings);
-    for (const p of problems) console.log(describe(p));
-    process.exitCode = problems.length ? 1 : 0;
-  }
+  for (const r of RULES)
+    console.log(`${r}: ${Object.values(counts[r]).reduce((a, b) => a + b, 0)} in ${Object.keys(counts[r]).length} files`);
+  const problems = judge(counts, ceilings);
+  for (const p of problems) console.log(describe(p));
+  process.exitCode = problems.length ? 1 : 0;
 }

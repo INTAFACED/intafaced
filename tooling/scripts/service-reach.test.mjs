@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { lastStart, makeCodeReader, makeRecorder, settleCode } from './journey-reach.mjs';
-import { CODE_REACH_ENV, codeReachDir, nodeServiceReach, ranFiles, sourceOf } from './service-reach.mjs';
+import { CODE_REACH_ENV, STACK_CODE_REACH_ENV, codeReachDir, nodeServiceReach, ranFiles, sourceOf } from './service-reach.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const PRELOAD = fileURLToPath(new URL('./service-reach.mjs', import.meta.url));
@@ -120,6 +120,9 @@ test('the stack starts a Node service with the preload, which writes nothing a r
   assert.equal(node.env.A, '1');
   assert.equal(node.env[CODE_REACH_ENV], path.join(code, 'bank.jsonl'));
   assert.throws(() => nodeServiceReach(code, '../bank', {}), /not a service name/);
+  // A stack no journey runs on starts its services without the preload.
+  assert.deepEqual(nodeServiceReach(code, 'bank', { A: '1' }, { [STACK_CODE_REACH_ENV]: 'off' }), { flags: [], env: { A: '1' } });
+  assert.deepEqual(nodeServiceReach(code, 'bank', { A: '1' }, { [STACK_CODE_REACH_ENV]: 'on' }).flags, node.flags);
   const script = path.join(dir, 'svc.mjs');
   writeFileSync(script, 'setTimeout(() => {}, 150);\n');
   const r = spawnSync(process.execPath, [...node.flags, script], { env: { ...process.env, ...node.env }, encoding: 'utf8' });

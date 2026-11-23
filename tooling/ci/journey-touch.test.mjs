@@ -1,7 +1,7 @@
 // node --test tooling/ci/journey-touch.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ import {
   ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  UNPLACED,
   PICK_ARTIFACT,
   afterReuse,
   checkoutJourneyTexts,
@@ -33,6 +34,7 @@ import {
   CRATE,
   PR_MAX_FILES,
   pullPick,
+  roomReach,
   DISPATCH_GROUP_MAX,
   dispatchGroup,
 } from './journey-touch.mjs';
@@ -864,16 +866,13 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
   assert.equal(v.mode, 'files');
   assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
   assert.deepEqual(v.stack, [VENUE_READS]);
-  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, J-copy-bots-otc-16 directly too, on the venue).
+  // The real folder: a direct importer (J-cex-spot-01) and one through venue.mjs (J-cex-spot-05) are found. Held as a
+  // subset, never the exact list: a new journey importing it is not a tooling change (#9174 and #9367 each lost a push
+  // to the exact list; weed project-state#3684).
   const real = checkoutJourneyTexts(ROOT);
-  assert.deepEqual(stackImporters([VENUE_READS], real), [
-    'J-cex-spot-01.pw.mjs',
-    'J-cex-spot-02.pw.mjs',
-    'J-cex-spot-03.pw.mjs',
-    'J-cex-spot-05.pw.mjs',
-    'J-copy-bots-otc-14.pw.mjs',
-    'J-copy-bots-otc-16.pw.mjs',
-  ]);
+  const found = stackImporters([VENUE_READS], real);
+  for (const f of ['J-cex-spot-01.pw.mjs', 'J-cex-spot-05.pw.mjs']) assert.ok(found.includes(f), `${f} imports venue-reads.mjs`);
+  assert.deepEqual(found, [...found].sort(), 'sorted');
 });
 
 test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
@@ -1152,6 +1151,25 @@ test('--json --files-from: a pull request file list, judged against this checkou
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
   assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
   rmSync(dir, { recursive: true, force: true });
+});
+
+// 22 Nov 2026: tooling no rule places made the CLI import tooling-reach.mjs, which imports this file back; with main()
+// awaited at the top level the import waited on this file's own evaluation, so the run exited 13 and the journeys run
+// fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
+// the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
+test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
+  const path = 'tooling/design/volt-count.mjs';
+  assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
+  const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', 'changed.txt'], {
+    cwd: dir,
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, `exit ${r.status}\n${r.stderr}`);
+  assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
 });
 
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
@@ -1930,6 +1948,39 @@ test('pullPick: a pick past PR_MAX_FILES runs the bounded set, and keeps the jou
   assert.match(pick.bounded, /101 journey files, past a pull request's 100/);
   const at = touch.files.slice(0, PR_MAX_FILES);
   assert.deepEqual(pullPick(['x'], { ...touch, files: at }).files, at, 'exactly at the bound: as it is');
+});
+
+test('pullPick: a change that draws a Customer room runs every journey the map records reaching what it changes, past the bound (#9960)', () => {
+  // Planted, the past mistake: #9960 changed a shared order table and a render record. The record is a path the map
+  // can't narrow, so the change was full and ran its bounded set, which left out J-home-ia-05, a journey the map records
+  // reaching the table; it broke on main (revert #10027).
+  const head = new Set([...BOUND_HEAD, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs']);
+  const journeys = [...BOUND_MAP.journeys, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs'];
+  const table = 'apps/customer/src/screens/trade/desk/OrderTables.tsx';
+  const map = { ...BOUND_MAP, journeys, customer: { [table]: [journeys.indexOf('J-home-ia-05.pw.mjs')] } };
+  const reach = { ...boundReach, map, journeyFiles: head };
+  const paths = [table, 'apps/customer/render-record/trade__orders.html'];
+  const touch = journeyTouch(paths, () => true, reach);
+  assert.equal(touch.mode, 'full', 'the render record still makes it full');
+  const pick = pullPick(paths, touch, { reach });
+  assert.ok(pick.files.includes('J-home-ia-05.pw.mjs'), 'the journey the map records reaching the table runs');
+  assert.ok(!pick.files.includes('J-other-01.pw.mjs'), 'a journey nothing it changes reaches does not');
+  for (const f of CANARY) assert.ok(pick.files.includes(f), f);
+  assert.match(
+    pick.bounded,
+    /the 1 journey file\(s\) the map records reaching the 1 path\(s\) it can narrow \(it draws a Customer room or kit part/,
+  );
+  // Main's rule before this change (a planted fault): the bounded set alone, without the table's journeys.
+  assert.ok(!pullPick(paths, touch, { reach: { ...reach, map: { ...map, customer: {} } } }).files.includes('J-home-ia-05.pw.mjs'));
+  // Past the bound: a room change runs every file its paths reach; a service change keeps the bounded set.
+  const many = Array.from({ length: PR_MAX_FILES + 1 }, (_, i) => `J-many-${String(i).padStart(3, '0')}.pw.mjs`);
+  const wide = { ...reach, map: { ...map, journeys: [...journeys, ...many] }, journeyFiles: new Set([...head, ...many]) };
+  const over = { mode: 'files', full: [], files: many, reach: [] };
+  assert.equal(pullPick([table], over, { reach: wide }).files.length, many.length);
+  assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
+  assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
+  // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
+  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
 });
 
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {
