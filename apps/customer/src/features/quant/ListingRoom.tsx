@@ -41,9 +41,9 @@ export function ListingRoom({ listingId, paper }: { listingId: string; paper: bo
       title={t('libraryTitle')}
       description={t('libraryIntro')}
       state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
       meta={
         <>
-          <QuantRooms active="strategies" paper={paper} />
           <p>
             <a className="lt-link" href={preservePaperHref('/quant/library', paper)}>
               {t('back')}

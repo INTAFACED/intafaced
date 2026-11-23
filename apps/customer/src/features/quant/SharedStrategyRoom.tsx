@@ -39,9 +39,9 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
       title={t('sharedTitle')}
       description={t('sharedIntro')}
       state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
       meta={
         <>
-          <QuantRooms active="strategies" paper={paper} />
           <p>
             <a className="lt-link" href={preservePaperHref('/quant/shared', paper)}>
               {t('back')}

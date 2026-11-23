@@ -136,7 +136,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
   const asked = page.waitForResponse(
     (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
@@ -162,7 +162,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(page.getByTestId('chart-empty')).toHaveCount(0);
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
   await page.keyboard.press('ArrowRight');
@@ -270,10 +270,12 @@ test(`${J} #4 reads "Your position": quantity, average price, cost basis and res
   expect(asset.openCostUsd).not.toBeNull();
   await expect(position.locator('[data-figure="quantity"]')).toContainText(`${Number(asset.openQty)} BTC`);
   // To the cent, half up, from the book's exact figures.
-  expect(units(await position.locator('[data-figure="cost-basis"]').innerText())).toBe(cents(toUnits(asset.openCostUsd)));
+  await expect
+    .poll(async () => units(await position.locator('[data-figure="cost-basis"]').innerText()))
+    .toBe(cents(toUnits(asset.openCostUsd)));
   // Divided as the app divides: half up at the 18th place, then to the cent.
   const average = (2n * toUnits(asset.openCostUsd) * ONE + toUnits(asset.openQty)) / (2n * toUnits(asset.openQty));
-  expect(units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
+  await expect.poll(async () => units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
   // The result is those open lots at the live price less their cost: the same price values the holding shown above it
   // (every BTC held is in those lots), so the result is that value less the cost basis, to the cent (each side is
   // rounded to the cent on the page, so they may differ by one cent).

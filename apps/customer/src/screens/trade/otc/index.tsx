@@ -84,7 +84,6 @@ function Room({ linkedId }: { linkedId: string | null }) {
 
   return (
     <RoomFrame
-      mode="Quote desk"
       title={t('Quote desk')}
       description={t('Quote desk description')}
       meta={<Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />}
@@ -194,7 +193,7 @@ export default function Screen(props: ScreenProps) {
   const { userId } = useSession();
   if (!userId)
     return (
-      <RoomFrame mode="Quote desk" title={t('Quote desk')} description={t('Quote desk description')}>
+      <RoomFrame title={t('Quote desk')} description={t('Quote desk description')}>
         <EmptyState
           variant="refused"
           size="panel"

@@ -386,6 +386,7 @@ test(`${J} #7 asks to switch the account to unified mode while the venue refuses
 
 test(`${J} #8 switches the account to unified mode and signs: one signed venue action; the account then reads unified, with one USDC balance used by spot and perps, from the venue`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const { owner } = state();
@@ -423,6 +424,7 @@ test(`${J} #8 switches the account to unified mode and signs: one signed venue a
   await expect(oneBalance).toContainText('One USDC balance, used by spot and perps');
   await expect(panel(page).getByTestId('mode-spot')).toHaveCount(0);
   expect(await ledgerOf()).toEqual(state().ledger);
+  await stepPicture(page);
 });
 
 test(`${J} #9 in unified mode, with the venue reporting the day's actions near the mode's limit, opens the order ticket: a warning names the venue's daily action limit, what it reports used today, and that standard mode has no such limit`, async ({
