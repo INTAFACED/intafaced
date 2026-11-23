@@ -6,7 +6,7 @@ import { PAY_MERCHANT_ME, PAY_MERCHANT_MY_ACCESS } from '@intafaced/contracts/pa
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
 import { PAY_MERCHANT_OPS_TEAM_ME } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
-export const coreApi = ({ query, userId, queryRecord }: PortalTools) => ({
+export const coreApi = ({ userId, queryRecord }: PortalTools) => ({
   userId,
   /** Who the signed-in person is in each business, with what they may do. Not live on every server: the portal then works it out in `access/`. */
   myAccess: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_MY_ACCESS, {}, signal),
