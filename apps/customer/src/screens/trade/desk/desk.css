@@ -1365,9 +1365,18 @@
     max-inline-size: 100%;
     overflow-x: auto;
   }
-  .dk-spot-pending-scroll td[data-cell='legs'] {
-    min-inline-size: 16rem;
+  /* Its words wrap, so every row's Modify and Cancel fit inside the panel: only the actions keep to one line. */
+  .dk-spot-pending-scroll td {
     white-space: normal;
+  }
+  .dk-spot-pending-scroll td[data-cell='where'] {
+    min-inline-size: 8rem;
+  }
+  .dk-spot-pending-scroll td[data-cell='legs'] {
+    min-inline-size: 12rem;
+  }
+  .dk-spot-pending-scroll td[data-cell='actions'] {
+    white-space: nowrap;
   }
   .dk-bt-skeleton {
     display: flex;

@@ -378,6 +378,13 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     }
     const head = pending(page).locator('thead th');
     await expect(head).toHaveText(['Kind', 'Side', 'Size', 'Trigger', 'Reference price', 'Status', 'Run by', 'Legs', 'Actions']);
+    // Each row's Modify and Cancel sit wholly inside the pending list's box: none is cut off at its edge.
+    const box = await pending(page).boundingBox();
+    for (const id of [market, limit])
+      for (const name of [`Modify ${id}`, `Cancel ${id}`]) {
+        const b = await row(page, id).getByRole('button', { name, exact: true }).boundingBox();
+        expect(b && box && b.x >= box.x && b.x + b.width <= box.x + box.width, `${name} is cut off at the list's edge`).toBe(true);
+      }
     // The step's picture: the pending list with both orders, each with its trigger, reference price, Modify and Cancel.
     await pictureFromTop(page, stepPicture);
     const shown = await conditional(s, market);
