@@ -7,7 +7,7 @@
 
 use postgres::GenericClient;
 use service_kit::json::Json;
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div, mul_ratio, parse_amount};
 use service_kit::time::Instant;
 
 use super::apply::quote_value;
@@ -438,13 +438,11 @@ fn raise_margin_call(
     now: Instant,
 ) -> Result<(), Refusal> {
     let debt_value = quote_value(debt, debt_mark.mark.price, Round::Ceil);
-    // The target LTV is a count of basis points, carried as a scaled divisor: `debt_value * 10_000 / target`.
-    let target = Amount::from_scaled(i128::from(p.policy.target_ltv_bps));
     // Wide intermediates, as the TypeScript's bigint: `short * ONE` alone passes i128 at a few thousand units.
-    let needed = mul_div(
+    let needed = mul_ratio(
         debt_value,
-        Amount::from_scaled(10_000),
-        target,
+        10_000,
+        i128::from(p.policy.target_ltv_bps),
         Rounding::Ceil,
     );
     let have = quote_value(collateral, collateral_mark.mark.price, Round::Floor);
