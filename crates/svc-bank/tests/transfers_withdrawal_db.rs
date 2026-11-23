@@ -157,7 +157,7 @@ impl Book {
                 .balances
                 .get(&key)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     /// A person's main balance.
@@ -198,7 +198,7 @@ impl Ledger for Book {
             .balances
             .get(&acct(a))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, owner_type: &str, owner: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(self
@@ -272,7 +272,7 @@ impl Ledger for Book {
             Some(Json::String(a)) => amt(a),
             other => panic!("amount: {other:?}"),
         };
-        let held = st.balances.get(&from).copied().unwrap_or(0);
+        let held = st.balances.get(&from).copied().unwrap_or(Amount::ZERO);
         if held < amount {
             return Err(PostFailure::Coded {
                 code: "ledger.insufficient_funds".to_owned(),

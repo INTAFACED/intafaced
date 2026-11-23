@@ -5,6 +5,7 @@
 //! input; each handler runs inside its route's `guard`.
 
 use service_kit::json::{self, Json};
+use service_kit::money::Amount;
 use service_kit::money::{format_amount, is_js_whitespace, js_trim, parse_amount};
 use service_kit::pg::Pool;
 use service_kit::schema::Value;
@@ -210,7 +211,7 @@ pub fn draft_order(ask: &str) -> Result<OrderDraft, OwnError> {
     // `positive`: a figure at or below zero refuses; one the money type cannot read is its own fault, as there.
     let positive = |t: &str| -> Result<String, OwnError> {
         let units = parse_amount(t).map_err(OwnError::Thrown)?;
-        if units <= 0 {
+        if units <= Amount::ZERO {
             return Err(not_understood());
         }
         Ok(format_amount(units))

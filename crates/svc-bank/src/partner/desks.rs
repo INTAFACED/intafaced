@@ -100,14 +100,16 @@ impl PurchaseDesk {
     /// `heldBack`: what the partner holds back of a main balance now.
     pub fn held_back(&mut self, account: &AccountRef, expired: bool, now: Instant) -> Amount {
         if account.space_id.is_some() {
-            return 0;
+            return Amount::ZERO;
         }
         self.release_due(&account.user_id, expired, now);
-        self.open.get(&account.user_id).map_or(0, |list| {
-            list.iter()
-                .filter(|h| h.asset_id == account.asset_id)
-                .fold(0, |sum: Amount, h| sum.saturating_add(h.amount))
-        })
+        self.open
+            .get(&account.user_id)
+            .map_or(Amount::ZERO, |list| {
+                list.iter()
+                    .filter(|h| h.asset_id == account.asset_id)
+                    .fold(Amount::ZERO, |sum: Amount, h| sum.saturating_add(h.amount))
+            })
     }
 }
 
@@ -242,7 +244,7 @@ impl State {
         if self.board.read(user_id, |s| s.down) {
             return Err(partner_down());
         }
-        if p.amount <= 0 {
+        if p.amount <= Amount::ZERO {
             return Err(refuse(
                 "bank.partner_amount_invalid",
                 "A purchase needs an amount above zero.",

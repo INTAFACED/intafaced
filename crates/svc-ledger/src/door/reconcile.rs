@@ -84,7 +84,7 @@ impl LedgerDoor {
                 return respond(400, &errors::operator_failed(&message).1);
             }
         };
-        let confirm = consumed.approver_id.unwrap_or(consumed.requester_id);
+        let confirm = consumed.other_than(&operator.user_id);
         self.cfg.log.info(
             vec![
                 ("actor", Json::str(operator.user_id.clone())),

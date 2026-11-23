@@ -81,8 +81,9 @@ jobs:
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
       pull-requests: read # the journey list guard reads the pull request's current body
     # What tells main-bisect's automatic revert (exact-revert.mjs autoRevertOf): its branch, author, commit count, head and
-    # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet
-    # (in `pnpm gates`) and look drift, which judge a proven revert of X against X^ (project-state#3635). Empty on a push.
+    # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet and
+    # the kit-ceilings and volt-off-kit tests (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
+    # (project-state#3635, #3697). Empty on a push.
     env:
       PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -212,6 +213,9 @@ jobs:
       # copy is fetched fresh from the repository's URL into a ref of its own (the pull request's base commit, or main for
       # a manual run), never read from origin/main, which code the pull request ran earlier in this job could move
       # (review 7578-R1 #4); and it is always main's builder (the fallback to the PR copy is gone, review 7578-R1 #2).
+      # Never shallow (--depth): this checkout holds main's whole history, and a shallow fetch marks the commit a history
+      # boundary, so every later step lost the merge-base with main and the culprit of main-bisect's revert (look drift
+      # judged every automatic revert as an ordinary change, project-state#3697).
       - name: Touched-journeys map rebuild (builder from main)
         if: (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !cancelled()
         env:
@@ -223,17 +227,16 @@ jobs:
           map=tooling/ci/journey-reach-map.json
           # A manual run on a branch judges the branch's own change, as its pull request will: a branch that leaves the map
           # as it was where it left main is not judged on main's map (every branch run went red on it, 14 Nov). Read before
-          # the shallow fetch below, which cuts main's history and with it the merge-base. The pull request's run still
-          # judges the map from its base commit, whatever this advisory run reads.
+          # the fetch below. The pull request's run still judges the map from its base commit, whatever this advisory run reads.
           if [ "$EVENT" = workflow_dispatch ] && mb=$(git merge-base origin/main HEAD) && git diff --quiet "$mb" HEAD -- "$map"; then
             echo "the branch leaves $map as it was on main"
             exit 0
           fi
           if [ "$EVENT" = pull_request ]; then
-            git fetch --no-tags --depth=1 "$REPO_URL" "$BASE_SHA"
+            git fetch --no-tags "$REPO_URL" "$BASE_SHA"
             base="$BASE_SHA"
           else
-            git fetch --no-tags --depth=1 "$REPO_URL" +refs/heads/main:refs/reach-map/main
+            git fetch --no-tags "$REPO_URL" +refs/heads/main:refs/reach-map/main
             base=refs/reach-map/main
           fi
           if [ "$EVENT" = pull_request ] && git diff --quiet "$base" HEAD -- "$map"; then
@@ -307,38 +310,6 @@ jobs:
           fi
           node "$lint"
 
-  fast-gates:
-    # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
-    # named about two minutes after the push, not after the tooling tests' three. The pre-push hook ran these before each
-    # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
-    # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
-    # says it sooner.
-    name: Fast gates
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 2 min, most of it the install
-    permissions:
-      contents: read
-    # The lint ratchet reads main-bisect's automatic revert by these, as in the Doctrine gates job.
-    env:
-      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-      PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-      PR_COMMITS: ${{ github.event.pull_request.commits }}
-      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # as in the Doctrine gates job: the lint ratchet judges the change against its merge-base with main
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Fast gates
-        run: node tooling/ci/gates.mjs --fast
-
   changes:
     name: Affected tests
     runs-on: ubuntu-24.04
@@ -362,21 +333,6 @@ jobs:
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
-
-  format:
-    name: Format
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: 1-2 min
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: format:check
-        run: pnpm format:check
 
   # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
   # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, the
@@ -609,7 +565,12 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45 # healthy run: 11-20 min
+    # healthy run: 11-20 min; a pull request's red one may wait up to 10 more, only while main has no record near its
+    # base (tooling/ci/base-failures.mjs WAIT_MIN)
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # main's runs on and before this pull request's base: jobs and test-results artifacts (base-failures.mjs)
 
     services:
       postgres:
@@ -701,14 +662,83 @@ jobs:
       # packages plus the readers in test-read-edges.json (ci-affected.mjs --filters); turbo builds what those tests
       # depend on (^build).
       # A piece shard passes vitest its `--shard=<k>/<m>` (after turbo's --), so it runs its share of the package's files.
+      # INTAFACED_TEST_RESULTS: each vitest run writes what it failed there (tooling/ci/test-results-reporter.mjs), and
+      # --summarize writes turbo's task results to .turbo/runs; the next steps read both.
+      # On a pull request a red here is judged by "Failures main already has" below, which fails the job unless every
+      # failure is one main already has (tooling/ci/base-failures.mjs). On main, and everywhere else, a red here is red.
       - name: Run pnpm test --continue
+        id: test
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          INTAFACED_TEST_RESULTS: ${{ runner.temp }}/test-results
         run: |
           set -o pipefail
           filters=()
           while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
           piece=()
           if [ -s "$RUNNER_TEMP/piece.txt" ]; then piece=(-- "--shard=$(cat "$RUNNER_TEMP/piece.txt")"); fi
-          pnpm test --continue --concurrency=3 "${filters[@]}" "${piece[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          pnpm test --continue --concurrency=3 --summarize "${filters[@]}" "${piece[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+
+      # What this job's tests failed, as data: on main it is kept for pull requests to compare with. A pull request runs
+      # main's copy of the rules (base-failures.mjs and the files it imports, which base-failures.test.mjs keeps listed
+      # here), never its own, so it can't loosen the rule it is judged by; while main has none, nothing is excused.
+      # A recorder that breaks on main leaves main's verdict as its tests left it (continue-on-error there); pull
+      # requests then find no record and excuse nothing.
+      - name: Record this job's test results
+        id: record
+        if: >-
+          (success() || failure()) && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') &&
+          (github.event_name != 'pull_request' || steps.test.outcome == 'failure')
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
+        env:
+          SHARD: ${{ matrix.shard }}
+          OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          bf=tooling/ci/base-failures.mjs
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git fetch --no-tags --quiet origin main
+            if ! git cat-file -e origin/main:tooling/ci/base-failures.mjs 2>/dev/null; then
+              echo "::notice::main has no tooling/ci/base-failures.mjs yet, so no failure is excused"
+              exit 0
+            fi
+            mkdir -p "$RUNNER_TEMP/main-rules"
+            git archive origin/main tooling/ci/base-failures.mjs tooling/ci/github-fetch.mjs tooling/ci/api-budget.mjs \
+              tooling/ci/api-count.mjs tooling/ci/refusal.mjs tooling/ci/run-jobs.mjs tooling/ci/test-results-reporter.mjs |
+              tar -x -C "$RUNNER_TEMP/main-rules"
+            bf="$RUNNER_TEMP/main-rules/$bf"
+          fi
+          echo "BASE_FAILURES=$bf" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/test-results-record"
+          node "$bf" record --results "$RUNNER_TEMP/test-results" --turbo .turbo/runs \
+            --outcome "$OUTCOME" --shard "$SHARD" --out "$RUNNER_TEMP/test-results-record/test-record.json"
+          echo "artifact=test-results-${SHARD//\//-of-}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Keep this job's test results
+        if: (success() || failure()) && github.event_name == 'push' && steps.record.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.record.outputs.artifact }}
+          path: ${{ runner.temp }}/test-results-record/test-record.json
+          retention-days: 14
+          if-no-files-found: error
+
+      # The owner's decision of 23 Nov 2026: a failing unit test that main's own run recorded the same way (test id and
+      # reason) on the commit this pull request merges into, or on the nearest commit before it that has a finished
+      # record (main's runs are one at a time, so most of its commits have none), doesn't hold it. Never a test of money,
+      # custody, sign-in or permissions, nor a journey test, nor one in a package main changed after that record; nothing
+      # when main's result is unknown. It names each failure it excused, the commit and main's run. Only on a pull
+      # request; only when its tests failed.
+      - name: Failures main already has
+        if: (success() || failure()) && github.event_name == 'pull_request' && steps.test.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The head is the merge commit; its first parent is main as this pull request merges into it.
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" = 3 ]; then
+            BASE_SHA="$(git rev-parse HEAD^1)"
+            export BASE_SHA
+          fi
+          if [ -z "${BASE_FAILURES:-}" ]; then echo "Verdict: red. Main has no base-failures rule yet."; exit 1; fi
+          node "$BASE_FAILURES" verdict --record "$RUNNER_TEMP/test-results-record/test-record.json"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
@@ -774,10 +804,11 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
-      # Save each package's Maven repository that test-infra restored (#9531), only from a passing job that ran that
-      # package's Maven tests (its surefire reports exist), so the saved repository holds every plugin its tests need.
+      # Save each package's Maven repository that test-infra restored (#9531), only from a job whose tests all passed (not
+      # one green on excused failures) and that ran that package's Maven tests (its surefire reports exist), so the saved
+      # repository holds every plugin its tests need.
       - name: Save sbe-codec's Maven repository
-        if: success() && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
+        if: success() && steps.test.outcome == 'success' && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -786,7 +817,7 @@ jobs:
             !packages/sbe-codec/.tools/m2/**/resolver-status.properties
           key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
       - name: Save svc-fix's Maven repository
-        if: success() && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
+        if: success() && steps.test.outcome == 'success' && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -820,7 +851,7 @@ jobs:
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
-    needs: [changes, gates, format, build, test-full, rust, look]
+    needs: [changes, gates, build, test-full, rust, look]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
@@ -832,7 +863,6 @@ jobs:
           LOOK: ${{ needs.changes.outputs.look }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
-          FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
           RUST_RESULT: ${{ needs.rust.result }}
@@ -924,10 +954,10 @@ jobs:
   # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
   # workflow that was a run of its own on every finished input, whether it did anything or not
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
-  # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's fast checks do.
+  # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's own jobs do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, fast-gates, format, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

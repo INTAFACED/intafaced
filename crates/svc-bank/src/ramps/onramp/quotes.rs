@@ -254,7 +254,7 @@ fn as_amount(value: &str, what: &str, code: &str) -> Result<Amount, Refusal> {
 /// `positive`.
 pub fn positive(value: &str, what: &str, code: &str) -> Result<Amount, Refusal> {
     let parsed = as_amount(value, what, code)?;
-    if parsed <= 0 {
+    if parsed <= Amount::ZERO {
         return Err(refuse(code, format!("{what} must be positive")));
     }
     Ok(parsed)
@@ -263,7 +263,7 @@ pub fn positive(value: &str, what: &str, code: &str) -> Result<Amount, Refusal> 
 /// `nonNegative`.
 fn non_negative(value: &str, what: &str, code: &str) -> Result<Amount, Refusal> {
     let parsed = as_amount(value, what, code)?;
-    if parsed < 0 {
+    if parsed < Amount::ZERO {
         return Err(refuse(code, format!("{what} must not be negative")));
     }
     Ok(parsed)

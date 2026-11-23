@@ -281,7 +281,7 @@ pub fn credit_onramp(d: &Deps<'_>, o: &Onramp<'_>, ask: &CreditAsk<'_>) -> Resul
     if ask.kind == "fiat" {
         return Err(refuse_fiat());
     }
-    if ask.amount <= 0 {
+    if ask.amount <= Amount::ZERO {
         return Err(refuse(
             "bank.ramp_invalid_amount",
             "On-ramp amount must be positive",

@@ -375,7 +375,7 @@ export function CancelRequest({
   if (approval.status !== 'pending') return null;
   const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack" className="lt-stack">
       <label className="lt-field">
         <span>{t('cancelReason')} *</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={!mine} />
