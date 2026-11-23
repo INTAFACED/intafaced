@@ -102,6 +102,11 @@ export interface TransferQuote {
   readonly remainingToday: string;
   readonly fee: string;
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
+  /**
+   * The network fee on the move: what the partner bank that holds the sender's money says it charges for a send, null
+   * when it has not said ("not known", never 0); "0" for a send on our own book, which crosses no network.
+   */
+  readonly networkFee: string | null;
   readonly withinPerTransfer: boolean;
   readonly withinDaily: boolean;
 }
@@ -806,6 +811,8 @@ export class PersonalPayService {
     const grants = await grantedLimits(this.sql, actorUserId, assetId);
     const per = grants.perTransfer ?? parseAmount(terms.per_transfer_limit);
     const daily = grants.daily ?? parseAmount(terms.daily_limit);
+    const partner = this.options.custody?.bankFor(actorUserId) ?? null;
+    const partnerFee = partner ? (await partner.limits(actorUserId, assetId)).sendFee : 0n;
     return {
       assetId,
       amount: formatAmount(amount),
@@ -815,6 +822,7 @@ export class PersonalPayService {
       remainingToday: formatAmount(daily > spent ? daily - spent : 0n),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
+      networkFee: partnerFee === null ? null : formatAmount(partnerFee),
       withinPerTransfer: amount <= per,
       withinDaily: spent + amount <= daily,
     };

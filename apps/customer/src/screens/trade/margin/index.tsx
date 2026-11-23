@@ -56,7 +56,7 @@ export default function MarginScreen(_props: ScreenProps) {
       id: 'contract',
       header: t('Contract'),
       pin: 'start',
-      width: 240,
+      width: 200,
       value: (p) => p.symbol,
       cell: (p) => (
         <span className="inline-flex items-center gap-2 whitespace-nowrap">
@@ -74,7 +74,7 @@ export default function MarginScreen(_props: ScreenProps) {
     },
     {
       id: 'ratio',
-      width: 210,
+      width: 150,
       header: t('Margin ratio'),
       numeric: true,
       value: (p) => healthOf(p).marginRatioPct,
@@ -112,7 +112,7 @@ export default function MarginScreen(_props: ScreenProps) {
     },
     {
       id: 'state',
-      width: 210,
+      width: 150,
       header: t('State'),
       value: (p) => stateOf(p),
       cell: (p) => {

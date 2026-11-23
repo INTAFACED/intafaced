@@ -1336,9 +1336,64 @@ test('C1 planted: a red new on the head always stops it, whatever main has', asy
   assert.equal(input.blocking.length, 1, 'an unreadable input is never inherited');
 });
 
+test("project-state #3754 planted: no main run in the head's history, main's newest finished full run stands in", async () => {
+  const latest = mainRef({ run: mainRun(60, { head_sha: 'e'.repeat(40) }) });
+  const out = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, latest, touches: area(), rangeOf: range() });
+  assert.deepEqual(out.blocking, [], 'a red main already has, outside the area, no longer holds the pull request');
+  assert.equal(out.passed.length, 1);
+  assert.match(out.passed[0].why, /main's newest run 60 on eeeeeeeeee \(none is in this head's history\)/);
+  const mine = [{ step: 'J-bank-13#1', why: 'failing, not in the baseline', money: false }];
+  const own = await splitInherited({ upTo: MAIN_SHA, red: [...redW, ...mine], main: null, latest, touches: area(), rangeOf: range() });
+  assert.deepEqual(
+    own.blocking.map((x) => x.step),
+    ['J-bank-13#1'],
+    'a red main lacks still counts',
+  );
+  const shared = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: null,
+    latest,
+    touches: { ...area([], ['tooling/scripts/local-test-world.mjs']), shared: true },
+    rangeOf: range(),
+  });
+  assert.equal(shared.blocking.length, 1, 'shared setup: every red counts');
+  const money = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ ...redW[0], money: true }],
+    main: null,
+    latest,
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(money.blocking.length, 1, 'a money step is never passed over');
+  const inArea = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, latest, touches: area(['J-wallet-05']), rangeOf: range() });
+  assert.equal(inArea.blocking.length, 1, 'its own journey: it stops');
+  const inHistory = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ red: new Map() }),
+    latest,
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(inHistory.blocking.length, 1, "a run in the head's history wins over the newest one");
+});
+
 test('C1 planted: a red that cannot be bounded stops every pull request', async () => {
   const none = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, touches: area(), rangeOf: range() });
   assert.equal(none.blocking.length, 1, 'no main run in the head history: every red counts');
+  const neither = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, latest: null, touches: area(), rangeOf: range() });
+  assert.equal(neither.blocking.length, 1, 'no finished full run on main at all: every red counts');
+  const latestBlind = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: null,
+    latest: mainRef({ problems: ['history unreadable'] }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(latestBlind.blocking.length, 1, "main's newest run with an unreadable input: every red counts");
   const blind = await splitInherited({
     upTo: MAIN_SHA,
     red: redW,
@@ -1476,7 +1531,24 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
     sha: HEAD,
     io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), contains: async () => false },
   });
-  assert.equal(notInHistory.ok, false, 'no main run in the head history: every red counts');
+  // project-state #3754: main's newest finished full run stands in for one in the head's history.
+  assert.equal(notInHistory.ok, true, notInHistory.lines.join('\n'));
+  assert.match(notInHistory.lines.join('\n'), /main's newest run 50 .*none is in this head's history/);
+  const notInHistoryOwn = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'], mainVerdict: { ...clean, lastPass: {} } }), contains: async () => false },
+  });
+  assert.equal(notInHistoryOwn.ok, false, "outside the head's history, a red main's newest run lacks still counts");
+  const noMainRun = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), contains: async () => false, mainRuns: async () => [] },
+  });
+  assert.equal(noMainRun.ok, false, 'no finished full run on main at all: every red counts');
+  assert.match(noMainRun.lines.join('\n'), /every red counts/);
   const broken = await sealPull({
     repo: REPO,
     number: 7,

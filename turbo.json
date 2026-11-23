@@ -141,6 +141,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -155,6 +156,7 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
@@ -185,6 +187,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -199,6 +202,7 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
@@ -276,6 +280,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -291,6 +296,7 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
@@ -328,6 +334,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -343,6 +350,7 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
@@ -462,6 +470,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -478,6 +487,7 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-campaigns/**",
@@ -559,6 +569,7 @@
         "@intafaced/quant-honesty#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -570,6 +581,7 @@
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-trade/**",

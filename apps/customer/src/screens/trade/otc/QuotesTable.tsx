@@ -180,22 +180,6 @@ export function QuotesTable({
 
   return (
     <div className="lt-stack">
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void openTyped();
-        }}
-      >
-        <Field label={t('Open by id')} density="dense" className="min-w-64 flex-1">
-          <Input value={typed} onValueChange={setTyped} autoComplete="off" spellCheck={false} />
-        </Field>
-        <Button type="submit" variant="secondary" size={32} loading={opening} disabled={typed.trim() === ''}>
-          {t('Open quote button')}
-        </Button>
-        {typed.trim() === '' ? <p className="m-0 basis-full text-xs text-fg-2">{t('Open by id hint')}</p> : null}
-      </form>
-      {refusal ? <Refusal words={refusal} size="inline" /> : null}
       <Table
         label={t('Quotes table')}
         density="dense"
@@ -213,6 +197,23 @@ export function QuotesTable({
         emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('No quotes')}</p>}
       />
       <p className="lt-hint">{t('Quotes table note')}</p>
+      {/* The list above is the way in; a quote that isn't listed opens by its reference. */}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void openTyped();
+        }}
+      >
+        <Field label={t('Open by id')} density="dense" className="min-w-64 flex-1">
+          <Input value={typed} onValueChange={setTyped} autoComplete="off" spellCheck={false} />
+        </Field>
+        <Button type="submit" variant="secondary" size={32} loading={opening} disabled={typed.trim() === ''}>
+          {t('Open quote button')}
+        </Button>
+        {typed.trim() === '' ? <p className="lt-hint basis-full">{t('Open by id hint')}</p> : null}
+      </form>
+      {refusal ? <Refusal words={refusal} size="inline" /> : null}
     </div>
   );
 }

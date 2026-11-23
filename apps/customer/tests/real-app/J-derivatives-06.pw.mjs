@@ -44,19 +44,37 @@ async function until(read, ok, what, ms = 30_000) {
  * rate the order a tier above the one the preview named, which svc-trade refuses trade.risk_limit_confirm_required. Held,
  * both ladders rest as the maker's last cycle left them, so the preview and the order read one depth and one mark. Asked
  * for once each book has both sides, and timed from before the ask.
+ *
+ * A hold keeps a book as the maker's last cycle left it, one-sided too: just after a stack restart the maker's first
+ * cycle can rest only one side (its other quotes refused trade.operator_throttle while the old ones still count as open),
+ * and a hold taken then never gets the other side back. So a book held one-sided is let go and held again once both
+ * sides are up, a few times at most.
  */
 async function openLong(me) {
   const { body } = await me.get('/api/v1/positions');
   const open = body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open');
   if (open) return open;
-  await bestPrices('BTC/USDT', 50, 60_000);
-  await bestPrices(SYMBOL, 50, 60_000);
-  const heldAt = Date.now();
-  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
-  tool('local-test-market.mjs', 'hold', SYMBOL);
-  try {
+  const release = () => {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  };
+  let heldAt;
+  for (let attempt = 1; ; attempt++) {
     await bestPrices('BTC/USDT', 50, 60_000);
     await bestPrices(SYMBOL, 50, 60_000);
+    heldAt = Date.now();
+    tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+    tool('local-test-market.mjs', 'hold', SYMBOL);
+    try {
+      await bestPrices('BTC/USDT', 50, 10_000);
+      await bestPrices(SYMBOL, 50, 10_000);
+      break;
+    } catch (oneSided) {
+      release();
+      if (attempt >= 4) throw oneSided;
+    }
+  }
+  try {
     const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
     expect(preview.status, JSON.stringify(preview.body)).toBe(200);
     const placed = await me.post('/api/v1/futures/orders', {
@@ -78,8 +96,7 @@ async function openLong(me) {
     expect(Date.now() - heldAt, 'the hold lapsed before the TEST long opened').toBeLessThan(HOLD_MAX_MS);
     return positions.find((p) => p.symbol === SYMBOL && p.side === 'long');
   } finally {
-    tool('local-test-market.mjs', 'release', SYMBOL);
-    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+    release();
   }
 }
 

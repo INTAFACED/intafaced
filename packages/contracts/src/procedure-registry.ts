@@ -107,6 +107,7 @@ import {
   ACADEMY_ADMIN_UNTAG_LEARNER,
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
+  ACADEMY_ADMIN_COURSE_GRADEBOOK,
 } from './academy-admin-records.js';
 
 import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
@@ -120,6 +121,8 @@ import { ACADEMY_APPLY_RESIDENCY } from './academy-apply-residency-procedures.js
 import { ACADEMY_APPOINT_AMBASSADOR } from './academy-appoint-ambassador-procedures.js';
 
 import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from './academy-assessment-procedures.js';
+
+import { ACADEMY_ASSIGNMENT } from './academy-assignment-procedures.js';
 
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
 
@@ -191,6 +194,8 @@ import {
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
 
+import { ACADEMY_MARK_FEEDBACK_READ } from './academy-mark-feedback-read-procedures.js';
+
 import { ACADEMY_MY_ACCESS_GRANTS } from './academy-my-access-grants-procedures.js';
 
 import { ACADEMY_MY_CERTS } from './academy-my-certs-procedures.js';
@@ -253,7 +258,11 @@ import { ACADEMY_STANDINGS } from './academy-standings-procedures.js';
 
 import { ACADEMY_STREAM_CREDENTIAL } from './academy-stream-credential-procedures.js';
 
+import { ACADEMY_SUBMIT_ASSIGNMENT } from './academy-submit-assignment-procedures.js';
+
 import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-complete-procedures.js';
+
+import { ACADEMY_UNFREEZE_AMBASSADOR } from './academy-unfreeze-ambassador-procedures.js';
 
 import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
 
@@ -273,7 +282,7 @@ import { AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE } from './agents-agent-procedu
 
 import { AGENTS_ANALYTICS_SUMMARY } from './agents-analytics-procedures.js';
 
-import { AGENTS_COACH_SESSION } from './agents-coach-procedures.js';
+import { AGENTS_COACH_SESSION, AGENTS_COACH_RUN_SESSION } from './agents-coach-procedures.js';
 
 import {
   AGENTS_FLEET_REGISTRY,
@@ -299,6 +308,7 @@ import {
   AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
   AGENTS_NAVIGATOR_TRADING,
   AGENTS_NAVIGATOR_ORDERS,
+  AGENTS_NAVIGATOR_ONCHAIN_BIND,
 } from './agents-navigator-procedures.js';
 
 import {
@@ -391,6 +401,10 @@ import {
   AGENTS_OWN_APPROVAL_APPROVE,
   AGENTS_OWN_APPROVAL_REJECT,
   AGENTS_OWN_APPROVALS,
+  AGENTS_OWN_APPROVAL_EDIT,
+  AGENTS_OWN_TOOL_TRY,
+  AGENTS_OWN_REVIEW_CHECK,
+  AGENTS_OWN_DRY_RUN,
 } from './agents-own-procedures.js';
 
 import {
@@ -464,6 +478,7 @@ import {
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
 import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
@@ -628,6 +643,14 @@ import {
   BANK_LOANS_LEDGER_CHECK,
   BANK_LOANS_STATEMENT,
 } from './bank-loans-2-procedures.js';
+
+import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+} from './bank-loans-3-procedures.js';
 
 import {
   BANK_LOANS_PRODUCTS,
@@ -800,9 +823,13 @@ import {
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
 
+import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from './campaigns-catalogue-procedures.js';
+
 import { CAMPAIGNS_DISTRIBUTION_MINE } from './campaigns-distribution-procedures.js';
 
 import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from './campaigns-drops-procedures.js';
+
+import { CAMPAIGNS_PARTICIPATION_MINE } from './campaigns-participation-procedures.js';
 
 import { CAMPAIGNS_POINTS_PROGRAMME, CAMPAIGNS_POINTS_CONVERT, CAMPAIGNS_POINTS_REDEEM } from './campaigns-points-procedures.js';
 
@@ -1586,6 +1613,7 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_OPEN,
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_APPROVALS_LIST,
 } from './pay-merchant-control-procedures.js';
 
 import {
@@ -1621,6 +1649,9 @@ import {
   PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
   PAY_MERCHANT_OPS_EXPORTS_CREATE,
   PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+  PAY_MERCHANT_OPS_PAYOUTS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
 } from './pay-merchant-ops-procedures.js';
 
 import {
@@ -2082,6 +2113,7 @@ import {
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 } from './support-safety-procedures.js';
 
 import { SUPPORT_TICKET_CHARTS_LOOKUP } from './support-ticket-charts-lookup-procedures.js';
@@ -2154,6 +2186,8 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from './trade-account-controls-procedures.js';
+
 import {
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
   TRADE_ADMIN_AGENT_DESK_AUDIT,
@@ -2174,6 +2208,8 @@ import {
   TRADE_ALGO_CREATE_TWAP,
   TRADE_ALGO_LIST,
 } from './trade-algo-procedures.js';
+
+import { AUTO_TOP_UP_GET, AUTO_TOP_UP_SET, AUTO_TOP_UP_SUBMIT_PERMISSION, AUTO_TOP_UP_OFF } from './trade-auto-top-up-procedures.js';
 
 import {
   TRADE_BOTS_GRID_SETUP,
@@ -2356,6 +2392,7 @@ const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_UNTAG_LEARNER,
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
+  ACADEMY_ADMIN_COURSE_GRADEBOOK,
 ];
 
 const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
@@ -2369,6 +2406,8 @@ const part_academy_apply_residency_procedures: readonly ProcedureRecord[] = [ACA
 const part_academy_appoint_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_APPOINT_AMBASSADOR];
 
 const part_academy_assessment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS];
+
+const part_academy_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSIGNMENT];
 
 const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
 
@@ -2440,6 +2479,8 @@ const part_academy_learner_procedures: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 ];
 
+const part_academy_mark_feedback_read_procedures: readonly ProcedureRecord[] = [ACADEMY_MARK_FEEDBACK_READ];
+
 const part_academy_my_access_grants_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ACCESS_GRANTS];
 
 const part_academy_my_certs_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_CERTS];
@@ -2502,7 +2543,11 @@ const part_academy_standings_procedures: readonly ProcedureRecord[] = [ACADEMY_S
 
 const part_academy_stream_credential_procedures: readonly ProcedureRecord[] = [ACADEMY_STREAM_CREDENTIAL];
 
+const part_academy_submit_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_SUBMIT_ASSIGNMENT];
+
 const part_academy_undo_curriculum_complete_procedures: readonly ProcedureRecord[] = [ACADEMY_UNDO_CURRICULUM_COMPLETE];
+
+const part_academy_unfreeze_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_UNFREEZE_AMBASSADOR];
 
 const part_academy_unpin_lesson_procedures: readonly ProcedureRecord[] = [ACADEMY_UNPIN_LESSON];
 
@@ -2522,7 +2567,7 @@ const part_agents_agent_procedures: readonly ProcedureRecord[] = [AGENTS_AGENT_G
 
 const part_agents_analytics_procedures: readonly ProcedureRecord[] = [AGENTS_ANALYTICS_SUMMARY];
 
-const part_agents_coach_procedures: readonly ProcedureRecord[] = [AGENTS_COACH_SESSION];
+const part_agents_coach_procedures: readonly ProcedureRecord[] = [AGENTS_COACH_SESSION, AGENTS_COACH_RUN_SESSION];
 
 const part_agents_fleet_procedures: readonly ProcedureRecord[] = [
   AGENTS_FLEET_REGISTRY,
@@ -2548,6 +2593,7 @@ const part_agents_navigator_procedures: readonly ProcedureRecord[] = [
   AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
   AGENTS_NAVIGATOR_TRADING,
   AGENTS_NAVIGATOR_ORDERS,
+  AGENTS_NAVIGATOR_ONCHAIN_BIND,
 ];
 
 const part_agents_ops_alerts_procedures: readonly ProcedureRecord[] = [
@@ -2640,6 +2686,10 @@ const part_agents_own_procedures: readonly ProcedureRecord[] = [
   AGENTS_OWN_APPROVAL_APPROVE,
   AGENTS_OWN_APPROVAL_REJECT,
   AGENTS_OWN_APPROVALS,
+  AGENTS_OWN_APPROVAL_EDIT,
+  AGENTS_OWN_TOOL_TRY,
+  AGENTS_OWN_REVIEW_CHECK,
+  AGENTS_OWN_DRY_RUN,
 ];
 
 const part_agents_routes_procedures: readonly ProcedureRecord[] = [
@@ -2717,6 +2767,7 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];
@@ -2901,6 +2952,14 @@ const part_bank_loans_2_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_STATEMENT,
 ];
 
+const part_bank_loans_3_procedures: readonly ProcedureRecord[] = [
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+];
+
 const part_bank_loans_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_PRODUCTS,
   BANK_LOANS_ELIGIBILITY,
@@ -3076,9 +3135,13 @@ const part_blueprint_procedures: readonly ProcedureRecord[] = [
   BLUEPRINT_ERASE,
 ];
 
+const part_campaigns_catalogue_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET];
+
 const part_campaigns_distribution_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DISTRIBUTION_MINE];
 
 const part_campaigns_drops_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM];
+
+const part_campaigns_participation_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_PARTICIPATION_MINE];
 
 const part_campaigns_points_procedures: readonly ProcedureRecord[] = [
   CAMPAIGNS_POINTS_PROGRAMME,
@@ -3927,6 +3990,7 @@ const part_pay_merchant_control_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CONTROL_LIMITS_OPEN,
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_APPROVALS_LIST,
 ];
 
 const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
@@ -3962,6 +4026,9 @@ const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
   PAY_MERCHANT_OPS_EXPORTS_CREATE,
   PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+  PAY_MERCHANT_OPS_PAYOUTS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
 ];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
@@ -4427,6 +4494,7 @@ const part_support_safety_procedures: readonly ProcedureRecord[] = [
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 ];
 
 const part_support_ticket_charts_lookup_procedures: readonly ProcedureRecord[] = [SUPPORT_TICKET_CHARTS_LOOKUP];
@@ -4499,6 +4567,8 @@ const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_ROLE,
 ];
 
+const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [TRADE_ACCOUNT_CONTROLS_HISTORY];
+
 const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
   TRADE_ADMIN_AGENT_DESK_AUDIT,
@@ -4518,6 +4588,13 @@ const part_trade_algo_procedures: readonly ProcedureRecord[] = [
   TRADE_ALGO_POLICY,
   TRADE_ALGO_CREATE_TWAP,
   TRADE_ALGO_LIST,
+];
+
+const part_trade_auto_top_up_procedures: readonly ProcedureRecord[] = [
+  AUTO_TOP_UP_GET,
+  AUTO_TOP_UP_SET,
+  AUTO_TOP_UP_SUBMIT_PERMISSION,
+  AUTO_TOP_UP_OFF,
 ];
 
 const part_trade_bots_procedures: readonly ProcedureRecord[] = [
@@ -4602,6 +4679,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_apply_residency_procedures,
   ...part_academy_appoint_ambassador_procedures,
   ...part_academy_assessment_procedures,
+  ...part_academy_assignment_procedures,
   ...part_academy_authored_course_procedures,
   ...part_academy_cert_paths_procedures,
   ...part_academy_cert_verify_procedures,
@@ -4617,6 +4695,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_health_procedures,
   ...part_academy_item_video_procedures,
   ...part_academy_learner_procedures,
+  ...part_academy_mark_feedback_read_procedures,
   ...part_academy_my_access_grants_procedures,
   ...part_academy_my_certs_procedures,
   ...part_academy_my_completions_procedures,
@@ -4648,7 +4727,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_send_course_message_procedures,
   ...part_academy_standings_procedures,
   ...part_academy_stream_credential_procedures,
+  ...part_academy_submit_assignment_procedures,
   ...part_academy_undo_curriculum_complete_procedures,
+  ...part_academy_unfreeze_ambassador_procedures,
   ...part_academy_unpin_lesson_procedures,
   ...part_academy_upload_assignment_file_procedures,
   ...part_academy_video_playback_procedures,
@@ -4703,6 +4784,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_holds_procedures,
   ...part_bank_linked_accounts_procedures,
   ...part_bank_loans_2_procedures,
+  ...part_bank_loans_3_procedures,
   ...part_bank_loans_procedures,
   ...part_bank_ops_2_procedures,
   ...part_bank_ops_procedures,
@@ -4729,8 +4811,10 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_transfers_2_procedures,
   ...part_bank_transfers_procedures,
   ...part_blueprint_procedures,
+  ...part_campaigns_catalogue_procedures,
   ...part_campaigns_distribution_procedures,
   ...part_campaigns_drops_procedures,
+  ...part_campaigns_participation_procedures,
   ...part_campaigns_points_procedures,
   ...part_campaigns_procedures,
   ...part_campaigns_referral_procedures,
@@ -4891,8 +4975,10 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_token_mint_epoch_procedures,
   ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
+  ...part_trade_account_controls_procedures,
   ...part_trade_admin_procedures,
   ...part_trade_algo_procedures,
+  ...part_trade_auto_top_up_procedures,
   ...part_trade_bots_procedures,
   ...part_trade_builder_mode_procedures,
   ...part_trade_convert_procedures,
