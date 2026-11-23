@@ -236,6 +236,14 @@
   margin-bottom: var(--if-space-8);
   min-width: 0;
 }
+/* Transfers: the ways into direct debits, the calendar and rules sit as their own group, apart from the form below. */
+.money-transfer-links {
+  margin-block-end: var(--if-space-8);
+}
+/* Standing instructions open a new group: a section's space above them, never touching the card before. */
+.money-standing-orders {
+  margin-block-start: var(--if-space-8);
+}
 
 .money-selected-instruction {
   border-top: 2px solid var(--if-lime);

@@ -398,9 +398,9 @@ test(`${J} #2 reviews the market buy: the fee and the price protection show befo
   expect(shown, protectionText).not.toBeNull();
   const worst = toUnits(shown[1].replace(/,/g, ''));
   expect(worst <= bound, `${fromUnits(worst)} within ${fromUnits(bound)}`).toBe(true);
-  expect(shownUnits(await line(review, 'worst').innerText())).toBe(worst);
+  await expect.poll(async () => shownUnits(await line(review, 'worst').innerText())).toBe(worst);
   expect(preview.value.venueFee.known).toBe(true);
-  expect(shownUnits(await line(review, 'venue-fee').innerText())).toBe(toUnits(preview.value.venueFee.value.amount));
+  await expect.poll(async () => shownUnits(await line(review, 'venue-fee').innerText())).toBe(toUnits(preview.value.venueFee.value.amount));
   await confirmAndSign(page, wallet, 'buy');
   const filled = async () => (await fillsSince(owner, since)).reduce((s, f) => s + toUnits(f.amount), 0n);
   await expect.poll(filled, { timeout: 20_000 }).toBeGreaterThan(0n);
@@ -840,7 +840,9 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   await expect(form.getByRole('textbox', { name: 'Amount' })).toBeEditable();
   await expect(form.getByRole('textbox', { name: 'Total' })).not.toBeEditable();
   await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
-  expect(toUnits(await form.getByRole('textbox', { name: 'Total' }).inputValue())).toBe(mul(toUnits(price), toUnits('0.001')));
+  await expect
+    .poll(async () => toUnits(await form.getByRole('textbox', { name: 'Total' }).inputValue()))
+    .toBe(mul(toUnits(price), toUnits('0.001')));
   // On USDC: Total is the typed field and the amount is the whole lots it buys at the price.
   await form.getByTestId('venue-unit').getByRole('button', { name: 'USDC', exact: true }).click();
   await expect(form.getByRole('textbox', { name: 'Total' })).toBeEditable();
@@ -852,7 +854,7 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   expect(amount % lot).toBe(0n);
   expect(mul(amount, toUnits(price)) <= toUnits('50')).toBe(true);
   expect(mul(amount + lot, toUnits(price)) > toUnits('50')).toBe(true);
-  expect(toUnits(await form.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(amount);
+  await expect.poll(async () => toUnits(await form.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(amount);
   // The tag, shown in the review and kept with the order.
   const tag = `js3-${randomBytes(3).toString('hex')}`;
   await form.getByRole('textbox', { name: 'Tag (optional)' }).fill(tag);
