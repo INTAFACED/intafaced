@@ -1764,6 +1764,8 @@ import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 } from './pay-submerchant-permission-procedures.js';
 
 import {
@@ -4175,6 +4177,8 @@ const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 ];
 
 const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [
