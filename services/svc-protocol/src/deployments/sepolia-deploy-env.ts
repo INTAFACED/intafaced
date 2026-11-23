@@ -3,6 +3,7 @@
  * this module only parses and refuses. Never logs the key.
  */
 import { getContractAddress, isAddress, type Address, type Hex } from 'viem';
+import { assertNotDevKey } from './deploy-suite.js';
 
 export const SEPOLIA_CHAIN_ID = 84532;
 export const CIRCLE_USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as Address;
@@ -41,10 +42,15 @@ export function parseSepoliaDeployEnv(env: NodeJS.ProcessEnv = process.env): Sep
   }
 
   const rpcUrl = requireNonEmpty(env, 'PROTOCOL_RPC_URL');
+  let protocol: string;
   try {
-    new URL(rpcUrl); // parsed only to refuse a malformed address
+    protocol = new URL(rpcUrl).protocol;
   } catch {
     throw new Error('PROTOCOL_RPC_URL must be a URL');
+  }
+  // The deploy and svc-indexer both reach the chain over HTTP; a ws(s) URL here would print a setting the indexer can't use.
+  if (protocol !== 'https:' && protocol !== 'http:') {
+    throw new Error('PROTOCOL_RPC_URL must be an http(s) URL');
   }
 
   const keyRaw = requireNonEmpty(env, 'PROTOCOL_DEPLOYER_KEY');
@@ -52,6 +58,7 @@ export function parseSepoliaDeployEnv(env: NodeJS.ProcessEnv = process.env): Sep
   if (!/^0x[0-9a-fA-F]{64}$/.test(deployerKey)) {
     throw new Error('PROTOCOL_DEPLOYER_KEY must be a 32-byte hex key');
   }
+  assertNotDevKey(deployerKey);
 
   const entryPoint = requireNonEmpty(env, 'PROTOCOL_ENTRYPOINT_ADDRESS') as Address;
   if (!isAddress(entryPoint, { strict: true })) {
