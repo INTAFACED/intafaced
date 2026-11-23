@@ -1501,6 +1501,12 @@ import {
 } from './p2p-procedures.js';
 
 import {
+  PAY_ACCOUNT_CONTROLS_GET_STATE,
+  PAY_ACCOUNT_CONTROLS_HISTORY,
+  PAY_ACCOUNT_CONTROLS_CHANGE,
+} from './pay-account-controls-procedures.js';
+
+import {
   PAY_ALLOWLIST_MODE,
   PAY_ALLOWLIST_POLICY,
   PAY_ALLOWLIST_SET_MODE,
@@ -3869,6 +3875,12 @@ const part_p2p_procedures: readonly ProcedureRecord[] = [
   P2P_INSTRUMENTS_ACCESS_LOG,
 ];
 
+const part_pay_account_controls_procedures: readonly ProcedureRecord[] = [
+  PAY_ACCOUNT_CONTROLS_GET_STATE,
+  PAY_ACCOUNT_CONTROLS_HISTORY,
+  PAY_ACCOUNT_CONTROLS_CHANGE,
+];
+
 const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
   PAY_ALLOWLIST_MODE,
   PAY_ALLOWLIST_POLICY,
@@ -4911,6 +4923,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_p2p_disputes_procedures,
   ...part_p2p_ops_procedures,
   ...part_p2p_procedures,
+  ...part_pay_account_controls_procedures,
   ...part_pay_allowlist_procedures,
   ...part_pay_checkout_procedures,
   ...part_pay_conversion_procedures,

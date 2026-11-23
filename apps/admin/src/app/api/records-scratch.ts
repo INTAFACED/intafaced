@@ -1,8 +1,13 @@
 /* eslint-disable */
 // Temporary: one literal call per procedure so the call-records codemod writes their records. Deleted in the same branch.
-import { founderEdgeCall, type AdminSessionConfig } from '@/lib/founder-session';
+import { founderEdgeCall, type AdminSessionConfig, founderEdgeRecordCall } from '@/lib/founder-session';
 import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
 import { z } from 'zod';
+import {
+  PAY_ACCOUNT_CONTROLS_GET_STATE,
+  PAY_ACCOUNT_CONTROLS_HISTORY,
+  PAY_ACCOUNT_CONTROLS_CHANGE,
+} from '@intafaced/contracts/pay-account-controls-procedures';
 
 export async function scratch(config: AdminSessionConfig, ctx: FounderCallContext, input: any, token: string) {
   await founderEdgeCall(config, 'identity', 'accountControls.getState', 'GET', input, token);
@@ -11,9 +16,9 @@ export async function scratch(config: AdminSessionConfig, ctx: FounderCallContex
   await founderEdgeCall(config, 'trade', 'accountControls.getState', 'GET', input, token);
   await founderEdgeCall(config, 'trade', 'accountControls.history', 'GET', input, token);
   await founderEdgeCall(config, 'trade', 'accountControls.change', 'POST', input, token);
-  await founderEdgeCall(config, 'pay', 'accountControls.getState', 'GET', input, token);
-  await founderEdgeCall(config, 'pay', 'accountControls.history', 'GET', input, token);
-  await founderEdgeCall(config, 'pay', 'accountControls.change', 'POST', input, token);
+  await founderEdgeRecordCall(config, PAY_ACCOUNT_CONTROLS_GET_STATE, input, token);
+  await founderEdgeRecordCall(config, PAY_ACCOUNT_CONTROLS_HISTORY, input, token);
+  await founderEdgeRecordCall(config, PAY_ACCOUNT_CONTROLS_CHANGE, input, token);
   await founderEdgeCall(config, 'ops', 'outreach.metrics', 'GET', input, token);
   await founderEdgeCall(config, 'ops', 'outreach.listCampaigns', 'GET', input, token);
   await founderEdgeCall(config, 'ops', 'outreach.listSourceMappings', 'GET', input, token);
