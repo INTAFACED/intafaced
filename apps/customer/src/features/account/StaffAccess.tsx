@@ -17,6 +17,7 @@ const copy = defineCopy('staff-access', {
   colWho: 'Staff member',
   colOn: 'On',
   kind_venue_orders_get: 'Looked up one of your routed orders',
+  kind_venue_accounts_get: 'Looked at your venue account’s margin and its history',
   kind_orders_get: 'Looked up one of your orders',
   kind_orders_list: 'Listed your orders',
   kind_other: 'Staff action: {kind}',
@@ -62,6 +63,7 @@ type T = ReturnType<typeof copy.useCopy>['t'];
 /** The operator record's kind in the person's own words; a kind with no words of its own is named as it is. */
 function kindWords(t: T, kind: string): string {
   if (kind === 'venue_orders.get') return t('kind_venue_orders_get');
+  if (kind === 'venue_accounts.get') return t('kind_venue_accounts_get');
   if (kind === 'orders.get') return t('kind_orders_get');
   if (kind === 'orders.list') return t('kind_orders_list');
   return t('kind_other', { kind });

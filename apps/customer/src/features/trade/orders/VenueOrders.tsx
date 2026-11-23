@@ -394,9 +394,11 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
       ? t('reasonPositionClosed')
       : o.cancelReason === 'linked'
         ? t('reasonLinked')
-        : o.status === 'rejected' && o.trigger?.failure
-          ? t('reasonRejected', { failure: o.trigger.failure })
-          : t('reasonNotRecorded');
+        : o.cancelReason === 'self_trade'
+          ? t('reasonSelfTrade')
+          : o.status === 'rejected' && o.trigger?.failure
+            ? t('reasonRejected', { failure: o.trigger.failure })
+            : t('reasonNotRecorded');
   return (
     <article data-testid="venue-order">
       <h2 data-testid="venue-order-heading">
