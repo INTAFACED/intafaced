@@ -4,7 +4,7 @@ import { mc } from './copy';
 import { whoIs } from './common';
 import { describeDestination } from './destination';
 import { orderTrail, type TrailEvent } from './model';
-import type { Lifecycle } from './schemas';
+import type { PayPayoutLifecycle as Lifecycle } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const KINDS = {
@@ -137,10 +137,10 @@ export function Trail({ events }: { events: readonly TrailEvent[] }) {
           <span className="pp-timeline-dot" aria-hidden="true" />
           <div>
             <strong>{trailTitle(t, e.kind)}</strong>
-            {e.who && <p className="muted">{t('trailBy', { who: e.who })}</p>}
-            {e.destination && <p className="muted">{e.destination}</p>}
-            {e.failure && <p className="muted">{e.failure}</p>}
-            <small className="muted">{e.at ? <DateTime value={e.at} /> : t('trailNoTime')}</small>
+            {e.who && <p className="lt-muted">{t('trailBy', { who: e.who })}</p>}
+            {e.destination && <p className="lt-muted">{e.destination}</p>}
+            {e.failure && <p className="lt-muted">{e.failure}</p>}
+            <small className="lt-muted">{e.at ? <DateTime value={e.at} /> : t('trailNoTime')}</small>
           </div>
         </li>
       ))}
@@ -170,7 +170,7 @@ export function LifecycleTrail({
         </p>
       )}
       {lifecycle.events.length === 0 ? (
-        <p className="muted">{t('trailNone')}</p>
+        <p className="lt-muted">{t('trailNone')}</p>
       ) : (
         <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names, settlement)} />
       )}

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { assertPartnerOffers } from '../partner/test-partner.js';
-import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { describeAutoInvestPolicy } from '../auto-invest/auto-invest-policy.js';

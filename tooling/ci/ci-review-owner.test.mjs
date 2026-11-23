@@ -228,3 +228,92 @@ test('a diff citing a row gives the reviewer that row as trusted input; a missin
     /cites rows d74, d99 and the job can't read the owner's record/,
   );
 });
+
+// A decision after the row files closed (project-state row d117, 17 Nov) stands in a merged project-state PR labelled
+// `decision`, whose body quotes him: intafaced #9186's CI review FAILed on 8b3f6cdc because the 20 Nov look decision had
+// no row to cite.
+const MERGED = '2026-11-20T04:26:01Z';
+const PR = (over = {}) => ({
+  mergedAt: MERGED,
+  baseRefName: 'main',
+  body: 'His words (20 Nov, his card): "the private pull quote".',
+  lastEditedAt: '2026-11-20T04:24:09Z',
+  labels: { nodes: [{ name: 'decision' }] },
+  timelineItems: { nodes: [{ createdAt: '2026-11-20T04:21:16Z', label: { name: 'decision' } }] },
+  ...over,
+});
+const gqlOf =
+  (pr, status = 200) =>
+  async (query, vars, token) => {
+    assert.equal(token, 't');
+    assert.equal(typeof vars.n, 'number');
+    if (status !== 200) return { status, text: '' };
+    if (pr === 'missing')
+      return { status, text: JSON.stringify({ data: { repository: { pullRequest: null } }, errors: [{ type: 'NOT_FOUND' }] }) };
+    if (pr === 'other') return { status, text: JSON.stringify({ data: null, errors: [{ type: 'RATE_LIMITED' }] }) };
+    return { status, text: typeof pr === 'string' ? pr : JSON.stringify({ data: { repository: { pullRequest: pr } } }) };
+  };
+const restOnly = async (path) => (path.includes('/commits/main') ? { status: 200, text: REF } : { status: 200, text: OWNER });
+
+test("the brief diff's added lines cite project-state decision PRs as #N; other files and bare numbers cite none", () => {
+  assert.deepEqual(
+    citedRows(file(BRIEF_PATH, ['(project-state decision PR #3428, and project-state row d74)'])),
+    ['d74', '#3428'],
+    'rows first, then PRs',
+  );
+  assert.deepEqual(citedRows(file('docs/other.md', ['project-state decision PR #3428'])), []);
+  assert.deepEqual(citedRows(file(BRIEF_PATH, ['PR #3428 alone is not a citation'])), []);
+});
+
+test('readOwnerRecord takes a cited PR only as it stood when it merged into main, labelled decision; errors stop', async () => {
+  const one = async (pr, status) => (await readOwnerRecord('t', restOnly, ['#3428'], gqlOf(pr, status))).rows.get('#3428');
+  assert.match(await one(PR()), /the private pull quote/);
+  assert.equal(await one(PR({ lastEditedAt: null })), PR().body, 'never edited is fine');
+  assert.equal(await one('missing'), null, 'a missing PR is no record');
+  const late = '2026-11-20T05:00:00Z';
+  for (const over of [
+    { mergedAt: null },
+    { baseRefName: 'other' },
+    { labels: { nodes: [{ name: 'ask' }] } },
+    { body: '' },
+    { lastEditedAt: late },
+    { timelineItems: { nodes: [{ createdAt: late, label: { name: 'decision' } }] } },
+    { timelineItems: { nodes: [] } },
+  ])
+    assert.equal(await one(PR(over)), null, JSON.stringify(over));
+  await assert.rejects(one(PR(), 500), /could not read project-state pull request #3428: HTTP 500/);
+  await assert.rejects(one('not json'), /no JSON/);
+  await assert.rejects(one('other'), /RATE_LIMITED/);
+});
+
+test('a diff citing a decision PR gives the reviewer its body as trusted input; one that is no record is named so', async () => {
+  const dir = tmp();
+  const diff = file(BRIEF_PATH, ['- **2026-11-20, x** (project-state decision PR #3428, and project-state decision PR #7)']);
+  await writeReviewInputs(dir, {
+    diff,
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    src: srcOf(diff),
+    loadWords: never,
+    ...briefs,
+    loadOwner: async () => ({
+      text: OWNER,
+      ref: REF,
+      rows: new Map([
+        ['#3428', PR().body],
+        ['#7', null],
+      ]),
+    }),
+  });
+  const [trusted] = readFileSync(join(dir, 'prompt.txt'), 'utf8').split('\nBEGIN UNTRUSTED DIFF\n');
+  assert.match(
+    trusted,
+    /\nBEGIN OWNER RECORD\n[^]*Decision PR #3428 \(project-state, merged into main, labelled `decision`; its body\):\nHis words/,
+  );
+  assert.match(trusted, /Decision PR #7: project-state has no merged pull request #7 into main labelled `decision`\./);
+  assert.ok(
+    JSON.parse(readFileSync(join(dir, 'owner-shingles.json'), 'utf8')).length > 0,
+    "the PR's private words are guarded from the public log",
+  );
+});

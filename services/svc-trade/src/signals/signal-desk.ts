@@ -21,7 +21,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts';
+import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts/trade-signal-alerts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
 import type { Principal } from '@intafaced/auth';
@@ -280,8 +280,10 @@ export class SignalDesk {
         (id, user_id, client_request_id, symbol, venue_owner, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
       VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${owner}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
-      ON CONFLICT (user_id, client_request_id) DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING *`;
+    // No conflict target: the id and (user_id, client_request_id) both name this one row (idFor), and Postgres absorbs a
+    // racing clash only on the key a target names, so a target would let the loser raise 23505 on the other key.
     if (!row) {
       const [raced] = await this.ports.sql<WebhookRow[]>`
         SELECT * FROM trade.signal_webhooks WHERE user_id = ${principal.userId} AND client_request_id = ${requestId}`;
@@ -364,11 +366,13 @@ export class SignalDesk {
     const at = now.toISOString();
     // The intent row is written before the order is prepared; a crash after it leaves it pending under its key, and the
     // door's own store under the alert's order key means a later prepare of it returns the same action, never a second.
+    // The id is a hash of intent_key, so both unique keys name the same row: no conflict target, so a concurrent
+    // redelivery that loses the race on either key gets the row that won, never a 23505.
     await this.ports.sql`
       INSERT INTO trade.signal_intents (id, webhook_id, alert_id, action, intent_key, side, sizing, status, created_at, updated_at)
       VALUES (${idFor(key)}, ${hook.id}, ${alertId}, 'open', ${key}, ${side},
         ${this.ports.sql.json({ kind: 'quantity', value: formatAmount(qty) } as never)}, 'pending', ${at}, ${at})
-      ON CONFLICT (intent_key) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
     let status: SignalIntentView['status'];
     let actionKey: string | null = null;
     let venueClientOrderId: string | null = null;

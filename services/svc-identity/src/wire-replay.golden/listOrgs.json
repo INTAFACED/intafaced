@@ -1,0 +1,38 @@
+{
+  "inputs": {
+    "listOrgs": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"listOrgs\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"identity:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"listOrgs\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"replay stub: sql\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"listOrgs\",\"requestId\":\"replay-request\"}}}"
+  ],
+  "answers": {
+    "listOrgs": {
+      "absent anon": [401, 0],
+      "absent no-scope": [403, 1],
+      "absent all": [500, 2],
+      "absent all-US": [500, 2],
+      "null anon": [401, 0],
+      "null no-scope": [403, 1],
+      "null all": [500, 2],
+      "null all-US": [500, 2],
+      "wrong-type anon": [401, 0],
+      "wrong-type no-scope": [403, 1],
+      "wrong-type all": [500, 2],
+      "wrong-type all-US": [500, 2],
+      "empty anon": [401, 0],
+      "empty no-scope": [403, 1],
+      "empty all": [500, 2],
+      "empty all-US": [500, 2],
+      "sample anon": [401, 0],
+      "sample no-scope": [403, 1],
+      "sample all": [500, 2],
+      "sample all-US": [500, 2],
+      "sample-nulls anon": [401, 0],
+      "sample-nulls no-scope": [403, 1],
+      "sample-nulls all": [500, 2],
+      "sample-nulls all-US": [500, 2]
+    }
+  }
+}

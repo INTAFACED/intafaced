@@ -212,11 +212,13 @@ export async function placeLimitConvert(
     targetRate: formatAmount(input.targetRate),
     clientLimitId: input.clientLimitId,
   });
+  // No conflict target: the id is made from (user_id, client_limit_id), so both unique keys name the same row, and the
+  // loser of two inserts at once gets no row back on either key, never a 23505.
   const [row] = await svc.sql<Row[]>`INSERT INTO trade.convert_limits
       (id, user_id, client_limit_id, symbol, market_id, side, from_asset, to_asset, amount, target_rate, status)
     VALUES (${id}, ${userId}, ${input.clientLimitId}, ${probe.symbol}, ${probe.marketId}, ${input.side},
       ${probe.inAsset}, ${probe.outAsset}, ${formatAmount(input.amount)}, ${formatAmount(input.targetRate)}, 'placing')
-    ON CONFLICT (user_id, client_limit_id) DO NOTHING
+    ON CONFLICT DO NOTHING
     RETURNING *`;
   if (!row) return placeLimitConvert(svc, principal, input);
   return present(await finishPlacing(svc, row, true));

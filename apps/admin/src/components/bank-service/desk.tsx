@@ -1,4 +1,4 @@
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { DirectDebitsReport, RampMetrics } from '@/lib/bank-service/model';
 import type { ServiceDesk } from '@/lib/bank-service/read';
 

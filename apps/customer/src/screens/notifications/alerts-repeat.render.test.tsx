@@ -174,7 +174,8 @@ describe('a stop the platform made, and a modified time', () => {
     await mount();
     const rows = [...host.querySelectorAll('[data-testid="alert-row"]')];
     const muted = (name: string) =>
-      rows.find((r) => r.querySelector('[data-testid="nf-title"]')?.textContent === name)!.querySelector('.nf-muted')!.textContent;
+      rows.find((r) => r.querySelector('[data-testid="nf-title"]')?.textContent === name)!.querySelector('[data-testid="alert-dates"]')!
+        .textContent;
     expect(muted('edited')).toContain('Modified ');
     expect(muted('untouched')).not.toContain('Modified');
     expect(muted('ended')).not.toContain('Modified');

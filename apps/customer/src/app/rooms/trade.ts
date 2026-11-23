@@ -6,6 +6,15 @@ import { areaCopy, areaRooms } from './room';
  */
 export const tradeCopy = areaCopy({
   en: {
+    'Trading account': 'Trading account',
+    Vaults: 'Vaults',
+    Staking: 'Staking',
+    'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue':
+      'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue',
+    'Vaults on your venue, each with its lock-up and leader’s share, and your money in them':
+      'Vaults on your venue, each with its lock-up and leader’s share, and your money in them',
+    'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them':
+      'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them',
     Positions: 'Positions',
     'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
       'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts',
@@ -62,6 +71,9 @@ export const tradeCopy = areaCopy({
     'Past trading orders': 'Past trading orders',
   },
   es: {
+    'Trading account': 'Cuenta de trading',
+    'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them':
+      'Tu dinero de trading en tus cuentas de mercado junto a tu dinero para gastar en tu banco asociado, y los movimientos entre ellos',
     Positions: 'Posiciones',
     'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
       'Posiciones de futuros en cada mercado conectado, con totales, apalancamiento, cierre total y subcuentas',
@@ -100,6 +112,9 @@ export const tradeCopy = areaCopy({
     'Past trading orders': 'Órdenes de operaciones anteriores',
   },
   fr: {
+    'Trading account': 'Compte de trading',
+    'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them':
+      'Votre argent de trading sur vos comptes de plateforme à côté de votre argent à dépenser chez votre banque partenaire, et les mouvements entre eux',
     Positions: 'Positions',
     'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
       'Positions sur contrats à terme sur chaque plateforme connectée, avec totaux, effet de levier, clôture totale et sous-comptes',
@@ -243,6 +258,27 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/risk',
     title: 'Risk control',
     description: 'Cancel every open order, close positions and see platform incidents',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/account',
+    title: 'Trading account',
+    description: 'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/staking',
+    title: 'Staking',
+    description: 'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/vaults',
+    title: 'Vaults',
+    description: 'Vaults on your venue, each with its lock-up and leader’s share, and your money in them',
     door: 'Trade',
     area: 'trade',
   },

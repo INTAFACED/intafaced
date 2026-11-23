@@ -1,5 +1,6 @@
 # Model check: every TLA+ model in the repo (services/<service>/model/, found by tooling/ci/model-check.mjs) on every
-# pull request that touches a modelled service, a file a model's COVERS.md names, or this check. Each model's check.sh
+# pull request that touches a modelled service, a file under services/ or packages/ a model's COVERS files name, or
+# this check. Each model's check.sh
 # must pass the code as it is and show each deliberately broken version failing on its rule.
 #
 # Every pull request gets the `Model check` verdict, a pass when nothing modelled changed, and the CI merge seal waits for
@@ -17,6 +18,7 @@ on:
     branches: [main]
     paths:
       - services/**
+      - packages/**
       - .github/workflows/model-check.yml
       - tooling/ci/model-check.mjs
   workflow_dispatch:
@@ -137,7 +139,7 @@ jobs:
           set -euo pipefail
           down=0
           if [ "$RUN" = true ] && [ "$MODELS" = success ]; then
-            down=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" --paginate \
+            down=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=30" --paginate \
               --jq '.jobs[] | select(any(.steps[]?; .name == "Could not check" and .conclusion == "success")) | .name' | wc -l | tr -d ' ')
           fi
           echo "down=$down" >> "$GITHUB_OUTPUT"

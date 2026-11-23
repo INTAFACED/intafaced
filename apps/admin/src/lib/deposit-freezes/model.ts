@@ -1,5 +1,5 @@
 import { depositFreezeAnswerSchema, depositUnfreezeAnswerSchema } from '@intafaced/contracts/pay-deposit-freezes';
-import { DEPOSIT_ADDRESS, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/desk/approval-packet';
+import { DEPOSIT_ADDRESS, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**

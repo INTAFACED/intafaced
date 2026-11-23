@@ -8,9 +8,10 @@
  * `false` there, so the notice is gone for them the moment the programme changes their standing.
  */
 import { z } from 'zod';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { NOTICE_AUDIENCES } from '@intafaced/contracts/notify-call-schemas';
 
-export const NOTICE_AUDIENCES = ['everyone', 'p2p-merchants'] as const;
 export type NoticeAudience = (typeof NOTICE_AUDIENCES)[number];
 /** The audiences a member reads signed in: every one but the public board. */
 export type MemberAudience = Exclude<NoticeAudience, 'everyone'>;
@@ -76,3 +77,4 @@ export function audienceMembershipFromEnv(
   if (!url || secret.length < 32) return null;
   return createP2pMerchantMembership(url, secret, s2s);
 }
+export { NOTICE_AUDIENCES };

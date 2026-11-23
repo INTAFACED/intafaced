@@ -1,7 +1,14 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import * as crm from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+} from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 type Schema = { safeParse(value: unknown): { success: true; data: unknown } | { success: false } };
@@ -117,7 +124,7 @@ export async function POST(request: Request) {
         throw new AdminSessionError('admin.upstream_invalid', 502);
       return Response.json(result, { headers: { 'cache-control': 'no-store' } });
     }
-    let subjectType: string, subjectId: unknown, kind: string;
+    let subjectType: (typeof crm.crmWorkflowAuditListInputSchema)['_output']['subjectType'], subjectId: unknown, kind: string;
     switch (action) {
       case 'upsertCampaign':
         for (const key of ['id', 'name', 'channel', 'status', 'documentRef', 'providerLinkId']) equal(result[key], input[key]);
@@ -198,12 +205,10 @@ export async function POST(request: Request) {
     }
     // Receipts without actor fields are verified against the protected immutable audit.
     const audit = crm.crmWorkflowAuditPageSchema.safeParse(
-      await founderEdgeCall(
+      await founderEdgeRecordCall(
         config,
-        'ops',
-        'outreach.listWorkflowAudit',
-        'GET',
-        { subjectType, subjectId, limit: 100 },
+        OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+        { subjectType, subjectId: String(subjectId), limit: 100 },
         session.accessToken,
       ),
     );

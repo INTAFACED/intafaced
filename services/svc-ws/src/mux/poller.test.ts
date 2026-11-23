@@ -24,7 +24,19 @@ const directory: MarketDirectory = {
 };
 
 function raw(symbol: string, last: string): RawTicker {
-  return { symbol, last, change24h: null, changePct24h: null, high: null, low: null, volume: null, quoteVolume: null };
+  return {
+    symbol,
+    last,
+    change24h: null,
+    changePct24h: null,
+    high: null,
+    low: null,
+    volume: null,
+    quoteVolume: null,
+    bid: null,
+    ask: null,
+    spread: null,
+  };
 }
 
 function build(opts: { tickers?: RawTicker[] | Error; candles?: WireCandle[] | Error; now?: () => number } = {}) {
@@ -105,7 +117,7 @@ describe('MuxPoller — candles', () => {
     candles.attach('id-btc', '1m', sink, 10 * 60_000 + 20_000);
     await poller.tickCandles();
     // now = 10m20s → current bucket starts 10m; previous 9m.
-    expect(candleSource.latest).toHaveBeenCalledWith('BTC/USDT', '1m', 9 * 60_000, 2);
+    expect(candleSource.latest).toHaveBeenCalledWith('BTC/USDT', '1m', 9 * 60_000, 3);
     expect(sink.frames.map((f) => [f.t, f.closed])).toEqual([[9 * 60_000, true]]);
   });
 
@@ -113,7 +125,7 @@ describe('MuxPoller — candles', () => {
     const { poller, candles, candleSource } = build({ candles: [] });
     candles.attach('id-btc', '1h', new FakeSink(), 0);
     await poller.tickCandles();
-    expect(candleSource.latest).toHaveBeenCalledWith('BTC/USDT', '1h', -3_600_000 + 0, 2);
+    expect(candleSource.latest).toHaveBeenCalledWith('BTC/USDT', '1h', -3_600_000 + 0, 3);
   });
 
   it('reuses the last candle read within one poll when a subscriber returns to an empty cache', async () => {
@@ -148,6 +160,22 @@ describe('MuxPoller — candles', () => {
     candles.attach('id-btc', '1m', btc, 0);
     await poller.tickCandles();
     expect(btc.frames).toEqual([{ type: 'status', code: 'candles.unavailable', marketId: 'id-btc', interval: '1m' }]);
+  });
+
+  it('a read sent just before a bucket boundary and answered just after it is still served (#9929)', async () => {
+    // svc-trade's rule: refuse when since→now, by its own clock, covers more buckets than `limit`.
+    const span = 60_000;
+    const sent = 10 * span - 5; // svc-ws reads its clock 5 ms before 10m…
+    const answered = 10 * span + 3; // …and svc-trade reads its own 3 ms after it.
+    const { poller, candles, candleSource } = build({ now: () => sent });
+    candleSource.latest.mockImplementation(async (_symbol: string, _interval: string, since: number, limit: number) => {
+      if (Math.ceil((answered - since) / span) > limit) throw new Error('upstream answered 400');
+      return [{ t: 9 * span, o: '1', h: '1', l: '1', c: '1', v: '5' }];
+    });
+    const sink = new FakeSink();
+    candles.attach('id-btc', '1m', sink, sent);
+    await poller.pollCandle('id-btc', '1m');
+    expect(sink.frames).toEqual([expect.objectContaining({ type: 'candle', t: 9 * span, c: '1' })]);
   });
 
   it('a market with no listed symbol is unavailable, not guessed', async () => {

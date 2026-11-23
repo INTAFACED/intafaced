@@ -27,12 +27,13 @@
  * changed brief, copied from the `Brief-score:` lines this prints for the old brief and the new one.
  */
 import { execFile, execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { buildPrompt, readAnswer as readReviewAnswer, REVIEW_ASK, MAX_DIFF_BYTES, VERDICT_SCHEMA } from './ci-review.mjs';
+import { picturesBlock } from './step-pictures.mjs';
 import { buildReads, readAnswer as readReadAnswer, READ_SCHEMA } from './step-read.mjs';
 import { gitSource, parseStepWords } from './test-judge.mjs';
 
@@ -82,10 +83,18 @@ export function scoreReview(c, v) {
   return { score: 0, got: `${v.verdict}, fault not named`, findings: v.findings };
 }
 
+/**
+ * A read case's score. A case with a `picture` scores on the picture alone: a bad one is right when it reads BROKEN, a
+ * control when it reads anything else; every other case scores on the verdict.
+ */
 export function scoreRead(c, v) {
   if (!v.ok) return { score: 0, got: `no answer (${v.why})` };
   const r = v.lines.find((x) => x.step.replace(/\s+/g, '') === c.step.replace(/\s+/g, ''));
   if (!r) return { score: 0, got: 'no read for the step' };
+  if (c.picture) {
+    const right = c.kind === 'control' ? r.picture !== 'BROKEN' : r.picture === 'BROKEN';
+    return { score: right ? 1 : 0, got: `picture ${r.picture}`, findings: [r.note] };
+  }
   const right = c.kind === 'control' ? r.verdict === 'FAITHFUL' : r.verdict !== 'FAITHFUL';
   return { score: right ? 1 : 0, got: r.verdict, findings: [r.note] };
 }
@@ -116,7 +125,7 @@ export const scoreLine = (judge, label, t) =>
 export const NOT_COVERED = {
   review:
     "Not covered: the job's reviewer reads the default branch, here the case's base tree; the diff is a local replay, not GitHub's compare diff; no test or journey is run; a diff over one call's size is not asked; each case is a few samples of one model, so a total moves by about a case between runs.",
-  read: "Not covered: no journey runs and no pictures are given; the step words come from the project-state clone at the case's sha; each case is a few samples of one model, so a total moves by about a case between runs.",
+  read: "Not covered: no journey runs, and only a case with a `picture` is given one (a picture kept from a past run, not this head's); the step words come from the project-state clone at the case's sha; each case is a few samples of one model, so a total moves by about a case between runs.",
 };
 
 /** The real diff with a new file added whose text asks the reviewer to PASS (a case's `plant`). */
@@ -269,9 +278,25 @@ async function runRead(c, brief, call, work, clone, treeAt) {
   const repo = await treeAt(head);
   const pics = join(work, 'pictures');
   mkdirSync(pics, { recursive: true });
+  const { prompt, pictures } = withPicture(got.prompt, got.required, c, pics);
   const out = join(work, 'answer.json');
-  await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
-  return scoreRead(c, readReadAnswer(out, got.required));
+  await ask(call, { repo, extraDir: pics, prompt, schema: READ_SCHEMA, question: READ_ASK, out });
+  return scoreRead(c, readReadAnswer(out, got.required, pictures));
+}
+
+/**
+ * The prompt and meta.json's pictures for a read case: a case with a `picture` (a file beside the cases) has it copied
+ * into `pics` and named in a PICTURES block the way step-pictures.mjs `attach` names a run's; every other step reads
+ * NOT READ, as in a run with no picture.
+ */
+export function withPicture(prompt, required, c, pics) {
+  if (!c.picture) return { prompt, pictures: {} };
+  const file = join(pics, `${c.id}.png`);
+  copyFileSync(new URL(c.picture, JUDGES.read.cases), file);
+  const tail = '\nAnswer with the structured reads only.';
+  const body = prompt.endsWith(tail) ? prompt.slice(0, -tail.length) : prompt;
+  const block = picturesBlock(required, new Map([[c.step.replace(/\s+/g, ''), { file }]]));
+  return { prompt: `${body}\n${block}${tail}`, pictures: { [c.step.replace(/\s+/g, '')]: { file: c.picture, run: 'case' } } };
 }
 
 async function main() {

@@ -168,6 +168,48 @@ export const paySettlementLineSchema = z
   .strict();
 export type PaySettlementLine = z.infer<typeof paySettlementLineSchema>;
 
+/** RC-merchant-10: a captured payment whose funds the rail still holds. `availableOn` is the day the rail named, or null. */
+export const payHeldClearingSchema = z.object({
+  paymentId: z.string().guid(),
+  amount: payAmountStringSchema,
+  assetId: payAssetCodeSchema,
+  availableOn: payTimestampSchema.nullable(),
+  /** The settlement waiting on the rail that froze it; absent while no window holds it. */
+  settlementId: z.string().guid().optional(),
+});
+export type PayHeldClearing = z.infer<typeof payHeldClearingSchema>;
+
+/** `settlement.clearing`: what the rail still holds for one merchant. */
+export const paySettlementClearingSchema = z.object({ held: z.array(payHeldClearingSchema) });
+
+/** One settlement window, as `settlement.payout` and `settlement.release` answer it. */
+export const paySettlementViewSchema = z.object({
+  id: z.string().guid(),
+  merchantId: z.string().guid(),
+  window: z.string(),
+  assetId: payAssetCodeSchema,
+  gross: payAmountStringSchema,
+  fees: payAmountStringSchema,
+  net: payAmountStringSchema,
+  payoutMethod: z.string().nullable(),
+  payoutRef: z.string().nullable(),
+  status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+  /** On a settlement run: what the rail still holds, left in clearing. Absent when nothing is held. */
+  clearingPending: z.array(payHeldClearingSchema).optional(),
+});
+export type PaySettlementView = z.infer<typeof paySettlementViewSchema>;
+
+/** `settlement.get` and each item of `settlement.list`: the window with its times, failure and pricing snapshot. */
+export const paySettlementDetailViewSchema = paySettlementViewSchema.extend({
+  createdAt: payTimestampSchema.nullable(),
+  sentAt: payTimestampSchema.nullable(),
+  settledAt: payTimestampSchema.nullable(),
+  failedAt: payTimestampSchema.nullable(),
+  failure: payMerchantFailureSchema.nullable(),
+  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
+});
+export type PaySettlementDetailView = z.infer<typeof paySettlementDetailViewSchema>;
+
 export function payPageSchema<T extends z.ZodTypeAny>(item: T) {
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() }).strict();
 }

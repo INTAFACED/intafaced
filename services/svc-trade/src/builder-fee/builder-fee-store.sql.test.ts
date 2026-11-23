@@ -163,6 +163,22 @@ describe('SqlBuilderFeeStore on Postgres (trade.venue_builder_fees)', () => {
     expect(await store.runState('test-venue-sim')).toEqual({ lastCompleteAt: done, lastStopAt: stoppedAt, lastStop: stop });
     expect((await store.runState('another-venue')).lastCompleteAt).toBeNull();
   });
+
+  it("reads one person's fees on one account since a time, oldest first, with each ledger transaction (J-derivatives-12 #4)", async () => {
+    const store = new SqlBuilderFeeStore(db!.sql);
+    const OTHER = '33333333-3333-4333-8333-3333333333c3';
+    const mine = { ...account, owner: '0x00000000000000000000000000000000000000c1' };
+    await store.record(fee('j12-a', '2026-11-12T10:00:00.000Z', 'posted', mine), new Date());
+    await store.record(fee('j12-b', '2026-11-12T10:05:00.000Z', 'refused', mine), new Date());
+    await store.record({ ...fee('j12-c', '2026-11-12T10:06:00.000Z', 'posted', mine), userId: OTHER }, new Date());
+    await store.record(fee('j12-d', '2026-11-12T10:07:00.000Z', 'posted', { ...mine, subAccount: '0xsub' }), new Date());
+    const rows = await store.ofUser(USER, mine, new Date('2026-11-12T09:59:00.000Z'));
+    expect(rows.map((r) => [r.fillId, r.status, r.ledgerTxId, r.amount])).toEqual([
+      ['j12-a', 'posted', 'tx-j12-a', parseAmount('0.000123456789012345')],
+      ['j12-b', 'refused', null, parseAmount('0.000123456789012345')],
+    ]);
+    expect((await store.ofUser(USER, mine, new Date('2026-11-12T10:01:00.000Z'))).map((r) => r.fillId)).toEqual(['j12-b']);
+  });
 });
 
 describe('SqlPreparedActionStore.sentBuilderFeeOrders on Postgres (OWNER 288 1b)', () => {

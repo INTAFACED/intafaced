@@ -11,15 +11,16 @@
  * There is no baseline file: main's own code is the baseline, so the count tightens by itself and a function moved from
  * one touched file to another does not fail (its finding leaves one file and arrives in the other).
  *
- * Every rule enforces. A suppression (`oxlint-disable…` / `eslint-disable…`) in a file outside tests is counted too, as
- * `suppression/<rule>`, one per rule it names: silencing a finding never gets past the ratchet (a suppression in a test file
- * stays free: a test may keep a pattern on purpose with its reason on that line). ratchet.json `fixes` maps a rule (or its
+ * Every rule enforces. A suppression (`oxlint-disable…` / `eslint-disable…`) is counted too, as `suppression/<rule>`, one
+ * per rule it names, and `suppression/(every rule)` for one that names none: silencing a finding never gets past the
+ * ratchet. In a test file only a suppression that can silence a garden rule counts (it names one, or names none); others
+ * there stay free. ratchet.json `fixes` maps a rule (or its
  * plugin, or `suppression`) to the fix printed under each new finding. Rules in
  * ratchet.json `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
  * fails, even when a removal elsewhere pays for it, as the test did.
  *
  * Usage:
- *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD
+ *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD (an automatic revert of X: X^ .. HEAD)
  *   node tooling/ci/lint-ratchet.mjs --base <ref> --head <ref> [--rules-ref <ref>] [--json]
  * Main is fetched fresh first (mainRef): on GitHub Actions from the repository's URL into refs/lint-ratchet/main, never
  * read from origin/main, which code the change ran earlier in the job could move; on the Mac from `origin`, so the push-time
@@ -29,6 +30,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { autoRevertOf } from './exact-revert.mjs';
 
 const ROOT = process.cwd();
 export const LINTABLE = /\.(?:[cm]?[jt]sx?)$/u;
@@ -62,6 +64,18 @@ export function changedFiles(base, head) {
   return files.filter((f) => LINTABLE.test(f.head ?? f.base));
 }
 
+/** The touched files with each base side read at `from` (an automatic revert's X^) instead of the merge base: a file's
+ *  head path, when `from` holds it. `from` null: the files as they are. */
+export function restoredFrom(files, from, has = (ref, path) => show(ref, path) !== null) {
+  if (!from) return files;
+  return files
+    .map((f) => {
+      const path = f.head ?? f.base;
+      return { base: has(from, path) ? path : null, head: f.head };
+    })
+    .filter((f) => f.base || f.head);
+}
+
 /** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. A message that
  * starts with `[kind]` is counted as `<rule>[kind]`, so one rule holding several kinds is still ratcheted kind by kind. */
 export const ruleOf = (d) => {
@@ -72,7 +86,7 @@ export const ruleOf = (d) => {
   return kind ? `${rule}[${kind[1]}]` : rule;
 };
 
-/** A test file: its suppressions are not counted. */
+/** A test file: only its suppressions that can silence a garden rule are counted (countedIn). */
 export const TEST_FILE = /(?:^|\/)(?:tests?|testing|__tests__|fixtures)\/|\.(?:test|spec|pw)\.[cm]?[jt]sx?$/u;
 const DIRECTIVE = /(?:\/\/|\/\*)\s*(?:oxlint|eslint)-disable(?:-next-line|-line)?(?=[\s*]|$)([^\n]*)/gu;
 
@@ -92,6 +106,10 @@ export function suppressionsOf(text) {
   }
   return out;
 }
+
+/** Whether a suppression in this file counts: every one outside tests; in a test file, one naming a garden rule or none. */
+export const countedIn = (file, rule) =>
+  !TEST_FILE.test(file) || rule.startsWith('suppression/garden/') || rule === 'suppression/(every rule)';
 
 /** The fix printed under a new finding: ratchet.json `fixes` by rule, then by plugin. */
 export const fixOf = (rule, fixes = {}) => fixes[rule.replace(/\[[\w-]+\]$/u, '')] ?? fixes[rule.split('/')[0]];
@@ -149,8 +167,7 @@ export function lintSide(files, config, dir, oxlint, found = {}) {
     ((found[rule] ??= {})[file] ??= []).push({ line: d.labels?.[0]?.span?.line, text: [d.message, d.help].filter(Boolean).join(' ') });
   }
   for (const [file, text] of Object.entries(files)) {
-    if (TEST_FILE.test(file)) continue;
-    for (const s of suppressionsOf(text)) {
+    for (const s of suppressionsOf(text).filter((x) => countedIn(file, x.rule))) {
       counts[s.rule] ??= {};
       counts[s.rule][file] = (counts[s.rule][file] ?? 0) + 1;
       ((found[s.rule] ??= {})[file] ??= []).push({ line: s.line, text: 'a suppression silences this rule here' });
@@ -208,7 +225,7 @@ export function table({ rows }, nFiles) {
  * one repository never share a ref); a repository with no `origin` remote has only its own origin/main. null: the fetch
  * failed, and nothing is judged with rules that may be old.
  */
-function mainRef() {
+export function mainRef() {
   if (process.env.GITHUB_ACTIONS && process.env.GITHUB_REPOSITORY) {
     const url = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`;
     if (gitOr(['fetch', '--no-tags', '--quiet', url, '+refs/heads/main:refs/lint-ratchet/main']) === null) return null;
@@ -240,7 +257,15 @@ export function run(argv = process.argv.slice(2)) {
     console.error('✖ lint-ratchet: node_modules/.bin/oxlint is missing; run pnpm install');
     return 1;
   }
-  const files = changedFiles(base, head);
+  // main-bisect's proven revert of X is judged against X^, the code it restores (exact-revert.mjs autoRevertOf), over
+  // the files it touches: a culprit that deleted code today's rules count can still be reverted (project-state#3635).
+  const restored = autoRevertOf(process.env, main, git);
+  const from = restored ? `${restored}^` : base;
+  if (restored)
+    console.log(
+      `lint-ratchet: main-bisect's automatic revert of ${restored.slice(0, 10)}, judged against ${restored.slice(0, 10)}^, the code it restores`,
+    );
+  const files = restoredFrom(changedFiles(base, head), from === base ? null : from);
   const dir = mkdtempSync(join(tmpdir(), 'lint-ratchet-'));
   try {
     const rules = rulesFrom(main, dir);
@@ -259,7 +284,7 @@ export function run(argv = process.argv.slice(2)) {
       );
     const started = Date.now();
     const found = {};
-    const baseCounts = lintSide(read(base, 'base'), rules.config, join(dir, 'base'), oxlint);
+    const baseCounts = lintSide(read(from, 'base'), rules.config, join(dir, 'base'), oxlint);
     const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint, found);
     const added = new Set(files.filter((f) => !f.base).map((f) => f.head));
     const verdict = compare(baseCounts, headCounts, rules.starts, added);

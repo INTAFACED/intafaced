@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from 'react';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchLearner, postLearnerChange } from '@/lib/academy/learners-browser';
@@ -376,10 +376,26 @@ function Progress({ view, busy, send }: { view: LearnerView; busy: boolean; send
   );
 }
 
+const noSubscribe = () => () => {};
+
+/**
+ * False in the served HTML and during hydration, true once React runs the page. Until then every control is disabled:
+ * text typed into the served HTML before React attaches is not in the forms' state, so Save would send an empty field
+ * while the box still shows what was typed (the race behind J-academy-14 #1's "Write the note.", intafaced#9661).
+ */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 export function AcademyLearnerDesk({ userId, initial }: { userId: string; initial: LearnerView | null }) {
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<LearnerDeskReply | null>(null);
+  const hydrated = useHydrated();
 
   const reload = useCallback(async () => {
     const next = await fetchLearner(userId);
@@ -412,7 +428,7 @@ export function AcademyLearnerDesk({ userId, initial }: { userId: string; initia
       {view && <Profile view={view} />}
       {page?.kind === 'failed' && <Failed title="Could not read the learner" message={page.message} code={page.code} />}
       {view && page?.kind === 'ok' && (
-        <>
+        <fieldset className="dk-stack dk-fieldset" disabled={!hydrated} data-testid="learner-controls">
           {!page.data.canChange && (
             <p className="adm-callout" data-tone="neutral" data-testid="learner-read-only">
               Read only: your role can read this learner but not change anything.
@@ -453,7 +469,7 @@ export function AcademyLearnerDesk({ userId, initial }: { userId: string; initia
               </ol>
             )}
           </section>
-        </>
+        </fieldset>
       )}
     </section>
   );

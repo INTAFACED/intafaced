@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource, type Resource } from '../../../shared/resource';
-import { EmptyState, Loading } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { EmptyState, Loading } from '../volt/parts';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { createLiquidityApi } from '../liquidity/liquidity-api';
 import { bpsPercent } from '../liquidity/format';
@@ -103,7 +103,7 @@ export function WalletPositions() {
 
   return (
     <>
-      <p className="muted">{t('positionsNote')}</p>
+      <p className="lt-hint">{t('positionsNote')}</p>
       {items.length === 0 && unread.length === 0 ? (
         <EmptyState title={t('positionsEmpty')} />
       ) : (

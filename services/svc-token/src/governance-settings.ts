@@ -10,7 +10,6 @@ import { TokenError } from './token-service.js';
 
 import { GOVERNANCE_ROLES } from './governance-payload.js';
 
-export { GOVERNANCE_ROLES };
 export type GovernanceRole = (typeof GOVERNANCE_ROLES)[number];
 /** The roles that may cancel a proposal. */
 const CANCELLERS: readonly GovernanceRole[] = ['controller', 'admin', 'moderator'];

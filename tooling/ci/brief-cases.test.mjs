@@ -19,6 +19,7 @@ import {
   spread,
   totals,
   treeCache,
+  withPicture,
 } from './brief-cases.mjs';
 import { BRIEF_PATHS, judge as guardJudge, SCORE_LINE } from './brief-score-guard.mjs';
 
@@ -33,7 +34,7 @@ test('the calls are read from the job, so the cases are asked as the job asks', 
     assert.match(c[j].reads, /\$GITHUB_WORKSPACE/);
     assert.match(c[j].turns, /^\d+$/);
   }
-  assert.match(c.review.reads, /callers and tests/);
+  assert.match(c.review.reads, /every caller, test and reader/);
   assert.match(c.read.reads, /\$pics/);
   assert.throws(() => jobCall('name: CI review\n'), /no longer has the calls/);
 });
@@ -68,6 +69,12 @@ test('a read case scores WEAK or MISMATCH right for a bad case, FAITHFUL right f
   assert.equal(scoreRead({ kind: 'bad', step: 'J-x-01 #2' }, lines('FAITHFUL')).score, 0);
   assert.equal(scoreRead({ kind: 'control', step: 'J-x-01#2' }, lines('FAITHFUL')).score, 1);
   assert.equal(scoreRead({ kind: 'control', step: 'J-x-01 #2' }, lines('WEAK')).score, 0);
+  const seen = (picture, verdict = 'FAITHFUL') => ({ ok: true, lines: [{ step: 'J-x-01 #2', verdict, picture, note: 'n' }] });
+  const pic = { step: 'J-x-01 #2', picture: 'read-pictures/x.png' };
+  assert.equal(scoreRead({ ...pic, kind: 'bad' }, seen('BROKEN', 'WEAK')).score, 1, 'a picture case scores on the picture');
+  assert.equal(scoreRead({ ...pic, kind: 'bad' }, seen('SHOWN', 'WEAK')).score, 0, 'a WEAK verdict does not catch a picture');
+  assert.equal(scoreRead({ ...pic, kind: 'control' }, seen('SHOWN', 'WEAK')).score, 1);
+  assert.equal(scoreRead({ ...pic, kind: 'control' }, seen('BROKEN')).score, 0);
   assert.deepEqual(
     totals([
       { kind: 'bad', score: 0.5 },
@@ -152,7 +159,9 @@ test('each case file has bad cases and controls, unique ids, full shas, and no c
       } else {
         assert.match(c.step, /^J-[a-z0-9-]+ #\d+$/, c.id);
         assert.match(c.words, sha, c.id);
-        assert.deepEqual(Object.keys(c).sort(), ['head', 'id', 'kind', 'step', 'words'], `${c.id}: ids and shas only`);
+        const keys = c.picture ? ['head', 'id', 'kind', 'picture', 'step', 'words'] : ['head', 'id', 'kind', 'step', 'words'];
+        assert.deepEqual(Object.keys(c).sort(), keys, `${c.id}: ids, shas and a picture only`);
+        if (c.picture) assert.ok(existsSync(new URL(c.picture, j.cases)), `${c.id}: its picture is kept beside the cases`);
       }
     }
   }
@@ -175,4 +184,26 @@ test('every case and run of one commit shares one tree, extracted once, and a tr
   assert.ok(!existsSync(`${a}.part-${process.pid}`));
   assert.equal(await treeCache(dir, extract)('aaa'), a);
   assert.equal(extracted.length, 2);
+});
+
+test('a read case with a picture is asked with it, the way a run attaches one; the planted pair covers both sides', () => {
+  const pics = mkdtempSync(join(tmpdir(), 'brief-case-pics-'));
+  const prompt = 'brief\nsteps\nAnswer with the structured reads only.';
+  assert.deepEqual(withPicture(prompt, ['J-x-01 #2'], { id: 'a', step: 'J-x-01 #2' }, pics), { prompt, pictures: {} });
+  const { cases } = JSON.parse(readFileSync(JUDGES.read.cases, 'utf8'));
+  const withPic = cases.filter((c) => c.picture);
+  assert.deepEqual(
+    withPic.map((c) => c.kind).sort(),
+    ['bad', 'control'],
+    'one unstyled screen that must read BROKEN, one laid-out that must not',
+  );
+  const c = withPic[0];
+  const got = withPicture(prompt, [c.step, 'J-y-02 #1'], c, pics);
+  assert.ok(existsSync(join(pics, `${c.id}.png`)), 'the picture is copied where the reader may open it');
+  assert.match(
+    got.prompt,
+    /\nBEGIN PICTURES .*\n.*\.png\nJ-y-02 #1: no picture \(answer picture NOT READ\)\nEND PICTURES\nAnswer with the structured reads only\.$/,
+  );
+  assert.ok(got.prompt.includes(`${c.step}: ${join(pics, `${c.id}.png`)}`));
+  assert.deepEqual(Object.keys(got.pictures), [c.step.replace(/\s+/g, '')]);
 });

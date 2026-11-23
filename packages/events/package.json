@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
+    "typecheck": "node ./scripts/ensure-dep-types.mjs && node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo",

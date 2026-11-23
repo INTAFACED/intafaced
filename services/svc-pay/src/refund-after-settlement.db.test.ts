@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, merchantProceeds, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
@@ -35,7 +35,7 @@ const DEST = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01'
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_payout_dispatch_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -218,5 +218,58 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
     const paid = await payoutOf(settlement.id);
     expect(paid.status).toBe('paid_out');
     expect(formatAmount(paid.net)).toBe('6');
+  });
+
+  // A dispute that lands while the rail is paying a full refund (between phase 1 and phase 3) must not be
+  // overwritten with `refunded`, and a won dispute afterwards still restores it, then finishes it as refunded.
+  it('a full refund that completes after a dispute arrives keeps the payment disputed, and a won dispute finishes it', async () => {
+    const { merchant, payment } = await capturedPayment();
+    const store = new PostgresDisputeCaseStore(sql);
+    const realRefund = crypto.refund.bind(crypto);
+    crypto.refund = async (...args) => {
+      await pay.markDisputed(payment.id, { disputeId: 'd-race' });
+      return realRefund(...args);
+    };
+    await pay.refund(payment.id, amt('10'), { refundId: 'r-race' });
+    crypto.refund = realRefund;
+
+    expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+    const [refunded] = await sql`SELECT count(*)::int AS n FROM pay.payment_events WHERE payment_id = ${payment.id} AND event = 'refunded'`;
+    expect(refunded?.n).toBe(1);
+
+    await store.open({
+      disputeId: 'd-race',
+      paymentId: payment.id,
+      merchantId: merchant.id,
+      amount: '10',
+      assetId: 'USDT',
+      paymentMarkedDisputed: true,
+    });
+    await store.markWon('d-race');
+    await pay['restoreAfterWonDispute'](payment.id, 'd-race');
+
+    expect((await pay.getPayment(payment.id)).status).toBe('refunded');
+    const events = await sql<Array<{ event: string }>>`
+      SELECT event FROM pay.payment_events WHERE payment_id = ${payment.id} AND event IN ('dispute.restored', 'refunded') ORDER BY seq
+    `;
+    expect(events.map((e) => e.event)).toEqual(['refunded', 'dispute.restored']);
+  });
+
+  it('a won dispute on a payment refunded only in part restores it to captured', async () => {
+    const { merchant, payment } = await capturedPayment();
+    const store = new PostgresDisputeCaseStore(sql);
+    await pay.refund(payment.id, amt('4'), { refundId: 'r-part' });
+    await pay.markDisputed(payment.id, { disputeId: 'd-part' });
+    await store.open({
+      disputeId: 'd-part',
+      paymentId: payment.id,
+      merchantId: merchant.id,
+      amount: '6',
+      assetId: 'USDT',
+      paymentMarkedDisputed: true,
+    });
+    await store.markWon('d-part');
+    await pay['restoreAfterWonDispute'](payment.id, 'd-part');
+    expect((await pay.getPayment(payment.id)).status).toBe('captured');
   });
 });

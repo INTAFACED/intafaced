@@ -80,78 +80,80 @@ function BoardGroup({ state, rows }: { state: PayoutBoardState; rows: PayoutBoar
       {rows.length === 0 ? (
         <p data-testid="payout-group-empty">None</p>
       ) : (
-        <table className="adm-table">
-          <thead>
-            <tr>
-              <th scope="col">Reward key</th>
-              <th scope="col">Account</th>
-              <th scope="col">Amount</th>
-              <th scope="col">State</th>
-              <th scope="col">Owed (ledger)</th>
-              <th scope="col">Paid (ledger)</th>
-              <th scope="col">Payment to wallet</th>
-              <th scope="col">Chain transaction</th>
-              <th scope="col">Redemption log</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.rewardKey}
-                data-testid="payout-row"
-                data-reward-key={r.rewardKey}
-                data-board={r.board}
-                data-state={r.state}
-                data-reason={r.reason ?? ''}
-                data-chain-tx={r.payment?.chainTx ?? ''}
-                data-payment-state={r.payment?.state ?? ''}
-              >
-                <td>
-                  <code>{r.rewardKey}</code>
-                </td>
-                <td>
-                  <code>{r.accountId}</code>
-                </td>
-                <td>
-                  {r.amount} {r.asset}
-                </td>
-                <td>
-                  {r.state}
-                  {r.reason ? `: ${r.reason}` : ''}
-                </td>
-                <td>{r.owedTxId ? <code>{r.owedTxId}</code> : '—'}</td>
-                <td>{r.paidTxId ? <code>{r.paidTxId}</code> : '—'}</td>
-                <td>
-                  {r.payment === null ? (
-                    'Not begun'
-                  ) : (
-                    <>
-                      {r.payment.state} to <code>{r.payment.toWallet}</code> ({formatWhen(r.payment.sentAt)})
-                      {r.payment.reason ? `: ${r.payment.reason}` : ''}
-                    </>
-                  )}
-                </td>
-                <td>
-                  <ChainCell row={r} />
-                </td>
-                <td>
-                  {r.attempts.length === 0 ? (
-                    '—'
-                  ) : (
-                    <ol data-testid="payout-attempts">
-                      {r.attempts.map((a, i) => (
-                        <li key={i} data-testid="payout-attempt" data-outcome={a.outcome} data-reason={a.reason ?? ''}>
-                          {a.outcome}
-                          {a.reason ? `: ${a.reason}` : ''} ({formatWhen(a.at)})
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </td>
+        <div className="dk-table-wrap dk-table-wrap--codes" tabIndex={0} role="region" aria-label={`${BOARD_LABEL[state]} payouts`}>
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Reward key</th>
+                <th scope="col">Account</th>
+                <th scope="col">Amount</th>
+                <th scope="col">State</th>
+                <th scope="col">Owed (ledger)</th>
+                <th scope="col">Paid (ledger)</th>
+                <th scope="col">Payment to wallet</th>
+                <th scope="col">Chain transaction</th>
+                <th scope="col">Redemption log</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.rewardKey}
+                  data-testid="payout-row"
+                  data-reward-key={r.rewardKey}
+                  data-board={r.board}
+                  data-state={r.state}
+                  data-reason={r.reason ?? ''}
+                  data-chain-tx={r.payment?.chainTx ?? ''}
+                  data-payment-state={r.payment?.state ?? ''}
+                >
+                  <td>
+                    <code>{r.rewardKey}</code>
+                  </td>
+                  <td>
+                    <code>{r.accountId}</code>
+                  </td>
+                  <td>
+                    {r.amount} {r.asset}
+                  </td>
+                  <td>
+                    {r.state}
+                    {r.reason ? `: ${r.reason}` : ''}
+                  </td>
+                  <td>{r.owedTxId ? <code>{r.owedTxId}</code> : '—'}</td>
+                  <td>{r.paidTxId ? <code>{r.paidTxId}</code> : '—'}</td>
+                  <td>
+                    {r.payment === null ? (
+                      'Not begun'
+                    ) : (
+                      <>
+                        {r.payment.state} to <code>{r.payment.toWallet}</code> ({formatWhen(r.payment.sentAt)})
+                        {r.payment.reason ? `: ${r.payment.reason}` : ''}
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    <ChainCell row={r} />
+                  </td>
+                  <td>
+                    {r.attempts.length === 0 ? (
+                      '—'
+                    ) : (
+                      <ol data-testid="payout-attempts">
+                        {r.attempts.map((a, i) => (
+                          <li key={i} data-testid="payout-attempt" data-outcome={a.outcome} data-reason={a.reason ?? ''}>
+                            {a.outcome}
+                            {a.reason ? `: ${a.reason}` : ''} ({formatWhen(a.at)})
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-22, in the running app (docs/roadmap/journeys.json): I give my team cards and handle their expenses. Tests
 // titled "J-bank-22 #<n>" prove a step.
@@ -17,13 +19,18 @@ import { signIn, verify } from './desk.mjs';
 // Each step opens a business of its own. Cards are TEST cards on the TEST card network (`rail.card` is not connected).
 // A captured purchase is one partner move under `bank.business.card-capture:<purchase id>`; a reimbursement is one
 // partner move under `bank.business.reimbursement:<claim id>`. The ledger posts nothing, which every step checks on the
-// owner's and the member's ledger figures.
+// owner's and the member's ledger figures. #5 compares what the app says with the partner's own book: the TEST partner
+// bank's record of the member's and the business's balances and moves, read on loopback straight from the stand-in (svc-bank
+// src/partner/test-partner-record.ts) through the outside record read (venue.mjs venueRecord and venueBalance), never
+// through anyone's bank API.
 const J = 'J-bank-22';
 const RUN = Date.now().toString(36);
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const PARTNER_BANK = 'TEST partner bank';
 const FUNDED = '1000';
 const THRESHOLD = '500';
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 
 test.describe.configure({ mode: 'default' });
 
@@ -144,6 +151,16 @@ async function inBusiness(page, who, name) {
     if ((await shown.textContent()) === name || attempt === 3) break;
   }
   await expect(page.getByTestId('cards-business')).toHaveText(name);
+}
+
+/** What the partner's own book says `owner` (a user id, or `business:<account id>`) holds in USDT at the partner. */
+async function partnerHolds(owner) {
+  return (await venueBalance(owner, 'USDT', PARTNER_RECORD)).total;
+}
+
+/** Every move on `owner`'s record at the partner, as the partner's own book lists it. */
+async function partnerMoves(owner) {
+  return (await venueRecord(owner, '/moves', {}, PARTNER_RECORD, null)).value;
 }
 
 async function ledgerUnchanged(w) {
@@ -358,6 +375,14 @@ test(`${J} #5 the admin approves and pays: one partner transfer; the claim close
   const before = ok(await b.mem.query('businessCards.overview', { accountId: b.accountId })).myBalance;
   expect(before.label).toBe(PARTNER_BANK);
   expect(before.amount).not.toBeNull();
+  const scaled = (s) => BigInt(Math.round(Number(s) * 100));
+  // The partner's own book before: the app's figure for the member is the partner's, and nothing is paid yet.
+  const businessAtPartner = `business:${b.accountId}`;
+  const memberAtPartnerBefore = await partnerHolds(b.mem.userId);
+  expect(scaled(memberAtPartnerBefore)).toBe(scaled(before.amount));
+  expect(await partnerHolds(businessAtPartner)).toBe(FUNDED);
+  const reimbursement = `bank.business.reimbursement:${claim.id}`;
+  expect((await partnerMoves(b.mem.userId)).filter((m) => m.key === reimbursement)).toEqual([]);
 
   await inBusiness(page, w.owner, b.name);
   const row = page.getByTestId('claim');
@@ -377,10 +402,27 @@ test(`${J} #5 the admin approves and pays: one partner transfer; the claim close
     partnerMoveId: paid.partnerMoveId,
   });
   expect(await held(b.own, b.accountId)).toBe('957.5');
+  // The partner's own book: exactly one move under the claim's key, 42.50 from the business's account to the member's
+  // main balance, the one the app names; the business's account at the partner went down once, by 42.50.
+  const paidMoves = (await partnerMoves(b.mem.userId)).filter((m) => m.key === reimbursement);
+  expect(paidMoves).toHaveLength(1);
+  expect(paidMoves[0]).toMatchObject({
+    id: paid.partnerMoveId,
+    from: { owner: businessAtPartner, assetId: 'USDT', spaceId: null },
+    to: { owner: b.mem.userId, assetId: 'USDT', spaceId: null },
+    amount: '42.5',
+  });
+  expect((await partnerMoves(businessAtPartner)).filter((m) => m.key === reimbursement)).toEqual(paidMoves);
+  expect(await partnerHolds(businessAtPartner)).toBe('957.5');
 
   // The member's balance rises by exactly 42.50, as the partner reports it before and after.
   const after = ok(await b.mem.query('businessCards.overview', { accountId: b.accountId })).myBalance;
-  const scaled = (s) => BigInt(Math.round(Number(s) * 100));
+  const memberAtPartnerAfter = await partnerHolds(b.mem.userId);
+  expect(scaled(memberAtPartnerAfter) - scaled(memberAtPartnerBefore)).toBe(4250n);
+  // The app's figures are the partner's own: before and after, on the claim and in the member's view.
+  expect(scaled(after.amount)).toBe(scaled(memberAtPartnerAfter));
+  expect(scaled(paid.memberBefore)).toBe(scaled(memberAtPartnerBefore));
+  expect(scaled(paid.memberAfter)).toBe(scaled(memberAtPartnerAfter));
   expect(scaled(after.amount) - scaled(before.amount)).toBe(4250n);
   expect(scaled(paid.memberAfter) - scaled(paid.memberBefore)).toBe(4250n);
   await expect(row.getByTestId('claim-member-balance')).toHaveText(

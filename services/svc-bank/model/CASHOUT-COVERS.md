@@ -50,3 +50,7 @@ Not covered: the ledger (custodial) branch of `drive` and `partner.pay`, which f
 ## Last confirmed
 
 Against this branch with the fix for #8597 (based on `origin/main` `83b6b0ff54`), 16 Nov 2026 UTC. Whoever changes a covered function reruns `check-cashout.sh` and updates this line.
+
+## Changing it
+
+Run `check-cashout.sh` once before you change a covered function or the model, and keep the result: a pass then only says the old description still holds. Update the model from the code, never from what makes it pass; when the code breaks a rule, that is a finding. A rule changes only when the promise changes on purpose: the PR gives the old wording, the new wording and the evidence in the change (a doc comment, a test or the commit message). Keep the bounds unless the change makes them wrong, and name any bound you reduce in the PR. The model's update goes in the same PR as the code change. The method in full: [`create-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/create-formal-verification-skill/SKILL.md) and [`maintain-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/maintain-formal-verification-skill/SKILL.md).

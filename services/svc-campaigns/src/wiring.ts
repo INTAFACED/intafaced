@@ -4,6 +4,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
 import { CompetitionService } from './competitions.js';
+import { FeeRebateService } from './fee-rebates.js';
 import { DrawService } from './draws.js';
 import { DistributionService } from './distributions.js';
 import { PoolService } from './pools.js';
@@ -179,6 +180,16 @@ export function wireCampaigns(deps: {
     log: warn,
   });
 
+  // Fee rebate coupons (J-campaigns-09 #5 #6): each holder's fills read from the venue through svc-trade, each eligible
+  // fill accrued once, owed through the saga and paid after the coupon's delay by the payer. Unset, nothing accrues.
+  const feeRebates = new FeeRebateService({
+    sql,
+    saga,
+    fills: tradeReads ? createCompetitionFillSource(tradeReads) : null,
+    payDecimals,
+    log: warn,
+  });
+
   // VIP trial passes (J-campaigns-14): granted here, held by svc-trade (unset, a grant refuses
   // `campaigns.trial_pass_unreachable`).
   const trialPasses = new TrialPassService({ sql, door: tradeReads ? createTierPassDoor(tradeReads) : null });
@@ -257,6 +268,8 @@ export function wireCampaigns(deps: {
     // Airdrops (J-campaigns-13): each one past its snapshot time is read and its shares owed once. Reward pools: each
     // ended day is settled once.
     { name: 'distribution or pool pass', everyMs: TICK_MS, run: () => Promise.all([distributions.tick(), pools.tick()]) },
+    // Fee rebates (J-campaigns-09 #5): each holder's new eligible fills accrued once.
+    { name: 'fee rebate pass', everyMs: TICK_MS, run: () => feeRebates.tick() },
   );
 
   const warnings: string[] = [];

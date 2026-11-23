@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
+import { SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { publishedCopy, publishedLanguageFor } from '../shared/copy';
 import type { ApiClient } from '../shared/api';
 import { useApi } from '../features/session/session';
 import { useResource } from '../shared/resource';
 import { helpHref } from '../features/public/help-guards';
 import { HIDDEN_FEATURE_ARTICLES } from '../features/more/support-desk';
-import { kbSchema, type KbArticle } from '../features/more/support-schemas';
+import type { KbArticle } from '../features/more/support-schemas';
 import { isHiddenPath } from './feature-registry';
 
 /**
@@ -49,7 +49,7 @@ export function helpRows(articles: readonly KbArticle[], cap: number, depositsHi
 
 /** One help search. A refused or lost answer is `failed`; nothing is retried. */
 export async function searchHelp(
-  api: Pick<ApiClient, 'query'>,
+  api: Pick<ApiClient, 'call'>,
   query: string,
   cap: number | null,
   signal: AbortSignal,
@@ -58,7 +58,7 @@ export async function searchHelp(
   const q = query.trim();
   if (q.length < HELP_MIN_CHARS) return { status: 'idle' };
   if (cap === null || !Number.isInteger(cap) || cap < 1) return { status: 'unset' };
-  const answer = await api.query('support', 'searchKb', { q, limit: cap }, z.array(kbSchema), { signal });
+  const answer = await api.call(SUPPORT_SEARCH_KB, { q, limit: cap }, { signal });
   return answer.ok ? { status: 'ready', rows: helpRows(answer.data, cap, depositsHidden) } : { status: 'failed' };
 }
 
@@ -68,10 +68,7 @@ export async function searchHelp(
  */
 export function useHelpResultCap(open: boolean): HelpCap {
   const api = useApi();
-  const { resource, reload } = useResource(
-    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
-    'search-help-cap',
-  );
+  const { resource, reload } = useResource((signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'search-help-cap');
   const failed = resource.status === 'failed';
   const wasOpen = useRef(open);
   useEffect(() => {

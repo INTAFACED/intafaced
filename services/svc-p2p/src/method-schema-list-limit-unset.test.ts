@@ -63,17 +63,4 @@ describe('instruments.methods.list limit unset refuse', () => {
     expect(fn).not.toMatch(/limit = 50/);
     expect(fn).not.toMatch(/\?\? 50/);
   });
-
-  it('router does not invent 50 when instruments.methods.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const call = src.indexOf('instruments.listMethodSchemas(');
-    expect(call).toBeGreaterThan(-1);
-    const fn = src.slice(Math.max(0, call - 900), call + 280);
-    expect(fn).toContain('limit: input?.limit');
-    expect(fn).toContain('p2p.method_schema_list_limit_unset');
-    expect(fn).toContain('limit: z.number().int().min(1).max(200).optional()');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 200/);
-  });
 });

@@ -1,14 +1,8 @@
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  isScheduleKey,
-  isScheduleOpen,
-  nextScheduleTransition,
-  TRADING_SCHEDULES,
-  upcomingMaintenanceFor,
-  type TradingSchedule,
-  type UpcomingMaintenance,
-} from '@intafaced/contracts';
+import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -29,6 +23,7 @@ import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
@@ -78,6 +73,11 @@ export interface PublicRestDeps {
   publishedFeeRates?(markets: readonly Market[]): Promise<ReadonlyMap<string, { makerBps: number; takerBps: number }> | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
+  /**
+   * A market's chart feed control (J-charts-desk-19): disabled or switched to an unconnected fallback refuses the candle
+   * read by name; delisted with history serves only candles that opened before the delisting. Absent: every chart serves.
+   */
+  chartFeedGate?: (symbol: string) => Promise<CandleGate>;
   /**
    * Matching's published trading rulebook (RC-cex-spot-08): `current` is GET /rulebook, `versions` GET /rulebook/versions,
    * passed on as matching serves them. Absent, or throwing, answers 503 (trade.rulebook_unavailable); never invented text.
@@ -495,6 +495,14 @@ export function presentCcxtMarket(
      * or stop order refuses `trade.opening_window`. Null when the market has no window or its window has ended.
      */
     openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
+    /**
+     * The higher-risk zone (J-cex-spot-14 #7): `higher_risk` when the market sits in it, else null. A zone market takes
+     * limit orders only, each worth at most `zoneOrderCap` in the quote asset; a null cap there means unset, and the
+     * market takes no order (`trade.zone_setting_unset`).
+     */
+    zone: market.zone === 'higher_risk' ? ('higher_risk' as const) : null,
+    zoneOrderCap:
+      market.zone === 'higher_risk' && market.zoneOrderCap != null ? formatAmount(market.zoneOrderCap) : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1167,8 +1175,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
 
     try {
+      const gate = deps.chartFeedGate ? await deps.chartFeedGate(market.symbol) : ({ kind: 'serve', until: null } as const);
+      if (gate.kind === 'refuse') {
+        return sendCcxt(reply, { status: 503, body: { code: 'ExchangeNotAvailable', message: gate.message, intafacedCode: gate.code } });
+      }
       const candles = await deps.candles(market.id, tf.data, limit, sinceParsed.sinceMs);
-      return reply.code(200).send(candles.map(presentOhlcv));
+      const until = gate.until?.getTime() ?? null;
+      const served = until === null ? candles : candles.filter((c) => c.openTimeMs < until);
+      return reply.code(200).send(served.map(presentOhlcv));
     } catch (err) {
       return sendMapped(reply, err);
     }
@@ -1248,6 +1262,8 @@ export function fakeMarket(partial: {
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
   openingWindowEndsAt?: Date | null;
+  zone?: Market['zone'];
+  zoneOrderCap?: Amount | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1269,6 +1285,8 @@ export function fakeMarket(partial: {
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
     ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
+    ...(partial.zone !== undefined ? { zone: partial.zone } : {}),
+    ...(partial.zoneOrderCap !== undefined ? { zoneOrderCap: partial.zoneOrderCap } : {}),
   };
 }
 

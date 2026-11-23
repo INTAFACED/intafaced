@@ -1,5 +1,5 @@
 /** Browser hop for a ticket's files. Same-origin BFF only; no credential is held here. */
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { uploadKey, type TicketFile } from './files';
 import type { TicketFilesView } from './files-server';

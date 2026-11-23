@@ -27,7 +27,9 @@
  * to one code and one message, matching identity's uniform `{ found: false }`.
  */
 
-import { accountStateSchema, serviceCallSigner, type AccountState, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { AccountState, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export type RecipientStatus = 'active' | 'frozen' | 'closed' | 'not_found';
 

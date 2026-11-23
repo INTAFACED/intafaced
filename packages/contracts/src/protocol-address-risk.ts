@@ -58,6 +58,10 @@ export const protocolAddressRiskSchema = z.object({
   openReports: z.number().int().nonnegative(),
   /** Whether a sanctions screening list is connected. `not_loaded` means nothing was checked, not that it is clean. */
   screening: z.object({ status: z.enum(['not_loaded', 'loaded']), code: z.literal('vendor.aml').nullable() }),
+  /** On the token blocklist (D-launch-listing-02): not routed, and every page shows the badge. Null when not blocked. */
+  blocked: z.object({ reason: z.string(), since: z.string() }).nullable(),
+  /** A permissioned token (an approved onboarding checklist names it): only addresses its checker allows may hold it. */
+  permissioned: z.object({ pool: z.string(), checkerAddress: z.string(), approvedAt: z.string() }).nullable(),
 });
 export type ProtocolAddressLabel = z.infer<typeof protocolAddressLabelSchema>;
 export type ProtocolAddressRisk = z.infer<typeof protocolAddressRiskSchema>;
@@ -309,3 +313,43 @@ export const protocolNameTagRequestInputSchema = z.object({
 export const protocolNameTagApproveInputSchema = z.object({ requestId: z.string().uuid() });
 export type ProtocolNameTagRequest = z.infer<typeof protocolNameTagRequestSchema>;
 export type ProtocolNameTagsOutput = z.infer<typeof protocolNameTagsOutputSchema>;
+
+/**
+ * The token blocklist (D-launch-listing-02, J-dex-protocol-30 #6), version 1: svc-protocol's `compliance.blocklist.*`. A
+ * blocked token is not routed (every route, path and swap call naming it refuses `protocol.token_blocked`) and its pages
+ * show the badge. Beside it, the permissioned tokens: each approved onboarding checklist's token contract, gated by its
+ * checker.
+ */
+export const PROTOCOL_BLOCKLIST_REFUSALS = [
+  /** The token is already on the blocklist. */
+  'protocol.blocklist.already_blocked',
+] as const;
+export type ProtocolBlocklistRefusal = (typeof PROTOCOL_BLOCKLIST_REFUSALS)[number];
+/** A route, path or swap that names a blocked token. */
+export const TOKEN_BLOCKED = 'protocol.token_blocked' as const;
+
+export const protocolBlockedTokenSchema = z.object({
+  token: z.string(),
+  reason: z.string(),
+  addedBy: z.string(),
+  addedAt: z.string(),
+});
+export const protocolPermissionedTokenSchema = z.object({
+  token: z.string(),
+  pool: z.string(),
+  checkerAddress: z.string(),
+  approvedAt: z.string(),
+});
+export const protocolBlocklistOutputSchema = z.object({
+  asOf: z.string(),
+  chainId: z.number().int(),
+  blocked: z.array(protocolBlockedTokenSchema),
+  permissioned: z.array(protocolPermissionedTokenSchema),
+});
+export const protocolBlocklistAddInputSchema = z.object({
+  token: address,
+  reason: z.string().trim().min(1).max(ADDRESS_LABEL_REASON_MAX),
+});
+export type ProtocolBlockedToken = z.infer<typeof protocolBlockedTokenSchema>;
+export type ProtocolPermissionedToken = z.infer<typeof protocolPermissionedTokenSchema>;
+export type ProtocolBlocklistOutput = z.infer<typeof protocolBlocklistOutputSchema>;

@@ -5,7 +5,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { installP2pS2sRawBody, p2pInternalServiceOf } from './s2s-auth.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import {
@@ -51,6 +51,7 @@ import { parseAdContentRules } from './ad-content-rules.js';
 import { parsePostingThresholds } from './posting-eligibility.js';
 import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
+import { createLocalTestReferencePrices } from './local-test-reference.js';
 import { createIdentityContactReader, createTakeGate, unwiredContactReader } from './take-eligibility.js';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -206,9 +207,11 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     disputeSeconds: publishedDisputeSlaSeconds(env.P2P_DISPUTE_SLA_SECONDS),
     escalationRecheckSeconds: publishedDisputeEscalationRecheckSeconds(env.P2P_DISPUTE_ESCALATION_RECHECK_SECONDS),
   },
-  // No reference price source yet: floating offers are refused rather than
+  // No market reference source yet: floating offers are refused rather than
   // priced from a stale number. svc-trade owns pricing (§5.2) and supplies this
-  // when its mark-price surface lands.
+  // when its mark-price surface lands. A test stack may set a labelled TEST
+  // price per pair (local-test-reference.ts); unset, there is none, as in production.
+  referencePrices: createLocalTestReferencePrices(process.env),
 });
 
 // §0.9. Stage 1: self-only, refuses while any escrow is live, and names what

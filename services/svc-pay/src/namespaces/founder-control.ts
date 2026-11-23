@@ -1,8 +1,4 @@
-import { z } from 'zod';
 import {
-  router,
-  merchantControlGetInputSchema,
-  merchantControlProfileSchema,
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
@@ -14,28 +10,29 @@ import {
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
-  founderLimitRequestListInputSchema,
-  founderLimitRequestListSchema,
+} from '@intafaced/contracts/founder-admin';
+import {
   founderLimitRequestCloseInputSchema,
   founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
+import { router } from '@intafaced/contracts/trpc';
 import type { ChangeOutcome } from '../control/changes.js';
 import { toContractApproval } from '../control/approvals.js';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
-import {
-  controlConfigureInputSchema,
-  controlConfigureResultSchema,
-  founderApprovalDecideInputSchema,
-  pricingRuleListInputSchema,
-  pricingRuleViewSchema,
-  tierListInputSchema,
-  tierViewSchema,
-  usageViewSchema,
-} from '../control/schemas.js';
+import { controlConfigureInputSchema, controlConfigureResultSchema, founderApprovalDecideInputSchema } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import type { founderProcedure } from './founder-procedure.js';
+import {
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
+  PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 type Founder = ReturnType<typeof founderProcedure>;
 
@@ -116,26 +113,23 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
   });
   return router({
     tiers: router({
-      list: founder
-        .input(tierListInputSchema)
-        .output(z.array(tierViewSchema))
-        .query(() => guarded(() => control.listTiers())),
+      list: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST, () => guarded(() => control.listTiers()), { refusalOf: payRefusal, founder }),
     }),
     pricing: router({
-      rules: founder
-        .input(pricingRuleListInputSchema)
-        .output(z.array(pricingRuleViewSchema))
-        .query(({ input }) => guarded(() => control.listRules(input))),
+      rules: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES, ({ input }) => guarded(() => control.listRules(input)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
     }),
     merchant: router({
-      get: founder
-        .input(merchantControlGetInputSchema)
-        .output(merchantControlProfileSchema)
-        .query(({ input }) => guarded(() => control.profile(input.merchantId))),
-      usage: founder
-        .input(merchantControlGetInputSchema)
-        .output(usageViewSchema)
-        .query(({ input }) => guarded(() => control.usage(input.merchantId))),
+      get: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET, ({ input }) => guarded(() => control.profile(input.merchantId)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
+      usage: mountRecord(PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE, ({ input }) => guarded(() => control.usage(input.merchantId)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
     }),
     configure: router({
       submit: founder
@@ -177,10 +171,11 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
     }),
     /** Open limit-increase asks. Reading them does not change caps. Closing one does not either. */
     limitRequests: router({
-      list: founder
-        .input(founderLimitRequestListInputSchema)
-        .output(founderLimitRequestListSchema)
-        .query(({ input }) => guarded(() => control.listPendingLimitRequests(input))),
+      list: mountRecord(
+        PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+        ({ input }) => guarded(() => control.listPendingLimitRequests(input)),
+        { refusalOf: payRefusal, founder },
+      ),
       close: founder
         .input(founderLimitRequestCloseInputSchema)
         .output(founderLimitRequestCloseResultSchema)

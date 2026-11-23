@@ -85,6 +85,18 @@ const NOTICE = {
   authorId: USER_ID,
   createdAt: '2026-10-23T10:00:00.000Z',
 };
+// The rest of what svc-notify sends with every notice (its record's reply), which the desk does not show.
+const WIRE = {
+  startsAt: null,
+  endsAt: null,
+  asset: null,
+  network: null,
+  phase: null,
+  changelog: null,
+  category: null,
+  audience: 'everyone',
+};
+const wire = (n: object) => ({ ...n, ...WIRE });
 const approval = (over: Record<string, unknown>) => ({
   approvalId: 'appr-1',
   actionType: 'notify.notice.publish',
@@ -130,6 +142,7 @@ const DEFINITION = {
   uptimeDays: null,
   challengeBits: null,
   subscribeRatePerHour: null,
+  noticeCategories: null,
   revision: 3,
   updatedAt: '2026-10-23T10:00:00.000Z',
   publicOrigin: null,
@@ -153,7 +166,7 @@ describe('incident desk BFF', () => {
   it('reads incidents, postmortems, templates, components and only the publish approvals, once each, as the founder', async () => {
     configure();
     const c = upstream({
-      'notify.operatorNotices': () => ok([NOTICE, PUBLISHED]),
+      'notify.operatorNotices': () => ok([wire(NOTICE), wire(PUBLISHED)]),
       'statusPage.postmortems.forIncidents': () => ok([POSTMORTEM]),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
@@ -184,7 +197,7 @@ describe('incident desk BFF', () => {
   it('approvals that cannot be read are a failed part, never an empty list', async () => {
     configure();
     upstream({
-      'notify.operatorNotices': () => ok([NOTICE]),
+      'notify.operatorNotices': () => ok([wire(NOTICE)]),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
       'actionApproval.list': () => ok({ approvals: 'x' }),
@@ -195,7 +208,7 @@ describe('incident desk BFF', () => {
   it('postmortems that cannot be read are a failed part, never "none written"', async () => {
     configure();
     upstream({
-      'notify.operatorNotices': () => ok([PUBLISHED]),
+      'notify.operatorNotices': () => ok([wire(PUBLISHED)]),
       'statusPage.postmortems.forIncidents': () => refusal('notify.status_page_unavailable', 412),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
@@ -214,7 +227,7 @@ describe('incident desk BFF', () => {
 
   it('a draft keyed by its content: the same words sent twice carry the same key', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wire(NOTICE)) });
     const draft = {
       op: 'draft',
       title: 'TEST payments slow',
@@ -233,7 +246,7 @@ describe('incident desk BFF', () => {
 
   it('the same words written again after the desk moved on are a new draft, not the old one', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wire(NOTICE)) });
     const draft = {
       op: 'draft',
       title: 'TEST payments slow',

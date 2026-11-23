@@ -1492,6 +1492,28 @@ export const copyStopped = defineEvent(
 );
 
 /**
+ * A recurring buy found too little free quote on the person's own venue account for a slot and was suspended
+ * (J-copy-bots-otc-16 #6). No funds move: the slot bought nothing. svc-trade publishes once per rule and slot, after the
+ * status moved, so consumers dedupe on (ruleId, slot). The person is told once; funds arriving resume the rule.
+ */
+export const recurringBuySuspended = defineEvent(
+  'trade',
+  'recurring_buy',
+  'paused',
+  1,
+  z.object({
+    ruleId: copyFollowIdSchema,
+    userId: userIdSchema,
+    slot: z.number().int().min(0),
+    asset: z.string().regex(/^[A-Z0-9]{2,20}$/),
+    amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    free: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    suspendedAt: z.string().datetime({ offset: true }),
+  }),
+  'A recurring buy was suspended for insufficient funds at one slot. No funds move; consumers dedupe on (ruleId, slot). The person is told once.',
+);
+
+/**
  * A delisting INTAFACED scheduled for a market on an outside venue it routes customers' own orders to (J-cex-spot-16 #8).
  * Our listing record only: the venue's own state is the venue's. No funds move and no order is touched.
  */
@@ -2297,6 +2319,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  recurringBuySuspended,
   venueDelistingScheduled,
   projectionUpdated,
 } as const;
@@ -2657,34 +2680,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
   },
   {
     event: 'coreOpsComplianceCaseCreated',

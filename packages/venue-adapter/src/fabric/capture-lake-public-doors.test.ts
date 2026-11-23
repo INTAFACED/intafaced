@@ -15,7 +15,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueUnavailableError, type MarketDataAdapter, type VenueBookSnapshot, type VenueDescriptor } from '@intafaced/venue-contracts';
+import * as pkg from '../index.js';
 import { CaptureLake, bookFromCapture, isCaptureHole, isQuietMarketBook, midFromCapture } from './capture-lake.js';
+import * as fabric from './index.js';
 
 const VENUE: VenueDescriptor = {
   id: 'binance-spot',
@@ -98,16 +100,18 @@ describe('Connect CaptureLake public door — package export honesty', () => {
   });
 });
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 describe('Connect CaptureLake � package index export seal', () => {
-  it('fabric/index and package index re-export capture-lake (public door)', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const fabricIndex = readFileSync(join(here, 'index.ts'), 'utf8');
-    const pkgIndex = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(fabricIndex).toMatch(/capture-lake/);
-    expect(pkgIndex).toMatch(/fabric\/index/);
+  it('fabric/index and the package entry export capture-lake itself (public door)', async () => {
+    for (const door of [fabric, pkg]) {
+      expect(door.CaptureLake).toBe(CaptureLake);
+      expect(door.bookFromCapture).toBe(bookFromCapture);
+      expect(door.isCaptureHole).toBe(isCaptureHole);
+      expect(door.isQuietMarketBook).toBe(isQuietMarketBook);
+      expect(door.midFromCapture).toBe(midFromCapture);
+    }
+    const lake = new pkg.CaptureLake({ now: () => new Date('2026-08-12T15:00:03.000Z') });
+    const record = await lake.captureBook(null, 'binance-spot', 'BTC/USDT');
+    expect(pkg.isCaptureHole(record)).toBe(true);
+    expect(pkg.bookFromCapture(record)).toBeNull();
   });
 });

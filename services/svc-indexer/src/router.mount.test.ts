@@ -7,6 +7,7 @@ import { ChainUnavailableError } from './chain/evm/availability.js';
 import type { ChainBlock, ChainHead, ChainSource } from './chain/source.js';
 import { Indexer } from './indexer.js';
 import { createIndexerRouter, type ChainProbe } from './router.js';
+import { indexerHealthHonesty } from './health-honesty.js';
 import { CHAIN_ID } from './testing/conformance.js';
 
 // This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
@@ -148,66 +149,20 @@ describe('svc-indexer mount — §22 permissionless reads', () => {
     expect(view.asOfHeight).toBe(0);
   });
 
-  it('serves fills and positions anonymously, with money as decimal strings', async () => {
+  it('serves positions anonymously, with money as decimal strings', async () => {
     const caller = (await seeded()).createCaller(anonymous());
-
-    const fills = await caller.fills({ market: 'IFC-USD', limit: 10 });
-    expect(fills).toHaveLength(1);
-    expect(fills[0]).toMatchObject({ price: '100.5', quantity: '1.5', takerSide: 'buy' });
-    // Strings, not numbers — a client that wants arithmetic parses them.
-    expect(typeof fills[0]!.price).toBe('string');
-    expect(typeof fills[0]!.quantity).toBe('string');
 
     const positions = await caller.positions({
       account: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       limit: 10,
     });
     expect(positions[0]).toMatchObject({ size: '-1.5', entryPrice: '100.5' });
+    // Strings, not numbers — a client that wants arithmetic parses them.
     expect(typeof positions[0]!.size).toBe('string');
     expect(typeof positions[0]!.entryPrice).toBe('string');
-  });
 
-  /**
-   * README API table residual: `markets`, `accountFills`, singular `position`.
-   * Seed already carries a fill + position for 0xAA…; prove an anonymous
-   * caller gets them with money still as decimal strings, and that the
-   * account key is case-insensitive (checksummed vs lower hex).
-   */
-  it('serves markets, accountFills and singular position with no credentials', async () => {
-    const caller = (await seeded()).createCaller(anonymous());
-    // Seed applies uppercase 0xAA…; store normalises to lower (#1228).
-    const lowerAccount = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    const emptyAccount = '0x0000000000000000000000000000000000000001';
-
-    const markets = await caller.markets({ limit: 10 });
-    expect(markets).toContain('IFC-USD');
-
-    // Mixed-case address must hit the same tape as the seed (case-insensitive).
-    // Stored addresses are lowercased (#1228) — assert the canonical form.
-    const accountFills = await caller.accountFills({ account: lowerAccount, limit: 10 });
-    expect(accountFills).toHaveLength(1);
-    expect(accountFills[0]).toMatchObject({
-      market: 'IFC-USD',
-      price: '100.5',
-      quantity: '1.5',
-      takerSide: 'buy',
-      // Wire normalises EVM addresses to lower hex (same case-insensitivity as the account key).
-      maker: lowerAccount,
-    });
-    expect(typeof accountFills[0]!.price).toBe('string');
-    expect(typeof accountFills[0]!.quantity).toBe('string');
-
-    const position = await caller.position({ market: 'IFC-USD', account: lowerAccount });
-    expect(position).toMatchObject({
-      market: 'IFC-USD',
-      size: '-1.5',
-      entryPrice: '100.5',
-    });
-    expect(typeof position!.size).toBe('string');
-    expect(typeof position!.entryPrice).toBe('string');
-
-    // No row for this address → null, not an empty object or a throw.
-    await expect(caller.position({ market: 'IFC-USD', account: emptyAccount })).resolves.toBeNull();
+    // No row for this address → an empty list, not a zero row.
+    await expect(caller.positions({ account: '0x0000000000000000000000000000000000000001', limit: 10 })).resolves.toEqual([]);
   });
 
   it('book level quantities are decimal strings, not numbers', async () => {
@@ -528,60 +483,22 @@ describe('svc-indexer mount — status is honest', () => {
     await expect(caller.status()).resolves.toMatchObject({
       halted: expect.objectContaining({ reason: expect.stringMatching(/re-index/) }),
     });
-    // health is liveness — the process is up.
-    await expect(caller.health()).resolves.toMatchObject({ ok: true, service: 'svc-indexer' });
 
     // Every data procedure refuses. SERVICE_UNAVAILABLE, not a silent book.
     await expect(caller.book({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
     });
-    await expect(caller.fills({ market: 'IFC-USD', limit: 100 })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-    await expect(caller.markets({ limit: 2 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     await expect(caller.positions({ account: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', limit: 2 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
     });
-    // accountFills + singular position share assertServing — pin the matrix.
-    await expect(caller.accountFills({ account: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', limit: 100 })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-    await expect(caller.position({ market: 'IFC-USD', account: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-  });
-
-  it('refuses stream when halted even if venue/RPC look wired — not status ok', async () => {
-    const store = new MemoryProjectionStore(CHAIN_ID);
-    const source = new MemoryChainSource(CHAIN_ID);
-    source.append([{ kind: 'book_level', logIndex: 0, market: 'IFC-USD', side: 'bid', price: '100', quantity: '5' }]);
-    for (let i = 0; i < 5; i++) source.append([]);
-
-    const indexer = new Indexer({ source, store, finalityDepth: 1, ingestEnabled: () => true, startHeight: 0 });
-    await indexer.sync();
-    source.reorg(0, [[], [], []]);
-    await expect(indexer.sync()).rejects.toThrow(/deeper than retained history/);
-
-    const caller = createIndexerRouter({
-      store,
-      indexer,
-      chainId: CHAIN_ID,
-      finalityDepth: 1,
-      ingestEnabled: () => true,
-      chainSource: 'memory',
-      venue: '0x78fbe21605d9424efdd6b2fddc4e846e8c746a4b',
-      rpcUrl: 'http://127.0.0.1:8545',
-    }).createCaller(anonymous());
-
-    await expect(caller.stream({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
+    // The explorer reads share assertServing too — pin the matrix.
+    await expect(caller.explorer.blocks.list({ chainId: CHAIN_ID })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });
 
 describe('svc-indexer health — liveness is not a custodial stamp', () => {
   it('answers ok + service and does not stamp custodial:false', async () => {
-    const health = await (await seeded()).createCaller(anonymous()).health();
+    const health = indexerHealthHonesty({ ingestEnabled: true, venue: null });
     expect(health).toEqual({
       ok: true,
       service: 'svc-indexer',
@@ -611,37 +528,7 @@ describe('svc-indexer mount — kill-switch is visible on the API', () => {
       chainSource: 'null',
     });
     const caller = router.createCaller(anonymous());
-    await expect(caller.health()).resolves.toMatchObject({ ingestEnabled: false });
+    expect(indexerHealthHonesty({ ingestEnabled: false, venue: null })).toMatchObject({ ingestEnabled: false });
     await expect(caller.status()).resolves.toMatchObject({ ingestEnabled: false });
-  });
-
-  it('stream refuses indexer.stream_unwired when venue/RPC are blank', async () => {
-    const caller = (await seeded()).createCaller(anonymous());
-    await expect(caller.stream({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
-      message: 'indexer.stream_unwired',
-    });
-  });
-
-  it('stream returns empty deltas when wired and the book is empty — not a $0 book', async () => {
-    const store = new MemoryProjectionStore(CHAIN_ID);
-    const source = new MemoryChainSource(CHAIN_ID);
-    const indexer = new Indexer({ source, store, finalityDepth: 64, ingestEnabled: () => true, startHeight: 0 });
-    const caller = createIndexerRouter({
-      store,
-      indexer,
-      chainId: CHAIN_ID,
-      finalityDepth: 64,
-      ingestEnabled: () => true,
-      chainSource: 'memory',
-      venue: '0x78fbe21605d9424efdd6b2fddc4e846e8c746a4b',
-      rpcUrl: 'http://127.0.0.1:8545',
-    }).createCaller(anonymous());
-    const out = await caller.stream({ depth: 50, marketsLimit: 2 });
-    expect(out).toEqual({
-      status: 'ok',
-      code: null,
-      deltas: [],
-      clob: { live: true, kind: 'sovereign-venue', reserves: false },
-    });
   });
 });

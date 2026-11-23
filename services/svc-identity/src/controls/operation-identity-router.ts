@@ -1,10 +1,5 @@
-import {
-  identityOperationDecisionInputSchema,
-  identityOperationDecisionSchema,
-  router,
-  serviceProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+import { identityOperationDecisionInputSchema, identityOperationDecisionSchema } from '@intafaced/contracts/operation-identity-decisions';
+import { router, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { OperationIdentityDecisions } from './operation-identity-decisions.js';
 
 export function createOperationIdentityRouter(decisions: Pick<OperationIdentityDecisions, 'decide'>) {

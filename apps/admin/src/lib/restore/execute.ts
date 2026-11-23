@@ -1,10 +1,5 @@
 import 'server-only';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import type { FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type DeskRequest, type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, type FounderCallContext } from '@/lib/desk';
 import { finalizeKey, refusalWords } from './model';
 import { restoreTreasuryCall, restoreWritesParked } from './treasury';
 

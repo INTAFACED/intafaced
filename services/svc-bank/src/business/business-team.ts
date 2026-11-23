@@ -849,7 +849,9 @@ export class BusinessTeamService {
         VALUES (${input.paymentId}::uuid, ${input.accountId}::uuid, ${input.makerUserId}, ${payee}, ${input.paymentType},
                 ${account.asset_id}, ${formatAmount(input.amount)}::numeric, ${rule?.id ?? null}::uuid, ${needed},
                 ${needed === 0 ? 'sending' : 'pending'}, ${businessPaymentKey(input.paymentId)})
-        ON CONFLICT (id) DO NOTHING
+        -- No target: partner_key is fixed by id (business_payments_key_ck), so a clash on either key is this same payment,
+        -- and the call that loses a race reads the winner below instead of raising 23505 on partner_key (#8893).
+        ON CONFLICT DO NOTHING
         RETURNING *
       `;
       return rows[0] ?? null;
@@ -953,22 +955,19 @@ export class BusinessTeamService {
       const me = await this.member(tx, input.accountId, input.actorUserId);
       this.need(me, 'manage_team');
       const budget = input.budget === null ? null : formatAmount(input.budget);
-      try {
-        await tx`
-          INSERT INTO bank.business_departments (id, account_id, name, budget)
-          VALUES (${input.departmentId}::uuid, ${input.accountId}::uuid, ${name}, ${budget}::numeric)
-          ON CONFLICT (id) DO NOTHING
-        `;
-      } catch (err) {
-        if (uniqueViolation(err))
-          throw new BankError(`This business already has a department named ${name}.`, 'bank.business_role_name_taken');
-        throw err;
-      }
+      // No conflict target: a clash on either key (the id, or the name within the business) is absorbed, so a
+      // concurrent retry of this id reads the row that won. No row under this id then means the name is taken.
+      await tx`
+        INSERT INTO bank.business_departments (id, account_id, name, budget)
+        VALUES (${input.departmentId}::uuid, ${input.accountId}::uuid, ${name}, ${budget}::numeric)
+        ON CONFLICT DO NOTHING
+      `;
       const row = (
         await tx<Array<{ id: string; account_id: string; name: string; budget: string | null }>>`
           SELECT id, account_id, name, budget FROM bank.business_departments WHERE id = ${input.departmentId}::uuid
         `
-      )[0]!;
+      )[0];
+      if (!row) throw new BankError(`This business already has a department named ${name}.`, 'bank.business_role_name_taken');
       const same =
         row.account_id === input.accountId && row.name === name && (row.budget === null ? null : amountOf(row.budget)) === input.budget;
       if (!same) throw new BankError('This department id is already used on different terms.', 'bank.business_request_conflict');

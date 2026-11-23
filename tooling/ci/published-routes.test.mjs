@@ -28,8 +28,10 @@ function scratch() {
     mkdirSync(dirname(join(dir, file)), { recursive: true });
     cpSync(join(ROOT, file), join(dir, file));
   }
+  /** A file of the scratch checkout, as the gate left it. */
+  const read = (file) => readFileSync(join(dir, file), 'utf8');
   const edit = (file, from, to) => {
-    const text = readFileSync(join(dir, file), 'utf8');
+    const text = read(file);
     assert.ok(text.includes(from), `${file} holds ${from.slice(0, 80)}`);
     writeFileSync(join(dir, file), text.replace(from, to));
   };
@@ -42,7 +44,7 @@ function scratch() {
     [GENERATED, REFERENCE, 'services/svc-trade/src/venue/user-venue-rest.ts', 'services/svc-trade/src/private-rest.ts'].filter(
       (file) => readFileSync(join(dir, file), 'utf8') !== readFileSync(join(ROOT, file), 'utf8'),
     );
-  return { dir, edit, gate, changed, done: () => rmSync(dir, { recursive: true, force: true }) };
+  return { dir, read, edit, gate, changed, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 const HISTORY = "app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead,";
@@ -52,10 +54,10 @@ const RECORD = "app.get<{ Querystring: Query }>('/api/v1/venue/orders/record', p
 function before8571(s) {
   s.edit('services/svc-trade/src/venue/user-venue-rest.ts', HISTORY, HISTORY.replace('app.get', 'void').replace(', privateRead,', ','));
   s.edit('services/svc-trade/src/venue/user-venue-rest.ts', RECORD, RECORD.replace('app.get', 'void').replace(', privateRead,', ','));
-  const generated = readFileSync(join(s.dir, GENERATED), 'utf8');
+  const generated = s.read(GENERATED);
   const lines = generatedLines(generated).filter((line) => !/^GET \/api\/v1\/venue\/orders\/(history|record) /.test(line));
   writeFileSync(join(s.dir, GENERATED), generatedText(lines));
-  const reference = readFileSync(join(s.dir, REFERENCE), 'utf8');
+  const reference = s.read(REFERENCE);
   const row = (name) => {
     const start = reference.lastIndexOf('\n  {', reference.indexOf(`name: '${name}'`));
     return reference.slice(start, reference.indexOf('\n  },', start) + 5);
@@ -84,7 +86,7 @@ test('replay #8571: its registrations fail before the push, naming the command a
     assert.doesNotMatch(words.out, /is stale/);
     assert.match(words.out, /served with no words: GET \/api\/v1\/venue\/orders\/history/);
     // #8571's words for its routes, with no access line: no list is edited by hand.
-    const reference = readFileSync(join(s.dir, REFERENCE), 'utf8');
+    const reference = s.read(REFERENCE);
     const anchor = "    name: 'venueFills',";
     const at = reference.lastIndexOf('\n  {', reference.indexOf(anchor));
     writeFileSync(join(s.dir, REFERENCE), reference.slice(0, at) + rows + reference.slice(at));
@@ -104,7 +106,7 @@ test('replay #8146: a route that comes to need a second scope passes once the co
     const lead = "app.post('/api/v1/copy/lead/orders', privateWith('trade:write', 'copy:lead'),";
     s.edit('services/svc-trade/src/private-rest.ts', lead, "app.post('/api/v1/copy/lead/orders', privateWrite,");
     assert.equal(s.gate('--write').code, 0);
-    assert.match(readFileSync(join(s.dir, GENERATED), 'utf8'), /'POST \/api\/v1\/copy\/lead\/orders private trade:write',/);
+    assert.match(s.read(GENERATED), /'POST \/api\/v1\/copy\/lead\/orders private trade:write',/);
     // #8146's change to the registration.
     s.edit('services/svc-trade/src/private-rest.ts', "app.post('/api/v1/copy/lead/orders', privateWrite,", lead);
     const stale = s.gate();

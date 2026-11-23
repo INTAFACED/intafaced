@@ -1,16 +1,19 @@
-import { z } from 'zod';
 import {
   PROTOCOL_WALLET_SESSION_REFUSALS,
-  protocolAddressBookListOutputSchema,
-  protocolAddressBookRemovedOutputSchema,
-  protocolContactSchema,
-  protocolWalletGroupSchema,
-  protocolWalletSessionChallengeOutputSchema,
-  protocolWalletSessionOpenOutputSchema,
   type ProtocolAddressBook,
   type ProtocolContact,
   type ProtocolWalletGroup,
 } from '@intafaced/contracts/protocol-address-book';
+import {
+  PROTOCOL_ADDRESS_BOOK_ADD_CONTACT,
+  PROTOCOL_ADDRESS_BOOK_CREATE_GROUP,
+  PROTOCOL_ADDRESS_BOOK_GROUP,
+  PROTOCOL_ADDRESS_BOOK_LIST,
+  PROTOCOL_ADDRESS_BOOK_REMOVE_CONTACT,
+  PROTOCOL_ADDRESS_BOOK_REMOVE_GROUP,
+  PROTOCOL_WALLET_SESSION_CHALLENGE,
+  PROTOCOL_WALLET_SESSION_OPEN,
+} from '@intafaced/contracts/protocol-wallet-procedures';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import type { SignRequest, SignResult } from './eip1193';
 
@@ -26,21 +29,17 @@ export type WalletGroup = ProtocolWalletGroup;
 const keepSessionFor = PROTOCOL_WALLET_SESSION_REFUSALS;
 
 export function createAddressBookApi(api: ApiClient) {
-  const call = <T>(procedure: string, input: unknown, schema: z.ZodType<T>) =>
-    api.mutate('protocol', procedure, input, schema, { keepSessionFor });
   return {
-    challenge: (input: { address: string; origin: string }) =>
-      call('walletSession.challenge', input, protocolWalletSessionChallengeOutputSchema),
-    open: (input: { challenge: string; signature: string }) => call('walletSession.open', input, protocolWalletSessionOpenOutputSchema),
-    list: (session: string) => call('addressBook.list', { session }, protocolAddressBookListOutputSchema),
+    challenge: (input: { address: string; origin: string }) => api.call(PROTOCOL_WALLET_SESSION_CHALLENGE, input, { keepSessionFor }),
+    open: (input: { challenge: string; signature: string }) => api.call(PROTOCOL_WALLET_SESSION_OPEN, input, { keepSessionFor }),
+    list: (session: string) => api.call(PROTOCOL_ADDRESS_BOOK_LIST, { session }, { keepSessionFor }),
     addContact: (session: string, input: { label: string; address: string }) =>
-      call('addressBook.addContact', { session, ...input }, protocolContactSchema),
-    removeContact: (session: string, id: string) =>
-      call('addressBook.removeContact', { session, id }, protocolAddressBookRemovedOutputSchema),
+      api.call(PROTOCOL_ADDRESS_BOOK_ADD_CONTACT, { session, ...input }, { keepSessionFor }),
+    removeContact: (session: string, id: string) => api.call(PROTOCOL_ADDRESS_BOOK_REMOVE_CONTACT, { session, id }, { keepSessionFor }),
     createGroup: (session: string, input: { name: string; members: string[] }) =>
-      call('addressBook.createGroup', { session, ...input }, protocolWalletGroupSchema),
-    group: (session: string, id: string) => call('addressBook.group', { session, id }, protocolWalletGroupSchema),
-    removeGroup: (session: string, id: string) => call('addressBook.removeGroup', { session, id }, protocolAddressBookRemovedOutputSchema),
+      api.call(PROTOCOL_ADDRESS_BOOK_CREATE_GROUP, { session, ...input }, { keepSessionFor }),
+    group: (session: string, id: string) => api.call(PROTOCOL_ADDRESS_BOOK_GROUP, { session, id }, { keepSessionFor }),
+    removeGroup: (session: string, id: string) => api.call(PROTOCOL_ADDRESS_BOOK_REMOVE_GROUP, { session, id }, { keepSessionFor }),
   };
 }
 export type AddressBookApi = ReturnType<typeof createAddressBookApi>;

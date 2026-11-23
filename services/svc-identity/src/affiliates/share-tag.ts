@@ -12,13 +12,9 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { SHARE_SURFACES, SESSION_KEY_PATTERN } from '@intafaced/contracts/identity-call-schemas';
 
-/** Where a link can be shared from. A closed list, so a count always names a real place. */
-export const SHARE_SURFACES = ['promotion', 'card', 'token', 'strategy', 'receipt'] as const;
 export type ShareSurface = (typeof SHARE_SURFACES)[number];
-
-/** A browser session's own random key: one visit per session per surface. */
-export const SESSION_KEY_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -100,3 +96,4 @@ export class IpMinuteWindow {
     return count <= this.limit;
   }
 }
+export { SHARE_SURFACES, SESSION_KEY_PATTERN };

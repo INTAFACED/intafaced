@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assetIdSchema } from './asset-id.js';
 import {
   BANK_SEND_DESTINATION_CALLERS,
   BANK_SEND_DESTINATION_PROCEDURE,
@@ -12,7 +13,12 @@ import { SERVICE_NAMES } from './service-keys.js';
 
 const SECRET = 'send-destination-secret-long-enough-0001';
 const DESTINATION = '11111111-1111-4111-8111-111111111111';
-const input = { userId: 'user-sender', assetId: 'USDT', network: 'ethereum', ref: '0x52908400098527886E0F7030069857D2E4169EE7' };
+const input = {
+  userId: 'user-sender',
+  assetId: assetIdSchema.parse('USDT'),
+  network: 'ethereum',
+  ref: '0x52908400098527886E0F7030069857D2E4169EE7',
+};
 const ready = { state: 'ready', destinationId: DESTINATION, coolingOffEndsAt: '2026-10-28T00:00:00.000Z' };
 
 const reply = (data: unknown, status = 200): Response =>

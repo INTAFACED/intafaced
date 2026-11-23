@@ -15,9 +15,9 @@ import { ADDRESS, LABEL, BASE_ADDRESS, BASE_LABEL, withdrawKit } from './wallet-
 // Ethereum and TEST Base, the fee on top, a 90-second quote, USDT limits of 1000 a withdrawal and 5000 a day for verified
 // accounts (the day counts the fee), and a TEST custody policy that lets a TEST send out on the crypto-native rail through.
 // The stack's svc-pay has a TEST custody signer for TEST Ethereum only (`PAY_TEST_WITHDRAW_SIGNER_NETWORKS`), sending through
-// the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6, #8 (which watches the withdrawal #6 sent) and #4's two
-// parallel sends run in J-wallet-05-send.pw.mjs and J-wallet-05-limit.pw.mjs, each on its own account, so no
-// one file holds the whole journey's time; here #7 still meets the balance at 300.
+// the in-memory MemoryChain; TEST Base has none, which is what #7 meets. #6, #8 (which watches the withdrawal #6 sent) and #4
+// run in J-wallet-05-send.pw.mjs and J-wallet-05-limit.pw.mjs, each on its own account, so no one file holds the whole
+// journey's time and each step's test lives whole in one file; here #7 still meets the balance at 300.
 // #2's sanctions clause uses the stack's LOCAL TEST destination sanctions list (svc-bank `BANK_DESTINATION_SANCTIONS`, set only
 // by local-stack-services/bank.mjs), one made-up address and not a real list.
 // #5 (travel rule) waits for launch (owner decision 2026-10-27).
@@ -56,6 +56,16 @@ function payScreener(on) {
   }
 }
 
+/** The step's picture, taken from the top of the page with nothing focused: a whole-page picture taken while scrolled draws
+ *  the sticky header over the middle of the page (runs 44386780554 and 44390756982: #1 and #2 read BROKEN). */
+async function pictureFromTop(page, stepPicture) {
+  await page.evaluate(() => {
+    document.activeElement?.blur?.();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
+}
+
 test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet approved and past its cooling-off`, async ({
   page,
   browser,
@@ -87,6 +97,7 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   await signInWithCode(page);
@@ -131,6 +142,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+  await pictureFromTop(page, stepPicture);
   // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
   // dropped and sent without it. Then nothing is held and nothing is recorded.
   const quoteRef = `${J}-tag-quote-${Date.now()}`;
@@ -155,6 +167,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
 
 test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held, and so is a sanctioned address`, async ({
   page,
+  stepPicture,
 }) => {
   // Two svc-pay restarts (screener off, then back on) take most of a minute each.
   test.setTimeout(480_000);
@@ -197,7 +210,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   expect(await api.withdrawals()).toEqual([]);
 
   // The blank-list half: with no screener set, svc-pay refuses a send to the saved, ready address with its typed code before
-  // anything is held. svc-pay is put back on the stack's local-test screener afterwards, so #6 and #4 can still send.
+  // anything is held. svc-pay is put back on the stack's local-test screener afterwards, so #7 meets the missing signer, not the screener.
   try {
     payScreener(false);
     await fillSend(page, '25');
@@ -231,6 +244,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   await expect(again.getByRole('alert')).toHaveText('This address is on the sanctions list, so it can’t be saved. Nothing was saved.');
   await expect(stepUp(page)).toHaveCount(0);
   await expect(page.locator('tbody tr', { hasText: 'TEST sanctioned wallet' })).toHaveCount(0);
+  await pictureFromTop(page, stepPicture);
   // The bank itself refuses it with its typed code, however its letters are cased, even with a fresh step-up.
   for (const ref of [LOCAL_TEST_SANCTIONED_ADDRESS, LOCAL_TEST_SANCTIONED_ADDRESS.toUpperCase().replace('0X', '0x')]) {
     const sanctioned = await api.saveAddress(
@@ -301,74 +315,9 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   await expect(fee).toContainText('1.5 USDT');
 });
 
-test(`${J}, part of #4 reads the limit line: what the account's level may send now, per withdrawal and in 24 hours`, async ({ page }) => {
-  test.setTimeout(180_000);
-  await signInWithCode(page);
-  await fillSend(page, '25');
-  await expect(page.getByTestId('withdraw-limit')).toContainText(
-    'You can send up to 1,000 USDT now: 1,000 per withdrawal, and 5,000 of 5,000 left in the last 24 hours.',
-  );
-});
-
-test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
-  test.setTimeout(300_000);
-  await signInWithCode(page);
-  const api = await customerApi();
-  // "The remaining allowance for the person's tier": svc-pay's limits for this account's level, and the limit line
-  // shows exactly those figures. Nothing has been sent yet, so all of the 24-hour limit is left.
-  const limits = await api.limits('USDT');
-  expect(limits.status, JSON.stringify(limits.body).slice(0, 400)).toBe(200);
-  expect(limits.data).toMatchObject({ tier: 'full', assetId: 'USDT', perTx: '1000', rolling24h: '5000', used24h: '0' });
-  expect(limits.data.remaining).toEqual({ perTx: '1000', rolling24h: '5000' });
-  expect(limits.data.maxNow).toBe('1000');
-  await fillSend(page, '25');
-  await expect(page.getByTestId('withdraw-limit')).toContainText(
-    'You can send up to 1,000 USDT now: 1,000 per withdrawal, and 5,000 of 5,000 left in the last 24 hours.',
-  );
-  // The account's level (full) and USDT: the stack's TEST limit is cleared to unset through the founders' own door for this
-  // step only, and put back in the finally, so every other step still meets the TEST figures.
-  try {
-    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
-    await fillSend(page, '25');
-    // The limit line says in words that no limit is set, and nothing can be reviewed, so nothing can be confirmed.
-    await expect(page.getByTestId('withdraw-limit').locator('p')).toHaveText(
-      'No withdrawal limit is set for your account level and this asset, so nothing can be sent.',
-    );
-    await page.getByRole('button', { name: 'Get the fee' }).click();
-    await expect(page.getByTestId('withdraw-fee')).toContainText('1.5 USDT');
-    // With the fee in hand the send still cannot be reviewed: no limit, no confirm.
-    await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
-    await expect(confirmSend(page)).toHaveCount(0);
-    // svc-pay itself refuses a send that skips the page: one exact typed code, with a real quote and a fresh step-up.
-    const quoteRef = `${J}-blank-limit-quote-${Date.now()}`;
-    const quoted = await api.quote({ quoteRef, assetId: 'USDT', networkId: 'ethereum', amount: '25' });
-    expect(quoted.status, JSON.stringify(quoted.body).slice(0, 400)).toBe(200);
-    const refused = await api.create(
-      {
-        assetId: 'USDT',
-        amount: '25',
-        railId: 'crypto-native',
-        networkId: 'ethereum',
-        quoteRef,
-        destination: { kind: 'crypto', ref: ADDRESS },
-        clientRef: `${J}-blank-limit-${Date.now()}`,
-      },
-      (await api.stepUp()).accessToken,
-    );
-    expect(refused.body?.error?.data?.cause?.code, JSON.stringify(refused.body).slice(0, 400)).toBe('pay.guard_withdrawal_limit_unset');
-    // Nothing held, nothing recorded.
-    expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
-    expect(await api.withdrawals()).toEqual([]);
-  } finally {
-    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'test');
-  }
-  // Back to the TEST figures: the limit line reads them again.
-  await fillSend(page, '25');
-  await expect(page.getByTestId('withdraw-limit')).toContainText('You can send up to 1,000 USDT now');
-});
-
 test(`${J} #7 confirms with a fresh step-up while no signer is connected: refused by name, nothing held, the balance still reads 300`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   await signInWithCode(page);
@@ -391,6 +340,7 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   );
   await expect(outcome).toContainText('Nothing was sent and nothing is held. Your available balance is 300 USDT.');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await pictureFromTop(page, stepPicture);
 
   // The ledger agrees: nothing left the available balance, and svc-pay recorded no withdrawal.
   const api = await customerApi();

@@ -1,6 +1,6 @@
 // World: restart, gates
 import { test, expect } from './journey.mjs';
-import { api, journeyState, restartWith, signOutBrowser } from './stack.mjs';
+import { api, journeyState, restartService, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-campaigns-07, in the running app (docs/roadmap/journeys.json): I become an affiliate partner. One test per step,
@@ -106,7 +106,7 @@ test(`${J} #1 Apply as a partner shows my qualified count against the owner's; a
   await expect(programme(page).getByRole('button', { name: 'Submit application' })).toBeVisible();
 
   // With the owner's count blank: refused by its code, and still no record.
-  restartWith('identity', 'LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY', false);
+  await restartService('identity', { LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY: 'off' });
   try {
     await page.goto('/uc/promotion');
     await programme(page).getByRole('button', { name: 'Apply as a partner' }).click();
@@ -124,7 +124,7 @@ test(`${J} #1 Apply as a partner shows my qualified count against the owner's; a
     });
     expect((await identity(partner, 'affiliates.myPartnerApplication')).data).toBeNull();
   } finally {
-    restartWith('identity', 'LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY', true);
+    await restartService('identity', { LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY: undefined });
   }
 });
 
@@ -294,7 +294,7 @@ test(`${J} #4 my sub-tree shows only my own downline to the programme depth; a b
   expect(dry.data.rows.some((r) => r.beneficiaryId === partnerId)).toBe(false);
 
   // With the owner's depth blank: the sub-tree, accrual and payout each refuse by the same code.
-  restartWith('identity', 'LOCAL_STACK_IDENTITY_PARTNER_DEPTH', false);
+  await restartService('identity', { LOCAL_STACK_IDENTITY_PARTNER_DEPTH: 'off' });
   try {
     await page.goto('/uc/promotion');
     const again = programme(page).getByRole('region', { name: 'Partner portal' });
@@ -335,6 +335,6 @@ test(`${J} #4 my sub-tree shows only my own downline to the programme depth; a b
       expect(owed.data.rows.filter((r) => r.feeEventId === real.feeEventId)).toEqual([]);
     }
   } finally {
-    restartWith('identity', 'LOCAL_STACK_IDENTITY_PARTNER_DEPTH', true);
+    await restartService('identity', { LOCAL_STACK_IDENTITY_PARTNER_DEPTH: undefined });
   }
 });

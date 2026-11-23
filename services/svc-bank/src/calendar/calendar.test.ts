@@ -4,7 +4,9 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
+import { partial } from '@intafaced/service-kit/testing';
 import { BankError } from '../errors.js';
+import type { PositionRecord } from '../earn/earn-service.js';
 import { personalPayError } from '../personal-pay/errors.js';
 import { CALENDAR_SOURCE_UNAVAILABLE, CalendarService, LOAN_SCHEDULE_UNSET, occurrencesIn, type CalendarDeps } from './calendar.js';
 
@@ -246,6 +248,42 @@ describe('the merged window', () => {
     ]);
     expect(log).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith('earn', expect.any(Error));
+  });
+
+  it("the person's TEST switch fails one source (J-bank-06 #8): it reads unavailable, unread and logged, and the others still show", async () => {
+    const log = vi.fn();
+    const dated = vi.fn(async () => []);
+    const position = partial<PositionRecord>({
+      id: 'P-1',
+      status: 'active',
+      maturesAt: new Date('2026-11-20T00:00:00.000Z'),
+      assetId: 'USDT',
+      principal: parseAmount('3'),
+    });
+    const earn: CalendarDeps['earn'] = { positionsOf: async () => [position] };
+    const failing = (userId: string) => (userId === USER ? ('direct_debits' as const) : null);
+    const view = await window(deps({ log, earn, directDebits: { dated }, testFailing: failing }));
+    expect(dated).not.toHaveBeenCalled();
+    expect(view.items.map((i) => i.source)).toEqual(['earn']);
+    expect(view.sources.find((s) => s.source === 'direct_debits')).toEqual({
+      source: 'direct_debits',
+      state: 'unavailable',
+      count: 0,
+      code: CALENDAR_SOURCE_UNAVAILABLE,
+      complete: false,
+    });
+    expect(view.sources.filter((s) => s.state === 'unavailable')).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith('direct_debits', expect.any(Error));
+    // Another person's calendar is untouched by this person's switch.
+    const other = await new CalendarService(deps({ earn, directDebits: { dated }, testFailing: failing })).window({
+      userId: '52222222-2222-4222-8222-222222222222',
+      from: FROM,
+      days: 30,
+      limit: 50,
+      now: NOW,
+    });
+    expect(other.sources.every((s) => s.state !== 'unavailable')).toBe(true);
+    expect(dated).toHaveBeenCalledTimes(1);
   });
 
   it('with no bill partner an empty bills source says why', async () => {

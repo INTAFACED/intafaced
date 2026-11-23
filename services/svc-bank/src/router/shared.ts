@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { bankSpaceSchema } from '@intafaced/contracts/bank-spaces-list';
 import type { ExtraControlsPort } from '../safety/extra-controls.js';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
@@ -284,10 +284,17 @@ export type BankRouterOptions = {
    * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
    */
   statementStepUp?: StepUpGate;
+  /**
+   * A move from the person's partner account to their own wallet, on to their trading account (J-derivatives-25 #2).
+   * Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  ownMoveStepUp?: StepUpGate;
   /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
   extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
+  /** Home's margin warning level (`BANK_MARGIN_WARNING_LTV_BPS`), blank today: `loans.products` publishes it as null. */
+  marginWarningLtvBps?: null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */

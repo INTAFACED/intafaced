@@ -3,8 +3,10 @@
  * small text/number helpers a row needs. No React here, so every rule is unit tested (select.test.ts).
  * Money is decimal strings and bigint only; floats appear once, to place the range marker (drawing).
  */
-import { add, compareDecimal, dec, fmtAmount, fmtPct, fmtPrice, fmtUsd, normalizePair, ratio, signOf, str, sub, SCALE } from './deps';
-import type { Decimal, MarketData, TickerRow } from './deps';
+import { SCALE } from '@intafaced/money-math';
+import { fmtAmount, fmtPct, fmtPrice, fmtUsd, type Decimal, type MarketRow as MarketData, type TickerRow } from '../../../data';
+import { add, compareDecimal, dec, ratio, signOf, str, sub } from '../../../data/decimal';
+import { normalizePair } from '../../../app/navigation';
 
 export type TickerMap = Record<string, TickerRow> | undefined;
 

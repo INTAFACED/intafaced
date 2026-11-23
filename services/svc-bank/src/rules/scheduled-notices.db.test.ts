@@ -133,6 +133,43 @@ describe('the reminder rule', () => {
     expect(await sql`SELECT user_id FROM bank.reminder_rules`).toHaveLength(1);
   });
 
+  it('a first write racing its own retry replays the one row; another first write racing it is refused stale (#8901)', async () => {
+    const bank = services();
+    for (let round = 0; round < 20; round += 1) {
+      await sql`TRUNCATE bank.reminder_rules`;
+      const same = await Promise.allSettled(
+        Array.from({ length: 6 }, () =>
+          bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 48, expectedRevision: 0, clientRequestId: `same-${round}` }),
+        ),
+      );
+      const rejected = same.filter((r) => r.status === 'rejected');
+      expect(rejected, String(rejected.map((r) => (r as PromiseRejectedResult).reason))).toHaveLength(0);
+      const rules = same.map((r) => (r as PromiseFulfilledResult<unknown>).value);
+      for (const rule of rules) expect(rule).toEqual(rules[0]);
+      expect(rules[0]).toMatchObject({ ruleKey: `reminder:${USER}`, leadHours: 48, revision: 1 });
+      expect(await sql`SELECT user_id FROM bank.reminder_rules`).toHaveLength(1);
+    }
+
+    for (let round = 0; round < 20; round += 1) {
+      await sql`TRUNCATE bank.reminder_rules`;
+      const rivals = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) =>
+          bank.scheduledNotices.setReminderRule({
+            userId: USER,
+            leadHours: 24,
+            expectedRevision: 0,
+            clientRequestId: `rival-${round}-${i}`,
+          }),
+        ),
+      );
+      expect(rivals.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      for (const r of rivals.filter((x): x is PromiseRejectedResult => x.status === 'rejected')) {
+        expect(r.reason).toMatchObject({ code: 'bank.reminder_revision_conflict' });
+      }
+      expect(await sql`SELECT user_id FROM bank.reminder_rules`).toHaveLength(1);
+    }
+  });
+
   it('refuses a rule that moves money while the owner has published no terms, and stores nothing', () => {
     const bank = services();
     expect(() => bank.scheduledNotices.createMoneyRule()).toThrow(BankError);

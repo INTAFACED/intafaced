@@ -98,7 +98,7 @@ function PositionsTab() {
       {guard.pending?.kind === 'copy' ? (
         <Why>
           {t('Check in Copy')}{' '}
-          <a className="text-link" href="/trade/copy?tab=follows">
+          <a className="lt-link" href="/trade/copy?tab=follows">
             {t('Open Copy')}
           </a>
         </Why>

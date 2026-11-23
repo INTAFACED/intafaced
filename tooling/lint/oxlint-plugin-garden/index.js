@@ -3,6 +3,7 @@
 // touched files gain a finding, in CI and before a push; tooling/lint/ratchet.json names the few rules that only print.
 import { copyRules } from './copy-rules.js';
 import { absentRules } from './absent-rule.js';
+import { assetIdRules } from './asset-id-rule.js';
 import { moneyRules } from './money-rules.js';
 import { sharedMarketRules } from './shared-market-rule.js';
 import { useSharedHelper } from './duplicate-rules.js';
@@ -19,7 +20,17 @@ import { journeyCopyRules } from './journey-copy-rule.js';
 import { repeatRules } from './repeat-rules.js';
 import { staleReadRules } from './stale-read-rule.js';
 import { stepPictureRules } from './step-picture-rule.js';
+import { handClockRules } from './hand-clock-rule.js';
+import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
+import { callByNameRules } from './call-by-name-rule.js';
+import { runtimeSwapRules } from './runtime-swap-rule.js';
+import { crossFeatureImportRules } from './cross-feature-import-rule.js';
+import { sourceTextTestRules } from './source-text-test-rule.js';
+import { composeOnlyRules } from './compose-only-rule.js';
+import { serviceSentenceRules } from './service-sentence-rule.js';
+import { kitLookRules } from './kit-look-rules.js';
+import { testPostgresRules } from './test-postgres-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -53,7 +64,8 @@ const noDoubleCast = {
             node,
             message:
               '`as unknown as` turns type checking off here: narrow with a type guard or a schema parse, or fix the source type. ' +
-              'A partial test fake takes a single `as T`, which still checks the fields it writes; a test that passes a wrong type ' +
+              "A partial test fake is `partial<T>({ ... })` from '@intafaced/service-kit/testing' (a single `as T` where T is a class " +
+              'with private members does not compile), which checks each field it writes against T; a test that passes a wrong type ' +
               'on purpose suppresses the line with `-- why`',
           });
         }
@@ -200,6 +212,7 @@ export default {
     'no-wait-for-timeout': noWaitForTimeout,
     ...copyRules,
     ...absentRules,
+    ...assetIdRules,
     ...moneyRules,
     ...sharedMarketRules,
     ...potetoRules,
@@ -215,6 +228,16 @@ export default {
     ...repeatRules,
     ...staleReadRules,
     ...stepPictureRules,
+    ...handClockRules,
+    ...testPostgresRules,
+    ...restartServiceRules,
     ...storedSearchRules,
+    ...callByNameRules,
+    ...runtimeSwapRules,
+    ...crossFeatureImportRules,
+    ...sourceTextTestRules,
+    ...composeOnlyRules,
+    ...serviceSentenceRules,
+    ...kitLookRules,
   },
 };

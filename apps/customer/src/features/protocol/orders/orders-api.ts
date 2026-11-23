@@ -1,35 +1,32 @@
 import {
-  DEX_AUTH_REFUSALS,
-  dexAuthChallengeOutputSchema,
-  dexAuthLogoutOutputSchema,
-  dexAuthSessionOutputSchema,
-  dexOrdersCountOutputSchema,
-  type DexAuthChallenge,
-  type DexAuthSession,
-} from '@intafaced/contracts/protocol-dex-orders';
-import type { z } from 'zod';
-import type { ApiClient } from '../../../shared/api';
+  DEX_AUTH_CHALLENGE,
+  DEX_AUTH_LOGOUT,
+  DEX_AUTH_REFRESH,
+  DEX_AUTH_VERIFY,
+  DEX_ORDERS_COUNT,
+} from '@intafaced/contracts/dex-procedures';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
+import type { DexAuthChallenge, DexAuthSession } from '@intafaced/contracts/protocol-dex-orders';
+import type { ApiClient, AppProcedure } from '../../../shared/api';
 
 export type OrderChallenge = DexAuthChallenge;
 export type OrderSession = DexAuthSession;
 
 /**
- * svc-dex's wallet orders (D-limit-dca-01 to -04). Every call is a POST: the order session's tokens go in the body, never
- * in a URL. An order-session refusal is this call's own answer, never proof that the exchange sign-in ended, so none of
- * them signs the person out of their account.
+ * svc-dex's wallet orders (D-limit-dca-01 to -04), each called by its record. Every call is a POST: the order session's
+ * tokens go in the body, never in a URL. An order-session refusal is this call's own answer, never proof that the exchange
+ * sign-in ended, so none of the refusals its record lists signs the person out of their account.
  */
-const keepSessionFor = DEX_AUTH_REFUSALS;
-
 export function createOrdersApi(api: ApiClient) {
-  const call = <T>(procedure: string, input: unknown, schema: z.ZodType<T>) =>
-    api.mutate('dex', procedure, input, schema, { keepSessionFor });
+  const call = <R extends AppProcedure>(record: R, input: ProcedureInput<R>) =>
+    api.call(record, input, { keepSessionFor: Object.keys(record.refusals) });
   return {
-    challenge: (input: { address: string; chainId: number }) => call('auth.challenge', input, dexAuthChallengeOutputSchema),
-    verify: (input: { challenge: string; signature: string }) => call('auth.verify', input, dexAuthSessionOutputSchema),
-    refresh: (refreshToken: string) => call('auth.refresh', { refreshToken }, dexAuthSessionOutputSchema),
-    logout: (accessToken: string) => call('auth.logout', { accessToken }, dexAuthLogoutOutputSchema),
+    challenge: (input: { address: string; chainId: number }) => call(DEX_AUTH_CHALLENGE, input),
+    verify: (input: { challenge: string; signature: string }) => call(DEX_AUTH_VERIFY, input),
+    refresh: (refreshToken: string) => call(DEX_AUTH_REFRESH, { refreshToken }),
+    logout: (accessToken: string) => call(DEX_AUTH_LOGOUT, { accessToken }),
     /** How many orders the wallet has: a count only, no terms (public). */
-    count: (wallet: string) => call('orders.count', { wallet }, dexOrdersCountOutputSchema),
+    count: (wallet: string) => call(DEX_ORDERS_COUNT, { wallet }),
   };
 }
 export type OrdersApi = ReturnType<typeof createOrdersApi>;

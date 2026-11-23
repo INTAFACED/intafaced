@@ -30,12 +30,12 @@ export function DepositPendingView({ resource, reload }: { resource: Resource<De
   return (
     <DepthPanel title={t('pendingTitle')} lead={t('pendingLead')}>
       {resource.status === 'loading' ? (
-        <p className="money-caption" role="status">
+        <p className="lt-muted" role="status">
           …
         </p>
       ) : resource.status === 'failed' ? (
         resource.failure.code === UNSET ? (
-          <p className="money-caption" role="status">
+          <p className="lt-muted" role="status">
             {t('pendingUnavailable')}
           </p>
         ) : (
@@ -49,21 +49,21 @@ export function DepositPendingView({ resource, reload }: { resource: Resource<De
           />
         )
       ) : resource.data.items.length === 0 ? (
-        <p className="money-caption">{t('pendingEmpty')}</p>
+        <p className="lt-muted">{t('pendingEmpty')}</p>
       ) : (
         <ul className="bd-list" data-testid="deposit-pending">
           {resource.data.items.map((row) => (
             <li key={row.id}>
-              <strong className="numeric">
+              <strong className="lt-num">
                 {displayAmount(row.amount)} {row.assetId}
               </strong>{' '}
-              <span className="money-caption">{row.networkId}</span>
+              <span className="lt-muted">{row.networkId}</span>
               <br />
               <progress
                 max={row.confirmationsRequired ?? undefined}
                 value={row.confirmationsRequired === null ? undefined : Math.min(row.confirmations, row.confirmationsRequired)}
               />{' '}
-              <span className="money-caption">
+              <span className="lt-muted">
                 {row.confirmationsRequired === null
                   ? t('progressNoTarget', { done: row.confirmations })
                   : t('progress', { done: Math.min(row.confirmations, row.confirmationsRequired), need: row.confirmationsRequired })}
@@ -116,7 +116,7 @@ export function DepositRecordsView({
   return (
     <DepthPanel title={t('recordsTitle')} lead={t('recordsLead')}>
       <div className="bd-filter">
-        <label className="field">
+        <label className="lt-field">
           <span>{t('filterAsset')}</span>
           <select value={filters.assetId ?? ''} onChange={(event) => onFilters({ ...filters, assetId: event.target.value || undefined })}>
             <option value="">{t('filterAny')}</option>
@@ -127,7 +127,7 @@ export function DepositRecordsView({
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('filterStatus')}</span>
           <select
             value={filters.status ?? ''}
@@ -141,22 +141,22 @@ export function DepositRecordsView({
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('filterTx')}</span>
           <input defaultValue={filters.txId ?? ''} onBlur={(event) => text('txId')(event.target.value)} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('filterAddress')}</span>
           <input defaultValue={filters.address ?? ''} onBlur={(event) => text('address')(event.target.value)} />
         </label>
       </div>
       {resource.status === 'loading' ? (
-        <p className="money-caption" role="status">
+        <p className="lt-muted" role="status">
           …
         </p>
       ) : resource.status === 'failed' ? (
         resource.failure.code === UNSET ? (
-          <p className="money-caption" role="status">
+          <p className="lt-muted" role="status">
             {t('recordsUnavailable')}
           </p>
         ) : (
@@ -194,7 +194,7 @@ export function DepositRecordsView({
                     <td className="bd-num numeric">
                       {displayAmount(row.amount)} {row.assetId}
                     </td>
-                    <td className="numeric" style={{ overflowWrap: 'anywhere' }}>
+                    <td className="lt-num" style={{ overflowWrap: 'anywhere' }}>
                       {row.txHash}
                     </td>
                     <td>
@@ -231,7 +231,7 @@ export function DepositRecordsView({
               ))}
             </tbody>
           </table>
-          <p className="money-caption">{t('recordsShown', { shown: resource.data.items.length, total: resource.data.total })}</p>
+          <p className="lt-muted">{t('recordsShown', { shown: resource.data.items.length, total: resource.data.total })}</p>
           {resource.data.items.length < resource.data.total && (
             <Button variant="secondary" onClick={onMore}>
               {t('recordsMore')}

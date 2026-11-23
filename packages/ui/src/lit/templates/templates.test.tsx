@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
-import { Bars, Parts } from '../components/b2-charts.js';
+import { Bars, Coverage, Parts } from '../components/b2-charts.js';
+import { BrandSample, Dialog, Disclosure, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -75,6 +76,27 @@ describe('bars', () => {
     );
     expect(out).toContain('data-negative="true"');
     expect(out).not.toMatch(/height="0"/);
+  });
+});
+
+describe('coverage', () => {
+  it('places each covered range where it falls in the window and leaves the gaps empty', () => {
+    const out = html(
+      <Coverage
+        label="ticks"
+        from="2026-01-01T00:00:00Z"
+        to="2026-01-01T10:00:00Z"
+        rangeTestId="range"
+        ranges={[
+          { from: '2026-01-01T00:00:00Z', to: '2026-01-01T02:00:00Z' },
+          { from: '2026-01-01T05:00:00Z', to: '2026-01-01T10:00:00Z' },
+        ]}
+      />,
+    );
+    expect(out).toContain('role="img"');
+    expect(out).toContain('inset-inline-start:0%;inline-size:20%');
+    expect(out).toContain('inset-inline-start:50%;inline-size:50%');
+    expect(out.match(/data-testid="range"/g)).toHaveLength(2);
   });
 });
 
@@ -490,8 +512,112 @@ describe('states never contradict themselves', () => {
   });
 });
 
+describe('record rows', () => {
+  it('rows drop their bullets and divide by a line, lines stack with the name first, and error words read down', () => {
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/\.lt-rows \{\s*list-style: none;/);
+    expect(css).toMatch(/\.lt-rows > li \{[^}]*border-block-end: 1px solid var\(--lit-line\);/);
+    expect(css).toMatch(/\.lt-lines \{[^}]*flex-direction: column;/);
+    expect(css).toMatch(/\.lt-lines > :first-child \{\s*font-weight: var\(--lit-type-heading-weight\);/);
+    expect(css).toMatch(/\.lt-field small\[data-part='error'\],\s*\.lt-hint\[data-part='error'\] \{\s*color: var\(--lit-down-text\);/);
+  });
+});
+
 describe('gallery fixtures are shaped as the API sends them', () => {
   it('holdings are decimal strings, as ledgerHoldingSchema requires', () => {
     for (const h of HOLDINGS) expect(h.amount).toMatch(/^\d+(\.\d+)?$/);
+  });
+});
+
+describe('the room title', () => {
+  it('takes a language of its own and is focusable only when the room holds its ref', async () => {
+    const { ReadingTemplate } = await import('./templates.js');
+    const plain = html(<ReadingTemplate title="Help" state={{ kind: 'ready' }} body="B" />);
+    expect(plain).toContain('<h1 class="lt-title">Help</h1>');
+    const ref = React.createRef<HTMLHeadingElement>();
+    const own = html(<ReadingTemplate title="Ayuda" titleLang="es" titleRef={ref} state={{ kind: 'ready' }} body="B" />);
+    expect(own).toContain('<h1 class="lt-title" lang="es" tabindex="-1">Ayuda</h1>');
+  });
+});
+
+describe("a limit's use and a brand sample", () => {
+  it('Meter reads as a progress bar with its words, clamps the fill and marks full by a state', () => {
+    const half = html(<Meter label="Daily intake" value={62.4} text="62% used" />);
+    expect(half).toContain('role="progressbar"');
+    expect(half).toContain('aria-label="Daily intake"');
+    expect(half).toContain('aria-valuenow="62"');
+    expect(half).toContain('aria-valuetext="62% used"');
+    expect(half).toContain('inline-size:62.4%');
+    expect(half).toContain('<span class="lt-sr">62% used</span>');
+    expect(half).not.toContain('data-full');
+    const over = html(<Meter label="Daily intake" value={140} text="Limit reached" />);
+    expect(over).toContain('data-full="true"');
+    expect(over).toContain('inline-size:100%');
+    expect(over).toContain('aria-valuenow="100"');
+  });
+
+  it('BrandSample takes only a #rrggbb colour, as custom properties on a named figure', () => {
+    const out = html(
+      <BrandSample label="Checkout preview" accent="#ff6600" onAccent="#000000">
+        <span className="lt-brand-button">Pay</span>
+      </BrandSample>,
+    );
+    expect(out).toContain('<figure class="lt-brand" aria-label="Checkout preview" style="--lt-brand:#ff6600;--lt-on-brand:#000000">');
+    const bad = html(
+      <BrandSample label="Checkout preview" accent="red;background:url(x)" onAccent="#000000">
+        <span />
+      </BrandSample>,
+    );
+    expect(bad).not.toContain('url(x)');
+    expect(bad).not.toContain('--lt-brand:');
+  });
+});
+
+describe('sections that fold', () => {
+  const items = [
+    { value: 'a', title: 'Volume', body: <p>TEST volume body</p> },
+    { value: 'b', title: 'More insights', body: <p>TEST insights body</p> },
+  ];
+  it('draws each heading as a button, and only the open body, as a region named by its heading', () => {
+    const out = html(<Disclosure items={items} defaultOpen={['a']} />);
+    expect(out.match(/<button type="button"/g)).toHaveLength(2);
+    expect(out).toContain('aria-expanded="true"');
+    expect(out).toContain('aria-expanded="false"');
+    expect(out).toContain('role="region"');
+    expect(out).toContain('TEST volume body');
+    expect(out).not.toContain('TEST insights body');
+    const head = /<button type="button" id="([^"]+)" aria-expanded="true"/.exec(out)![1]!;
+    expect(out).toContain(`aria-labelledby="${head}"`);
+  });
+  it('draws nothing open when no section is named', () => {
+    const out = html(<Disclosure items={items} />);
+    expect(out).not.toContain('role="region"');
+    expect(out).not.toContain('aria-expanded="true"');
+  });
+});
+
+describe('a dialog', () => {
+  it('is a native dialog named by its title, with a labelled close button and its body', () => {
+    const out = html(
+      <Dialog title="Review the order" closeLabel="Close dialog" onClose={() => undefined}>
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(/^<dialog class="lt-dialog" aria-labelledby="([^"]+)">/);
+    const id = /aria-labelledby="([^"]+)"/.exec(out)![1]!;
+    expect(out).toContain(`<h2 id="${id}" class="lt-sheet-title">Review the order</h2>`);
+    expect(out).toContain('aria-label="Close dialog"');
+    expect(out).toContain('TEST body');
+  });
+
+  it('announces a confirmation before a step that cannot be undone as an alert dialog', () => {
+    const out = html(
+      <Dialog title="Send 1 USDT?" closeLabel="Close dialog" onClose={() => undefined} alert data-testid="send-review">
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(
+      /^<dialog class="lt-dialog" role="alertdialog" aria-modal="true" data-testid="send-review" aria-labelledby="[^"]+">/,
+    );
   });
 });

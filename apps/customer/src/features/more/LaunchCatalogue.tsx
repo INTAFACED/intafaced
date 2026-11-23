@@ -1,16 +1,25 @@
+// volt-room: /launch/:projectId
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
-import { decimalSchema } from '../../shared/money';
+import { useApi, useSession } from '../session';
+import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, EmptyState, Panel } from '../../shared/ui';
-import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
-import { Details, Limit, Read, Select } from './common';
+import { Button, Select, Tag } from '@intafaced/ui/lit';
+import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
+import { Details, Limit } from './catalogue-parts';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
-import './launch-catalogue.css';
+import { launchCopy } from './launch-copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { SessionRetryNote, SignInNote } from './sign-in-note';
+import { EmptyNote, KitRead, Section } from './volt-parts';
+import {
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from '@intafaced/contracts/token-launch-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof launchCatalogueCopy.forLocale>['t'];
@@ -19,53 +28,12 @@ const word = (t: T, key: string) => (t as unknown as (k: string) => string)(key)
 
 const TYPES = ['token_sale', 'whitelist_drop', 'primary_subscription'] as const;
 const STATES = ['upcoming', 'open', 'past'] as const;
-const STATUSES = ['announced', 'snapshot', 'open', 'closed', 'allocated', 'distributing', 'complete', 'cancelled'] as const;
-const ISSUER_STATES = ['applied', 'reviewing', 'onboarded', 'suspended'] as const;
-const METHODS = ['pro_rata', 'tickets', 'tiered'] as const;
-const REQUIREMENTS = ['identity_verification', 'region', 'account_active', 'main_account', 'issuer_onboarded', 'event_open'] as const;
 /** The first page of launches, and the most a reader may widen it to. The service refuses a blank page size. */
 const PAGE = 50;
 const PAGE_CAP = 200;
 
-const iso = z.string().datetime({ offset: true });
-const eventSchema = z.object({
-  id: z.string().min(1).max(128),
-  issuer: z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES) }),
-  type: z.enum(TYPES),
-  projectName: z.string(),
-  symbol: z.string(),
-  periods: z.object({ announceAt: iso, snapshotAt: iso, openAt: iso, closeAt: iso, distributionAt: iso }),
-  status: z.enum(STATUSES),
-  state: z.enum(STATES).nullable(),
-  allocation: z.object({
-    method: z.enum(METHODS).nullable(),
-    perUserCap: decimalSchema.nullable(),
-    ticketSize: decimalSchema.nullable(),
-    tierWeights: z.array(z.object({ minBasis: decimalSchema, weight: z.number().int() })).nullable(),
-  }),
-  terms: z.object({ price: decimalSchema.nullable(), paymentAsset: z.string().nullable(), rateSource: z.string().nullable() }),
-  snapshot: z.object({ count: z.number().int().nonnegative(), total: decimalSchema, takenAt: iso }).nullable(),
-  revision: z.number().int(),
-});
-type LaunchEvent = z.infer<typeof eventSchema>;
-const eligibilitySchema = z.object({
-  eventId: z.string(),
-  eligible: z.boolean(),
-  requirements: z.array(z.object({ id: z.enum(REQUIREMENTS), met: z.boolean(), required: z.string(), actual: z.string() })),
-});
-type Eligibility = z.infer<typeof eligibilitySchema>;
-const basisSchema = z.object({
-  eventId: z.string(),
-  method: z.enum(METHODS).nullable(),
-  perUserCap: decimalSchema.nullable(),
-  ticketSize: decimalSchema.nullable(),
-  tierWeights: z.array(z.object({ minBasis: decimalSchema, weight: z.number().int() })).nullable(),
-  basis: decimalSchema.nullable(),
-  reason: z.enum(['snapshot_not_taken', 'no_holdings_at_snapshot']).nullable(),
-  takenAt: iso.nullable(),
-  tickets: z.string().regex(/^\d+$/).nullable(),
-  tierWeight: z.number().int().nullable(),
-});
+type LaunchEvent = ProcedureOutput<typeof TOKEN_LAUNCH_EVENTS_GET>;
+type Eligibility = ProcedureOutput<typeof TOKEN_LAUNCH_ELIGIBILITY>;
 
 function useT(): T {
   const { language } = usePreferences();
@@ -104,18 +72,25 @@ export function LaunchCatalogue() {
   const [type, setType] = useState('');
   const [state, setState] = useState('');
   const [limit, setLimit] = useState(PAGE);
+  // The filters hold what the select sent; only a type or state the service names goes on the call.
+  const typeOf = TYPES.find((v) => v === type);
+  const stateOf = STATES.find((v) => v === state);
   const list = useResource(
     (signal) =>
-      api.query('token', 'launch.events.list', { limit, ...(type ? { type } : {}), ...(state ? { state } : {}) }, z.array(eventSchema), {
-        signal,
-      }),
+      api.call(
+        TOKEN_LAUNCH_EVENTS_LIST,
+        { limit, ...(typeOf ? { type: typeOf } : {}), ...(stateOf ? { state: stateOf } : {}) },
+        {
+          signal,
+        },
+      ),
     `launch-list:${type}:${state}:${limit}`,
   );
   const filtered = type !== '' || state !== '';
   return (
-    <Panel title={t('events')}>
-      <div className="launch-catalogue">
-        <div className="launch-catalogue-filters">
+    <Section title={t('events')}>
+      <div>
+        <div className="lt-toolbar">
           <Select
             label={t('type')}
             value={type}
@@ -129,22 +104,22 @@ export function LaunchCatalogue() {
             options={[{ value: '', label: t('all') }, ...STATES.map((v) => ({ value: v, label: t(v) }))]}
           />
         </div>
-        <Read resource={list.resource} retry={list.reload}>
+        <KitRead resource={list.resource} retry={list.reload}>
           {(events) =>
             events.length === 0 ? (
-              <EmptyState title={filtered ? t('emptyFiltered') : t('emptyAll')}>{filtered ? null : t('emptyAllBody')}</EmptyState>
+              <EmptyNote title={filtered ? t('emptyFiltered') : t('emptyAll')}>{filtered ? null : t('emptyAllBody')}</EmptyNote>
             ) : (
               <>
-                <small className="muted">{t('count', { count: String(events.length), limit: String(limit) })}</small>
-                <ul className="launch-catalogue-cards" aria-label={t('events')}>
+                <small className="lt-hint">{t('count', { count: String(events.length), limit: String(limit) })}</small>
+                <ul className="lt-grid" aria-label={t('events')}>
                   {events.map((e) => (
-                    <li key={e.id} className="launch-catalogue-card">
-                      <a className="text-link" href={`/launch/${encodeURIComponent(e.id)}`}>
+                    <li key={e.id}>
+                      <a className="lt-link" href={`/launch/${encodeURIComponent(e.id)}`}>
                         {`${e.projectName} (${e.symbol})`}
                       </a>
-                      <span className="launch-catalogue-badge" data-testid="launch-state">
+                      <Tag tone="neutral" data-testid="launch-state">
                         {stateWord(e, t)}
-                      </span>
+                      </Tag>
                       <Details
                         items={[
                           [t('type'), t(e.type)],
@@ -161,9 +136,9 @@ export function LaunchCatalogue() {
               </>
             )
           }
-        </Read>
+        </KitRead>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -171,28 +146,41 @@ export function LaunchCatalogue() {
 export function LaunchDetail({ eventId }: { eventId: string }) {
   const api = useApi();
   const t = useT();
-  const read = useResource(
-    (signal) => api.query('token', 'launch.events.get', { id: eventId }, eventSchema, { signal }),
-    `launch:${eventId}`,
-  );
-  if (read.resource.status === 'failed' && read.resource.failure.code === 'launch.event_not_found') {
-    return (
-      <Panel title={t('refusedNotFound')}>
-        <EmptyState title={t('refusedNotFound')} />
-        <a className="text-link" href="/launch">
-          {t('back')}
-        </a>
-      </Panel>
-    );
-  }
+  const read = useResource((signal) => api.call(TOKEN_LAUNCH_EVENTS_GET, { id: eventId }, { signal }), `launch:${eventId}`);
+  const scope = launchCopy.useCopy().t('scope');
+  const notFound = read.resource.status === 'failed' && read.resource.failure.code === 'launch.event_not_found';
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <CatalogueTemplate
+      title={moreRoomRoutesCopy.t('launchProject')}
+      description={scope}
+      state={{ kind: 'ready' }}
+      items={null}
+      item={
+        notFound ? (
+          <Section title={t('refusedNotFound')}>
+            <EmptyNote title={t('refusedNotFound')} />
+            <a className="lt-link" href="/launch">
+              {t('back')}
+            </a>
+          </Section>
+        ) : (
+          <LaunchBody resource={read.resource} retry={read.reload} />
+        )
+      }
+    />
+  );
+}
+
+function LaunchBody({ resource, retry }: { resource: Resource<LaunchEvent>; retry: () => void }) {
+  const t = useT();
+  return (
+    <KitRead resource={resource} retry={retry}>
       {(e) => (
-        <div className="launch-catalogue">
-          <a className="text-link" href="/launch">
+        <div>
+          <a className="lt-link" href="/launch">
             {t('back')}
           </a>
-          <Panel title={`${e.projectName} (${e.symbol})`}>
+          <Section title={`${e.projectName} (${e.symbol})`}>
             <Details
               items={[
                 [t('type'), t(e.type)],
@@ -210,8 +198,8 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
                 ],
               ]}
             />
-          </Panel>
-          <div className="launch-catalogue-panels">
+          </Section>
+          <div className="lt-grid">
             <Region id="allocation" title={t('allocation')}>
               <Details
                 items={[
@@ -236,7 +224,7 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
           <YourBasis event={e} />
         </div>
       )}
-    </Read>
+    </KitRead>
   );
 }
 
@@ -244,7 +232,7 @@ export function LaunchDetail({ eventId }: { eventId: string }) {
 function Region({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   const heading = `launch-${id}-title`;
   return (
-    <section className="launch-catalogue-region" aria-labelledby={heading}>
+    <section aria-labelledby={heading}>
       <h3 id={heading}>{title}</h3>
       {children}
     </section>
@@ -254,7 +242,7 @@ function Region({ id, title, children }: { id: string; title: string; children: 
 function Weights({ weights, t }: { weights: LaunchEvent['allocation']['tierWeights']; t: T }) {
   if (!weights || weights.length === 0) return <>{t('notSet')}</>;
   return (
-    <ul className="launch-catalogue-weights">
+    <ul>
       {weights.map((w) => (
         <li key={w.minBasis}>{t('weight', { minBasis: w.minBasis, weight: String(w.weight) })}</li>
       ))}
@@ -272,7 +260,7 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   const check = async () => {
     setBusy(true);
     try {
-      setResult(await api.query('token', 'launch.eligibility', { id: event.id }, eligibilitySchema));
+      setResult(await api.call(TOKEN_LAUNCH_ELIGIBILITY, { id: event.id }));
     } finally {
       setBusy(false);
     }
@@ -280,7 +268,7 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   return (
     <Region id="eligibility" title={t('eligibility')}>
       {userId ? (
-        <Button onClick={() => void check()} disabled={busy}>
+        <Button tone="primary" onClick={() => void check()} disabled={busy}>
           {t('check')}
         </Button>
       ) : (
@@ -291,12 +279,15 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
       ) : result?.ok ? (
         <>
           <p role="status">{result.data.eligible ? t('eligible') : t('notEligible')}</p>
-          <ul className="launch-catalogue-requirements" aria-label={t('requirements')}>
+          <ul aria-label={t('requirements')}>
             {result.data.requirements.map((r) => (
               <li key={r.id} data-met={r.met}>
                 <strong>{word(t, `req_${r.id}`)}</strong>
-                <span className="launch-catalogue-badge">{r.met ? t('met') : t('unmet')}</span>
-                <small className="muted">{t('needs', { required: r.required, actual: r.actual })}</small>
+                {/* The hook J-more-catalogue-11 #4 and its end find the badge by; the kit's Tag draws it. */}
+                <Tag tone={r.met ? 'up' : 'down'} data-testid="launch-requirement-badge">
+                  {r.met ? t('met') : t('unmet')}
+                </Tag>
+                <small className="lt-hint">{t('needs', { required: r.required, actual: r.actual })}</small>
               </li>
             ))}
           </ul>
@@ -313,8 +304,8 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
 function SignedOut({ event }: { event: LaunchEvent }) {
   const t = useT();
   const { restoreFailed, retryRestore } = useSession();
-  if (restoreFailed) return <SessionRetryPanel retry={retryRestore} />;
-  return <SignInPanel returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInPanel>;
+  if (restoreFailed) return <SessionRetryNote retry={retryRestore} />;
+  return <SignInNote returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInNote>;
 }
 
 /** This account's stored snapshot row and what the rule makes of it. Nothing here is computed in the browser. */
@@ -331,17 +322,14 @@ function YourBasis({ event }: { event: LaunchEvent }) {
 function BasisRead({ event, userId }: { event: LaunchEvent; userId: string }) {
   const api = useApi();
   const t = useT();
-  const read = useResource(
-    (signal) => api.query('token', 'launch.basis', { id: event.id }, basisSchema, { signal }),
-    `launch-basis:${event.id}:${userId}`,
-  );
+  const read = useResource((signal) => api.call(TOKEN_LAUNCH_BASIS, { id: event.id }, { signal }), `launch-basis:${event.id}:${userId}`);
   if (read.resource.status === 'failed') return <p role="alert">{refusalWords(read.resource.failure, t)}</p>;
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <KitRead resource={read.resource} retry={read.reload}>
       {(b) => (
         <>
-          {b.reason === 'snapshot_not_taken' ? <p className="muted">{t('basisNoSnapshot')}</p> : null}
-          {b.reason === 'no_holdings_at_snapshot' ? <p className="muted">{t('basisNoHoldings')}</p> : null}
+          {b.reason === 'snapshot_not_taken' ? <p className="lt-hint">{t('basisNoSnapshot')}</p> : null}
+          {b.reason === 'no_holdings_at_snapshot' ? <p className="lt-hint">{t('basisNoHoldings')}</p> : null}
           <Details
             items={[
               [t('basisAmount'), b.basis ? <span data-testid="launch-basis">{t('basisValue', { amount: b.basis })}</span> : t('notSet')],
@@ -356,6 +344,6 @@ function BasisRead({ event, userId }: { event: LaunchEvent; userId: string }) {
           />
         </>
       )}
-    </Read>
+    </KitRead>
   );
 }

@@ -1,4 +1,5 @@
-import { middleware, protectedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { middleware, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { MerchantControlError } from '../merchant-account-controls.js';
 import type { FounderAuthority } from '../founder-authority.js';
 

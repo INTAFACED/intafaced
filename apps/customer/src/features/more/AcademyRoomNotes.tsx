@@ -4,7 +4,7 @@ import { roomSummary } from './academy-lms';
 type RoomFacts = { access: 'free' | 'staked' | 'invite'; minStake: string; capacity: number; hostId: string };
 type SessionFacts = { status: 'scheduled' | 'live' | 'ended' | 'cancelled' };
 
-/** What joining this room takes and which actions are the host's, said in plain words from the room's own terms. */
+/** What joining this room takes and which actions are the host's, said in plain words from the room's own terms; drawn with the kit. */
 export function RoomNotes({
   room,
   sessions,
@@ -18,7 +18,7 @@ export function RoomNotes({
   const summary = roomSummary(sessions);
   const isHost = Boolean(userId) && room.hostId === userId;
   return (
-    <section className="academy-lms-stack" aria-label={copy.t('roomNotesLabel')}>
+    <section className="lt-stack" aria-label={copy.t('roomNotesLabel')}>
       <p role="status">
         <Copy k="roomSessions" params={{ live: summary.live, scheduled: summary.scheduled }} />
       </p>
@@ -28,11 +28,11 @@ export function RoomNotes({
         {room.access === 'invite' && <Copy k="roomInvite" params={{ capacity: room.capacity }} />}
       </p>
       {summary.live === 0 && (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="roomNoLive" />
         </p>
       )}
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k={isHost ? 'roomYouHost' : 'roomHostOnly'} />
       </p>
     </section>

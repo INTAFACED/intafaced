@@ -1,16 +1,15 @@
 import 'server-only';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal, handleStep, refusalResponse, stepResponse } from '@/lib/desk';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { handleStep, refusalResponse, stepResponse } from '@/lib/desk/step-route';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { DESKS, readSpecFor } from './catalog';
 import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
 import { loadCustomerBalances, loadCustomerEntries, loadDesk, loadPage, loadTransferDetail } from './server';
-import { transferIdOf } from './transfer-id';
+import { transferIdOf } from '@/lib/transfer-id';
 import type { OpsDeskId } from './types';
 
 /**
@@ -29,8 +28,13 @@ export async function deskGet(request: Request, deskId: OpsDeskId): Promise<Resp
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   // `?section=<id>` (repeatable) reads only those sections; an id the desk does not have reads nothing.
-  const sections = new URL(request.url).searchParams.getAll('section');
-  return Response.json(await loadDesk(session, deskId, new Date(), sections.length > 0 ? sections : undefined), { headers: NO_STORE });
+  const params = new URL(request.url).searchParams;
+  const sections = params.getAll('section');
+  // Any other key is a narrowing (`?course=<slug>`), which only a read that names it takes (`narrowDesk`).
+  const filter = Object.fromEntries([...params].filter(([k]) => k !== 'section'));
+  return Response.json(await loadDesk(session, deskId, new Date(), sections.length > 0 ? sections : undefined, filter), {
+    headers: NO_STORE,
+  });
 }
 
 export async function deskPost(request: Request, deskId: OpsDeskId, kinds: readonly string[]): Promise<Response> {

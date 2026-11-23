@@ -11,8 +11,9 @@ import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } f
 import { fromFailure, json } from '@/lib/merchants/bff';
 import { asList } from '@/lib/merchants/registry-model';
 import { asTier } from '@/lib/merchants/control-model';
-import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
+import { PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: merchant control changes (two founders) and payout approvals (two founders).
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
 
     if (action === 'tiers') {
       // A read, here so the confirm panel can ask "did a tier change since this page loaded?" before it calls a mismatch an incident.
-      const tiers = await payCall(ctx, 'founderAdmin.control.tiers.list', 'GET', {}, (raw) => asList(raw, asTier));
+      const tiers = await payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST, {}, (raw) => asList(raw, asTier));
       if (tiers.kind !== 'ok') return fromFailure(tiers);
       return json({ ok: true, tiers: tiers.data });
     }

@@ -7,32 +7,9 @@ import { z } from 'zod';
  * schedule, all shown before the wallet is asked), `auth.verify` checks the wallet signed it and spends its nonce once,
  * and every order call carries the access token it returns. The service reads the maker from the token it issued, never
  * from an address the caller names. Every call is a POST (a tRPC mutation), reads included, so a token travels in a
- * body and never in a URL an access log keeps.
+ * body and never in a URL an access log keeps. Each call's record, with its refusals, is `dex-procedures.ts`.
  */
 export const PROTOCOL_DEX_ORDERS_CONTRACT_VERSION = 1 as const;
-
-export const DEX_AUTH_REFUSALS = [
-  /** The session secret is blank (owner setting): no order session can be written. */
-  'dex.auth.session_unset',
-  /** The access or refresh lifetime is blank (owner setting). */
-  'dex.auth.lifetime_unset',
-  /** The challenge was not written by this service, is for another chain or wallet, or has expired. */
-  'dex.auth.challenge_invalid',
-  /** The challenge was already spent: a signature is good for one session only. */
-  'dex.auth.challenge_replayed',
-  /** The signature does not recover to the wallet the challenge was written for. */
-  'dex.auth.signature_not_owner',
-  /** The access or refresh token is missing, altered, expired or revoked: sign a new order session. */
-  'dex.auth.unauthenticated',
-  /** The token is good but does not reach what was asked (another wallet's order). */
-  'dex.auth.forbidden',
-] as const;
-export type DexAuthRefusal = (typeof DEX_AUTH_REFUSALS)[number];
-
-export const DEX_ORDER_CAP_REFUSALS = [
-  /** The order cap schedule is blank (owner setting): no session is written, so no order can be placed. */
-  'dex.order.cap_unset',
-] as const;
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const decimal = z.string().regex(/^\d+(\.\d+)?$/);
@@ -46,7 +23,14 @@ export const dexTypedDataSchema = z.object({
   types: z.record(z.string(), z.array(z.object({ name: z.string(), type: z.string() }))),
   primaryType: z.string(),
   domain: z.object({ name: z.string(), version: z.string(), chainId: z.number().int() }),
-  message: z.record(z.string(), z.unknown()),
+  /** The order session itself, as the wallet hashes it: `expiresAt` is unix seconds as a decimal string (a uint256). */
+  message: z.object({
+    wallet: address,
+    scope: z.string(),
+    cap: z.string(),
+    expiresAt: z.string().regex(/^\d+$/),
+    nonce: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+  }),
 });
 export type DexTypedData = z.infer<typeof dexTypedDataSchema>;
 

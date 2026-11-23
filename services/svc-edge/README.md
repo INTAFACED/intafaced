@@ -107,6 +107,17 @@ The operator plane (`/admin/*`) and the probes get the headers only.
 
 **Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` and `content-security-policy` only on `/api/notify/status/badge.svg` (`status-badge-proxy.ts`), where svc-notify sets the image's cache life from its reading's age; and `idempotent-replayed` and `retry-after` only on svc-trade's venue door, `/api/v1/venue/*` (`idempotency-headers.ts`, J-developer-05). Every other path gets no upstream `cache-control`.
 
+## API versions on `/api/v1` (`src/api-version.ts`)
+
+A caller names the dated API version it was written against in the `intafaced-version` header (the versions are `API_VERSIONS` in `packages/contracts/src/api-versions.ts`). The header is a caller header, deliberately not under the stripped `x-intafaced-` prefix. On `/api/v1` only:
+
+- **Header sent:** a known version applies, is forwarded to the service as `intafaced-version` and echoed on the reply with `intafaced-version-source: header`. Any other value (a typo, an empty value, a repeated header) is refused 400 `version.unknown` and forwarded nowhere, for every caller.
+- **No header, an API key:** the account default applies, read from the key exchange (`apiVersionDefault`, svc-identity `developer.apiVersion.set`), echoed with `intafaced-version-source: account`. With no default the call is refused 400 `version.unset`, whose message names both fixes. Never a silent latest.
+- **No header, signed out or a signed-in session:** forwarded as before with no echo, so the public CCXT reads and our own app keep working unversioned.
+- **Advisories:** a request that sends a field in `API_DEPRECATIONS` (method, path and a JSON body object with the field) gets, whatever the reply's status, `Deprecation: @<unix seconds of the version date>` (RFC 9745), `Link: </developers/changelog>; rel="deprecation"` and `intafaced-advisories` (the entries as JSON). No `Sunset` while the owner has set no removal date.
+
+The version check runs after the key, scope and rate gates, so a refused version still costs the call. The five reply headers are exposed to an allowed browser origin, and `intafaced-version` is an allowed request header (see CORS below).
+
 **Hop-by-hop headers are stripped, not forwarded.** The full RFC 7230 set (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailer`, `transfer-encoding`, `upgrade`) plus `host` and `content-length` die in `stripReserved` before anything reaches an upstream. The edge rewrites `host`/`content-length` for the hop it owns; the rest must not be smuggled through the perimeter.
 
 **Unauthenticated `/ready` is not a kill-switch oracle.** It reports route prefixes, screening/CORS counts, rate-limit posture, and the body budget — not `disabledModules`. The halt list is operator-only on `GET /admin/status` (`admin:write` + MFA). Publishing it on `/ready` undid the preflight ordering that exists so an unauthenticated caller cannot learn which modules are killed.
@@ -119,20 +130,20 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 
 **The vendored shell on `:8090` was never affected and is unchanged.** nginx proxies its `/api` same-origin, so no `Origin` header is sent and none of this applies to it. There is a test asserting a request with no `Origin` is untouched.
 
-| Behaviour                          | Value                                                                 |
-| ---------------------------------- | --------------------------------------------------------------------- |
-| Allowed origins                    | `EDGE_ALLOWED_ORIGINS` — exact origins, comma-separated               |
-| `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                        |
-| `Access-Control-Allow-Credentials` | `true`, beside an exact allowlisted origin only; never with `*`       |
-| `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                  |
-| `Access-Control-Allow-Headers`     | `authorization, content-type, idempotency-key, x-api-explorer`        |
-| `Access-Control-Expose-Headers`    | `x-request-id, x-server-received, x-server-sent`, allowed origin only |
-| `Vary`                             | `origin`, on every answer including the ones that allow nothing       |
-| Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface**   |
+| Behaviour                          | Value                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Allowed origins                    | `EDGE_ALLOWED_ORIGINS` — exact origins, comma-separated                                                |
+| `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                                                         |
+| `Access-Control-Allow-Credentials` | `true`, beside an exact allowlisted origin only; never with `*`                                        |
+| `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                                                   |
+| `Access-Control-Allow-Headers`     | `authorization, content-type, idempotency-key, x-api-explorer, intafaced-version`                      |
+| `Access-Control-Expose-Headers`    | `x-request-id, x-server-received, x-server-sent` and the five API version headers, allowed origin only |
+| `Vary`                             | `origin`, on every answer including the ones that allow nothing                                        |
+| Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface**                                    |
 
 **No wildcard, ever.** `*` in `EDGE_ALLOWED_ORIGINS` is a boot failure with an explanation, not a silently skipped entry.
 
-**Three headers are exposed, and only these** (RC-developer-03). A browser on an allowed origin needs the request id to quote to support and the two server times for its clock check. They are readable on credentialed replies too (the allowed origin's answers carry `Access-Control-Allow-Credentials: true`), and that is fine: the id is a random UUID minted per request, the times are this server's clock, and none of the three is a secret, holds a cookie or token, or names an account. The allowed origin can already read the whole body of the same reply; the grant adds nothing an attacker's page could use, because a disallowed origin reads nothing at all. Not the rate-limit headers, not `x-intafaced-*`. A disallowed origin, a caller with no `Origin`, a preflight and `/admin/*` get no expose header.
+**These headers are exposed, and only these** (RC-developer-03, and J-developer-16 for the API version echo and advisory: `intafaced-version`, `intafaced-version-source`, `intafaced-advisories`, `deprecation`, `link`, all public facts of the API that name no account). A browser on an allowed origin needs the request id to quote to support and the two server times for its clock check. They are readable on credentialed replies too (the allowed origin's answers carry `Access-Control-Allow-Credentials: true`), and that is fine: the id is a random UUID minted per request, the times are this server's clock, and none of the three is a secret, holds a cookie or token, or names an account. The allowed origin can already read the whole body of the same reply; the grant adds nothing an attacker's page could use, because a disallowed origin reads nothing at all. Not the rate-limit headers, not `x-intafaced-*`. A disallowed origin, a caller with no `Origin`, a preflight and `/admin/*` get no expose header.
 
 **Credentials, for exact allowlisted origins only.** The refresh token rides in an httpOnly cookie, and the customer app restores a session with `credentials: 'include'` (`apps/customer/src/features/session/session-restore.ts`), so `cors.ts` answers an allowlisted origin with `Access-Control-Allow-Credentials: true` beside that exact origin, on preflights and on replies. It never pairs it with `*` (there is no path that emits `*`), a disallowed origin gets neither header, and a request with no `Origin` gets no CORS headers at all. The access token itself is still held in memory and sent as an `Authorization` header; the cookie is the refresh path only.
 

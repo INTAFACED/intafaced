@@ -1,9 +1,5 @@
 import 'server-only';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
 import { freezeDetail, readFreezeAnswer, readUnfreezeAnswer, unfreezeDetail, type DepositFreezeRequest } from './model';
 
 /**

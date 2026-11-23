@@ -17,7 +17,6 @@ const caller = (deps: ProtocolRouterDeps) =>
 function deps(chain: Record<string, unknown>): ProtocolRouterDeps {
   return {
     chain: { config: { chainId: 84532, factory: ZERO, implementation: ZERO }, ...chain },
-    registry: {},
     relay: {},
     relayEnabled: () => true,
     ammFactoryAddress: () => ZERO,
@@ -66,7 +65,7 @@ describe('approval plan', () => {
   });
 });
 
-describe('amm.checkApproval / buildApprove / buildRevoke', () => {
+describe('amm.checkApproval / buildRevoke', () => {
   const input = { owner: OWNER, token: TOKEN, spender: SPENDER, amount: '10' };
 
   it('allowance 0 needs one approve(spender, 10), and names the block it read', async () => {
@@ -98,16 +97,11 @@ describe('amm.checkApproval / buildApprove / buildRevoke', () => {
     await expect(c.checkApproval({ ...input, amount: '0' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(c.checkApproval({ ...input, amount: (MAX_UINT256 + 1n).toString() })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(c.checkApproval({ ...input, spender: ZERO })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(c.buildApprove({ token: ZERO, spender: SPENDER, amount: '1' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     expect(read).toBe(false);
   });
 
-  it('builds exact approve, unlimited only by name, and revoke', async () => {
+  it('builds a revoke as approve(spender, 0)', async () => {
     const c = caller(deps({}));
-    const exact = await c.buildApprove({ token: TOKEN, spender: SPENDER, amount: '10' });
-    expect(decode(exact.data as `0x${string}`).args).toEqual([SPENDER, 10n]);
-    const unlimited = await c.buildApprove({ token: TOKEN, spender: SPENDER, amount: '10', unlimited: true });
-    expect(decode(unlimited.data as `0x${string}`).args).toEqual([SPENDER, MAX_UINT256]);
     const revoke = await c.buildRevoke({ token: TOKEN, spender: SPENDER });
     expect(decode(revoke.data as `0x${string}`).args).toEqual([SPENDER, 0n]);
   });

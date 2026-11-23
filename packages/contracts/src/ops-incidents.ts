@@ -31,8 +31,13 @@ export const INCIDENT_REQUEST_KEY_REUSED = 'ops.incident_request_key_reused' as 
 
 /** An incident not assessed yet. Every other severity name comes from the owner's list. */
 export const INCIDENT_SEVERITY_PENDING = 'pending' as const;
-/** How a severity name is spelt in the owner's list: lower snake case, at most 40 characters, never `pending`. */
-export const INCIDENT_SEVERITY_NAME = /^(?!pending$)[a-z][a-z0-9_]{0,39}$/;
+/**
+ * How a severity name is spelt in the owner's list: lower snake case, at most 40 characters, never `pending`. Written
+ * without lookaround (see `SERVICE_RUNBOOK`): a name that does not start with `p`, or that leaves `pending` at its first
+ * differing letter, or that runs on past it.
+ */
+export const INCIDENT_SEVERITY_NAME =
+  /^(?:[a-oq-z][a-z0-9_]{0,39}|p(?:[a-df-z0-9_][a-z0-9_]{0,38})?|pe(?:[a-mo-z0-9_][a-z0-9_]{0,37})?|pen(?:[a-ce-z0-9_][a-z0-9_]{0,36})?|pend(?:[a-hj-z0-9_][a-z0-9_]{0,35})?|pendi(?:[a-mo-z0-9_][a-z0-9_]{0,34})?|pendin(?:[a-fh-z0-9_][a-z0-9_]{0,33})?|pending[a-z0-9_]{1,33})$/;
 export const INCIDENT_STATUSES = ['active', 'resolved'] as const;
 
 const iso = z.string().datetime({ offset: true });

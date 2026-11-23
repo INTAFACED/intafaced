@@ -15,7 +15,11 @@
  * with compare-and-set revisions is a later slice.
  */
 import { z } from 'zod';
-import { homeConfigOutputSchema, publicProcedure, router, type HomeConfig } from '@intafaced/contracts';
+import type { HomeConfig } from '@intafaced/contracts';
+import { homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { router } from '@intafaced/contracts/trpc';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 const blank = (value: string | undefined): boolean => value === undefined || value.trim() === '';
 
@@ -66,9 +70,13 @@ export function homeConfigFromEnv(env: HomeConfigEnv): HomeConfig {
   });
 }
 
-/** `home.config` (the contract's `HOME_CONFIG_PROCEDURE`): public, read only, blank stays blank. */
+/** `home.config`, mounted from its record (`OPS_HOME_CONFIG`): public, read only, blank stays blank. It refuses nothing. */
 export function createHomeConfigRouter(config: HomeConfig) {
   return router({
-    config: publicProcedure.output(homeConfigOutputSchema).query(() => config),
+    config: mountRecord(
+      OPS_HOME_CONFIG,
+      () => config,
+      () => undefined,
+    ),
   });
 }

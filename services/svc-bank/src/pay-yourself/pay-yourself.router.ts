@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
 import { amountString } from '../router/shared.js';
@@ -41,6 +41,7 @@ const creditView = z.object({
   key: z.string(),
   txHash: z.string(),
   amount: z.string(),
+  from: z.string(),
   status: z.enum(['pending', 'available']),
   held: z.boolean(),
   confirmations: z.number().int(),

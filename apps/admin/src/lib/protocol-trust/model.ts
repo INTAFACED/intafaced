@@ -26,7 +26,6 @@ export type TrustTab = (typeof TRUST_TABS)[number];
 
 /** The tabs this console cannot act on yet, each with what it waits for. */
 export const TRUST_TAB_WAITS: Readonly<Partial<Record<TrustTab, string>>> = {
-  Blocklist: 'Not built yet: svc-protocol and svc-dex keep no token blocklist (D-launch-listing-02), so nothing can be blocked here.',
   'Pool halts': 'Not built yet: no pool halt record reaches routing (D-launch-listing-07), so no pool can be halted here.',
 };
 
@@ -60,6 +59,7 @@ const REFUSAL_WORDS: Readonly<Record<string, string>> = {
     'You already approved this name tag, so a different person must give the second approval. Nothing was changed.',
   'protocol.nametags.request_unknown': 'That name tag is not waiting for approval on this network.',
   'protocol.nametags.request_pending': 'A name tag for this address is already waiting for approval.',
+  'protocol.blocklist.already_blocked': 'This token is already on the blocklist. Nothing was changed.',
 };
 export const trustRefusalWords = (code: string | null): string | null =>
   code !== null && Object.hasOwn(REFUSAL_WORDS, code) ? REFUSAL_WORDS[code]! : null;

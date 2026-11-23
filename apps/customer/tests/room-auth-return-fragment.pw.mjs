@@ -106,14 +106,14 @@ async function authenticate(page, target, original) {
   }
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(original, page.url()).href);
-  await expect(page.locator('.blueprint-shared')).toBeVisible();
+  await expect(page.locator('[data-blueprint-shared]')).toBeVisible();
 }
 async function firstLogin(page) {
   await page.goto('/login?redirect=%2Fblueprint');
   await page.locator('input[name="identifier"]').fill('qualified-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.blueprint-shared')).toBeVisible();
+  await expect(page.locator('[data-blueprint-shared]')).toBeVisible();
 }
 async function navigateRoom(page, href) {
   await page.evaluate((href) => {
@@ -129,7 +129,7 @@ for (const target of ['login', 'register']) {
     await expect(gate(page)).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(destination));
     await gate(page).click();
     await authenticate(page, target, destination);
-    await expect(page.locator('.blueprint-shared-image')).toHaveAttribute('width', '1200');
+    await expect(page.locator('[data-blueprint-shared] [data-part="image"]')).toHaveAttribute('width', '1200');
     expect(state.auth).toEqual(['auth.' + target]);
     expect(state.reads.filter((read) => read.procedure === 'cardOf').map((read) => read.input)).toEqual([
       { userId: subject, size: 'landscape' },
@@ -152,13 +152,13 @@ for (const target of ['login', 'register']) {
       const state = await network(context);
       await firstLogin(page);
       await navigateRoom(page, '/view');
-      await expect(page.locator('.blueprint-shared')).toHaveCount(0);
+      await expect(page.locator('[data-blueprint-shared]')).toHaveCount(0);
       state.expired = procedure;
       const original = procedure === 'cardOf' ? destination : '/blueprint?section=owner#identity-profile';
       await navigateRoom(page, original);
       await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
       expect(state.reads.filter((read) => read.unauthorized).map((read) => read.procedure)).toEqual([procedure]);
-      await expect(page.locator('.blueprint-shared')).toHaveCount(0);
+      await expect(page.locator('[data-blueprint-shared]')).toHaveCount(0);
       await expect(gate(page)).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(original));
       state.expired = null;
       await gate(page).click();

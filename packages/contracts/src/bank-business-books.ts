@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank `businessBooks.*` (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05): a business keeps its books in order.
@@ -50,7 +51,7 @@ export const businessBookLineSchema = z.object({
 });
 
 export const businessBooksOverviewSchema = z.object({
-  account: z.object({ id: z.string().guid(), name: z.string(), assetId: z.string() }),
+  account: z.object({ id: z.string().guid(), name: z.string(), assetId: assetIdSchema }),
   permissions: z.array(z.string()),
   connection: businessAccountingConnectionSchema.nullable(),
   rules: z.array(businessCodingRuleSchema),
@@ -69,6 +70,11 @@ export const businessBookStatementSchema = z.object({
   lineCount: z.number().int().nonnegative(),
   partner: z.object({ label: z.string(), closing: signed, lines: z.number().int().nonnegative(), asOf: iso }),
 });
+
+/** `businessBooks.lines` and `businessBooks.codeLines`: the account's lines for the period. */
+export const businessBookLinesSchema = z.object({ items: z.array(businessBookLineSchema) });
+/** `businessBooks.testRule`: the lines a rule would match, before it is saved. */
+export const businessBookRuleMatchesSchema = z.object({ matches: z.array(businessBookLineSchema) });
 
 export type BusinessBookLine = z.infer<typeof businessBookLineSchema>;
 export type BusinessCodingRule = z.infer<typeof businessCodingRuleSchema>;

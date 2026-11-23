@@ -2,12 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 import { SupportedAssetsView } from './SupportedAssets';
 import type { SupportedAsset } from './supported-assets-reads';
 
@@ -35,7 +39,7 @@ const cell = (id: string, col: string) => row(id).querySelector(`[data-col="${co
 
 // TEST rows, not published settings.
 const asset = (over: Partial<SupportedAsset>): SupportedAsset => ({
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   kind: 'crypto',
   precision: 6,
   networks: [
@@ -55,8 +59,8 @@ describe('supported assets and networks', () => {
       <SupportedAssetsView
         resource={ready([
           asset({}),
-          asset({ assetId: 'OLD', precision: 18, networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' }),
-          asset({ assetId: 'PAUSED', precision: 2, state: 'halted' }),
+          asset({ assetId: asAssetId('OLD'), precision: 18, networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' }),
+          asset({ assetId: asAssetId('PAUSED'), precision: 2, state: 'halted' }),
         ])}
         reload={() => undefined}
       />,

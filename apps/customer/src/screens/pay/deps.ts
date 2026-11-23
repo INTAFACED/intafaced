@@ -112,7 +112,7 @@ export {
   type RequestEntry,
   type SentEntry,
 } from '../../features/pay/personal/personal-model';
-export { encodeQr, qrPath } from '../../features/pay/personal/qr';
+export { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
 
 export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';

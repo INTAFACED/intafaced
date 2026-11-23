@@ -11,6 +11,7 @@ import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
 import { CustomerCard } from './support-customer-card';
+import { ChartsLookupPanel } from './support-charts-lookup';
 import { TicketOwner } from './support-ticket-owner';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
@@ -220,6 +221,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
 
       <TicketOwner key={`owner:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
       <CustomerCard key={`customer:${t.id}`} ticketId={t.id} />
+      <ChartsLookupPanel key={`charts:${t.id}`} ticketId={t.id} />
 
       <h4>Conversation</h4>
       {detail.comments.kind === 'failed' ? (
@@ -311,6 +313,8 @@ function TicketHistory({ rows, anyFailed }: { rows: readonly HistoryRow[]; anyFa
 
 export function SupportDeskView(p: DeskViewProps) {
   const q = p.queue;
+  // A due time shows only once a response target is active and a request on this page started a clock under it.
+  const showsDue = q?.queue.kind === 'ok' && q.queue.data.entries.some((e) => e.responseDue !== null);
   return (
     <div className="dk" data-testid="support-desk">
       <div className="adm-pagehead">
@@ -372,6 +376,7 @@ export function SupportDeskView(p: DeskViewProps) {
                     <th>Category</th>
                     <th>Status</th>
                     <th>Score</th>
+                    {showsDue && <th>Due</th>}
                     <th>Waiting</th>
                     <th>Open</th>
                   </tr>
@@ -393,6 +398,13 @@ export function SupportDeskView(p: DeskViewProps) {
                       <td>{e.category}</td>
                       <td>{e.status}</td>
                       <td>{e.score}</td>
+                      {showsDue && (
+                        <td data-testid="queue-due">
+                          {e.responseDue
+                            ? `${formatWhen(e.responseDue.dueAt)} (first reply within ${e.responseDue.targetMinutes} min)`
+                            : 'No target'}
+                        </td>
+                      )}
                       <td>{formatAge(e.ageMs)}</td>
                       <td>
                         <button

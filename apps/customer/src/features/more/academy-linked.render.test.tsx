@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { safeReturnTo } from '../../app/navigation';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { LinkedCourseEnrol } from './AcademyAuthoredCourse';
 import { academyCourseHref, academyCourseSignInHref } from './academy-lms';
 

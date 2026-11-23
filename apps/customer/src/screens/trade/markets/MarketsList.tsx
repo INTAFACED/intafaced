@@ -496,7 +496,7 @@ export function MarketsList({
         minWidth={pro ? PRO_MIN_WIDTH : SIMPLE_MIN_WIDTH}
         labels={{ loading: t('Loading') }}
       />
-      <span id={pausedNote} className="sr-only">
+      <span id={pausedNote} className="lt-sr">
         {t('Orders are paused on this market')}
       </span>
       {more > 0 ? (

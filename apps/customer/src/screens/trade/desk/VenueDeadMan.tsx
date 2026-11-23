@@ -147,7 +147,7 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
               </fieldset>
             )}
             {armed && !shown ? (
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {t('Dead man armed', { time: clockSeconds(cancelsAt, timeZone) })}
               </p>
             ) : null}

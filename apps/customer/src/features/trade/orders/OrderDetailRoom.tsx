@@ -15,7 +15,7 @@ import { changeLine } from '../../../screens/trade/desk/order-changes';
 import { baseOf, orderStatus, precisionOf, quoteOf, type Precision } from '../../../screens/trade/desk/OrderTables';
 import { quotePlaces } from '../../../screens/trade/desk/text';
 import { dayTime } from '../../../screens/trade/desk/time';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type OrderChange } from '../trade-api';
 import { orderReason } from './order-reason';
 import { fillsAverage, orderTrigger, type Slippage } from './order-trigger';
@@ -185,7 +185,7 @@ function Changes({ read, tick, t }: { read: Read<OrderChange[]>; tick: string | 
             {change.relatedOrderId ? (
               <>
                 {' '}
-                <a className="text-link" href={`/trade/orders/${encodeURIComponent(change.relatedOrderId)}`}>
+                <a className="lt-link" href={`/trade/orders/${encodeURIComponent(change.relatedOrderId)}`}>
                   {t('changeOpen')}
                 </a>
               </>
@@ -240,7 +240,7 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
   }, [orderId, userId, revision]);
 
   const back = (
-    <a className="text-link" href="/trade/orders">
+    <a className="lt-link" href="/trade/orders">
       {t('backToHistory')}
     </a>
   );
@@ -250,7 +250,7 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders/${orderId}`)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders/${orderId}`)}`}>
               {t('signIn')}
             </a>
           }

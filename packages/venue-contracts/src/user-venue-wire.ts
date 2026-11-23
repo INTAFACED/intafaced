@@ -41,6 +41,7 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'initialMargin',
   'liquidationPrice',
   'makerFeeBps',
+  'maintenanceMarginRate',
   'takerFeeBps',
   'fee',
   'withdrawalFee',
@@ -89,6 +90,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'equity',
   'usedMargin',
   'marginRatio',
+  // UserVenueCrossMargin (J-derivatives-26 #1 #3)
+  'liquidationEquity',
   // UserVenueInsuranceFund (J-derivatives-07 #4)
   'balance',
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
@@ -97,6 +100,16 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueLockSplit (J-portfolio-01 #4); `margin` is above
   'inOrders',
   'staked',
+  // UserVenueVault, UserVenueVaultTransfer (J-derivatives-31): a vault's value, and what a vault transfer credited
+  'vaultValue',
+  'creditedAmount',
+  'leaderShare',
+  // UserVenueLockSplit, UserVenueValidator, UserVenueStakingTier and VenueStakingDiscount (J-cex-spot-21)
+  'delegated',
+  'unstaking',
+  'totalStake',
+  'fromStaked',
+  'countedStake',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -116,6 +129,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'initialMargin',
   'builderFeeCapBps',
   'makerFeeBps',
+  'maintenanceMarginRate',
   'takerFeeBps',
   'maintenanceMargin',
   'marginRatio',
@@ -142,6 +156,11 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',
   'annualisedRate',
+  // UserVenueVault.vaultValue and UserVenueVaultTransfer.leaderShare (J-derivatives-31): null where not published or a deposit
+  'vaultValue',
+  'leaderShare',
+  // UserVenueValidator.totalStake (J-cex-spot-21 #1): null where not published
+  'totalStake',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -189,6 +208,12 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueFundingPayment and VenuePriceSample (J-derivatives-08)
   'periodAt',
   'sampledAt',
+  // UserVenueVaultPosition and UserVenueVaultTransfer (J-derivatives-31)
+  'lockUpEndsAt',
+  'transferredAt',
+  // UserVenueStakingAccount (J-cex-spot-21 #7 #8)
+  'arrivesAt',
+  'rewardedAt',
 ]);
 
 /**
@@ -209,6 +234,9 @@ const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
   'marginAccount',
   // A funding rate's published rule (J-derivatives-08 #1): text.
   'rule',
+  // A builder address's account mode and the mode the venue requires (J-ops-console-28): the venue's own words.
+  'mode',
+  'required',
 ]);
 
 export class VenueWireError extends Error {
