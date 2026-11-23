@@ -113,7 +113,7 @@ pub fn parse(raw: Option<&str>) -> Option<Catalogue> {
         let (Ok(rate), Ok(fee)) = (parse_amount(&q.rate), parse_amount(&q.fee)) else {
             return None;
         };
-        if rate <= 0 || fee < 0 {
+        if rate <= Amount::ZERO || fee < Amount::ZERO {
             return None;
         }
     }

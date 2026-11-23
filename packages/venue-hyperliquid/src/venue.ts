@@ -39,7 +39,6 @@ import type { MsgpackValue } from './msgpack.js';
 import { NOT_OFFERED, isBuiltIntent } from './not-offered.js';
 import { HyperliquidReads } from './reads.js';
 import {
-  HL_SIGNATURE_CHAIN_ID,
   HL_TESTNET_CHAIN,
   USER_SIGNED_TYPES,
   actionHash,
@@ -99,7 +98,7 @@ export {
   type HyperliquidNonceSource,
   type HyperliquidTestnetOptions,
 } from './core.js';
-export { mapOrderStatus } from './reads.js';
+export { mapOrderStatus, withCancelReason } from './reads.js';
 
 interface BuiltAction {
   readonly action: Record<string, MsgpackValue>;
@@ -349,6 +348,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
   private async buildOwn(account: UserVenueAccount, intent: VenueIntent, nonce: string): Promise<BuiltAction> {
     const venueId = this.venue.id;
     const vault = account.subAccount ? account.subAccount.toLowerCase() : null;
+    const signatureChainId = `0x${this.chainId.toString(16)}`;
     const l1 = (action: Record<string, MsgpackValue>): BuiltAction => ({
       action,
       vaultAddress: vault,
@@ -362,16 +362,17 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     ): BuiltAction => {
       const action: Record<string, MsgpackValue> = {
         type,
-        signatureChainId: HL_SIGNATURE_CHAIN_ID,
+        signatureChainId,
         hyperliquidChain: HL_TESTNET_CHAIN,
         ...fields,
         [nonceField]: Number(nonce),
       };
-      const typedData = userSignedTypedData(primaryType, USER_SIGNED_TYPES[primaryType], {
-        hyperliquidChain: HL_TESTNET_CHAIN,
-        ...fields,
-        [nonceField]: BigInt(nonce),
-      });
+      const typedData = userSignedTypedData(
+        primaryType,
+        USER_SIGNED_TYPES[primaryType],
+        { hyperliquidChain: HL_TESTNET_CHAIN, ...fields, [nonceField]: BigInt(nonce) },
+        signatureChainId,
+      );
       return { action, typedData, vaultAddress: null };
     };
 

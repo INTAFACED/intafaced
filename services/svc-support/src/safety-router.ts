@@ -4,10 +4,8 @@ import {
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
-  supportScamReportInputSchema,
-  supportSafetyAcknowledgementSchema,
 } from '@intafaced/contracts/support-safety';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import type { SafetyCases } from './safety-cases.js';
 import { SupportError } from './support-service.js';
 import { mapError } from './router.js';
@@ -17,6 +15,7 @@ import {
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 } from '@intafaced/contracts/support-safety-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { supportRefusal } from './record-refusal.js';
@@ -53,16 +52,17 @@ export function safetyRouter(safety: SafetyCases) {
     ),
 
     /** A scam report with its amount and the transfer it went out on (BK-safe-02, J-bank-18 #3), acknowledged once. */
-    reportScam: scopedProcedure('support:write')
-      .input(supportScamReportInputSchema)
-      .output(supportSafetyAcknowledgementSchema)
-      .mutation(async ({ ctx, input }) => {
+    reportScam: mountRecord(
+      SUPPORT_SAFETY_REPORT_SCAM,
+      async ({ ctx, input }) => {
         try {
           return await safety.reportScam(ctx.principal!.userId, input);
         } catch (err) {
           mapSafety(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** The owner's money-mule policy, or that none is published (public: the policy page reads it signed out too). */
     mulePolicy: mountRecord(SUPPORT_SAFETY_MULE_POLICY, () => safety.mulePolicy(), supportRefusal),

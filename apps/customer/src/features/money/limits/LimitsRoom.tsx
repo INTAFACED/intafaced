@@ -41,7 +41,7 @@ const limitsCopy = defineCopy('bank-limits', {
   planTier: 'Tier',
   planBilling: 'Billing',
   planBillingValue: '{price} {asset} a month',
-  planBlocked: 'Paid plans need a plan fee the bank cannot post yet ({code}), so none can be chosen.',
+  planBlocked: 'Paid plans need a plan fee the bank cannot take yet, so none can be chosen.',
   partnerLead: 'What {partner} lets you send today and what it charges. These are its figures, not ours.',
   partnerDaily: 'Daily send limit at {partner}: {amount} {asset}',
   partnerUsed: 'Sent today: {amount} {asset}',
@@ -218,7 +218,7 @@ function LimitsRoom() {
             </table>
             {plans.resource.data.plans.some((p) => p.blocker) && (
               <p className="lt-hint" data-code="bank.plan_fee_unwired">
-                {t('planBlocked', { code: 'bank.plan_fee_unwired' })}
+                {t('planBlocked')}
               </p>
             )}
           </>

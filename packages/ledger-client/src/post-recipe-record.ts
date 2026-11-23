@@ -24,7 +24,11 @@ import { LedgerError, type PostRequest } from './types.js';
  * its line in `postRecipeInput`, and its grant in the ledger gate's `gate/caller-allowlist.ts`. On the door now: svc-academy's two
  * recipes, svc-agents' usage charge (`feeCharge` in its asset mode, `chargeEarn`, `chargeCollect`), and svc-bank's
  * transfer (`bankTransfer`, every key space), its holds on received funds (`payReceivedHold`, `payReceivedRelease`,
- * `payReceivedReturn`) and its earn pools (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`).
+ * `payReceivedReturn`), its earn pools (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`), its loans
+ * (`loanCollateralLock`, `loanCollateralRelease`, `loanDraw`, `loanRepay`, `loanReserveFund`, `loanLiquidate`,
+ * `loanBadDebt`), its business approvals and payroll (`businessApprovalHold`, `businessApprovalRelease`,
+ * `businessApprovalSettle`, `businessPayroll`), its ramps and card holds (`deposit`, `withdrawHold`, `withdrawSettle`,
+ * `withdrawReverse`) and its card cashback (`rewardPay`, `sweepFeesToRewards`).
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -196,6 +200,104 @@ const earnInterestWire = z
   })
   .strict();
 
+/** Which lock, release, repayment or liquidation rung of one loan this is: a whole number from zero (`requireSequence`). */
+const SEQUENCE = z.number().int().min(0).max(2_147_483_647);
+/**
+ * `loanCollateralLock` and `loanCollateralRelease`: one loan (`bank.loans.id`), its borrower, the pledged asset and the
+ * n-th lock or release. The pot is the borrower's own `collateral`, purpose `loan:<loanId>`.
+ */
+const loanCollateralWire = z
+  .object({ loanId: UUID, userId: UUID, collateralAssetId: ACCOUNT_ASSET, amount: AMOUNT, sequence: SEQUENCE })
+  .strict();
+/** `loanDraw`: the one draw of a loan's principal from the lending reserve. */
+const loanDrawWire = z.object({ loanId: UUID, userId: UUID, debtAssetId: ACCOUNT_ASSET, principal: AMOUNT }).strict();
+/** `loanRepay`: principal back to the reserve, interest to the bank's revenue; either may be zero, not both. */
+const loanRepayWire = z
+  .object({ loanId: UUID, userId: UUID, debtAssetId: ACCOUNT_ASSET, principal: AMOUNT, interest: AMOUNT, sequence: SEQUENCE })
+  .strict();
+/** `loanReserveFund` from the bank's own fee revenue: svc-bank never names another source, so `from` is not on the wire. */
+const loanReserveFundWire = z.object({ fundingId: FUNDING_ID, debtAssetId: ACCOUNT_ASSET, amount: AMOUNT }).strict();
+/**
+ * A liquidation's buyer, as svc-bank's venue names it today: the house market maker's available balance
+ * (`marketMaker(assetId)`). A taker's accounts are not on the door until svc-bank sends one.
+ */
+const MARKET_MAKER = z
+  .object({ ownerType: z.literal('house'), ownerId: z.literal('market-maker'), assetId: ACCOUNT_ASSET, kind: z.literal('available') })
+  .strict();
+/** `loanLiquidate`: one rung of the ladder, seized, sold and repaid in one post. */
+const loanLiquidateWire = z
+  .object({
+    loanId: UUID,
+    userId: UUID,
+    tranche: SEQUENCE,
+    collateralAssetId: ACCOUNT_ASSET,
+    collateralSold: AMOUNT,
+    debtAssetId: ACCOUNT_ASSET,
+    proceeds: AMOUNT,
+    principalRepaid: AMOUNT,
+    interestRepaid: AMOUNT,
+    penalty: AMOUNT,
+    surplusToBorrower: AMOUNT,
+    buyer: z.object({ collateralTo: MARKET_MAKER, proceedsFrom: MARKET_MAKER }).strict(),
+    markPrice: AMOUNT,
+  })
+  .strict();
+/** `loanBadDebt`: the shortfall the insurance fund covers, once per loan. */
+const loanBadDebtWire = z.object({ loanId: UUID, debtAssetId: ACCOUNT_ASSET, shortfall: AMOUNT }).strict();
+
+/** A business space's available balance as svc-bank resolves it (`ledgerAccount`): the owner's own, or a named space's. */
+const SPACE_ACCOUNT = z
+  .object({ ownerType: z.enum(['user', 'subaccount']), ownerId: UUID, assetId: ACCOUNT_ASSET, kind: z.literal('available') })
+  .strict();
+/** `businessApprovalHold` and `businessApprovalRelease`: one approval (`bank.business_approvals.id`) on its debit space. */
+const businessApprovalHoldWire = z.object({ approvalId: UUID, from: SPACE_ACCOUNT, amount: AMOUNT }).strict();
+/** `businessApprovalSettle`: the approval's hold to the destination space. */
+const businessApprovalSettleWire = z.object({ approvalId: UUID, from: SPACE_ACCOUNT, to: SPACE_ACCOUNT, amount: AMOUNT }).strict();
+/** A payroll run's id as the client sends it (`z.string().guid()` on svc-bank's call): either case. */
+const PAYROLL_ID = z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/);
+/** `businessPayroll`: every recipient paid in one post, or none. */
+const businessPayrollWire = z
+  .object({
+    payrollId: PAYROLL_ID,
+    from: SPACE_ACCOUNT,
+    recipients: z.array(z.object({ to: SPACE_ACCOUNT, amount: AMOUNT }).strict()),
+  })
+  .strict();
+
+/** A rail's own id (`railBoundary`), as `rail:<rail>` fits the ledger's 128: `bank-crypto-ledger`, a card issuer. */
+const RAIL = z
+  .string()
+  .max(123)
+  .regex(/^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$/);
+/** A rail's own reference for a deposit, as svc-bank's operator door takes it (1 to 256). */
+const RAIL_REF = z.string().min(1).max(256);
+/** `deposit` as svc-bank books it: no sub-account and no unconfirmed deposit on the wire. */
+const depositWire = z.object({ userId: UUID, assetId: ACCOUNT_ASSET, amount: AMOUNT, rail: RAIL, railRef: RAIL_REF }).strict();
+/** A withdrawal's own id without spaces (a ramp row, a card authorisation, `cash-out:<id>`); `withdraw:<id>` fits the ledger's 128. */
+const WITHDRAWAL_ID = z
+  .string()
+  .min(1)
+  .max(119)
+  .regex(/^[^\s]+$/);
+/** `withdrawHold`, `withdrawSettle` and `withdrawReverse` as svc-bank books them: no fee on the wire (its holds carry none). */
+const withdrawWire = z.object({ userId: UUID, assetId: ACCOUNT_ASSET, amount: AMOUNT, rail: RAIL, withdrawalId: WITHDRAWAL_ID }).strict();
+/** A reward's own id without spaces (`bank.card.cashback:<authorizationId>`); `reward:<id>` fits the ledger's 200. */
+const REWARD_ID = z
+  .string()
+  .min(1)
+  .max(160)
+  .regex(/^[^\s]+$/);
+/** `rewardPay`: the rewards engine to one person; the reason is the caller's (`bank.card.cashback`). */
+const rewardPayWire = z.object({ rewardId: REWARD_ID, userId: UUID, assetId: ACCOUNT_ASSET, amount: AMOUNT, reason: REASON }).strict();
+/** A revenue window's own id without spaces (`bank.card:<windowId>`). */
+const WINDOW_ID = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[^\s]+$/);
+/** `sweepFeesToRewards` from the bank's own fee revenue: svc-bank sweeps only `fees:bank`. */
+const sweepFeesWire = z.object({ windowId: WINDOW_ID, sourceModule: z.literal('bank'), assetId: ACCOUNT_ASSET, amount: AMOUNT }).strict();
+
 /**
  * The recipes the door posts, one entry each, plus its line in `postRecipeInput` below. TypeScript checks each `build`
  * against the recipe's own input type, so a wire shape that drifts from its recipe does not compile.
@@ -231,6 +333,49 @@ const RECIPE_DOORS = {
     parseAmount(sum(payouts.map((p) => p.amount)));
     return recipes.earnInterest({ ...i, payouts });
   }),
+  loanCollateralLock: door(loanCollateralWire, (i) => recipes.loanCollateralLock({ ...i, amount: parseAmount(i.amount) })),
+  loanCollateralRelease: door(loanCollateralWire, (i) => recipes.loanCollateralRelease({ ...i, amount: parseAmount(i.amount) })),
+  loanDraw: door(loanDrawWire, (i) => recipes.loanDraw({ ...i, principal: parseAmount(i.principal) })),
+  loanRepay: door(loanRepayWire, (i) => {
+    const principal = parseAmount(i.principal);
+    const interest = parseAmount(i.interest);
+    // The repayment's total must fit the book, as every amount the door takes does.
+    parseAmount(principal + interest);
+    return recipes.loanRepay({ ...i, principal, interest });
+  }),
+  loanReserveFund: door(loanReserveFundWire, (i) => recipes.loanReserveFund({ ...i, amount: parseAmount(i.amount) })),
+  loanLiquidate: door(loanLiquidateWire, (i) => {
+    const interestRepaid = parseAmount(i.interestRepaid);
+    const penalty = parseAmount(i.penalty);
+    // The house's share (interest and penalty together) must fit the book.
+    parseAmount(interestRepaid + penalty);
+    return recipes.loanLiquidate({
+      ...i,
+      collateralSold: parseAmount(i.collateralSold),
+      proceeds: parseAmount(i.proceeds),
+      principalRepaid: parseAmount(i.principalRepaid),
+      interestRepaid,
+      penalty,
+      surplusToBorrower: parseAmount(i.surplusToBorrower),
+      markPrice: parseAmount(i.markPrice),
+    });
+  }),
+  loanBadDebt: door(loanBadDebtWire, (i) => recipes.loanBadDebt({ ...i, shortfall: parseAmount(i.shortfall) })),
+  businessApprovalHold: door(businessApprovalHoldWire, (i) => recipes.businessApprovalHold({ ...i, amount: parseAmount(i.amount) })),
+  businessApprovalRelease: door(businessApprovalHoldWire, (i) => recipes.businessApprovalRelease({ ...i, amount: parseAmount(i.amount) })),
+  businessApprovalSettle: door(businessApprovalSettleWire, (i) => recipes.businessApprovalSettle({ ...i, amount: parseAmount(i.amount) })),
+  businessPayroll: door(businessPayrollWire, (i) => {
+    const recipients = i.recipients.map((r) => ({ to: r.to, amount: parseAmount(r.amount) }));
+    // The run's total must fit the book, as every amount the door takes does.
+    parseAmount(sum(recipients.map((r) => r.amount)));
+    return recipes.businessPayroll({ ...i, recipients });
+  }),
+  deposit: door(depositWire, (i) => recipes.deposit({ ...i, amount: parseAmount(i.amount) })),
+  withdrawHold: door(withdrawWire, (i) => recipes.withdrawHold({ ...i, amount: parseAmount(i.amount) })),
+  withdrawSettle: door(withdrawWire, (i) => recipes.withdrawSettle({ ...i, amount: parseAmount(i.amount) })),
+  withdrawReverse: door(withdrawWire, (i) => recipes.withdrawReverse({ ...i, amount: parseAmount(i.amount) })),
+  rewardPay: door(rewardPayWire, (i) => recipes.rewardPay({ ...i, amount: parseAmount(i.amount) })),
+  sweepFeesToRewards: door(sweepFeesWire, (i) => recipes.sweepFeesToRewards({ ...i, amount: parseAmount(i.amount) })),
 } as const satisfies Partial<Record<RecipeName, RecipeDoor>>;
 
 export type PostRecipeName = keyof typeof RECIPE_DOORS;
@@ -261,6 +406,23 @@ const postRecipeInput = z.discriminatedUnion('recipe', [
   variant('earnWithdraw'),
   variant('earnPoolFund'),
   variant('earnInterest'),
+  variant('loanCollateralLock'),
+  variant('loanCollateralRelease'),
+  variant('loanDraw'),
+  variant('loanRepay'),
+  variant('loanReserveFund'),
+  variant('loanLiquidate'),
+  variant('loanBadDebt'),
+  variant('businessApprovalHold'),
+  variant('businessApprovalRelease'),
+  variant('businessApprovalSettle'),
+  variant('businessPayroll'),
+  variant('deposit'),
+  variant('withdrawHold'),
+  variant('withdrawSettle'),
+  variant('withdrawReverse'),
+  variant('rewardPay'),
+  variant('sweepFeesToRewards'),
 ]);
 
 const postedEntry = z.object({
@@ -337,6 +499,54 @@ const sampleInterest = {
     { userId: SAMPLE_PAYEE, amount: '0.5' },
   ],
 };
+const SAMPLE_LOAN = '55555555-5555-4555-8555-555555555555';
+const sampleCollateral = { loanId: SAMPLE_LOAN, userId: SAMPLE_USER, collateralAssetId: 'BTC', amount: '0.5', sequence: 0 };
+const sampleDraw = { loanId: SAMPLE_LOAN, userId: SAMPLE_USER, debtAssetId: 'USDT', principal: '1000' };
+const sampleRepay = { ...sampleDraw, principal: '100', interest: '1.25', sequence: 1 };
+const marketMaker = (assetId: string) => ({ ownerType: 'house', ownerId: 'market-maker', assetId, kind: 'available' });
+const sampleLiquidate = {
+  loanId: SAMPLE_LOAN,
+  userId: SAMPLE_USER,
+  tranche: 0,
+  collateralAssetId: 'BTC',
+  collateralSold: '0.1',
+  debtAssetId: 'USDT',
+  proceeds: '6000',
+  principalRepaid: '5000',
+  interestRepaid: '10',
+  penalty: '300',
+  surplusToBorrower: '690',
+  buyer: { collateralTo: marketMaker('BTC'), proceedsFrom: marketMaker('USDT') },
+  markPrice: '60000',
+};
+const SAMPLE_SPACE = '66666666-6666-4666-8666-666666666666';
+const sampleSpace = { ownerType: 'subaccount', ownerId: SAMPLE_SPACE, assetId: 'USDC', kind: 'available' };
+const samplePrimary = { ownerType: 'user', ownerId: SAMPLE_USER, assetId: 'USDC', kind: 'available' };
+const sampleApproval = { approvalId: SAMPLE_BUSINESS, from: samplePrimary, amount: '250' };
+const samplePayroll = {
+  payrollId: SAMPLE_BUSINESS.toUpperCase(),
+  from: samplePrimary,
+  recipients: [
+    { to: sampleSpace, amount: '100' },
+    { to: { ...samplePrimary, ownerId: SAMPLE_PAYEE }, amount: '50' },
+  ],
+};
+const sampleDeposit = { userId: SAMPLE_USER, assetId: 'USDC', amount: '25', rail: 'bank-crypto-ledger', railRef: 'tx 0xabc' };
+const sampleWithdraw = {
+  userId: SAMPLE_USER,
+  assetId: 'USDC',
+  amount: '25',
+  rail: 'card-sim',
+  withdrawalId: `cash-out:${SAMPLE_BUSINESS}`,
+};
+const sampleReward = {
+  rewardId: `bank.card.cashback:${SAMPLE_BUSINESS}`,
+  userId: SAMPLE_USER,
+  assetId: 'USDC',
+  amount: '0.25',
+  reason: 'bank.card.cashback',
+};
+const sampleSweep = { windowId: 'bank.card:2026-11', sourceModule: 'bank', assetId: 'USDC', amount: '10' };
 
 export const LEDGER_POST_RECIPE = defineProcedure({
   name: 'ledger.postRecipe',
@@ -399,6 +609,49 @@ export const LEDGER_POST_RECIPE = defineProcedure({
     { verdict: 'accept', input: { recipe: 'earnWithdraw', input: samplePosition } },
     { verdict: 'accept', input: { recipe: 'earnPoolFund', input: sampleFund } },
     { verdict: 'accept', input: { recipe: 'earnInterest', input: sampleInterest } },
+    { verdict: 'accept', input: { recipe: 'loanCollateralLock', input: sampleCollateral } },
+    { verdict: 'accept', input: { recipe: 'loanCollateralRelease', input: { ...sampleCollateral, sequence: 2 } } },
+    { verdict: 'accept', input: { recipe: 'loanDraw', input: sampleDraw } },
+    { verdict: 'accept', input: { recipe: 'loanRepay', input: sampleRepay } },
+    {
+      verdict: 'accept',
+      input: { recipe: 'loanReserveFund', input: { fundingId: 'treasury-2026-11', debtAssetId: 'USDT', amount: '50000' } },
+    },
+    { verdict: 'accept', input: { recipe: 'loanLiquidate', input: sampleLiquidate } },
+    { verdict: 'accept', input: { recipe: 'loanBadDebt', input: { loanId: SAMPLE_LOAN, debtAssetId: 'USDT', shortfall: '12.5' } } },
+    { verdict: 'accept', input: { recipe: 'businessApprovalHold', input: sampleApproval } },
+    { verdict: 'accept', input: { recipe: 'businessApprovalRelease', input: { ...sampleApproval, from: sampleSpace } } },
+    { verdict: 'accept', input: { recipe: 'businessApprovalSettle', input: { ...sampleApproval, to: sampleSpace } } },
+    { verdict: 'accept', input: { recipe: 'businessPayroll', input: samplePayroll } },
+    { verdict: 'accept', input: { recipe: 'deposit', input: sampleDeposit } },
+    { verdict: 'accept', input: { recipe: 'withdrawHold', input: sampleWithdraw } },
+    { verdict: 'accept', input: { recipe: 'withdrawSettle', input: sampleWithdraw } },
+    { verdict: 'accept', input: { recipe: 'withdrawReverse', input: sampleWithdraw } },
+    { verdict: 'accept', input: { recipe: 'rewardPay', input: sampleReward } },
+    { verdict: 'accept', input: { recipe: 'sweepFeesToRewards', input: sampleSweep } },
+    { verdict: 'refuse', input: { recipe: 'loanCollateralLock', input: { ...sampleCollateral, sequence: '0' } } },
+    { verdict: 'refuse', input: { recipe: 'loanCollateralLock', input: { ...sampleCollateral, sequence: -1 } } },
+    { verdict: 'refuse', input: { recipe: 'loanDraw', input: { ...sampleDraw, principal: 1000 } } },
+    { verdict: 'refuse', input: { recipe: 'loanRepay', input: { ...sampleRepay, interest: undefined } } },
+    {
+      verdict: 'refuse',
+      input: { recipe: 'loanReserveFund', input: { fundingId: 'f', debtAssetId: 'USDT', amount: '1', from: samplePrimary } },
+    },
+    {
+      verdict: 'refuse',
+      input: { recipe: 'loanLiquidate', input: { ...sampleLiquidate, buyer: { ...sampleLiquidate.buyer, collateralTo: samplePrimary } } },
+    },
+    {
+      verdict: 'refuse',
+      input: { recipe: 'businessApprovalHold', input: { ...sampleApproval, from: { ...samplePrimary, ownerType: 'house' } } },
+    },
+    { verdict: 'refuse', input: { recipe: 'businessPayroll', input: { ...samplePayroll, payrollId: 'run-1' } } },
+    { verdict: 'refuse', input: { recipe: 'deposit', input: { ...sampleDeposit, subAccountId: SAMPLE_SPACE } } },
+    { verdict: 'refuse', input: { recipe: 'withdrawHold', input: { ...sampleWithdraw, fee: '1' } } },
+    { verdict: 'refuse', input: { recipe: 'withdrawSettle', input: { ...sampleWithdraw, rail: 'card sim' } } },
+    { verdict: 'refuse', input: { recipe: 'rewardPay', input: { ...sampleReward, reason: 'Cash Back' } } },
+    { verdict: 'refuse', input: { recipe: 'sweepFeesToRewards', input: { ...sampleSweep, sourceModule: 'trade' } } },
+    { verdict: 'refuse', input: { recipe: 'tradeFill', input: samplePurchase } },
     { verdict: 'refuse', input: { recipe: 'deposit', input: samplePurchase } },
     { verdict: 'refuse', input: { recipe: 'earnDeposit', input: { ...samplePosition, amount: '-1' } } },
     { verdict: 'refuse', input: { recipe: 'earnDeposit', input: { ...samplePosition, positionId: 'position-1' } } },

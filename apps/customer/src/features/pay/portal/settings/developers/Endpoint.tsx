@@ -1,26 +1,44 @@
+// volt-room: /pay/developer/webhooks/:endpointId
+// volt-room: portal:developer-endpoint
 import { useState } from 'react';
-import { EmptyState, Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { Facts, Gate } from '../../components';
-import { AuditPanel } from '../../ui/AuditPanel';
-import { CopyReference } from '../../ui/CopyReference';
+import { Field } from '@intafaced/ui/lit';
 import { DateTime } from '../../ui/DateTime';
-import { DetailHeader } from '../../ui/DetailHeader';
-import { PortalReview } from '../../ui/PortalReview';
-import { RelatedLinks } from '../../ui/RelatedLinks';
-import { StatusChip } from '../../ui/StatusChip';
-import { Timeline } from '../../ui/Timeline';
+import { uiCopy } from '../../ui/copy';
+import { AuditPanel, CopyReference, Empty, Facts, Gate, Section, StatusChip, Timeline } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
+import { Review as PortalReview } from '../../volt/Review';
 import { newRequestId } from '../../model';
 import { useResource } from '../../../../../shared/resource';
-import type { SettingsBApi } from '../b-client';
+import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { DeliveryList } from './Deliveries';
+import { DeveloperNav } from './DeveloperNav';
 import { developersCopy as c } from './copy';
-import { shownEndpointUrl, webhookUrlProblem } from './model';
+import { canManageWebhooks, shownEndpointUrl, webhookUrlProblem } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { Endpoint as EndpointRow, Health } from './schemas';
 
+/** `/pay/developer/webhooks/:endpointId` on the record-list template: one endpoint's own page, under the developer pages' row. */
+export function EndpointRoom({ endpointId }: { endpointId: string }) {
+  return (
+    <RecordListRoom>
+      {({ role }) => ({
+        detail: (
+          <div className="lt-stack">
+            <DeveloperNav room="developer-endpoint" />
+            <LiveEndpoint endpointId={endpointId} canManage={canManageWebhooks(role)} />
+          </div>
+        ),
+      })}
+    </RecordListRoom>
+  );
+}
+
+function LiveEndpoint({ endpointId, canManage }: { endpointId: string; canManage: boolean }) {
+  return <EndpointPage api={useSettingsBApi()} endpointId={endpointId} canManage={canManage} />;
+}
+
 /** One webhook endpoint: its state, its recent deliveries and the three things you can do with it. */
-export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi; endpointId: string; canManage: boolean }) {
+function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi; endpointId: string; canManage: boolean }) {
   const { t } = c.useCopy();
   const found = useResource((signal) => api.endpointsList(undefined, '', endpointId, signal), `dev:endpoint:${endpointId}`);
   const health = useResource((signal) => api.webhookHealth(signal), 'dev:endpoint:health');
@@ -44,7 +62,7 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
             }}
           />
         ) : (
-          <EmptyState
+          <Empty
             title={t('endpointMissing')}
             action={
               <a className="lt-link" href="/pay/developer/webhooks">
@@ -53,7 +71,7 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
             }
           >
             {t('endpointMissingBody')}
-          </EmptyState>
+          </Empty>
         );
       }}
     </Gate>
@@ -78,25 +96,29 @@ export function EndpointView({
   setRevealed?: (next: Revealed) => void;
 }) {
   const { t } = c.useCopy();
+  const { t: u } = uiCopy.useCopy();
   const [ownRevealed, setOwnRevealed] = useState<Revealed>(null);
   const revealed = setHeldRevealed ? (heldRevealed ?? null) : ownRevealed;
   const setRevealed = setHeldRevealed ?? setOwnRevealed;
   const mine = health?.endpoints.find((e) => e.endpointId === endpoint.id);
   return (
     <div className="lt-stack">
-      <DetailHeader
-        back={{ href: '/pay/developer/webhooks', label: t('backToEndpoints') }}
-        title={<span className="pp-wrap">{shownEndpointUrl(endpoint.url)}</span>}
-        status={<StatusChip entity="endpoint" value={endpoint.status} />}
-        subtitle={endpoint.status === 'disabled' ? t('disabledSubtitle') : t('activeSubtitle')}
-      />
+      <header className="lt-stack">
+        <a className="lt-link" href="/pay/developer/webhooks">
+          {t('backToEndpoints')}
+        </a>
+        <h2>
+          <span className="lt-wrap">{shownEndpointUrl(endpoint.url)}</span> <StatusChip entity="endpoint" value={endpoint.status} />
+        </h2>
+        <p className="lt-muted">{endpoint.status === 'disabled' ? t('disabledSubtitle') : t('activeSubtitle')}</p>
+      </header>
       {revealed && <SecretReveal {...revealed} onHide={() => setRevealed(null)} />}
       {!canManage && (
-        <p className="pp-callout" role="status">
+        <p className="lt-hint" role="status">
           {t('readOnlyRole')}
         </p>
       )}
-      <PaySection title={t('endpointFacts')}>
+      <Section title={t('endpointFacts')}>
         <Facts
           items={[
             [t('colReference'), <CopyReference key="id" value={endpoint.id} what={t('colReference')} />],
@@ -127,9 +149,9 @@ export function EndpointView({
         {endpoint.previousSecretUntil && <p className="lt-muted">{t('overlapNote')}</p>}
         <p className="lt-muted">{t('queryHidden')}</p>
         <AuditPanel who={null} at={endpoint.updatedAt} />
-      </PaySection>
-      <PaySection title={t('manageTitle')} description={t('manageBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+      </Section>
+      <Section title={t('manageTitle')} description={t('manageBody')}>
+        <div data-testid="form-stack" className="lt-stack">
           <ChangeAddress api={api} endpoint={endpoint} canManage={canManage} onDone={reload} />
           <RotateEndpointSecret
             api={api}
@@ -148,7 +170,7 @@ export function EndpointView({
               disabledReason={t('readOnlyRole')}
               review={
                 <p>
-                  <strong className="pp-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
+                  <strong className="lt-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
                 </p>
               }
               perform={() => api.endpointDisable(endpoint.id)}
@@ -158,8 +180,8 @@ export function EndpointView({
             <p className="lt-muted">{t('cannotReEnable')}</p>
           )}
         </div>
-      </PaySection>
-      <PaySection title={t('history')}>
+      </Section>
+      <Section title={t('history')}>
         <Timeline
           label={t('history')}
           items={[
@@ -167,13 +189,20 @@ export function EndpointView({
             { at: endpoint.createdAt, title: t('endpointAdded') },
           ]}
         />
-      </PaySection>
-      <PaySection title={t('deliveriesTitle')} description={t('endpointDeliveriesBody')}>
+      </Section>
+      <Section title={t('deliveriesTitle')} description={t('endpointDeliveriesBody')}>
         <DeliveryList api={api} canManage={canManage} endpointId={endpoint.id} />
-      </PaySection>
-      <RelatedLinks
-        links={[{ href: `/pay/developer/deliveries?endpoint=${encodeURIComponent(endpoint.id)}`, label: t('allDeliveriesFor') }]}
-      />
+      </Section>
+      <nav aria-label={u('related')}>
+        <h3>{u('related')}</h3>
+        <ul>
+          <li>
+            <a className="lt-link" href={`/pay/developer/deliveries?endpoint=${encodeURIComponent(endpoint.id)}`}>
+              {t('allDeliveriesFor')}
+            </a>
+          </li>
+        </ul>
+      </nav>
     </div>
   );
 }
@@ -210,14 +239,14 @@ function ChangeAddress({
         disabled={!canManage || same || !url.trim() || Boolean(problem)}
         disabledReason={canManage ? t('urlFixFirst') : t('readOnlyRole')}
         review={
-          <dl className="pay-details">
+          <dl className="lt-kv">
             <div>
               <dt>{t('from')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(endpoint.url)}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(endpoint.url)}</dd>
             </div>
             <div>
               <dt>{t('to')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(url.trim())}</dd>
             </div>
           </dl>
         }
@@ -277,7 +306,7 @@ function RotateEndpointSecret({
         }}
       />
       {note && (
-        <p className="pp-callout" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       )}

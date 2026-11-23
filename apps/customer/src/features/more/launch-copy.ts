@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
-  scope: 'Asset launch tasks and participation records',
+  scope: 'New coins launching here, and the launches you have joined',
   nav: 'Launch sections',
   overview: 'Launch overview',
   participation: 'My participation',
@@ -32,7 +32,7 @@ const en = {
     'The issuance template has not been audited, and a successful build is not an audit or permission to launch. Issuance is on hold. This room starts nothing on any chain.',
 } as const;
 const es = {
-  scope: 'Tareas de lanzamiento de activos y registros de participación',
+  scope: 'Monedas nuevas que se lanzan aquí y los lanzamientos en los que participas',
   nav: 'Secciones de Launch',
   overview: 'Resumen de Launch',
   participation: 'Mi participación',
@@ -66,7 +66,7 @@ const es = {
     'La plantilla de emisión no ha sido auditada, y una compilación correcta no es una auditoría ni un permiso de lanzamiento. La emisión está en pausa. Esta sala no inicia nada en ninguna cadena.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
-  scope: 'Tâches de lancement d’actifs et dossiers de participation',
+  scope: 'Les nouvelles monnaies lancées ici et les lancements auxquels tu participes',
   nav: 'Sections de Launch',
   overview: 'Aperçu de Launch',
   participation: 'Ma participation',

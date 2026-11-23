@@ -131,11 +131,13 @@ test(`${J} #2 sets a cadence and a per-run cap: the schedule list with status an
     .poll(
       async () => {
         held = await schedulesHeld();
-        return held.find((s) => s.repeat === 'repeat')?.recent.find((r) => r.ordinal === 1)?.state ?? 'none';
+        // Both workers' wakes are written as they wake, so the second can land just after the run reads 'ran'.
+        const run = held.find((s) => s.repeat === 'repeat')?.recent.find((r) => r.ordinal === 1);
+        return { state: run?.state ?? 'none', wakes: run?.wakes ?? 0 };
       },
       { timeout: 60_000 },
     )
-    .toBe('ran');
+    .toEqual({ state: 'ran', wakes: 2 });
   const capped = held.find((s) => s.repeat === 'repeat');
   expect(capped).toMatchObject({ state: 'active', intervalMinutes: 1, perRunCap: '0.1', ask: ASK });
   expect(capped.nextDueAt).not.toBeNull();

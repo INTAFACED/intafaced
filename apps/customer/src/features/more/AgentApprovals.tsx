@@ -3,8 +3,13 @@ import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import type { Failed } from './AgentGuardrails';
 import { agentApprovalsCopy } from './agent-approvals-copy';
-import { ownAgentApprovalEditedSchema, type OwnAgentInboxRow } from '@intafaced/contracts/agents-own';
-import { AGENTS_OWN_INBOX, AGENTS_OWN_APPROVAL_APPROVE, AGENTS_OWN_APPROVAL_REJECT } from '@intafaced/contracts/agents-own-procedures';
+import { type OwnAgentInboxRow } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_INBOX,
+  AGENTS_OWN_APPROVAL_APPROVE,
+  AGENTS_OWN_APPROVAL_REJECT,
+  AGENTS_OWN_APPROVAL_EDIT,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /** Rows shown at once; one more is asked for, so the page can say when older requests are left out. */
 export const SHOWN = 100;
@@ -59,7 +64,7 @@ export function useApprovalsInbox() {
     );
   const edit = (row: OwnAgentInboxRow, input: Record<string, string>) =>
     decide(
-      () => api.mutate('agents', 'own.approval.edit', { requestId: row.id, input }, ownAgentApprovalEditedSchema),
+      () => api.call(AGENTS_OWN_APPROVAL_EDIT, { requestId: row.id, input }),
       () => ({ words: t('edited') }),
     );
 

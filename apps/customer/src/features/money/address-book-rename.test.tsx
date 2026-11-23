@@ -5,7 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { AddressTable } from './WithdrawalAddresses';
-import { bankWrites, type Destination } from './contracts';
+import { type Destination } from './contracts';
+import { BANK_RAMPS_DESTINATIONS_RENAME } from '@intafaced/contracts/bank-ramps-destinations-procedures';
 
 /** W-withdraw-08 screen half: the address book shows asset, network and status, and offers a rename. */
 
@@ -53,7 +54,17 @@ describe('address book rows', () => {
     );
   });
   it('reads the rename answer as an address-book entry', () => {
-    const answer = { ...row({ label: 'New name' }), refMasked: 'x', origin: 'customer' };
-    expect(bankWrites['ramps.destinations.rename'].parse(answer).label).toBe('New name');
+    // The whole entry as the bank answers it: the rename's caller parses with its record's schema.
+    const answer = {
+      ...row({ label: 'New name', assetId: 'USDT', network: 'TRC20', tag: null, state: 'active' }),
+      refMasked: '0x5290…9EE7',
+      origin: 'customer',
+      lookalikeConfirmedAt: null,
+      ownership: { state: 'none', verifiedAt: null, validUntil: null, offerExpiresAt: null },
+      approvedAt: null,
+      approvedBy: null,
+      approvalLinkExpiresAt: null,
+    };
+    expect(BANK_RAMPS_DESTINATIONS_RENAME.output.parse(answer).label).toBe('New name');
   });
 });

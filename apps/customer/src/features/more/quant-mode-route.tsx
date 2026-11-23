@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BacktestRoom } from '../quant';
+import { BacktestRoom, QuantRooms } from '../quant';
 import { t as copyText } from './copy';
 import { Quant } from './Quant';
 
@@ -23,8 +23,10 @@ export function quantModeRoute(
     description: copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence'),
     content:
       mode === 'backtest' ? (
-        // The bar backtest runs saved signal rules; the walk-forward record below keeps its own named refusal.
+        // The bar backtest runs saved signal rules; the walk-forward record below keeps its own named refusal. The Algo dev
+        // rooms lead the page, as on every other Algo dev room.
         <>
+          <QuantRooms paper={paper} />
           <BacktestRoom key={`bars:${userId}`} />
           <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
         </>

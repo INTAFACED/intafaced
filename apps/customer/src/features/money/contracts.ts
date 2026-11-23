@@ -14,6 +14,13 @@ import type { sharedPotCardSchema, sorterSchema } from './contracts-spaces';
 import { BANK_EARN_SET_AUTO_RENEW } from '@intafaced/contracts/bank-earn-procedures';
 import { BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SHARED_POTS_INVITE } from '@intafaced/contracts/bank-shared-pots-procedures';
+import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_CLOSE,
+} from '@intafaced/contracts/bank-loans-3-procedures';
 
 /**
  * The bank's wire shapes, one file per area (contracts-<area>.ts). This file only composes each area's reads and writes
@@ -146,7 +153,7 @@ export function bankWriteForReview(
       case 'sharedPots.freezeCard':
         return (data as z.infer<typeof sharedPotCardSchema>).status === 'frozen';
       case 'sharedPots.invite': {
-        const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
+        const row = data as z.infer<(typeof BANK_SHARED_POTS_INVITE)['output']>;
         return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;
       }
       case 'sorter.cancel': {
@@ -159,7 +166,7 @@ export function bankWriteForReview(
         return row.id === input.ruleId && row.status === (procedure === 'autoInvest.pause' ? 'paused' : 'active');
       }
       case 'loans.open': {
-        const row = data as z.infer<(typeof bankWrites)['loans.open']>;
+        const row = data as z.infer<(typeof BANK_LOANS_OPEN)['output']>;
         return (
           row.loanId === input.loanId &&
           ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'].includes(row.status) &&
@@ -170,11 +177,11 @@ export function bankWriteForReview(
       }
       case 'loans.addCollateral':
       case 'loans.releaseExcess': {
-        const row = data as z.infer<(typeof bankWrites)['loans.addCollateral']>;
+        const row = data as z.infer<(typeof BANK_LOANS_ADD_COLLATERAL)['output']>;
         return row.ledgerTxId.trim().length > 0 && Number.isSafeInteger(row.sequence) && row.sequence >= 0;
       }
       case 'loans.repay': {
-        const row = data as z.infer<(typeof bankWrites)['loans.repay']>,
+        const row = data as z.infer<(typeof BANK_LOANS_REPAY)['output']>,
           paid = parseAmount(row.interestPaid) + parseAmount(row.principalPaid);
         return (
           row.ledgerTxId.trim().length > 0 &&
@@ -197,7 +204,7 @@ export function bankWriteForReview(
         );
       }
       case 'loans.close': {
-        const row = data as z.infer<(typeof bankWrites)['loans.close']>;
+        const row = data as z.infer<(typeof BANK_LOANS_CLOSE)['output']>;
         return parseAmount(row.released) > 0n ? row.ledgerTxId !== null && row.ledgerTxId.trim().length > 0 : row.ledgerTxId === null;
       }
       default:

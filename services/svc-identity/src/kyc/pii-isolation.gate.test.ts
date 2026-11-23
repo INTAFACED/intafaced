@@ -82,7 +82,9 @@ describe('PII isolation gate (kyc_records)', () => {
       routerSrc.indexOf('};', routerSrc.indexOf('return {', fnStart)),
     );
     expect(returned).not.toMatch(/providerRef|provider_ref|bytes|ciphertext/);
-    const statusBlock = routerSrc.slice(routerSrc.indexOf('status: scopedProcedure'), routerSrc.indexOf('approve: scopedProcedure'));
+    // The block ends where `kyc.approve` starts; an anchor that is gone would read to the end of the file.
+    expect(routerSrc.indexOf('approve: mountRecord(')).toBeGreaterThan(routerSrc.indexOf('status: scopedProcedure'));
+    const statusBlock = routerSrc.slice(routerSrc.indexOf('status: scopedProcedure'), routerSrc.indexOf('approve: mountRecord('));
     expect(statusBlock).toMatch(/presentKyc/);
     expect(statusBlock).not.toMatch(/getFor|ciphertext|bytesBase64/);
   });

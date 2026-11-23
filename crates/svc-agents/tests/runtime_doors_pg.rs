@@ -85,7 +85,7 @@ impl FakeLedger {
                 .available
                 .get(user)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     /// \`houseOf()\`.
@@ -105,15 +105,15 @@ impl Ledger for FakeLedger {
             Recipe::FeeCharge {
                 user_id, amount, ..
             } => {
-                let have = b.available.get(user_id).copied().unwrap_or(0);
+                let have = b.available.get(user_id).copied().unwrap_or(Amount::ZERO);
                 if have < *amount {
                     return Err(LedgerError {
                         code: Some("ledger.insufficient_funds".to_owned()),
                         message: "Insufficient funds".to_owned(),
                     });
                 }
-                *b.available.entry(user_id.clone()).or_default() -= amount;
-                b.house += amount;
+                *b.available.entry(user_id.clone()).or_default() -= *amount;
+                b.house += *amount;
             }
             other => panic!("only the custodial fee charge is posted here, got {other:?}"),
         }
@@ -808,7 +808,7 @@ fn owner107_a_worst_case_the_balance_cannot_cover_is_refused_before_the_hold_and
     let w = world_or_skip!();
     let worst = worst();
     let m = w.metering(true);
-    let rt = runtime_with(true, Some(Balance::of(worst - 1)), 0);
+    let rt = runtime_with(true, Some(Balance::of(worst - Amount::from_scaled(1))), 0);
     let x = w.x(&rt, &m);
     register(w.pool(), "capped", true, Some("1"));
     let session = runtime::open_session(&x, USER_A, "capped").unwrap();
@@ -947,10 +947,10 @@ fn owner107_usage_not_yet_charged_counts_against_the_balance() {
     think(&x, &session.id, "owed-1", "plan", &messages()).unwrap();
     let spent = || meter::session_spend(&mut w.db.client(), &session.id).unwrap();
     let owed = spent();
-    assert!(owed > 0);
+    assert!(owed > Amount::ZERO);
 
     // The ledger still shows the whole balance: the window is open, nothing is charged yet.
-    available.set(worst + owed - 1);
+    available.set(worst + owed - Amount::from_scaled(1));
     let err = think(&x, &session.id, "owed-2", "plan", &messages());
     assert_eq!(refusal_code(&err), "agents.funds_insufficient");
     assert_eq!(w.calls(), 1);
@@ -1074,7 +1074,7 @@ fn owner107_a_replayed_request_id_reads_as_a_replay_even_when_the_balance_is_sho
     register(w.pool(), "again", true, Some("1000"));
     let session = runtime::open_session(&x, USER_A, "again").unwrap();
     think(&x, &session.id, "again-1", "plan", &messages()).unwrap();
-    available.set(0);
+    available.set(Amount::ZERO);
     let again = think(&x, &session.id, "again-1", "plan", &messages());
     assert_eq!(
         again.as_ref().err().and_then(RunError::code),

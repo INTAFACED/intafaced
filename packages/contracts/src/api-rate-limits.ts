@@ -51,8 +51,21 @@ export type KeyRateLimit = z.infer<typeof keyRateLimitSchema>;
 export const routeCostSchema = z.object({ route: z.string().regex(/^(\*|GET|POST|PUT|PATCH|DELETE) \/\S*$/), cost: count }).strict();
 export type RouteCost = z.infer<typeof routeCostSchema>;
 
-/** `GET /api/edge/rate-limits/costs`: the cost table, first match wins. An empty list means the owner has set none. */
-export const rateCostsOutputSchema = z.object({ asOf: isoInstant, costs: z.array(routeCostSchema) }).strict();
+/**
+ * The edge's own limit on every call from one address, as it is in force (`EDGE_RATE_LIMIT_MAX` calls per
+ * `EDGE_RATE_LIMIT_WINDOW_MS`): what applies wherever no tighter limit is set, such as a venue that publishes no order
+ * rate (J-derivatives-04 #7). Null: the edge's limiter is switched off, so none applies.
+ */
+export const edgeLimitSchema = z.object({ max: z.number().int().positive(), windowMs: z.number().int().positive() }).strict().nullable();
+export type EdgeLimit = z.infer<typeof edgeLimitSchema>;
+
+/**
+ * `GET /api/edge/rate-limits/costs`: the cost table, first match wins. An empty list means the owner has set none.
+ * `edgeLimit`: the edge's own per-address limit in force; absent from an older edge.
+ */
+export const rateCostsOutputSchema = z
+  .object({ asOf: isoInstant, costs: z.array(routeCostSchema), edgeLimit: edgeLimitSchema.optional() })
+  .strict();
 export type RateCostsOutput = z.infer<typeof rateCostsOutputSchema>;
 
 /** Which limit refused a call. */

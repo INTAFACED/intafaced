@@ -6,6 +6,7 @@
 )]
 
 use crate::common;
+use service_kit::money::Amount;
 
 use std::collections::HashMap;
 
@@ -88,7 +89,7 @@ fn run(history: &[Movement], method: EngineMethod) -> EngineRun {
 }
 
 fn run_priced(history: &[Movement], prices: &[(String, &str)]) -> EngineRun {
-    let prices: HashMap<String, i128> = prices.iter().map(|(k, v)| (k.clone(), amt(v))).collect();
+    let prices: HashMap<String, Amount> = prices.iter().map(|(k, v)| (k.clone(), amt(v))).collect();
     run_lot_engine(
         history,
         &SaleRules::One(EngineMethod::Fifo),
@@ -105,7 +106,7 @@ fn two() -> Vec<Movement> {
     ]
 }
 
-fn open_total(r: &EngineRun) -> i128 {
+fn open_total(r: &EngineRun) -> Amount {
     r.lots.iter().map(|l| l.remaining).sum()
 }
 
@@ -123,7 +124,11 @@ fn each_method_realises_and_leaves_its_own_cost() {
     ] {
         let r = run(&two(), method);
         assert_eq!(s(r.sales[0].realized_usd), some(realised), "{method:?}");
-        let open: Vec<_> = r.lots.iter().filter(|l| l.remaining > 0).collect();
+        let open: Vec<_> = r
+            .lots
+            .iter()
+            .filter(|l| l.remaining > Amount::ZERO)
+            .collect();
         assert_eq!(open.len(), 1, "{method:?}");
         assert_eq!(s(open[0].remaining_cost_usd), some(left), "{method:?}");
         assert_eq!(open_total(&r), amt("1"));
@@ -139,7 +144,7 @@ fn average_a_sale_leaves_the_average_unchanged_a_later_buy_moves_it() {
     let last = r.sales.iter().find(|x| x.tx_id == "s2").unwrap();
     assert_eq!(s(last.cost_usd), some("750"));
     assert_eq!(s(last.realized_usd), some("150"));
-    assert!(r.lots.iter().all(|l| l.remaining == 0));
+    assert!(r.lots.iter().all(|l| l.remaining == Amount::ZERO));
 }
 
 #[test]
@@ -177,7 +182,7 @@ fn a_sale_on_a_lot_with_no_basis_is_unknown_for_that_part() {
     let sale = &fifo.sales[0];
     assert_eq!(
         (sale.unmatched_qty, sale.cost_usd, sale.realized_usd),
-        (0, None, None)
+        (Amount::ZERO, None, None)
     );
     assert_eq!(sale.matches[0].lot_id, "lot:d1:BTC");
     assert_eq!(
@@ -218,14 +223,14 @@ fn hifo_with_an_unknown_lot_still_draws_the_quantity() {
     let sale = &r.sales[0];
     assert_eq!(
         (sale.unmatched_qty, sale.cost_usd, sale.realized_usd),
-        (0, None, None)
+        (Amount::ZERO, None, None)
     );
-    assert_eq!(sale.matches.iter().map(|m| m.qty).sum::<i128>(), amt("2"));
+    assert_eq!(sale.matches.iter().map(|m| m.qty).sum::<Amount>(), amt("2"));
     assert_eq!(open_total(&r), amt("1"));
     assert!(
         r.lots
             .iter()
-            .filter(|l| l.remaining > 0)
+            .filter(|l| l.remaining > Amount::ZERO)
             .all(|l| l.remaining_cost_usd.is_none())
     );
     assert!(r.residuals.contains(&TAX_COST_BASIS_UNAVAILABLE));
@@ -279,11 +284,15 @@ fn average_many_small_sales_never_drift_from_the_pool() {
         h.push(sell(&format!("s{i}"), 3 + i, "0.1", "10"));
     }
     let r = run(&h, EngineMethod::Average);
-    let taken: i128 = r.sales.iter().map(|x| x.cost_usd.unwrap_or(0)).sum();
-    let left: i128 = r
+    let taken: Amount = r
+        .sales
+        .iter()
+        .map(|x| x.cost_usd.unwrap_or(Amount::ZERO))
+        .sum();
+    let left: Amount = r
         .lots
         .iter()
-        .map(|l| l.remaining_cost_usd.unwrap_or(0))
+        .map(|l| l.remaining_cost_usd.unwrap_or(Amount::ZERO))
         .sum();
     assert_eq!(taken + left, amt("100"));
     assert_eq!(open_total(&r), amt("2"));

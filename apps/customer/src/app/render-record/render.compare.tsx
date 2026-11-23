@@ -10,6 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { rawCustomerText } from './customer-words';
 import { renderPart, type Part } from './harness';
 import { fileOf, STATES } from './parts';
 
@@ -60,6 +61,8 @@ describe('the Customer app renders what main recorded, part by part', () => {
 
   it.each(parts.map((part) => [part.name, part]))('%s', async (_name, part) => {
     const now = `${lines(await renderPart(part as Part))}\n`;
+    // What a customer reads carries no raw id, internal code or placeholder address (customer-words.ts), recorded or not.
+    expect(rawCustomerText((part as Part).name, now), `${(part as Part).name} shows text no customer should read`).toEqual([]);
     const path = `${DIR}/${fileOf((part as Part).name)}`;
     if (RECORD) return writeFileSync(path, now);
     if (!existsSync(path)) {

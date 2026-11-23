@@ -20,7 +20,7 @@ describe('termsVerdict', () => {
     expect(termsVerdict({ kind: 'ready', quote: quote() }, '25')).toEqual({
       kind: 'ok',
       fee: '0',
-      networkFeeUnknown: false,
+      networkFee: undefined,
       perTransfer: '1000',
       daily: '5000',
       left: '4900',
@@ -28,16 +28,11 @@ describe('termsVerdict', () => {
     });
   });
 
-  it('reads the partner network fee as not known only when the bank says the partner gave none (null), never as 0', () => {
-    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: null }) }, '25')).toMatchObject({
-      kind: 'ok',
-      networkFeeUnknown: true,
-    });
-    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: '0.1' }) }, '25')).toMatchObject({
-      kind: 'ok',
-      networkFeeUnknown: false,
-    });
-    expect(termsVerdict({ kind: 'ready', quote: quote() }, '25')).toMatchObject({ kind: 'ok', networkFeeUnknown: false });
+  it('carries the network fee as the bank states it: a figure, none ("0"), or not known (null), never null read as 0', () => {
+    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: null }) }, '25')).toMatchObject({ kind: 'ok', networkFee: null });
+    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: '0.5' }) }, '25')).toMatchObject({ kind: 'ok', networkFee: '0.5' });
+    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: '0' }) }, '25')).toMatchObject({ kind: 'ok', networkFee: '0' });
+    expect(termsVerdict({ kind: 'ready', quote: quote() }, '25')).toMatchObject({ kind: 'ok', networkFee: undefined });
   });
 
   it('reads nothing for a blank amount, and waits while a check is on its way', () => {

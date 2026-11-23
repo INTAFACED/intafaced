@@ -127,7 +127,9 @@ export function NoWalletNote({ t }: { t: LiquidityTranslate }) {
     <div role="note" data-blocker="wallet">
       <strong>{t('blockedBy')}</strong>
       <p>{t('noWallet')}</p>
-      <a href="/wallet">{t('connectWallet')}</a>
+      <a href="/wallet" className="lt-button lt-button-secondary">
+        {t('connectWallet')}
+      </a>
     </div>
   );
 }

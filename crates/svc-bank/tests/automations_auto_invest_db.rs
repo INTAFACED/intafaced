@@ -176,7 +176,13 @@ impl Book {
         st.funded -= amt(amount);
     }
     fn of(&self, a: &Acct) -> Amount {
-        self.0.lock().unwrap().balances.get(a).copied().unwrap_or(0)
+        self.0
+            .lock()
+            .unwrap()
+            .balances
+            .get(a)
+            .copied()
+            .unwrap_or(Amount::ZERO)
     }
     fn main(&self, user: &str, asset: &str) -> String {
         format_amount(self.of(&main_of(user, asset)))
@@ -194,7 +200,7 @@ impl Book {
     fn reconciles(&self) {
         let st = self.0.lock().unwrap();
         assert_eq!(st.balances.values().sum::<Amount>(), st.funded);
-        assert!(st.balances.values().all(|v| *v >= 0));
+        assert!(st.balances.values().all(|v| *v >= Amount::ZERO));
     }
 }
 
@@ -290,7 +296,7 @@ impl Ledger for Book {
         if let Some((_, _, t)) = st.journal.iter().find(|(k, _, _)| k == key) {
             return Ok(t.clone());
         }
-        if st.balances.get(&from).copied().unwrap_or(0) < a {
+        if st.balances.get(&from).copied().unwrap_or(Amount::ZERO) < a {
             return Err(PostFailure::Coded {
                 code: "ledger.insufficient_funds".to_owned(),
                 message: format!("Insufficient {}", from.2),

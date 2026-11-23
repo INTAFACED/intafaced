@@ -582,6 +582,83 @@ pub fn detail(c: &mut impl GenericClient, id: &str) -> Result<Json, Refusal> {
     ]))
 }
 
+/// `writeCustomerReadAudit('bank.ops.customer_transfers_read', ...)`: the line is written before any payment is read; a
+/// line that cannot be written refuses the read and reads nothing.
+pub fn customer_transfers_audit(actor: &str, owner: &str) -> Result<(), Refusal> {
+    use std::io::Write;
+    let line = Json::obj([
+        ("level", Json::str("info")),
+        ("service", Json::str("svc-bank")),
+        ("event", Json::str("bank.ops.customer_transfers_read")),
+        ("actorUserId", Json::str(actor)),
+        ("ownerUserId", Json::str(owner)),
+    ]);
+    writeln!(std::io::stdout(), "{}", line.compact()).map_err(|_| {
+        refuse(
+            "bank.ops_audit_unavailable",
+            "The read could not be recorded, so nothing was read",
+        )
+    })
+}
+
+/// `readCustomerTransfers` (`ops/customer-transfers.ts`): the customer's one-off sends to and from other people, newest
+/// first, each with its direction from the customer's side and the other person's account id; no note, reference or
+/// handle is read. `limit` (1 to 200, held by the schema) rows are shown; `truncated` says an older one exists.
+pub fn customer_transfers(
+    c: &mut impl GenericClient,
+    owner: &str,
+    limit: i64,
+) -> Result<Json, Refusal> {
+    let k = |k: &str, v: Json| (k.to_owned(), v);
+    let rows = c
+        .query(
+            "SELECT transfer_id, from_user_id, to_user_id, asset_id, amount::text, status::text, ledger_tx_id, \
+                    floor(extract(epoch from created_at) * 1000)::int8 \
+               FROM bank.personal_transfers \
+              WHERE from_user_id = $1 OR to_user_id = $1 \
+              ORDER BY created_at DESC, transfer_id DESC \
+              LIMIT $2",
+            &[&owner, &(limit + 1)],
+        )
+        .map_err(|e| pg(&e))?;
+    let truncated = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+    let mut transfers = Vec::new();
+    for r in rows.iter().take(usize::try_from(limit).unwrap_or(0)) {
+        let s = |i: usize| r.try_get::<_, String>(i).map_err(|e| pg(&e));
+        let from = s(1)?;
+        let sent = from == owner;
+        transfers.push(Json::Object(vec![
+            k("id", Json::str(s(0)?)),
+            k(
+                "direction",
+                Json::str(if sent { "sent" } else { "received" }),
+            ),
+            k(
+                "counterpartyUserId",
+                Json::str(if sent { s(2)? } else { from }),
+            ),
+            k("amount", Json::str(money(&s(4)?)?)),
+            k("assetId", Json::str(s(3)?)),
+            k("status", Json::str(s(5)?)),
+            k(
+                "ledgerTxId",
+                r.try_get::<_, Option<String>>(6)
+                    .map_err(|e| pg(&e))?
+                    .map_or(Json::Null, Json::str),
+            ),
+            k(
+                "createdAt",
+                Json::str(Instant(r.try_get(7).map_err(|e| pg(&e))?).iso()),
+            ),
+        ]));
+    }
+    Ok(Json::Object(vec![
+        k("userId", Json::str(owner)),
+        k("transfers", Json::Array(transfers)),
+        k("truncated", Json::Bool(truncated)),
+    ]))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "a test")]

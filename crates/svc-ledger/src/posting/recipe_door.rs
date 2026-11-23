@@ -14,9 +14,11 @@
 //!
 //! The legs are `packages/ledger-client/src/recipes/academy-purchase.ts`'s, `charge.ts`'s (`chargeEarn`,
 //! `chargeCollect`), `recipes/index.ts` `feeCharge`'s (its asset mode), `bank.ts` `bankTransfer`'s and its earn
-//! recipes' (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`), and `pay-received-hold.ts`'s, held to them
-//! case for case by `tests/post_recipe_parity.rs` (what the TypeScript door
-//! hands its ledger for each recorded body and caller).
+//! recipes' (`earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`), its business approvals and payroll,
+//! `pay-received-hold.ts`'s, `loans.ts`'s, and `recipes/index.ts`'s `deposit`, `withdrawHold`, `withdrawSettle`,
+//! `withdrawReverse`, `rewardPay` and `sweepFeesToRewards` (svc-bank's ramps, card holds and cashback), held to them
+//! case for case by `tests/post_recipe_parity.rs` (what the TypeScript door hands its ledger for each recorded body and
+//! caller).
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, MAX_AMOUNT, format_amount, is_js_whitespace, parse_amount};
@@ -28,7 +30,7 @@ use crate::posting::Posting;
 use crate::posting::gate::{Caller, grant_for};
 
 /// `POST_RECIPE_NAMES`: the recipes the door posts, in the record's order.
-pub const NAMES: [&str; 13] = [
+pub const NAMES: [&str; 30] = [
     "academyPurchase",
     "academyPurchaseRefund",
     "feeCharge",
@@ -42,6 +44,23 @@ pub const NAMES: [&str; 13] = [
     "earnWithdraw",
     "earnPoolFund",
     "earnInterest",
+    "loanCollateralLock",
+    "loanCollateralRelease",
+    "loanDraw",
+    "loanRepay",
+    "loanReserveFund",
+    "loanLiquidate",
+    "loanBadDebt",
+    "businessApprovalHold",
+    "businessApprovalRelease",
+    "businessApprovalSettle",
+    "businessPayroll",
+    "deposit",
+    "withdrawHold",
+    "withdrawSettle",
+    "withdrawReverse",
+    "rewardPay",
+    "sweepFeesToRewards",
 ];
 
 /// `ACADEMY_PURCHASE_MODULE`.
@@ -259,6 +278,20 @@ fn build(named: &str, input: &Json) -> Result<Request, String> {
         "earnDeposit" | "earnWithdraw" => return earn_position(named, input),
         "earnPoolFund" => return earn_pool_fund(input),
         "earnInterest" => return earn_interest(input),
+        "loanCollateralLock" | "loanCollateralRelease" => return loan_collateral(named, input),
+        "loanDraw" => return loan_draw(input),
+        "loanRepay" => return loan_repay(input),
+        "loanReserveFund" => return loan_reserve_fund(input),
+        "loanLiquidate" => return loan_liquidate(input),
+        "loanBadDebt" => return loan_bad_debt(input),
+        "businessApprovalHold" | "businessApprovalRelease" | "businessApprovalSettle" => {
+            return business_approval(named, input);
+        }
+        "businessPayroll" => return business_payroll(input),
+        "deposit" => return deposit(input),
+        "withdrawHold" | "withdrawSettle" | "withdrawReverse" => return withdraw(named, input),
+        "rewardPay" => return reward_pay(input),
+        "sweepFeesToRewards" => return sweep_fees_to_rewards(input),
         _ => {}
     }
     // `parseAmount(i.amount)` runs before the recipe, so a figure the book cannot hold is refused first.
@@ -368,7 +401,7 @@ fn academy(
     if js_trim(asset_id).is_empty() || js_trim(asset_id) != asset_id {
         return Err("assetId is required, with no surrounding spaces".to_owned());
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("an academy purchase amount must be above zero".to_owned());
     }
     if !is_chain_tx(payment_id) {
@@ -518,7 +551,7 @@ fn house_fees(module: &str, asset_id: &str, direction: &'static str, amount: Amo
 /// pot up. Custodial: the custody switch refuses it while the layer is off.
 fn fee_charge(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("fee amount must be positive".to_owned());
     }
     let module = field(input, "module");
@@ -544,12 +577,13 @@ fn fee_charge(input: &Json) -> Result<Request, String> {
 fn charge_earn(input: &Json) -> Result<Request, String> {
     let per_unit = parse_amount(input.get("price").map_or("", |p| field(p, "perUnit")))?;
     let units_text = field(input, "units");
-    let units: Amount = units_text
+    // A count of units, not money.
+    let units: i128 = units_text
         .parse()
         .map_err(|_| "units must be a whole number, at least one".to_owned())?;
     // `parseAmount(perUnit * units)`: `fitsColumn`.
     let amount = per_unit
-        .checked_mul(units)
+        .checked_times(units)
         .filter(|a| (-MAX_AMOUNT..=MAX_AMOUNT).contains(a))
         .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
     let module = field(input, "module");
@@ -565,10 +599,10 @@ fn charge_earn(input: &Json) -> Result<Request, String> {
     if units < 1 {
         return Err("units must be a whole number, at least one".to_owned());
     }
-    if per_unit < 0 {
+    if per_unit < Amount::ZERO {
         return Err("the price must be an amount, zero or more".to_owned());
     }
-    if amount == 0 {
+    if amount == Amount::ZERO {
         return Err("a charge must be above zero; a free sale posts nothing".to_owned());
     }
     let member = match input.get("memberUserId") {
@@ -617,7 +651,7 @@ fn charge_collect(input: &Json) -> Result<Request, String> {
     if payment_id.encode_utf16().count() > 128 {
         return Err("paymentId must be at most 128 characters".to_owned());
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("a collected charge must be above zero".to_owned());
     }
     let place = place_owner(input.get("to"))?;
@@ -666,7 +700,7 @@ fn key_space_kind(space: &str) -> &'static str {
 /// legacy shared key is never built here.
 fn bank_transfer(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("transfer amount must be positive".to_owned());
     }
     let from = input.get("from").cloned().unwrap_or(Json::Null);
@@ -758,17 +792,17 @@ fn received_hold(named: &str, input: &Json) -> Result<Request, String> {
     };
     match action {
         None => {
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Err("received-funds hold amount must be positive".to_owned());
             }
         }
         // `requireWhole`: release and return each move the whole hold (RH-2).
         Some(action) => {
             let held = parse_amount(field(input, "heldAmount"))?;
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Err(format!("received-funds {action} amount must be positive"));
             }
-            if held <= 0 {
+            if held <= Amount::ZERO {
                 return Err("held amount must be positive".to_owned());
             }
             if amount != held {
@@ -852,7 +886,7 @@ fn earn_pool_reserve(pool_id: &str, asset_id: &str) -> Json {
 fn earn_position(named: &str, input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
     let withdraw = named == "earnWithdraw";
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(if withdraw {
             "earn withdrawal amount must be positive"
         } else {
@@ -905,7 +939,7 @@ fn earn_position(named: &str, input: &Json) -> Result<Request, String> {
 /// `earnPoolFund` with no `from` (the record has none): the bank's own fee revenue down, the pool's reserve up.
 fn earn_pool_fund(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("pool funding amount must be positive".to_owned());
     }
     let pool_id = field(input, "poolId");
@@ -978,7 +1012,7 @@ fn earn_interest(input: &Json) -> Result<Request, String> {
     // Every amount is zero or more, so a running total past the book's bound is a final total past it.
     let total = payouts
         .iter()
-        .try_fold(0 as Amount, |t, (_, a)| {
+        .try_fold(Amount::ZERO, |t, (_, a)| {
             t.checked_add(*a).filter(|t| *t <= MAX_AMOUNT)
         })
         .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
@@ -991,7 +1025,7 @@ fn earn_interest(input: &Json) -> Result<Request, String> {
     if payouts.is_empty() {
         return Err("An interest accrual with no recipients is not a transaction".to_owned());
     }
-    if let Some((user_id, _)) = payouts.iter().find(|(_, a)| *a <= 0) {
+    if let Some((user_id, _)) = payouts.iter().find(|(_, a)| *a <= Amount::ZERO) {
         return Err(format!("interest for {user_id} must be positive"));
     }
     let mut entries = vec![Leg {
@@ -1017,5 +1051,620 @@ fn earn_interest(input: &Json) -> Result<Request, String> {
             ),
         ],
         entries,
+    })
+}
+
+// ── Shared account and check shapes (`accounts.ts`, `loans.ts`) ──────────────────────────────────────────────────────
+
+/// An account with a purpose (`userHold`, `userCollateral`, `subAccountHold`): the purpose trimmed, as they write it.
+fn purposed(owner_type: &str, owner_id: &str, asset_id: &str, kind: &str, purpose: &str) -> Json {
+    Json::obj([
+        ("ownerType", Json::str(owner_type)),
+        ("ownerId", Json::str(owner_id)),
+        ("assetId", Json::str(asset_id)),
+        ("kind", Json::str(kind)),
+        ("purpose", Json::str(js_trim(purpose))),
+    ])
+}
+
+/// `loanReserve(assetId)`: `moduleAccount('bank', 'loan-reserve', assetId)`.
+fn loan_reserve(asset_id: &str) -> Json {
+    available("module", "bank:loan-reserve", asset_id)
+}
+
+/// `loanCollateralAccount(userId, assetId, loanId)`: the borrower's own `collateral`, purpose `loan:<loanId>`.
+fn loan_collateral_account(user_id: &str, asset_id: &str, loan_id: &str) -> Json {
+    purposed(
+        "user",
+        user_id,
+        asset_id,
+        "collateral",
+        &format!("loan:{loan_id}"),
+    )
+}
+
+/// `houseFees(module, assetId)` as an account.
+fn house_fees_account(module: &str, asset_id: &str) -> Json {
+    available("house", &format!("fees:{module}"), asset_id)
+}
+
+/// `rewardsEngine(assetId)`.
+fn rewards_engine(asset_id: &str) -> Json {
+    available("house", "rewards-engine", asset_id)
+}
+
+/// `railBoundary(rail, assetId)`.
+fn rail_boundary(rail: &str, asset_id: &str) -> Json {
+    available("treasury", &format!("rail:{rail}"), asset_id)
+}
+
+/// `requireId`: present and not blank.
+fn require_id(input: &Json, name: &str) -> Result<(), String> {
+    if js_trim(field(input, name)).is_empty() {
+        return Err(format!("{name} must be a non-blank id"));
+    }
+    Ok(())
+}
+
+/// `requirePositive`.
+fn require_positive(name: &str, value: Amount) -> Result<(), String> {
+    if value <= Amount::ZERO {
+        return Err(format!("{name} must be positive"));
+    }
+    Ok(())
+}
+
+/// A whole number the record took (`SEQUENCE`), as the parsed inputs hold it.
+fn count(input: &Json, name: &str) -> Json {
+    input.get(name).cloned().unwrap_or(Json::Null)
+}
+
+/// `amount.toString()` on the recipe's bigint: the scaled integer, not the decimal.
+fn scaled_text(amount: Amount) -> Json {
+    Json::str(amount.scaled().to_string())
+}
+
+/// `parseAmount(a + b)`: the sum of two amounts the book can hold, or the book's refusal.
+fn fits_sum(a: Amount, b: Amount) -> Result<Amount, String> {
+    a.checked_add(b)
+        .filter(|t| (-MAX_AMOUNT..=MAX_AMOUNT).contains(t))
+        .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())
+}
+
+/// A leg of `amount` on `account`.
+fn leg(account: Json, direction: &'static str, amount: Amount) -> Leg {
+    Leg {
+        account,
+        direction,
+        amount,
+    }
+}
+
+// ── svc-bank's loans (`loans.ts`) ────────────────────────────────────────────────────────────────────────────────
+
+/// `loanCollateralLock` (available into the loan's collateral pot) and `loanCollateralRelease` (back out), the amount
+/// made the recipe's number first.
+fn loan_collateral(named: &str, input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    let release = named == "loanCollateralRelease";
+    require_id(input, "loanId")?;
+    require_id(input, "userId")?;
+    require_id(input, "collateralAssetId")?;
+    require_positive(
+        if release {
+            "collateral release amount"
+        } else {
+            "collateral amount"
+        },
+        amount,
+    )?;
+    let loan_id = field(input, "loanId");
+    let user_id = field(input, "userId");
+    let asset_id = field(input, "collateralAssetId");
+    let sequence = count(input, "sequence");
+    let pot = loan_collateral_account(user_id, asset_id, loan_id);
+    let user = available("user", user_id, asset_id);
+    let (key, reason, entries) = if release {
+        (
+            format!(
+                "bank.loan.collateral.release:{loan_id}:{}",
+                sequence.compact()
+            ),
+            "loan.collateral.released",
+            vec![leg(pot, "credit", amount), leg(user, "debit", amount)],
+        )
+    } else {
+        (
+            format!("bank.loan.collateral.lock:{loan_id}:{}", sequence.compact()),
+            "loan.collateral.locked",
+            vec![leg(user, "credit", amount), leg(pot, "debit", amount)],
+        )
+    };
+    Ok(Request {
+        idempotency_key: key,
+        module: "bank".to_owned(),
+        reason: reason.to_owned(),
+        meta: vec![
+            ("loanId".to_owned(), Json::str(loan_id)),
+            ("sequence".to_owned(), sequence),
+        ],
+        entries,
+    })
+}
+
+/// `loanDraw`: the principal from the lending reserve to the borrower.
+fn loan_draw(input: &Json) -> Result<Request, String> {
+    let principal = parse_amount(field(input, "principal"))?;
+    require_id(input, "loanId")?;
+    require_id(input, "userId")?;
+    require_id(input, "debtAssetId")?;
+    require_positive("loan principal", principal)?;
+    let loan_id = field(input, "loanId");
+    let asset_id = field(input, "debtAssetId");
+    Ok(Request {
+        idempotency_key: format!("bank.loan.draw:{loan_id}"),
+        module: "bank".to_owned(),
+        reason: "loan.drawn".to_owned(),
+        meta: vec![("loanId".to_owned(), Json::str(loan_id))],
+        entries: vec![
+            leg(loan_reserve(asset_id), "credit", principal),
+            leg(
+                available("user", field(input, "userId"), asset_id),
+                "debit",
+                principal,
+            ),
+        ],
+    })
+}
+
+/// `loanRepay`: the borrower's available down by the total; principal back to the reserve, interest to the bank's
+/// revenue, each only when above zero. The door holds the total to the book first.
+fn loan_repay(input: &Json) -> Result<Request, String> {
+    let principal = parse_amount(field(input, "principal"))?;
+    let interest = parse_amount(field(input, "interest"))?;
+    fits_sum(principal, interest)?;
+    require_id(input, "loanId")?;
+    require_id(input, "userId")?;
+    require_id(input, "debtAssetId")?;
+    // `requireNonNegative` never refuses: the record takes no sign.
+    let total = principal + interest;
+    require_positive("total repayment", total)?;
+    let loan_id = field(input, "loanId");
+    let asset_id = field(input, "debtAssetId");
+    let sequence = count(input, "sequence");
+    let mut entries = vec![leg(
+        available("user", field(input, "userId"), asset_id),
+        "credit",
+        total,
+    )];
+    if principal > Amount::ZERO {
+        entries.push(leg(loan_reserve(asset_id), "debit", principal));
+    }
+    if interest > Amount::ZERO {
+        entries.push(leg(house_fees_account("bank", asset_id), "debit", interest));
+    }
+    Ok(Request {
+        idempotency_key: format!("bank.loan.repay:{loan_id}:{}", sequence.compact()),
+        module: "bank".to_owned(),
+        reason: "loan.repaid".to_owned(),
+        meta: vec![
+            ("loanId".to_owned(), Json::str(loan_id)),
+            ("sequence".to_owned(), sequence),
+            ("principal".to_owned(), scaled_text(principal)),
+            ("interest".to_owned(), scaled_text(interest)),
+        ],
+        entries,
+    })
+}
+
+/// `loanReserveFund` with no `from` (the record has none): the bank's own fee revenue into the lending reserve.
+fn loan_reserve_fund(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    require_id(input, "fundingId")?;
+    require_id(input, "debtAssetId")?;
+    require_positive("reserve funding amount", amount)?;
+    let funding_id = field(input, "fundingId");
+    let asset_id = field(input, "debtAssetId");
+    Ok(Request {
+        idempotency_key: format!("bank.loan.reserve.fund:{asset_id}:{funding_id}"),
+        module: "bank".to_owned(),
+        reason: "loan.reserve.funded".to_owned(),
+        meta: vec![("fundingId".to_owned(), Json::str(funding_id))],
+        entries: vec![
+            leg(house_fees_account("bank", asset_id), "credit", amount),
+            leg(loan_reserve(asset_id), "debit", amount),
+        ],
+    })
+}
+
+/// The sum of non-negative scaled integers, written as JavaScript writes the bigint: four amounts the book holds may
+/// together pass `i128`.
+fn scaled_sum_text(parts: &[Amount]) -> String {
+    let mut digits: Vec<u8> = vec![0];
+    for part in parts {
+        let text = part.scaled().unsigned_abs().to_string();
+        let add: Vec<u8> = text.bytes().rev().map(|b| b - b'0').collect();
+        let mut carry = 0u8;
+        let len = digits.len().max(add.len());
+        digits.resize(len, 0);
+        for (i, d) in digits.iter_mut().enumerate() {
+            let s = *d + add.get(i).copied().unwrap_or(0) + carry;
+            *d = s % 10;
+            carry = s / 10;
+        }
+        if carry > 0 {
+            digits.push(carry);
+        }
+    }
+    while digits.len() > 1 && digits.last() == Some(&0) {
+        digits.pop();
+    }
+    digits.iter().rev().map(|d| char::from(b'0' + d)).collect()
+}
+
+/// `loanLiquidate`: one rung, the amounts made the recipe's numbers in the door's order (the house's share held to the
+/// book first), then the recipe's checks in its order. The collateral goes from the loan's pot to the buyer; the
+/// buyer's payment splits four ways.
+fn loan_liquidate(input: &Json) -> Result<Request, String> {
+    let interest = parse_amount(field(input, "interestRepaid"))?;
+    let penalty = parse_amount(field(input, "penalty"))?;
+    let house = fits_sum(interest, penalty)?;
+    let sold = parse_amount(field(input, "collateralSold"))?;
+    let proceeds = parse_amount(field(input, "proceeds"))?;
+    let principal = parse_amount(field(input, "principalRepaid"))?;
+    let surplus = parse_amount(field(input, "surplusToBorrower"))?;
+    let mark = parse_amount(field(input, "markPrice"))?;
+    for name in ["loanId", "userId", "collateralAssetId", "debtAssetId"] {
+        require_id(input, name)?;
+    }
+    require_positive("collateral sold", sold)?;
+    require_positive("liquidation proceeds", proceeds)?;
+    require_positive("mark price", mark)?;
+    let collateral_asset = field(input, "collateralAssetId");
+    let debt_asset = field(input, "debtAssetId");
+    if collateral_asset == debt_asset {
+        return Err(format!(
+            "A liquidation sells collateral for the debt asset; both are {debt_asset}. Settle a same-asset loan with \
+             loanRepay against released collateral instead."
+        ));
+    }
+    let allocated = [principal, interest, penalty, surplus];
+    let fits = principal
+        .checked_add(interest)
+        .and_then(|t| t.checked_add(penalty))
+        .and_then(|t| t.checked_add(surplus));
+    if fits != Some(proceeds) {
+        return Err(format!(
+            "Liquidation proceeds must be fully allocated: principal + interest + penalty + surplus = {}, proceeds = {}. \
+             Every unit realised belongs to someone \u{2014} an unallocated remainder is value the borrower paid for \
+             that nobody has claimed.",
+            scaled_sum_text(&allocated),
+            proceeds.scaled()
+        ));
+    }
+    let buyer = input.get("buyer").cloned().unwrap_or(Json::Null);
+    let collateral_to = buyer.get("collateralTo").cloned().unwrap_or(Json::Null);
+    let proceeds_from = buyer.get("proceedsFrom").cloned().unwrap_or(Json::Null);
+    let to_asset = field(&collateral_to, "assetId");
+    if to_asset != collateral_asset {
+        return Err(format!(
+            "Buyer's collateral account is in {to_asset}, expected {collateral_asset}"
+        ));
+    }
+    let from_asset = field(&proceeds_from, "assetId");
+    if from_asset != debt_asset {
+        return Err(format!(
+            "Buyer's payment account is in {from_asset}, expected {debt_asset}"
+        ));
+    }
+    let loan_id = field(input, "loanId");
+    let user_id = field(input, "userId");
+    let tranche = count(input, "tranche");
+    let mut entries = vec![
+        leg(
+            loan_collateral_account(user_id, collateral_asset, loan_id),
+            "credit",
+            sold,
+        ),
+        leg(collateral_to, "debit", sold),
+        leg(proceeds_from, "credit", proceeds),
+    ];
+    if principal > Amount::ZERO {
+        entries.push(leg(loan_reserve(debt_asset), "debit", principal));
+    }
+    if house > Amount::ZERO {
+        entries.push(leg(house_fees_account("bank", debt_asset), "debit", house));
+    }
+    if surplus > Amount::ZERO {
+        entries.push(leg(
+            available("user", user_id, debt_asset),
+            "debit",
+            surplus,
+        ));
+    }
+    Ok(Request {
+        idempotency_key: format!("bank.loan.liquidate:{loan_id}:{}", tranche.compact()),
+        module: "bank".to_owned(),
+        reason: "loan.liquidated".to_owned(),
+        meta: vec![
+            ("loanId".to_owned(), Json::str(loan_id)),
+            ("tranche".to_owned(), tranche),
+            ("markPrice".to_owned(), scaled_text(mark)),
+            ("collateralSold".to_owned(), scaled_text(sold)),
+            ("proceeds".to_owned(), scaled_text(proceeds)),
+        ],
+        entries,
+    })
+}
+
+/// `loanBadDebt`: the insurance fund covers the shortfall into the lending reserve, once per loan.
+fn loan_bad_debt(input: &Json) -> Result<Request, String> {
+    let shortfall = parse_amount(field(input, "shortfall"))?;
+    require_id(input, "loanId")?;
+    require_id(input, "debtAssetId")?;
+    require_positive("bad debt shortfall", shortfall)?;
+    let loan_id = field(input, "loanId");
+    let asset_id = field(input, "debtAssetId");
+    Ok(Request {
+        idempotency_key: format!("bank.loan.baddebt:{loan_id}"),
+        module: "bank".to_owned(),
+        reason: "loan.bad_debt.covered".to_owned(),
+        meta: vec![("loanId".to_owned(), Json::str(loan_id))],
+        entries: vec![
+            leg(
+                available("house", "insurance-fund", asset_id),
+                "credit",
+                shortfall,
+            ),
+            leg(loan_reserve(asset_id), "debit", shortfall),
+        ],
+    })
+}
+
+// ── svc-bank's business approvals and payroll (`bank.ts`) ─────────────────────────────────────────────────────────
+
+/// `businessApprovalHoldFor(from, approvalId)`: the purposed hold on the debit pot's own owner. The record takes only
+/// a person's or a named space's available balance, so the recipe's other refusals never fire.
+fn business_hold_for(from: &Json, approval_id: &str) -> Json {
+    purposed(
+        field(from, "ownerType"),
+        field(from, "ownerId"),
+        field(from, "assetId"),
+        "hold",
+        &format!("business-approval:{approval_id}"),
+    )
+}
+
+/// `businessApprovalHold` (the space's available into the approval's hold), `businessApprovalRelease` (back) and
+/// `businessApprovalSettle` (the hold to the destination), the amount made the recipe's number first.
+fn business_approval(named: &str, input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    let approval_id = field(input, "approvalId");
+    let from = input.get("from").cloned().unwrap_or(Json::Null);
+    let (key, reason, entries) = match named {
+        "businessApprovalHold" => {
+            require_positive("business approval hold amount", amount)?;
+            let hold = business_hold_for(&from, approval_id);
+            (
+                format!("bank.business.hold:{approval_id}"),
+                "bank.business.approval.held",
+                vec![leg(from, "credit", amount), leg(hold, "debit", amount)],
+            )
+        }
+        "businessApprovalRelease" => {
+            require_positive("business approval release amount", amount)?;
+            let hold = business_hold_for(&from, approval_id);
+            (
+                format!("bank.business.release:{approval_id}"),
+                "bank.business.approval.released",
+                vec![leg(hold, "credit", amount), leg(from, "debit", amount)],
+            )
+        }
+        _ => {
+            require_positive("business approval settle amount", amount)?;
+            let to = input.get("to").cloned().unwrap_or(Json::Null);
+            let (from_asset, to_asset) = (field(&from, "assetId"), field(&to, "assetId"));
+            if from_asset != to_asset {
+                return Err(format!(
+                    "Business approval settle cannot change asset ({from_asset} \u{2192} {to_asset})"
+                ));
+            }
+            let hold = business_hold_for(&from, approval_id);
+            (
+                format!("bank.business.settle:{approval_id}"),
+                "bank.business.approval.settled",
+                vec![leg(hold, "credit", amount), leg(to, "debit", amount)],
+            )
+        }
+    };
+    Ok(Request {
+        idempotency_key: key,
+        module: "bank".to_owned(),
+        reason: reason.to_owned(),
+        meta: vec![("approvalId".to_owned(), Json::str(approval_id))],
+        entries,
+    })
+}
+
+/// `businessPayroll`: each line's amount made the recipe's number and the run's total held to the book first, then the
+/// recipe: at least one line, each above zero, in the source's asset, no account paid twice and never the source.
+fn business_payroll(input: &Json) -> Result<Request, String> {
+    let sent = match input.get("recipients") {
+        Some(Json::Array(items)) => items.as_slice(),
+        _ => &[],
+    };
+    let mut lines = Vec::with_capacity(sent.len());
+    for line in sent {
+        let to = line.get("to").cloned().unwrap_or(Json::Null);
+        lines.push((to, parse_amount(field(line, "amount"))?));
+    }
+    // Every amount is zero or more, so a running total past the book's bound is a final total past it.
+    let total = lines
+        .iter()
+        .try_fold(Amount::ZERO, |t, (_, a)| {
+            t.checked_add(*a).filter(|t| *t <= MAX_AMOUNT)
+        })
+        .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
+    if lines.is_empty() {
+        return Err("A payroll with no recipients is not a transaction".to_owned());
+    }
+    let from = input.get("from").cloned().unwrap_or(Json::Null);
+    let from_asset = field(&from, "assetId");
+    let mut seen = vec![account_key(&from)];
+    for (to, amount) in &lines {
+        let key = account_key(to);
+        require_positive(&format!("payroll for {key}"), *amount)?;
+        let to_asset = field(to, "assetId");
+        if to_asset != from_asset {
+            return Err(format!(
+                "Payroll cannot change asset ({from_asset} \u{2192} {to_asset}); rates are not invented here"
+            ));
+        }
+        if seen.contains(&key) {
+            return Err("Payroll cannot pay the same account twice, or pay the source".to_owned());
+        }
+        seen.push(key);
+    }
+    let payroll_id = field(input, "payrollId");
+    let mut entries = vec![leg(from, "credit", total)];
+    entries.extend(
+        lines
+            .into_iter()
+            .map(|(to, amount)| leg(to, "debit", amount)),
+    );
+    Ok(Request {
+        idempotency_key: format!("bank.business.payroll:{payroll_id}"),
+        module: "bank".to_owned(),
+        reason: "bank.business.payroll.settled".to_owned(),
+        meta: vec![
+            ("payrollId".to_owned(), Json::str(payroll_id)),
+            (
+                "recipients".to_owned(),
+                Json::int(i64::try_from(sent.len()).unwrap_or(i64::MAX)),
+            ),
+        ],
+        entries,
+    })
+}
+
+// ── svc-bank's ramps, card holds and cashback (`recipes/index.ts`) ──────────────────────────────────────────────────
+
+/// `deposit` with no sub-account and no unconfirmed flag (the record has neither): the rail boundary into the
+/// person's available.
+fn deposit(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    require_positive("deposit amount", amount)?;
+    let rail = field(input, "rail");
+    let rail_ref = field(input, "railRef");
+    let asset_id = field(input, "assetId");
+    Ok(Request {
+        idempotency_key: format!("deposit:{rail}:{rail_ref}"),
+        module: "ledger".to_owned(),
+        reason: "deposit.credited".to_owned(),
+        meta: vec![
+            ("rail".to_owned(), Json::str(rail)),
+            ("railRef".to_owned(), Json::str(rail_ref)),
+        ],
+        entries: vec![
+            leg(rail_boundary(rail, asset_id), "credit", amount),
+            leg(
+                available("user", field(input, "userId"), asset_id),
+                "debit",
+                amount,
+            ),
+        ],
+    })
+}
+
+/// `withdrawHold` (available into the withdrawal's own hold), `withdrawSettle` (the hold to the rail) and
+/// `withdrawReverse` (the hold back), with no fee (the record has none).
+fn withdraw(named: &str, input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    require_positive("withdrawal amount", amount)?;
+    let user_id = field(input, "userId");
+    let asset_id = field(input, "assetId");
+    let rail = field(input, "rail");
+    let withdrawal_id = field(input, "withdrawalId");
+    let hold = purposed(
+        "user",
+        user_id,
+        asset_id,
+        "hold",
+        &format!("withdraw:{withdrawal_id}"),
+    );
+    let user = available("user", user_id, asset_id);
+    let (key, reason, entries) = match named {
+        "withdrawHold" => (
+            format!("withdraw.hold:{withdrawal_id}"),
+            "withdraw.held",
+            vec![leg(user, "credit", amount), leg(hold, "debit", amount)],
+        ),
+        "withdrawSettle" => (
+            format!("withdraw.settle:{withdrawal_id}"),
+            "withdraw.settled",
+            vec![
+                leg(hold, "credit", amount),
+                leg(rail_boundary(rail, asset_id), "debit", amount),
+            ],
+        ),
+        _ => (
+            format!("withdraw.reverse:{withdrawal_id}"),
+            "withdraw.reversed",
+            vec![leg(hold, "credit", amount), leg(user, "debit", amount)],
+        ),
+    };
+    Ok(Request {
+        idempotency_key: key,
+        module: "ledger".to_owned(),
+        reason: reason.to_owned(),
+        meta: vec![
+            ("rail".to_owned(), Json::str(rail)),
+            ("withdrawalId".to_owned(), Json::str(withdrawal_id)),
+        ],
+        entries,
+    })
+}
+
+/// `rewardPay`: the rewards engine to one person, under the caller's reason.
+fn reward_pay(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    require_positive("reward amount", amount)?;
+    let reward_id = field(input, "rewardId");
+    let asset_id = field(input, "assetId");
+    Ok(Request {
+        idempotency_key: format!("reward:{reward_id}"),
+        module: "token".to_owned(),
+        reason: field(input, "reason").to_owned(),
+        meta: vec![("rewardId".to_owned(), Json::str(reward_id))],
+        entries: vec![
+            leg(rewards_engine(asset_id), "credit", amount),
+            leg(
+                available("user", field(input, "userId"), asset_id),
+                "debit",
+                amount,
+            ),
+        ],
+    })
+}
+
+/// `sweepFeesToRewards`: a module's fee revenue into the rewards engine (the record takes only `bank`'s).
+fn sweep_fees_to_rewards(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    require_positive("fee sweep amount", amount)?;
+    let window_id = field(input, "windowId");
+    let source = field(input, "sourceModule");
+    let asset_id = field(input, "assetId");
+    Ok(Request {
+        idempotency_key: format!("token.fee.sweep:{window_id}:{source}:{asset_id}"),
+        module: "token".to_owned(),
+        reason: "token.fee.swept".to_owned(),
+        meta: vec![
+            ("windowId".to_owned(), Json::str(window_id)),
+            ("sourceModule".to_owned(), Json::str(source)),
+        ],
+        entries: vec![
+            leg(house_fees_account(source, asset_id), "credit", amount),
+            leg(rewards_engine(asset_id), "debit", amount),
+        ],
     })
 }

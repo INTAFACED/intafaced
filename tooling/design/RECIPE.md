@@ -11,8 +11,9 @@ row already on their template. One PR per batch.
    every word and every state; put the room's line `// volt-room: <route>` (`portal:<page>` for a merchant portal
    page) at the top of the screen file that draws it. Never edit a shared list in a batch.
 3. **Run the codemod:** `node tooling/design/volt-recipe.mjs --write <file> ...` (paths under `apps/customer/src`). It
-   moves the old Button, Badge and StatusTag and every class in its `CLASSES` map onto the kit, and prints with its line
-   each finding it left; its `PARTS` map says why the old parts it leaves have no twin.
+   moves the old Button, Badge and StatusTag and every class in its `CLASSES` map onto the kit, drops a class no
+   stylesheet names (`GONE`), and prints with its line each finding it left, a class a test finds an element by among
+   them; its `PARTS` map says why the old parts it leaves have no twin. `--plan --rank` ranks what every room leaves.
 4. **Each finding left needs judgement.** By kind (volt-count's names):
    - `old-kit` other than Button: use the kit's part (`Field`, `Segmented`, `Tabs`, `KeyValue`, `Sheet`, `EmptyState`…
      in `@intafaced/ui/lit`); where the kit has none, a native control inside `lt-field`.
@@ -22,10 +23,10 @@ row already on their template. One PR per batch.
    - `outside-component`: a part from outside the room's folder that draws off the kit, imported directly or through a
      barrel (`../trade`; the finding names the file that holds it). Redraw it from the kit where it lives, once, for every room that shares it (volt-count judges it by the same rule); a generic part goes into the kit.
    - `stylesheet`, `inline-style`: delete; the template and the kit's classes carry the layout.
-5. **Prove it:** `GITHUB_BASE_REF=volt/<template> pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts`
-   shows n rose by the batch and nothing fell. A batch leaves `volt-off-kit.json` and `kit-ceilings.json` as they are: on a
-   batch into a layer a stale entry does not fail. The layer's PR into main holds them exact: before opening it, run
-   `node tooling/design/volt-count.mjs --write` and `node tooling/lint/kit-ceilings.mjs --write` on the layer and push. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
+5. **Prove it:** `pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts`
+   shows n rose by the batch and nothing fell. A batch leaves `volt-off-kit.json` and `kit-ceilings.json` as they are, into a
+   layer or into main: a stale entry passes, and only an added room or a raised ceiling fails.
+   `node tooling/design/volt-prune.mjs`, run on a branch from main in a PR of its own, is the only thing that lowers them. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
    the rooms reach pass on the layer's PR into main, where the CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
    it again. Every `data-testid`, `data-cell` and `data-col` a journey test finds by stays:
    `node --test tooling/design/volt-keep-ids.test.mjs` (run with the tooling tests) names any the batch dropped.

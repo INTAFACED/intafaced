@@ -218,3 +218,45 @@ export function statementEnd(p, node) {
   const nl = p.src.indexOf('\n', node.end);
   return nl === -1 ? node.end : nl + 1;
 }
+
+/**
+ * The entry `<map>[key]` of a schema map, followed from the file the binding `via` (a name imported or declared in `p`)
+ * comes from, through `<map>`'s own import and the spreads it is composed of: `{ p, node }` of the entry's value, or
+ * undefined. `useBankRead(path)` reads `bankReads` this way, and so does a caller's own `bankReads['x']`.
+ */
+export function keyedEntry(p, via, map, key) {
+  // `./components` may be a .tsx file, which resolveRelative does not try without an extension.
+  const fileOf = (q, b) =>
+    b?.kind === 'import' && b.from.startsWith('.')
+      ? (resolveRelative(q.file, b.from) ?? resolveRelative(q.file, `${b.from}.tsx`))
+      : undefined;
+  const declared = (file, name, seen) => {
+    if (!file || seen.has(`${file}#${name}`)) return undefined;
+    seen.add(`${file}#${name}`);
+    const q = load(file);
+    // A top-level name, asked from the file's first statement (the program itself has no enclosing scope).
+    const d = bindingOf(q, q.program.body[0] ?? q.program, name);
+    if (d.kind === 'import') return declared(fileOf(q, d), d.imported, seen);
+    return d.kind === 'var' && d.declarator.init ? { q, init: d.declarator.init } : undefined;
+  };
+  const inObject = (q, obj, seen) => {
+    while (obj && (obj.type === 'TSAsExpression' || obj.type === 'TSSatisfiesExpression')) obj = obj.expression;
+    if (obj?.type !== 'ObjectExpression') return undefined;
+    let found;
+    for (const prop of obj.properties) {
+      if (prop.type === 'SpreadElement' && prop.argument.type === 'Identifier') {
+        const b = bindingOf(q, prop.argument, prop.argument.name);
+        const d =
+          b.kind === 'import' ? declared(fileOf(q, b), b.imported, seen) : b.kind === 'var' ? { q, init: b.declarator.init } : undefined;
+        const inner = d && inObject(d.q, d.init, seen);
+        if (inner) found = inner;
+      } else if (prop.type === 'Property' && keyOf(prop) === key) found = { p: q, node: prop.value };
+    }
+    return found;
+  };
+  const seen = new Set();
+  const own =
+    via?.kind === 'var' && via.declarator?.init && via.declarator.id?.name === map ? { q: p, init: via.declarator.init } : undefined;
+  const reads = own ?? declared(fileOf(p, via), map, seen);
+  return reads && inObject(reads.q, reads.init, seen);
+}

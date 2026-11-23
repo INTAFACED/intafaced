@@ -10,6 +10,8 @@ mod approval_hash;
 mod assets_pg;
 #[path = "balances_pg.rs"]
 mod balances_pg;
+#[path = "bank_ledger_http_pg.rs"]
+mod bank_ledger_http_pg;
 #[path = "bindings_pg.rs"]
 mod bindings_pg;
 #[path = "boot.rs"]
@@ -38,6 +40,8 @@ mod history_pg;
 mod input_parity;
 #[path = "metrics.rs"]
 mod metrics;
+#[path = "operator_reverse_pg.rs"]
+mod operator_reverse_pg;
 #[path = "ops_reads_pg.rs"]
 mod ops_reads_pg;
 #[path = "post_recipe_parity.rs"]

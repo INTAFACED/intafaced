@@ -5,7 +5,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Checkbox, Field, Radio } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import { Failure, Loading } from './kit-parts';
-import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
+import { apiKeysCopy as copy, scopeWords, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
 import type { Subaccount } from './subaccount-guards';
 import {
@@ -275,7 +275,10 @@ export function ApiKeyCreate() {
                     setTicked((current) => (on ? [...current, entry.scope] : current.filter((scope) => scope !== entry.scope)));
                   }}
                 >
-                  <code lang="und">{entry.scope}</code>{' '}
+                  {scopeWords(t, entry.scope)}{' '}
+                  <code lang="und" className="lt-hint">
+                    {entry.scope}
+                  </code>{' '}
                   <span className="lt-hint">{t(entry.access === 'read' ? 'accessRead' : 'accessWrite')}</span>
                 </Checkbox>
               </li>
@@ -287,7 +290,7 @@ export function ApiKeyCreate() {
               <ul>
                 {blocked.map((entry) => (
                   <li key={entry.scope}>
-                    <code lang="und">{entry.scope}</code>: {t(`blocked_${entry.blockedBy ?? 'interactive_only'}`)}
+                    {scopeWords(t, entry.scope)} — {t(`blocked_${entry.blockedBy ?? 'interactive_only'}`)}
                   </li>
                 ))}
               </ul>

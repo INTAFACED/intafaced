@@ -165,7 +165,7 @@ export function ScaledResult({
 
   return (
     <section aria-label={t('Ladder result')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="lt-toolbar">
         <h3 className="m-0 text-md font-medium text-fg">{t('Ladder result')}</h3>
         {summary && run ? (
           <span role="status" className="text-sm text-fg">
@@ -192,7 +192,7 @@ export function ScaledResult({
       {found === null ? (
         <Why>{t('Check first to cancel')}</Why>
       ) : live.length === 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('No open orders in this ladder')}</p>
+        <p className="lt-hint">{t('No open orders in this ladder')}</p>
       ) : null}
       <Table label={t('Ladder result')} density="dense" columns={columns} rows={lines} minWidth={900} getRowId={(l) => l.clientOrderId} />
       <ConfirmDialog

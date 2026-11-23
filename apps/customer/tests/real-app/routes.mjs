@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 const APP = fileURLToPath(new URL('../../', import.meta.url));
 
 /**
- * Every route the app's navigation and menus name, plus rooms they reach only by a parameter. The look gate
+ * Every route the app's navigation and menus name, plus rooms they reach only by a parameter or from another room's tab bar. The look gate
  * (tooling/ci/look-gate) opens this list, so it judges every room.
  */
 export function sweepRoutes() {
@@ -14,5 +14,5 @@ export function sweepRoutes() {
     .map((f) => `src/app/rooms/${f}`);
   const text = [...roomFiles, 'src/app/menus.ts'].map((f) => readFileSync(APP + f, 'utf8')).join('\n');
   const named = [...text.matchAll(/'(\/[a-z0-9/-]*)'/g)].map((m) => m[1]).filter((r) => r !== '//');
-  return [...new Set([...named, '/trade/spot/BTC-USDT', '/coin/BTC'])].sort();
+  return [...new Set([...named, '/trade/spot/BTC-USDT', '/coin/BTC', '/quant/shared'])].sort();
 }

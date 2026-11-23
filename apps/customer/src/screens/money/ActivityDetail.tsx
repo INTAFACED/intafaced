@@ -111,7 +111,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
   let body: React.ReactNode;
   if (activity.status === 'loading') {
     body = (
-      <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="money-detail__skeleton">
+      <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="lt-stack">
         <Skeleton width={220} height={36} className="bg-field" />
         <Skeleton width={160} height={20} className="bg-field" />
       </div>
@@ -132,7 +132,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     );
   } else if (!group) {
     body = (
-      <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="money-detail__skeleton">
+      <div aria-busy="true" role="status" aria-label={t('Looking for this transaction')} className="lt-stack">
         <Skeleton width={220} height={36} className="bg-field" />
         <p className="lt-hint">{t('Looking for this transaction')}</p>
       </div>
@@ -150,7 +150,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     const sharedOrderId = group.lines.length > 1 ? sharedOrder(group.lines) : null;
     body = (
       <>
-        <header className="money-detail__head">
+        <header className="lt-stack">
           <h1 className="money-title">{title}</h1>
           <Amount
             value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
@@ -186,10 +186,10 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
             </Fact>
             <Fact label={t('Reference')}>
-              <code className="money-code">{item.txId}</code>
+              <code className="lt-mono">{item.txId}</code>
             </Fact>
             <Fact label={t('Record number')}>
-              <code className="money-code">{item.id}</code>
+              <code className="lt-mono">{item.id}</code>
             </Fact>
           </dl>
           <p className="lt-hint">{t('Reference note')}</p>
@@ -218,7 +218,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
             {sharedOrderId && (
               <p className="lt-hint" data-label="shared-reference">
-                {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
+                {t('Parts share order')} <code className="lt-mono">{sharedOrderId}</code>
               </p>
             )}
             <table data-testid="money-table" className="money-table money-table--activity">

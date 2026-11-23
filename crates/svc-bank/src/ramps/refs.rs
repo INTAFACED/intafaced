@@ -20,7 +20,7 @@ pub fn is_evm_address_ref(r: &str) -> bool {
 }
 
 /// `ref.replace(/\s+/g, '').toUpperCase()`: JavaScript's `\s` is the same set `trim` strips.
-fn compact_upper(r: &str) -> String {
+pub fn compact_upper(r: &str) -> String {
     r.chars()
         .filter(|c| !js_trim(c.encode_utf8(&mut [0; 4])).is_empty())
         .flat_map(char::to_uppercase)

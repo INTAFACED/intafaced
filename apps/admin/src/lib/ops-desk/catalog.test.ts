@@ -38,14 +38,8 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   support: null,
   notify: null,
 };
-/** svc-bank's calls as its wire replay records them from the live router (`procedureCallers`, checked by its own test). */
-const bankCalls = (): Map<string, string> => {
-  const file = fileURLToPath(new URL('../../../../../services/svc-bank/src/wire-replay.golden/callers.json', import.meta.url));
-  const rows = JSON.parse(readFileSync(file, 'utf8')) as { path: string; type: string }[];
-  return new Map(rows.map((row) => [row.path, row.type]));
-};
-// svc-bank's router.ts composes one router file per area from src/router/, and svc-quant's one `<area>Routes` factory
-// per area from src/routes/ (`health: healthRoutes(core)`); those files are read with it.
+// A router.ts may compose one router file per area from src/router/, as svc-quant's one `<area>Routes` factory per area
+// from src/routes/ (`health: healthRoutes(core)`); those files are read with it.
 const source = (service: string) => {
   const src = fileURLToPath(new URL(`../../../../../services/${service}/src`, import.meta.url));
   const filesOf = (dir: string, suffix: string) =>
@@ -467,18 +461,12 @@ describe('every read names a QUERY that exists in the owning router (drift guard
   it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
-    // A Rust service (svc-academy) lists every call its door serves, with its kind, in one table (`src/door/calls.rs`).
+    // A Rust service (svc-academy, svc-bank) lists every call its door serves, with its kind, in one table
+    // (`src/door/calls.rs`).
     const calls = rustCalls(service!);
     if (calls) {
       expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
       expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
-      return;
-    }
-    // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`): their
-    // kind is read from the calls svc-bank records it serves.
-    if (read.procedure.split('.').length === 3) {
-      expect(service).toBe('svc-bank');
-      expect(bankCalls().get(read.procedure), `${service} has ${read.procedure} as a query`).toBe('query');
       return;
     }
     const text = source(service!);

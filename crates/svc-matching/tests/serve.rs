@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use service_kit::json::{self, Json};
 use service_kit::metrics::{DURATION_BUCKETS, PROMETHEUS_CONTENT_TYPE};
-use service_kit::money::{format_amount, parse_amount};
+use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::{App, Door, Request};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
@@ -851,7 +851,7 @@ fn sizes_a_buy_hold_as_ceil_price_times_remaining_and_a_sell_hold_as_remaining()
     // Ceil, not half-up: the smallest unit over is still a unit.
     assert_eq!(
         required_hold_amount(&subject(Side::Buy, "0.000000000000000001", Some("0.5"))),
-        Some(1)
+        Some(Amount::UNIT)
     );
 }
 

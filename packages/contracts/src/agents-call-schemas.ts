@@ -238,3 +238,17 @@ export const memberId = z.string().trim().min(1).max(128);
 export const revision = z.number().int().positive().max(1_000_000);
 
 export const amount = z.string().max(64).nullable().optional();
+
+/** The codes a Coach run is refused with, as a typed result. */
+export const COACH_REFUSAL_CODES = [
+  'agents.advice_forbidden',
+  'agents.positions_not_decided',
+  'agents.coach_curriculum_empty',
+  'agents.coach_engine_unavailable',
+  'agents.price_unset',
+  'agents.spend_limit',
+  'agents.funds_insufficient',
+  'agents.request_id_replay',
+  'agents.run_in_progress',
+] as const;
+export type CoachRefusalCode = (typeof COACH_REFUSAL_CODES)[number];

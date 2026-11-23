@@ -106,11 +106,11 @@
 <p class="lt-muted">Published catalogue terms and your seller workspace.</p>
 </div>
 </header>
-<div class="more-grid">
-<nav data-slot="sub-nav" aria-label="Catalogue" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/market" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Catalogue</a>
-<a href="/market/mine" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">My listings</a>
-<a href="/market/strategy" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Publish a strategy subscription</a>
+<div class="lt-stack">
+<nav class="lt-tabs" aria-label="Catalogue" data-region="section-tabs">
+<a href="/market" class="lt-tab">Catalogue</a>
+<a href="/market/mine" class="lt-tab">My listings</a>
+<a href="/market/strategy" class="lt-tab" aria-current="page">Publish a strategy subscription</a>
 </nav>
 <div lang="und" style="display: contents;">
 <div data-testid="failure" class="lt-refusal" role="status">
