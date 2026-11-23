@@ -2,10 +2,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { DAY, utcDay } from './clock.mjs';
+import { DAY, dayStart, utcDay } from './clock.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { setPartner } from './partner.mjs';
+import { partnerBookMoves, setPartner } from './partner.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
 
 // J-bank-16, in the running app (docs/roadmap/journeys.json): I see where my money goes: statements, insights, limits
@@ -78,6 +78,59 @@ async function atPartner(who, ...amounts) {
   }
 }
 
+// #1 and #6 check the app's figures against the TEST partner bank's own book: its record of the person's moves, read on
+// loopback straight from the stand-in (partner.mjs partnerBookMoves, through venue.mjs's outside-record read), never back
+// through the person's own bank API.
+/** The account a TEST pay-in comes from in the partner's own book. */
+const PARTNER_PAY_INS = 'partner:incoming-payments';
+/** The stand-in merchant a TEST payment at the partner goes to, as the partner's own book names it. */
+const PARTNER_MERCHANT = 'partner:test-merchant';
+
+/** One person's main USDT balance, as a side of a move in the partner's own book. */
+const mainAtPartner = (userId) => ({ owner: userId, assetId: 'USDT', spaceId: null });
+
+/**
+ * The partner's own moves folded for one person as a statement folds its lines: each USDT side of a move that is theirs
+ * is one line, money in minus money out, and how many lines.
+ */
+function bookNet(moves, userId) {
+  let net = 0n;
+  let count = 0;
+  for (const move of moves) {
+    for (const [side, sign] of [
+      [move.to, 1n],
+      [move.from, -1n],
+    ]) {
+      if (side.owner !== userId || side.assetId !== 'USDT') continue;
+      net += sign * toUnits(move.amount);
+      count += 1;
+    }
+  }
+  return { net: fromUnits(net), count };
+}
+
+/** The TEST partner bank's own daily send limit and send fee, as its stand-in declares them. TEST values, not a partner's terms. */
+const PARTNER_DAILY_SEND = '1000';
+const PARTNER_SEND_FEE = '0.5';
+
+/** What the partner's own book says left the person's USDT today (UTC): moves out to someone else, not between their own spaces. */
+function sentTodayAtPartner(moves, userId) {
+  const today = dayStart(Date.now());
+  return moves.filter(
+    (move) => move.from.owner === userId && move.to.owner !== userId && move.from.assetId === 'USDT' && Date.parse(move.movedAt) >= today,
+  );
+}
+
+/**
+ * The owner's plan table on this stack: the labelled TEST table the stack starts the bank with, each price written as the
+ * bank writes an amount (no trailing zeros).
+ */
+function ownerPlanTable() {
+  const profile = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/bank.json', import.meta.url), 'utf8'));
+  const table = JSON.parse(profile.values.BANK_PLANS_JSON.value);
+  return { ...table, plans: table.plans.map((plan) => ({ ...plan, price: fromUnits(toUnits(plan.price)) })) };
+}
+
 /** The person's USDT lines folded as a reader would: money in minus money out, and how many lines. */
 function usdtNet(lines) {
   const usdt = lines.filter((line) => line.asset === 'USDT');
@@ -95,7 +148,25 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
   await atPartner(who, '100', '50.25');
   await signIn(page, who);
 
-  // This month's lines, as the partner reports them: the two TEST pay-ins, each named as the partner's own line.
+  // Every line the partner reports for this person, from the TEST partner bank's own book: the two TEST pay-ins into
+  // the main balance this month, and nothing else. The file and both totals below are checked against these lines.
+  const { userId } = await api(who);
+  const book = await partnerBookMoves(userId);
+  expect(book.map((move) => ({ from: move.from, to: move.to, amount: move.amount }))).toEqual([
+    { from: { owner: PARTNER_PAY_INS, assetId: 'USDT', spaceId: null }, to: mainAtPartner(userId), amount: '100' },
+    { from: { owner: PARTNER_PAY_INS, assetId: 'USDT', spaceId: null }, to: mainAtPartner(userId), amount: '50.25' },
+  ]);
+  for (const move of book) {
+    expect(move.id).toMatch(/^test-partner-move-/);
+    expect(Date.parse(move.movedAt)).toBeGreaterThanOrEqual(monthStart().getTime());
+    expect(Date.parse(move.movedAt)).toBeLessThan(nextMonthStart().getTime());
+  }
+  // The partner's lines folded: 100 and 50.25 in, nothing out.
+  const usdt = bookNet(book, userId);
+  expect(usdt).toEqual({ net: '150.25', count: 2 });
+  const totalWords = `USDT: ${usdt.net} (${usdt.count} lines)`;
+
+  // The bank's activity list for this month is those lines of the partner's, one for one, each named as the partner's.
   const lines = await activityLines(who, monthStart().toISOString(), new Date(nextMonthStart().getTime() - 1).toISOString());
   expect(
     lines
@@ -107,8 +178,8 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
     expect(line.heldAt?.label).toBe(PARTNER_BANK);
     expect(line.txId).toMatch(/^test-partner-move-/);
   }
-  const usdt = usdtNet(lines);
-  const totalWords = `USDT: ${usdt.net} (${usdt.count} lines)`;
+  expect(lines.map((line) => line.txId).sort()).toEqual(book.map((move) => move.id).sort());
+  expect(usdtNet(lines)).toEqual(usdt);
 
   // The activity list's total for this month's days, as the person reads it on Activity.
   const from = utcDay(monthStart());
@@ -130,17 +201,19 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
   expect(file.suggestedFilename()).toBe(`intafaced-statement-${thisMonth()}.pdf`);
   expect(bytes.subarray(0, 8).toString('utf8')).toBe('%PDF-1.4');
 
-  // Every line the partner reported for the month is in the file, by the partner's reference.
-  expect(text).toContain(`Rows: ${lines.length}`);
-  for (const line of lines) expect(text).toContain(line.txId);
-  // The same total as the activity list, in the file and beside it.
+  // Every line in the partner's own book is in the file, as the partner recorded it: its time, the amount paid in and
+  // the partner's own reference. The file holds no line the partner's book does not.
+  expect(text).toContain(`Rows: ${book.length}`);
+  for (const move of book) expect(text).toContain(`${move.movedAt} | deposit | in | USDT | ${move.amount} | ${move.id}`);
+  expect(text.match(/test-partner-move-/g)).toHaveLength(book.length);
+  // The same total as the activity list, in the file and beside it: the partner's lines folded.
   expect(text).toContain(`Total USDT: ${usdt.net} \\(${usdt.count} lines\\)`);
   await expect(page.getByTestId('statement-centre-totals').locator('li[data-asset="USDT"]')).toHaveText(totalWords);
   // The hash proof: the fingerprint shown is the start of the file's own SHA-256.
   const sha = createHash('sha256').update(bytes).digest('hex');
   const fingerprint = sha.slice(0, 12).match(/.{4}/g).join(' ');
   await expect(page.getByTestId('statement-centre-status')).toHaveText(
-    `Downloaded ${file.suggestedFilename()}: ${lines.length} lines. Fingerprint ${fingerprint}; support can check it.`,
+    `Downloaded ${file.suggestedFilename()}: ${book.length} lines. Fingerprint ${fingerprint}; support can check it.`,
   );
 
   // A range that crosses months is refused, and nothing is saved.
@@ -316,28 +389,44 @@ test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used 
   test.setTimeout(180_000);
   const who = person();
   const client = await api(who);
-  // The partner's own figures: its daily limit, the 80 sent to a person in #4, and what is left.
+  // Used today, from the TEST partner bank's own book: the one move out of the person's main balance today is the TEST
+  // payment of 80 from #4, to the partner's stand-in merchant.
+  const sent = sentTodayAtPartner(await partnerBookMoves(client.userId), client.userId);
+  expect(sent.map((move) => ({ to: move.to.owner, amount: move.amount }))).toEqual([{ to: PARTNER_MERCHANT, amount: '80' }]);
+  const usedToday = fromUnits(sent.reduce((sum, move) => sum + toUnits(move.amount), 0n));
+  // Remaining: the partner's daily limit less what its book says was sent today.
+  const remaining = fromUnits(toUnits(PARTNER_DAILY_SEND) - toUnits(usedToday));
+  // The bank's answer carries the partner's figures and no others.
   const limits = await bankRead(client, 'fees.partner', { assetId: 'USDT' });
   expect(limits.status, JSON.stringify(limits.body).slice(0, 300)).toBe(200);
-  expect(limits.data).toMatchObject({ held: true, label: PARTNER_BANK, usedToday: '80' });
-  expect(toUnits(limits.data.remainingToday)).toBe(toUnits(limits.data.dailyLimit) - toUnits('80'));
-  expect(limits.data.sendFee).not.toBeNull();
+  expect(limits.data).toMatchObject({
+    held: true,
+    label: PARTNER_BANK,
+    dailyLimit: PARTNER_DAILY_SEND,
+    usedToday,
+    remainingToday: remaining,
+    sendFee: PARTNER_SEND_FEE,
+  });
 
   await signIn(page, who);
   await page.goto('/bank/limits');
   const room = page.getByTestId('bank-limits');
   await room.getByLabel('Coin').selectOption('USDT');
+  // The page shows them, each named as the partner's: the daily send limit, what was sent today and what is left.
+  await expect(room).toContainText(`What ${PARTNER_BANK} lets you send today and what it charges. These are its figures, not ours.`);
   const today = room.getByTestId('bank-limits-today');
   await expect(today).toHaveAttribute('data-source', PARTNER_BANK);
-  await expect(today).toHaveAttribute('data-daily', limits.data.dailyLimit);
-  await expect(today).toHaveAttribute('data-used', '80');
-  await expect(today).toHaveAttribute('data-remaining', limits.data.remainingToday);
-  await expect(today).toContainText(`Daily send limit at ${PARTNER_BANK}: ${limits.data.dailyLimit} USDT`);
-  await expect(today).toContainText('Sent today: 80 USDT');
-  await expect(today).toContainText(`Left to send today: ${limits.data.remainingToday} USDT`);
+  await expect(today).toHaveAttribute('data-daily', PARTNER_DAILY_SEND);
+  await expect(today).toHaveAttribute('data-used', usedToday);
+  await expect(today).toHaveAttribute('data-remaining', remaining);
+  await expect(today.locator('li')).toHaveText([
+    `Daily send limit at ${PARTNER_BANK}: ${PARTNER_DAILY_SEND} USDT`,
+    `Sent today: ${usedToday} USDT`,
+    `Left to send today: ${remaining} USDT`,
+  ]);
   const sendFee = room.getByTestId('bank-partner-send-fee');
   await expect(sendFee).toHaveAttribute('data-state', 'set');
-  await expect(sendFee).toHaveText(`Sending to a person, charged by ${PARTNER_BANK}: ${limits.data.sendFee} USDT`);
+  await expect(sendFee).toHaveText(`Sending to a person, charged by ${PARTNER_BANK}: ${PARTNER_SEND_FEE} USDT`);
 
   // A fee the partner has not given reads "not set", named as the partner's, and never 0.
   await setPartner(who, { fee: 'unknown' });
@@ -354,21 +443,26 @@ test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used 
   await expect(accountFees).toHaveAttribute('data-state', 'not-set');
   await expect(accountFees).toHaveText('Account fees: not set. The bank has published no account fee table, so none is charged.');
 
-  // The plan is our own fee, named apart from the partner's: tier and billing from the owner's (TEST) plan table.
+  // The plan is our own fee, named apart from the partner's: tier and billing from the owner's (TEST) plan table, read
+  // here as the stack publishes it. The bank answers with that table, and the person is on its default plan.
   await expect(room).toContainText('This plan fee is our own, separate from anything the bank partner charges.');
+  const owner = ownerPlanTable();
+  const mine = owner.plans.find((plan) => plan.id === owner.defaultPlanId);
   const plans = await bankRead(client, 'plans.list', undefined);
   expect(plans.status, JSON.stringify(plans.body).slice(0, 300)).toBe(200);
-  const mine = plans.data.current;
+  expect(plans.data.current).toEqual(mine);
+  // A plan with a price is one the bank cannot charge for yet, and says so by its code; the free plan has no blocker.
+  const offered = owner.plans.map((plan) => ({ ...plan, blocker: toUnits(plan.price) > 0n ? 'bank.plan_fee_unwired' : null }));
+  expect(plans.data.plans).toEqual(offered);
   await expect(room.getByTestId('bank-plan-current')).toHaveText(
     `Your plan: ${mine.name} · tier ${mine.tier} · ${mine.price} ${mine.assetId} a month`,
   );
   const table = room.getByRole('table', { name: 'Plans' });
-  await expect(table.locator('tbody tr')).toHaveCount(plans.data.plans.length);
-  for (const plan of plans.data.plans) {
+  await expect(table.locator('tbody tr')).toHaveCount(owner.plans.length);
+  for (const plan of offered) {
     const row = table.locator(`tr[data-plan="${plan.id}"]`);
-    await expect(row).toContainText(plan.name);
-    await expect(row).toContainText(plan.tier);
-    await expect(row).toContainText(`${plan.price} ${plan.assetId} a month`);
+    // The plan by name, its tier and its billing, as the owner's table has them.
+    await expect(row.locator('th, td')).toHaveText([plan.name, plan.tier, `${plan.price} ${plan.assetId} a month`]);
     await expect(row).toHaveAttribute('data-blocker', plan.blocker ?? '');
   }
 });
