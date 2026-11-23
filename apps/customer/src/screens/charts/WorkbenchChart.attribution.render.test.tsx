@@ -7,6 +7,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ATTRIBUTION_WORDS, WorkbenchChart, attributionHref } from './WorkbenchChart';
+import { SCHEME_TOKENS } from './chart-style';
 
 vi.mock('../../features/trade/vendor/lightweight-charts.standalone.production.js', () => ({}));
 
@@ -41,7 +42,10 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   made.length = 0;
-  document.documentElement.style.setProperty('--if-bg', 'TEST');
+  // Every colour the chart reads: with any of them empty it draws nothing.
+  for (const name of ['--if-bg', '--if-fg-2', '--if-grid', '--if-line', ...Object.values(SCHEME_TOKENS.standard)]) {
+    document.documentElement.style.setProperty(name, 'TEST');
+  }
   Reflect.set(window, 'LightweightCharts', engine);
   container = document.createElement('div');
   document.body.append(container);
