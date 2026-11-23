@@ -15,6 +15,11 @@ import {
   ensureAnvil,
   environEntries,
   fundsCheck,
+  listeningSockets,
+  procHost,
+  readListeners,
+  HOSTED_TEST_NETWORK_HOSTS,
+  hostedAllowList,
   mailboxPage,
   mailboxRows,
   outsideAddresses,
@@ -120,6 +125,125 @@ test('fundsCheck fails closed: no process, no readable process, no page, or a pa
   const noBanner = fundsCheck({ records: { a: { pid: 1 } }, readEnviron: ok, page: '<body>app</body>' });
   assert.equal(noBanner.ok, false);
   assert.match(noBanner.lines[0], /lacks the TEST banner/);
+});
+
+test('procHost and listeningSockets read the kernel tables: only LISTEN rows, every address family', () => {
+  assert.equal(procHost('00000000'), '0.0.0.0');
+  assert.equal(procHost('0100007F'), '127.0.0.1');
+  assert.equal(procHost('00000000000000000000000000000000'), '::');
+  assert.equal(procHost('00000000000000000000000001000000'), '::1');
+  assert.equal(procHost('0000000000000000FFFF00000100007F'), '::ffff:127.0.0.1');
+  const table = [
+    '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode',
+    '   0: 00000000:446F 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 111 1 0 100 0 0 10 0',
+    '   1: 0100007F:4470 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 222 1 0 100 0 0 10 0',
+    '   2: 0100007F:4470 0100007F:9C40 01 00000000:00000000 00:00000000 00000000  1000        0 333 1 0 20 4 30 10 -1',
+  ].join('\n');
+  assert.deepEqual(listeningSockets(table), [
+    { inode: '111', host: '0.0.0.0', port: 17519 },
+    { inode: '222', host: '127.0.0.1', port: 17520 },
+  ]);
+});
+
+test('fundsCheck fails a listener on every interface, naming the process, host and port; loopback passes (#10244)', () => {
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  const check = (listeners) => fundsCheck({ records: { fix: { pid: 31 } }, readEnviron: ok, readListeners: () => listeners, page: PAGE });
+  for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
+    const r = check([
+      { host: '127.0.0.1', port: 17526 },
+      { host, port: 17527 },
+    ]);
+    assert.equal(r.ok, false, host);
+    assert.ok(r.lines.includes(`FAIL fix (pid 31): listens on ${host} port 17527, reachable off this machine`), r.lines.join('\n'));
+  }
+  assert.equal(
+    check([
+      { host: '127.0.0.1', port: 17526 },
+      { host: '::1', port: 17527 },
+      { host: '::ffff:127.0.0.1', port: 17528 },
+    ]).ok,
+    true,
+  );
+});
+
+test(
+  'the real check fails a planted all-interfaces listener in a live process and passes it on loopback (#10244)',
+  { skip: process.platform !== 'linux' && 'reads /proc' },
+  async () => {
+    const net = await import('node:net');
+    const listenOn = (host) =>
+      new Promise((resolve) => {
+        const s = net.createServer();
+        s.listen(0, host, () => resolve(s));
+      });
+    const run = () => fundsCheck({ records: { planted: { pid: process.pid } }, readEnviron: () => environ({}), readListeners, page: PAGE });
+    const wild = await listenOn('0.0.0.0');
+    try {
+      const r = run();
+      assert.equal(r.ok, false);
+      assert.ok(
+        r.lines.includes(`FAIL planted (pid ${process.pid}): listens on 0.0.0.0 port ${wild.address().port}, reachable off this machine`),
+        r.lines.join('\n'),
+      );
+    } finally {
+      await new Promise((resolve) => wild.close(resolve));
+    }
+    const local = await listenOn('127.0.0.1');
+    try {
+      assert.equal(run().ok, true, run().lines.join('\n'));
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
+  },
+);
+test('hosted allow list (#10208): the test networks and the beta host pass; a planted mainnet or bank host fails', () => {
+  const allow = hostedAllowList('Beta.Example-Host.com');
+  assert.deepEqual([...allow].sort(), [...HOSTED_TEST_NETWORK_HOSTS, 'beta.example-host.com'].sort());
+  const records = { trade: { pid: 31 } };
+  const hosted = {
+    TRADE_USER_VENUE_URL: 'https://api.hyperliquid-testnet.xyz',
+    PAY_CRYPTO_RPC_URL: 'https://sepolia.base.org',
+    PUBLIC_URL: 'https://beta.example-host.com/app',
+    EDGE_URL: 'http://127.0.0.1:17500',
+  };
+  const pass = fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE, allow });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.match(
+    pass.lines.join('\n'),
+    /1 of 1 running processes: every address in their environments is this machine, a reserved name or the hosted allow list/,
+  );
+
+  // Without the allow list, the same hosted environment is three findings: the loopback check is unchanged.
+  assert.equal(fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE }).ok, false);
+
+  for (const [key, url, host] of [
+    ['TRADE_USER_VENUE_URL', 'https://api.hyperliquid.xyz', 'api.hyperliquid.xyz'],
+    ['PAY_CRYPTO_RPC_URL', 'https://mainnet.base.org', 'mainnet.base.org'],
+    ['BANK_RAIL_URL', 'https://api.bank-live.com/v1', 'api.bank-live.com'],
+    ['PAY_CRYPTO_RPC_URL', 'https://sepolia.base.org.attacker.net', 'sepolia.base.org.attacker.net'],
+    ['TRADE_USER_VENUE_URL', 'wss://ws.api.hyperliquid-testnet.xyz', 'ws.api.hyperliquid-testnet.xyz'],
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...hosted, [key]: url }), page: PAGE, allow });
+    assert.equal(r.ok, false, `${url} must fail`);
+    assert.ok(
+      r.lines.includes(`FAIL trade (pid 31): ${key} names ${url.split(':')[0]}://${host}, off this machine and the hosted allow list`),
+      r.lines.join('\n'),
+    );
+  }
+});
+
+test('hosted allow list (#10208): the beta host is one plain DNS name, else it throws and nothing runs open', () => {
+  for (const bad of [
+    undefined,
+    '',
+    'localhost',
+    '*.example.com',
+    'https://beta.example.com',
+    'beta.example.com:443',
+    'beta.example.com/x',
+    'a b.com',
+  ])
+    assert.throws(() => hostedAllowList(bad), /one plain DNS name/, String(bad));
 });
 
 test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {

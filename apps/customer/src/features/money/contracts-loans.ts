@@ -138,17 +138,4 @@ export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 export const loansReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const loansWrites = {
-  'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
-  'loans.addCollateral': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
-  'loans.releaseExcess': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
-  'loans.repay': z.object({
-    ledgerTxId: z.string(),
-    interestPaid: money,
-    principalPaid: money,
-    remainingPrincipal: money,
-    remainingInterest: money,
-    closed: z.boolean(),
-  }),
-  'loans.close': z.object({ released: money, ledgerTxId: z.string().nullable() }),
-} as const;
+export const loansWrites = {} as const;

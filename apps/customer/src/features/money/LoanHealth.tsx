@@ -11,6 +11,13 @@ import { loanCopy, loanStatusLabel } from './loan-copy';
 import './loan.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_LIST, BANK_LOANS_HEALTH, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+} from '@intafaced/contracts/bank-loans-3-procedures';
 
 type Loan = z.infer<typeof loanSchema>;
 type Product = ProcedureOutput<typeof BANK_LOANS_PRODUCTS>[number];
@@ -98,7 +105,7 @@ export function useLoansRoom() {
     review: {
       open: (product: Product): ActionSpec => ({
         title: copyText('rooms.open.loan'),
-        procedure: 'loans.open',
+        record: BANK_LOANS_OPEN,
         fields: [
           positiveMoney(product.debtAssetId, 'principal', copyText('rooms.principal.to.borrow')),
           positiveMoney(product.collateralAssetId, 'collateralAmount', copyText('rooms.collateral.to.pledge')),
@@ -130,7 +137,7 @@ export function useLoansRoom() {
       }),
       repay: (loan: Loan): ActionSpec => ({
         title: copyText('rooms.repay.loan'),
-        procedure: 'loans.repay',
+        record: BANK_LOANS_REPAY,
         preflight: currentLoanPreflight(api, loan, 'repay', limit),
         fields: [positiveMoney(loan.debtAssetId)],
         facts: [
@@ -148,7 +155,7 @@ export function useLoansRoom() {
       }),
       addCollateral: (loan: Loan): ActionSpec => ({
         title: copyText('rooms.add.collateral'),
-        procedure: 'loans.addCollateral',
+        record: BANK_LOANS_ADD_COLLATERAL,
         preflight: currentLoanPreflight(api, loan, 'addCollateral', limit),
         fields: [positiveMoney(loan.collateralAssetId)],
         facts: [
@@ -162,7 +169,7 @@ export function useLoansRoom() {
       }),
       releaseExcess: (loan: Loan): ActionSpec => ({
         title: copyText('rooms.release.excess.collateral'),
-        procedure: 'loans.releaseExcess',
+        record: BANK_LOANS_RELEASE_EXCESS,
         preflight: currentLoanPreflight(api, loan, 'releaseExcess', limit),
         validate: (input) =>
           typeof input.amount === 'string' && parseAmount(input.amount) <= parseAmount(loan.collateral)
@@ -190,7 +197,7 @@ export function useLoansRoom() {
       close: (loan: Loan): ActionSpec => ({
         title: copyText('rooms.release.settled.collateral'),
         unit: loan.collateralAssetId,
-        procedure: 'loans.close',
+        record: BANK_LOANS_CLOSE,
         preflight: currentLoanPreflight(api, loan, 'close', limit),
         facts: [
           [loanCopy.t('loan'), loan.id],

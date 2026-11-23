@@ -8,6 +8,7 @@ import { loanApplyCopy } from './loan-apply-copy';
 import './bank-depth.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
 import { BANK_LOANS_QUOTE, BANK_LOANS_FEES } from '@intafaced/contracts/bank-loans-2-procedures';
+import { BANK_LOANS_OPEN } from '@intafaced/contracts/bank-loans-3-procedures';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -258,7 +259,7 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
             onClick={() =>
               open({
                 title: t('open'),
-                procedure: 'loans.open',
+                record: BANK_LOANS_OPEN,
                 fields: [
                   positiveMoney(product.debtAssetId, 'principal', t('principal')),
                   positiveMoney(product.collateralAssetId, 'collateralAmount', t('collateral')),
