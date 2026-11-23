@@ -8,6 +8,12 @@ import {
   merchantTermsAcceptInputSchema,
   merchantTermsAcceptResultSchema,
   merchantOnboardingProgressSchema,
+  merchantProfileHistoryInputSchema,
+  merchantProfileHistorySchema,
+  merchantBusinessProfileConfirmInputSchema,
+  merchantBusinessProfileDecideResultSchema,
+  merchantProfileSecondApprovalInputSchema,
+  merchantProfileSecondApprovalResultSchema,
 } from './merchant-portal.js';
 import { assetIdSchema, amountSchema, onboardingDraftSchema, onboardingDraftSaveInputSchema } from './pay-call-schemas.js';
 import {
@@ -442,6 +448,60 @@ export const PAY_MERCHANT_CATEGORY_CHOOSE = defineProcedure({
   },
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', categoryKey: 'sample', expectedTableVersion: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_BUSINESS_PROFILE_HISTORY = defineProcedure({
+  ...base,
+  name: 'pay.merchant.businessProfile.history',
+  kind: 'query',
+  path: 'merchant.businessProfile.history',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantProfileHistoryInputSchema,
+  output: merchantProfileHistorySchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_BUSINESS_PROFILE_CONFIRM = defineProcedure({
+  ...base,
+  name: 'pay.merchant.businessProfile.confirm',
+  kind: 'mutation',
+  path: 'merchant.businessProfile.confirm',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: merchantBusinessProfileConfirmInputSchema,
+  output: merchantBusinessProfileDecideResultSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        merchantId: '11111111-1111-4111-8111-111111111111',
+        requestId: '11111111-1111-4111-8111-111111111111',
+        decision: 'confirm',
+        expectedChangeHash: 'ethereum',
+        reason: 'USDC',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL = defineProcedure({
+  ...base,
+  name: 'pay.merchant.businessProfile.setSecondApproval',
+  kind: 'mutation',
+  path: 'merchant.businessProfile.setSecondApproval',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: merchantProfileSecondApprovalInputSchema,
+  output: merchantProfileSecondApprovalResultSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', enabled: true } },
     { verdict: 'refuse', input: 42 },
   ],
 });
