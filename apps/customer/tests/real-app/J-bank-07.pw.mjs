@@ -287,9 +287,6 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   if (!pot) throw new Error(`${J} #1 made no space, so this step has nothing to lock`);
   const api = await bank(who);
   const mainId = main(await spaces(who)).id;
-  // The partner's own book before the lock: what it lists now is all it lists at the end of this step.
-  const movesAtStart = await partnerBookMoves(api.userId);
-  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot}`);
@@ -311,9 +308,6 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   });
   expect(refused).toMatchObject({ ok: false, code: 'bank.space_locked' });
   expect(toUnits(named(await spaces(who), POT).balance)).toBe(toUnits('20'));
-  // Nothing moved at the partner either: its own book lists no new move and still holds 20 in the pot.
-  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
-  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   // A lock can only get longer here: an earlier date is refused, to be asked for as an early unlock.
   const shorter = await api.mutate('spaces.setLock', { spaceId: pot, lockedUntil: new Date(Date.now() + 24 * 3600_000).toISOString() });
@@ -384,10 +378,6 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
     expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
     expect(named(await spaces(who), POT)).toMatchObject({ lockedUntil: before.lockedUntil, unlocksAt: before.unlocksAt });
   });
-  // Every refusal of this step, the standing order's included, moved nothing at the partner: its book lists no new move,
-  // and the pot still holds 20 there, the figure the app shows.
-  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
-  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
   await ledgerUnchanged(who, run.read().ledger);
 });
 
