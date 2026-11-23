@@ -495,6 +495,16 @@ export interface SimOptions {
   readonly scheduledCancelMinLeadMs?: number;
 }
 
+/** One TEST dust conversion (`convertDust`): the coin taken, the price it was valued at, and the quote coin credited. */
+export interface SimDustConversion {
+  readonly symbol: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly quoteAsset: string;
+  readonly price: Amount;
+  readonly credited: Amount;
+}
+
 interface AccountState {
   readonly key: string;
   readonly owner: string;
@@ -2124,6 +2134,32 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.stakes.set(asset, add(state.stakes.get(asset) ?? ZERO, amount));
     state.stakeRefs.add(stakeRef);
     return true;
+  }
+
+  /**
+   * TEST control: the venue's next dust conversion of one account, as Hyperliquid converts spot dust once a day. A cash
+   * spot market's coin the account holds less than one lot of, which no order can sell, with none of it locked, is
+   * converted into the market's quote coin at the price of the market's newest public print, rounded down; a market that
+   * has not traded converts nothing. Returns each conversion. Every figure is TEST.
+   */
+  convertDust(account: UserVenueAccount): readonly SimDustConversion[] {
+    this.up();
+    const state = this.account(account);
+    const converted: SimDustConversion[] = [];
+    for (const market of this.marketsBySymbol.values()) {
+      if (market.kind !== 'spot') continue;
+      const held = state.balances.get(market.baseAsset);
+      const price = this.prints.get(market.symbol)?.at(-1)?.price;
+      if (!held || price === undefined || held.locked !== ZERO) continue;
+      if (compare(held.free, ZERO) <= 0 || compare(held.free, market.lotSize) >= 0) continue;
+      const amount = held.free;
+      const credited = mul(amount, price, 'floor');
+      held.free = ZERO;
+      const quote = this.balance(state, market.quoteAsset);
+      quote.free = add(quote.free, credited);
+      converted.push({ symbol: market.symbol, asset: market.baseAsset, amount, quoteAsset: market.quoteAsset, price, credited });
+    }
+    return converted;
   }
 
   async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {

@@ -501,6 +501,37 @@ describe('TEST venue simulator: switches and labels', () => {
     expect(() => refuseTestVenueOutsideTest(w.sim.venue, 'prod')).toThrow(VenueRefusalError);
   });
 
+  it('the TEST dust conversion turns a spot coin held under one lot into the quote coin at the last traded price, and nothing else', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:dust');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:dust');
+    w.sim.deposit(w.other, 'USDC', a('1000'), 'chain:o:dust:usdc');
+    // Nothing has traded yet: there is no price to convert at, so a sub-lot balance stays.
+    w.sim.deposit(w.trader, 'BTC', a('0.0004'), 'chain:t:dust:btc');
+    expect(w.sim.convertDust(w.trader)).toEqual([]);
+    // The trader buys 0.002 BTC as taker (fee 3.5 bps of it, in BTC) and sells two whole lots back: under one lot is left.
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.002', 'order:maker:dust:ask'));
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60000', '0.002', 'order:t:dust:buy'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'buy', '60000', '0.002', 'order:maker:dust:bid'));
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.002', 'order:t:dust:sell'));
+    const left = sub(a('0.0004'), a('0.0000007'));
+    const before = (await w.sim.balances(w.trader)).value;
+    expect(balanceOf(before, 'BTC')).toMatchObject({ free: left, locked: ZERO });
+    // A lot or more is not dust: the maker's whole BTC stays as it is.
+    const makerBtc = balanceOf((await w.sim.balances(w.other)).value, 'BTC');
+    expect(w.sim.convertDust(w.other)).toEqual([]);
+    expect(balanceOf((await w.sim.balances(w.other)).value, 'BTC')).toEqual(makerBtc);
+    // The trader's dust goes into USDC at the last traded price, once.
+    const credited = a('23.958');
+    expect(w.sim.convertDust(w.trader)).toEqual([
+      { symbol: 'BTC-USDC', asset: 'BTC', amount: left, quoteAsset: 'USDC', price: a('60000'), credited },
+    ]);
+    const after = (await w.sim.balances(w.trader)).value;
+    expect(balanceOf(after, 'BTC')).toMatchObject({ free: ZERO, locked: ZERO, total: ZERO });
+    expect(balanceOf(after, 'USDC').free).toBe(add(balanceOf(before, 'USDC').free, credited));
+    expect(w.sim.convertDust(w.trader)).toEqual([]);
+  });
+
   it('the TEST all-fills read lists the fills of every account since a time, each with its account, oldest first', async () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:af');
