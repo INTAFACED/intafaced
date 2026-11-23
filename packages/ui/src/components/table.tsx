@@ -127,7 +127,7 @@ function widthStyle(width: number | string | undefined): React.CSSProperties | u
 }
 
 /** The column's name in words, which a phone shows beside each of its values (theme/table-phone.css). */
-export function columnName<Row>(column: TableColumn<Row>): string | undefined {
+function columnName<Row>(column: TableColumn<Row>): string | undefined {
   if (typeof column.header === 'string' && column.header !== '') return column.header;
   return column.headerLabel;
 }
