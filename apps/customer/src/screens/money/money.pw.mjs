@@ -269,8 +269,18 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   // The price the bank valued it at, then the value it gives.
   expect(await texts(btc.locator('td').nth(2))).toEqual(['$67,812.40']);
   expect(await texts(btc.locator('td').nth(3))).toEqual(['$6,781.24']);
-  // The change with its arrow and its direction in words (the kit's Change reads "up" to a screen reader).
-  expect(await texts(btc.locator('td').nth(4))).toEqual(['▲ up +$181.24 (+2.75%)']);
+  // The change with its direction in words (the kit's Change reads "up" to a screen reader) and its arrow, drawn (Volt's
+  // faces have no ▲ ▼), pointing up and with a size.
+  expect(await texts(btc.locator('td').nth(4))).toEqual(['up +$181.24 (+2.75%)']);
+  expect(
+    await btc
+      .locator('td')
+      .nth(4)
+      .locator('[data-arrow]')
+      .evaluateAll((nodes) => nodes.map((n) => n.dataset.arrow)),
+  ).toEqual(['up']);
+  await expect(btc.locator('td').nth(4).locator('.lt-arrow-up')).toHaveCount(1);
+  expect((await btc.locator('td').nth(4).locator('[data-arrow]').boundingBox()).width).toBeGreaterThan(0);
   // No link to the old coin page (critic H3): the row's own buttons are the way on.
   expect(await page.getByTestId('if-money').locator('a[href^="/coin/"]').count()).toBe(0);
   // Unpriced rows show a dash, never zero.
