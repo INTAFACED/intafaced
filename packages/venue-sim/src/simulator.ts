@@ -1,5 +1,18 @@
 import { createHash } from 'node:crypto';
-import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import {
+  add,
+  compare,
+  DECIMALS,
+  div,
+  formatAmount,
+  max,
+  min,
+  mul,
+  parseAmount,
+  sub,
+  ZERO,
+  type Amount,
+} from '@intafaced/ledger-client/money';
 import {
   type AgentPermissionReach,
   VenueRefusalError,
@@ -2139,10 +2152,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /**
    * TEST control: the venue's next dust conversion of one account, as Hyperliquid converts spot dust once a day. A cash
    * spot market's coin the account holds less than one lot of, which no order can sell, with none of it locked, is
-   * converted into the market's quote coin at the price of the market's newest public print, rounded down; a market that
-   * has not traded converts nothing. Returns each conversion. Every figure is TEST.
+   * converted into the market's quote coin at the price of the market's newest public print, rounded down to the quote
+   * coin's smallest unit on its withdrawal route (`unitDecimals`: the route token's decimals, or null for none), so the
+   * credit can be withdrawn whole; the venue keeps what is under one unit. A market that has not traded converts
+   * nothing. Returns each conversion. Every figure is TEST.
    */
-  convertDust(account: UserVenueAccount): readonly SimDustConversion[] {
+  convertDust(account: UserVenueAccount, unitDecimals: (asset: string) => number | null = () => null): readonly SimDustConversion[] {
     this.up();
     const state = this.account(account);
     const converted: SimDustConversion[] = [];
@@ -2153,7 +2168,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (!held || price === undefined || held.locked !== ZERO) continue;
       if (compare(held.free, ZERO) <= 0 || compare(held.free, market.lotSize) >= 0) continue;
       const amount = held.free;
-      const credited = mul(amount, price, 'floor');
+      const decimals = unitDecimals(market.quoteAsset);
+      const unit = decimals === null ? 1n : 10n ** BigInt(DECIMALS - decimals);
+      const credited: Amount = (mul(amount, price, 'floor') / unit) * unit;
       held.free = ZERO;
       const quote = this.balance(state, market.quoteAsset);
       quote.free = add(quote.free, credited);

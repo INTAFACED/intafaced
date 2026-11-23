@@ -521,9 +521,10 @@ describe('TEST venue simulator: switches and labels', () => {
     const makerBtc = balanceOf((await w.sim.balances(w.other)).value, 'BTC');
     expect(w.sim.convertDust(w.other)).toEqual([]);
     expect(balanceOf((await w.sim.balances(w.other)).value, 'BTC')).toEqual(makerBtc);
-    // The trader's dust goes into USDC at the last traded price, once.
-    const credited = a('23.958');
-    expect(w.sim.convertDust(w.trader)).toEqual([
+    // The trader's dust goes into USDC at the last traded price, once, rounded down to USDC's withdrawable unit (here two
+    // decimals, so 23.958 is credited as 23.95; the venue keeps the rest).
+    const credited = a('23.95');
+    expect(w.sim.convertDust(w.trader, (asset) => (asset === 'USDC' ? 2 : null))).toEqual([
       { symbol: 'BTC-USDC', asset: 'BTC', amount: left, quoteAsset: 'USDC', price: a('60000'), credited },
     ]);
     const after = (await w.sim.balances(w.trader)).value;

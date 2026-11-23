@@ -954,6 +954,13 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     conversions.map((c) => [c.asset, c.amount, c.quoteAsset]),
     'the venue converted the coin left under one lot, and nothing else',
   ).toEqual(toUnits(dust.total) > 0n ? [['BTC', dust.total, 'USDC']] : []);
+  // Each credit is the coin at the venue's price, rounded down to whole units of the USDC token the venue pays out in.
+  const usdcUnit = 10n ** (18n - BigInt(TOKEN_USD.decimals));
+  for (const c of conversions) {
+    expect(toUnits(c.credited), `${c.amount} BTC at ${c.price}, in whole USDC units`).toBe(
+      ((toUnits(c.amount) * toUnits(c.price)) / 10n ** 18n / usdcUnit) * usdcUnit,
+    );
+  }
   const dustCredit = conversions.reduce((sum, c) => sum + toUnits(c.credited), 0n);
   const before = await venueBalance(owner, 'USDC');
   expect(toUnits(before.free), 'the venue credited the conversion in USDC').toBe(toUnits(usdcBeforeDust.free) + dustCredit);
