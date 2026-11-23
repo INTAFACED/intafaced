@@ -63,6 +63,9 @@ x-service-env: &service-env
   # which sets APP_ENV=dev); the shell environment still wins over `.env`.
   NODE_ENV: production
   APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
+  # The beta posture's switch (packages/config/src/beta-posture.ts): empty is off. The staging deploy sets it
+  # to test-networks for a beta; every service then refuses to boot with a mainnet, real bank or card route.
+  INTAFACED_BETA_POSTURE: ${INTAFACED_BETA_POSTURE:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the
