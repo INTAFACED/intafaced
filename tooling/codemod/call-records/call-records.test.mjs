@@ -2165,6 +2165,36 @@ test("a door record's accepted sample is the door's own accepted request, and no
   assert.match(samplesFor(record), /verdict: 'accept'/);
 });
 
+test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-type-'));
+  const git = agentsRepo(root);
+  // svc-agents' coach.runSession: its refusal codes are a type and a list of that type, both moved to the shared file.
+  writeFileSync(
+    join(root, 'services/svc-agents/src/router.ts'),
+    [
+      "import { z } from 'zod';",
+      "export type Kind = 'a' | 'b';",
+      "export const KINDS: readonly Kind[] = ['a', 'b'];",
+      'export function createAgentsRouter() {',
+      "  return router({ own: router({ kind: scopedProcedure('agents:read').output(z.object({ kind: z.enum(KINDS as [Kind, ...Kind[]]) })).query(() => ({ kind: 'a' })) }) });",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(root, 'apps/customer/src/features/agents/agent.ts'),
+    "import { z } from 'zod';\nexport const k = (api) => api.query('agents', 'own.kind', undefined, z.object({ kind: z.string() }));\n",
+  );
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a typed list');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write'], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  const from = record.match(/import \{([^}]*)\} from ["']\.\/agents-call-schemas\.js["']/)?.[1] ?? '';
+  assert.match(from, /\btype Kind\b/, `the type is imported as one: ${from}`);
+  assert.match(from, /(^|,)\s*KINDS\b/, 'the list is imported as a value');
+});
+
 test('a schema const the moved call left unread goes, and the one it read after it; one still read or impure stays, and an export no file imports loses its export', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
   const file = join(dir, 'prune-schemas-fixture.ts');
