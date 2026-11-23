@@ -878,6 +878,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
   }
   if (s.shape === 'write-spec') {
     // `procedure: 'x.y'` becomes `record: RECORD`: the dialog sends a spec by its record (features/money/write-flow.ts).
+    // One picked by a `? :` becomes `record: t ? A : B` once each value has its record (`fanIn`).
+    if (s.fan) return fanBranch(changes, s, name, spec, takesNone);
     changes.edit(s.file, n.start, n.end, `record: ${name}`);
     changes.imp(s.file, spec, name);
     return;
