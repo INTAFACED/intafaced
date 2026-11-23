@@ -3,7 +3,7 @@ import { fromTop } from './step-picture.mjs';
 
 // The step picture's readying (journey.mjs stepPicture) on planted pages in a real Chromium: a page left scrolled down
 // gets a whole-page picture with its bar at the top (J-agents-21 #11 read BROKEN for the bar drawn over the content), a
-// focused skip link is hidden, and an open menu or a focused field keeps the state the step ends on. It needs a Chromium:
+// focused skip link is hidden, a focused field is left unfocused, and an open menu keeps the state the step ends on. It needs a Chromium:
 // Playwright's own, or the machine's Chrome; with neither it says so and skips.
 let browser = null;
 let why = '';
@@ -113,13 +113,13 @@ describe('step picture from the top', () => {
     await close();
   });
 
-  it('a focused field stays focused while the page goes to the top', async (t) => {
+  it('a focused field is left unfocused while the page goes to the top, so the capture does not bring it back into view', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { page, close } = await pageOf();
     await page.evaluate(() => window.scrollTo(0, 1500));
     await page.focus('#field');
     expect(await fromTop(page)).toBe('scrolled');
-    expect(await page.evaluate(() => [window.scrollY, document.activeElement.id])).toEqual([0, 'field']);
+    expect(await page.evaluate(() => [window.scrollY, document.activeElement === document.body])).toEqual([0, true]);
     await close();
   });
 
@@ -135,7 +135,7 @@ describe('step picture from the top', () => {
     await close();
   });
 
-  it('a focused text field, kept focused, is not drawn under the bar either', async (t) => {
+  it('a page left with a text field focused gets its bar at the top of the picture', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { page, close } = await pageOf();
     await page.evaluate(() => window.scrollTo(0, 1500));

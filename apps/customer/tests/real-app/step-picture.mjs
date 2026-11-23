@@ -5,8 +5,7 @@
  *
  * It leaves the page as it is when that would change the state the step ends on: while a menu, list box, tooltip, popover,
  * open popup or dialog that is not modal is showing (each may close on blur or on scroll); under a modal dialog it scrolls the
- * window but moves no focus, and it keeps a focused form field focused (a
- * field may check itself on blur). It scrolls only the window: a panel scrolled inside its own container keeps its place.
+ * window but moves no focus. It scrolls only the window: a panel scrolled inside its own container keeps its place.
  * Returns what it did, for its test and the step's own annotation. Never throws: a picture never fails a test.
  */
 export async function fromTop(page, waitMs = 5000) {
@@ -36,9 +35,11 @@ export async function fromTop(page, waitMs = 5000) {
         const dialogs = [...document.querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"]')].filter(shown);
         if (dialogs.some((el) => !modal(el))) return 'kept: something open';
         const inDialog = dialogs.length > 0;
+        // Nothing keeps focus outside a dialog, a form field neither: the whole-page capture brings a focused field back into
+        // view, and J-wallet-05 #1's picture showed the page scrolled to its address field after readying had scrolled to the
+        // top ("scrolled", run 45175298497).
         const focused = document.activeElement;
-        const field = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
-        if (!inDialog && focused instanceof HTMLElement && focused !== document.body && !focused.matches(field)) focused.blur();
+        if (!inDialog && focused instanceof HTMLElement && focused !== document.body) focused.blur();
         const atTop = () => window.scrollX === 0 && window.scrollY === 0;
         if (atTop()) return inDialog ? 'at top, dialog kept open' : 'at top';
         // Let the page answer the scroll (a bar that changes on scroll, a frame drawn) before the picture; a page that
