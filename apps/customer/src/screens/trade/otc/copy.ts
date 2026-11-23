@@ -92,7 +92,7 @@ const messages = {
   // Quote card
   Quote: 'Quote',
   'Quote title': 'Quote {pair}',
-  'Quote id': 'Quote id',
+  'Quote id': 'Quote reference',
   'Quoted price': 'Quoted price',
   'Mid price': 'Mid price',
   Spread: 'Spread',
@@ -171,8 +171,8 @@ const messages = {
   'Tab allocation': 'Allocation and give-up',
   'Tab rules': 'Rules',
   'Quotes table': 'Quotes',
-  'Open by id': 'Open by id',
-  'Open by id hint': 'Paste a quote id to look it up. Only your own quotes open.',
+  'Open by id': 'Open a quote that isn’t listed',
+  'Open by id hint': 'Your quotes are listed above. Paste the reference of one that isn’t to look it up. Only your own quotes open.',
   'Open quote button': 'Open quote',
   View: 'View',
   'Open quote': 'View quote {id}',
@@ -187,7 +187,7 @@ const messages = {
   Unreadable: 'Unreadable',
   'No quotes': 'No quotes. Request a price, or open one by id.',
   'Quotes table note': 'Quotes this browser knows. Each is read from the desk again before it is shown; the device keeps only the ids.',
-  'Not remembered': 'This browser couldn’t save the quote id, so it won’t be listed after a reload. Copy the id now.',
+  'Not remembered': 'This browser couldn’t save the quote reference, so it won’t be listed after a reload. Copy the reference now.',
   'Quote unreadable title': 'We couldn’t read this quote',
   'Quote unreadable reason': 'The connection dropped before the desk answered. Nothing was changed.',
 
