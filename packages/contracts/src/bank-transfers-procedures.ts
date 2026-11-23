@@ -126,8 +126,9 @@ export const BANK_TRANSFERS_QUOTE = defineProcedure({
     fee: amountString,
     feeBlocker: z.string().nullable(),
     /**
-     * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
-     * partner moves it and has not said what it costs, read as "not known", never 0.
+     * The network fee on the move (CUSTODY-DELTA §1.3): what the partner bank that holds the sender's money says it
+     * charges for a send; "0" for a send on our own book, which crosses no network. Null: the partner moves it and has
+     * not said what it costs, read as "not known", never 0. Absent only from an older service.
      */
     networkFee: amountString.nullable().optional(),
     withinPerTransfer: z.boolean(),
@@ -192,6 +193,21 @@ export const BANK_TRANSFERS_TO_USER = defineProcedure({
       verdict: 'accept',
       input: { transferId: 'ethereum', fromSpaceId: '11111111-1111-4111-8111-111111111111', toUserId: 'USDC', amount: '1' },
     },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_TRANSFERS_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.transfers.cancel',
+  kind: 'mutation',
+  path: 'transfers.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ cancelled: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

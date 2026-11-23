@@ -674,7 +674,7 @@ test(`${J} #3 sets the ladder to double columns with a price step of 2 ticks; pr
   await expect(dom(page)).toHaveAttribute('data-step-ticks', '2');
   for (const name of ['My bids', 'Bids (BTC)', 'Price (USDC)', 'Asks (BTC)', 'My asks'])
     await expect(ladder(page).getByRole('columnheader', { name })).toBeVisible();
-  expect(same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
+  await expect.poll(async () => same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
 
   await expect
     .poll(
@@ -756,8 +756,8 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
   // The ticket holds the clicked price and the click's size.
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
   await page.waitForTimeout(1_000);
   expect(door.sent()).toEqual([]);
   expect(await venueOpen(owner)).toEqual(openBefore);
@@ -790,6 +790,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
 
 test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const s = state();
@@ -823,8 +824,8 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   const spreadText = await spread.innerText();
   await expect(buy).toHaveAccessibleDescription(spreadText);
   await expect(sell).toHaveAccessibleDescription(spreadText);
-  expect(same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
-  expect(same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
 
   await group.getByLabel('Click size (BTC)').fill(SMALL);
   const review = reviewSheet(page);
@@ -849,7 +850,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(same(sold.price, bidShown) && same(sold.amount, SMALL)).toBe(true);
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
-  expect(same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
+  await expect.poll(async () => same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
 
   // A type the venue market does not list: the venue desk's existing reason, and no review, no draft.
   const rules = await venueMarketRules();
@@ -876,6 +877,10 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(signatures(wallet)).toBe(0);
   expect(await venueOpen(owner)).toEqual(openBefore);
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
+  // The step's picture: the chart's Buy and Sell with the spread and the Stop refusal, from the top, so the bar that stays
+  // at the top of a scrolled page is not drawn over the chart's trade row.
+  await expect(note).toHaveText('Stop: not offered by this venue');
+  await stepPicture(page);
 });
 
 test(`${J} #6 turns instant placement on: a click sends after the settings summary; off, it always reviews`, async ({ page }) => {
@@ -1298,9 +1303,9 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
       )
       .toBe('same');
     // The print at my price moved the chance above zero, and the order ahead shrank to 0.001 BTC.
-    expect(toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
-    expect(toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
-    expect(toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
     await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^At most 0\.0010* BTC ahead of you at this price$/);
     await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
     await expect(row.getByTestId('of-queue-basis')).toContainText(

@@ -188,7 +188,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   for (const asset of ['BTC', 'USDT']) {
     await expect(coin.locator(`li[data-group="${asset}"]`)).toContainText(asset);
     await expect
-      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .money-alloc__pct`), coinShare(asset)), { timeout: 30_000 })
+      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .lt-parts-value`), coinShare(asset)), { timeout: 30_000 })
       .toBe('agree');
   }
   const kind = await grouped(page, 'Kind');
@@ -203,7 +203,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   for (const type of ['available', 'locked'])
     await expect
       .poll(
-        agreesWith(place.locator(`li[data-group="${type}"] .money-alloc__pct`), (answer) =>
+        agreesWith(place.locator(`li[data-group="${type}"] .lt-parts-value`), (answer) =>
           Number(answer.types.find((row) => row.type === type).share),
         ),
         { timeout: 30_000 },
@@ -261,8 +261,8 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     const row = card.locator(`tr[data-change-asset="${asset}"]`);
     // The account did not exist 7 days ago: nothing held then, so everything held now is what rose.
     await expect(row).toHaveAttribute('data-start', '0');
-    expect(toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
-    expect(toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
     await expect(row.locator('td').nth(0)).toHaveText('No holding yet');
     await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^\\+[\\d,.]+ ${asset}$`));
   }
@@ -526,7 +526,7 @@ test(`${J} #6 reads cash by currency and presses Convert: each currency's balanc
     const step = 10n ** BigInt(18 - places);
     expect(toUnits(shown[1].replaceAll(',', ''))).toBe((toUnits(row.amount) / step) * step);
   }
-  await card.locator('tr[data-testid="money-row"][data-asset="USDT"]').getByRole('button', { name: 'Convert USDT' }).click();
+  await card.locator('tr[data-testid="money-row"][data-asset="USDT"]').getByRole('link', { name: 'Convert USDT' }).click();
   await expect(page).toHaveURL(/\/trade\/convert\?from=USDT/);
   await expect(page.getByTestId('from-field').getByRole('button', { name: 'Change the From asset' })).toContainText('USDT');
 });

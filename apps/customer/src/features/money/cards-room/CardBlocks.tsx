@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { BANK_CARDS_CONTROLS_GET } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_CONTROLS_GET, BANK_CARDS_CONTROLS_BLOCK, BANK_CARDS_CONTROLS_LIFT } from '@intafaced/contracts/bank-cards-procedures';
 import type { z } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
 import { useBankRecord } from '../components';
-import { bankWrites, type CardControls, type cardSchema } from '../contracts';
+import { type CardControls, type cardSchema } from '../contracts';
 import { ChannelSwitch, Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
 import { cardBlocksCopy, declineKey } from '../card-blocks-copy';
@@ -43,11 +43,11 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
   useEffect(() => setControls(stored), [stored]);
   const closed = card.status === 'closed';
 
-  async function send(procedure: 'cards.controls.block' | 'cards.controls.lift', input: Record<string, unknown>) {
+  async function send(call: () => Promise<ApiResult<CardControls>>) {
     setBusy(true);
     setFailure(null);
     try {
-      const done = await api.mutate('bank', procedure, { cardId: card.id, ...input }, bankWrites[procedure]);
+      const done = await call();
       if (!done.ok) {
         setFailure(withPlainRefusal(done));
         return false;
@@ -58,11 +58,14 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
       setBusy(false);
     }
   }
+  const addBlock = (kind: 'category' | 'merchant' | 'country', value: string) =>
+    send(() => api.call(BANK_CARDS_CONTROLS_BLOCK, { cardId: card.id, kind, value }));
+  const liftBlock = (controlId: string) => send(() => api.call(BANK_CARDS_CONTROLS_LIFT, { cardId: card.id, controlId }));
   const live = (kind: 'category' | 'merchant' | 'country') => controls.controls.filter((c) => c.kind === kind);
   const blockedCategory = (category: string) => live('category').find((c) => c.value === category);
   const submit = (kind: 'merchant' | 'country', value: string, clear: () => void) => async (event: FormEvent) => {
     event.preventDefault();
-    if (await send('cards.controls.block', { kind, value })) clear();
+    if (await addBlock(kind, value)) clear();
   };
   const blockedList = (kind: 'merchant' | 'country', label: string) => {
     const rows = live(kind);
@@ -73,7 +76,7 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
             <span lang="und" dir="auto">
               {c.value}
             </span>{' '}
-            <Button tone="quiet" disabled={busy || closed} onClick={() => void send('cards.controls.lift', { controlId: c.id })}>
+            <Button tone="quiet" disabled={busy || closed} onClick={() => void liftBlock(c.id)}>
               {t('allowAgain')}
             </Button>
           </li>
@@ -97,11 +100,7 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
               on={!!block}
               state={block ? t('stateBlocked') : t('stateAllowed')}
               disabled={busy || closed}
-              onToggle={() =>
-                void (block
-                  ? send('cards.controls.lift', { controlId: block.id })
-                  : send('cards.controls.block', { kind: 'category', value: category }))
-              }
+              onToggle={() => void (block ? liftBlock(block.id) : addBlock('category', category))}
             />
           );
         })}

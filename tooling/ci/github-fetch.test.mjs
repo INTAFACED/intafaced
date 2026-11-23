@@ -75,7 +75,6 @@ const NOT_YET = new Set([
   'judge-down.mjs',
   'main-trust.mjs',
   'post-merge-trust.mjs',
-  'test-diff-guard.mjs',
   'test-judge.mjs',
 ]);
 

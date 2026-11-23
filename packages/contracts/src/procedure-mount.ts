@@ -132,6 +132,7 @@ function guardFor(
       return anyScopeProcedure(access.scopes, {
         ...(access.module === undefined ? {} : { module: access.module }),
         ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
       });
     case 'service':
       return serviceProcedureFor(access.callers, access.forbidden === undefined ? {} : { forbidden: access.forbidden });
@@ -145,6 +146,7 @@ function guardFor(
       return signedInProcedure({
         ...(access.module === undefined ? {} : { module: access.module }),
         ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
       });
     case 'founder':
       if (founder === undefined) throw new Error(`${name} is founder-only: mount it with the service's founder guard`);

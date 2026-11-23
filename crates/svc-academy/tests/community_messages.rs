@@ -10,8 +10,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod community_support;
-mod support;
+use crate::community_support;
+use crate::support;
 
 use community_support::{arr, at, b, code, get, items, one, s, setup};
 use service_kit::json::Json;

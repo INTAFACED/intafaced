@@ -33,16 +33,18 @@ export function QuantApiPage({ title }: { title: string }) {
             <tbody>
               {QUANT_API_ENDPOINTS.map((row) => (
                 <tr key={`${row.method} ${row.path}`} data-testid="developers-quant-endpoint" data-path={row.path} data-scope={row.scope}>
-                  <td>
+                  <td data-label={t('colMethod')}>
                     <code lang="und">{row.method}</code>
                   </td>
-                  <td>
+                  <td data-label={t('colPath')}>
                     <code lang="und">{row.path}</code>
                   </td>
-                  <td>
+                  <td data-label={t('colScope')}>
                     <code lang="und">{row.scope}</code>
                   </td>
-                  <td>{(t as (key: string) => string)(row.what)}</td>
+                  <td data-label={t('colWhat')} data-align="start">
+                    {(t as (key: string) => string)(row.what)}
+                  </td>
                 </tr>
               ))}
             </tbody>

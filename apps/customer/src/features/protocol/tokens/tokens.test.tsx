@@ -102,6 +102,9 @@ describe('Tokens room', () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('href="#how-trending"');
     expect(html).toMatch(/id="how-trending"[\s\S]*data-testid="trending-formula"/);
+    // The link and the section it jumps to never repeat the same words.
+    expect(html.match(/How trending is worked out/g)).toHaveLength(1);
+    expect(html).toMatch(/<h3>The growth formula<\/h3>/);
     expect(html).toContain('aria-label="Tokens"');
     expect(html).toContain('Reading the pools');
     expect(html).not.toContain('data-testid="token-growth"');
@@ -173,7 +176,7 @@ describe('Token page', () => {
   it('reads the token before it shows any fact, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokenPage address={TOKEN} />);
-    expect(html).toContain(`<h1>Token ${TOKEN}</h1>`);
+    expect(html).toMatch(new RegExp(`<h1[^>]*>Token ${TOKEN}</h1>`));
     expect(html).toContain('Reading the pools');
     expect(html).toContain('Add to watchlist');
     expect(html).not.toContain('data-testid="token-price"');

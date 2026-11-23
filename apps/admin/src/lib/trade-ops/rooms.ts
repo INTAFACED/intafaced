@@ -126,6 +126,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {
+    id: 'accounts',
+    href: '/trade-ops/accounts',
+    label: 'Accounts',
+    job: 'One person’s venue account and ratio history beside their partner balance, read-only, each from its source.',
+  },
+  {
     id: 'liquidations',
     href: '/trade-ops/liquidations',
     label: 'Liquidations',

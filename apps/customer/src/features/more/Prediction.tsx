@@ -96,7 +96,7 @@ export function usePredictionRoom() {
   return { markets, market, instrument, outcome, setOutcome, select, book, tape, fills };
 }
 
-/** The room as /predict/positions and /predict/settings draw it until their own rooms land. */
+/** The room as /predict/positions draws it until its own room lands. */
 export function Prediction() {
   const { markets, market, instrument, outcome, setOutcome, select, book, tape, fills } = usePredictionRoom();
   const { Copy } = predictionCatalogueCopy.useCopy();
@@ -217,7 +217,7 @@ export function Prediction() {
             <h2>
               <ticketCopy.Copy k="title" />
             </h2>
-            <p className="muted">
+            <p className="lt-muted">
               <ticketCopy.Copy k="idleBody" />
             </p>
             <p className="prediction-ticket__blocker" role="status">

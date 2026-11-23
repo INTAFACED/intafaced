@@ -133,7 +133,7 @@ pub struct BookTimeline {
 
 fn fee_usd(fee: Option<&BookFee>) -> Option<Amount> {
     match fee {
-        None => Some(0),
+        None => Some(Amount::ZERO),
         Some(BookFee::Known { usd, .. }) => *usd,
         Some(BookFee::Unknown) => None,
     }
@@ -254,8 +254,8 @@ impl BookTimeline {
                 *slot = Some(lot.qty);
             }
             let p = out.entry(lot.asset_id.clone()).or_insert(Position {
-                qty: 0,
-                cost: Some(0),
+                qty: Amount::ZERO,
+                cost: Some(Amount::ZERO),
             });
             p.qty += lot.qty;
             if lot.cost.is_some() {
@@ -276,8 +276,8 @@ impl BookTimeline {
                 continue;
             };
             let p = out.entry(lot.asset_id.clone()).or_insert(Position {
-                qty: 0,
-                cost: Some(0),
+                qty: Amount::ZERO,
+                cost: Some(Amount::ZERO),
             });
             p.qty -= draw.qty;
             if lot.cost.is_some() {
@@ -288,20 +288,20 @@ impl BookTimeline {
             let (Some(r), Some((_, lot))) = (remaining, self.lots.get(i)) else {
                 continue;
             };
-            if lot.cost.is_none() && *r != 0 {
+            if lot.cost.is_none() && *r != Amount::ZERO {
                 out.entry(lot.asset_id.clone())
                     .or_insert(Position {
-                        qty: 0,
-                        cost: Some(0),
+                        qty: Amount::ZERO,
+                        cost: Some(Amount::ZERO),
                     })
                     .cost = None;
             }
         }
         for p in out.values_mut() {
-            if p.qty == 0 && p.cost.is_some() {
+            if p.qty == Amount::ZERO && p.cost.is_some() {
                 *p = Position {
-                    qty: 0,
-                    cost: Some(0),
+                    qty: Amount::ZERO,
+                    cost: Some(Amount::ZERO),
                 };
             }
         }
@@ -334,7 +334,7 @@ impl BookTimeline {
             };
             match out.iter_mut().find(|(k, _)| k == key) {
                 Some((_, v)) => *v = plus(*v, sale.realized),
-                None => out.push((key.clone(), plus(Some(0), sale.realized))),
+                None => out.push((key.clone(), plus(Some(Amount::ZERO), sale.realized))),
             }
         }
         out
@@ -360,7 +360,7 @@ impl BookTimeline {
 
     /// `feesIn`.
     pub fn fees_in(&self, after: Instant, time: Instant) -> Option<Amount> {
-        let mut total = Some(0);
+        let mut total = Some(Amount::ZERO);
         for (when, usd) in &self.fees {
             if *when > after.0 && *when <= time.0 {
                 total = plus(total, *usd);
@@ -454,17 +454,17 @@ pub fn pnl_over_time(input: &PnlInputs<'_>) -> Result<Json, Failure> {
                 ));
                 continue;
             }
-            let r = lookup(&realized, asset_id).unwrap_or(Some(0));
+            let r = lookup(&realized, asset_id).unwrap_or(Some(Amount::ZERO));
             let p = positions.get(asset_id).copied().unwrap_or(Position {
-                qty: 0,
-                cost: Some(0),
+                qty: Amount::ZERO,
+                cost: Some(Amount::ZERO),
             });
-            let mut unrealized = Some(0);
+            let mut unrealized = Some(Amount::ZERO);
             let mut missing = r.is_none().then(|| Missing {
                 asset_id: asset_id.clone(),
                 reason: Reason::CostUnknown,
             });
-            if p.qty != 0 {
+            if p.qty != Amount::ZERO {
                 let price = input
                     .closes
                     .get(asset_id)
@@ -509,8 +509,8 @@ pub fn pnl_over_time(input: &PnlInputs<'_>) -> Result<Json, Failure> {
         missing: Vec<Missing>,
     }
     let totals = |by_coin: &[(String, CoinAt)]| {
-        let mut realized = Some(0);
-        let mut unrealized = Some(0);
+        let mut realized = Some(Amount::ZERO);
+        let mut unrealized = Some(Amount::ZERO);
         let mut missing = Vec::new();
         for (_, c) in by_coin {
             realized = plus(realized, c.realized);
@@ -542,7 +542,7 @@ pub fn pnl_over_time(input: &PnlInputs<'_>) -> Result<Json, Failure> {
                     out.push((asset_id.clone(), None));
                     continue;
                 }
-                let in_range = lookup(&sold, asset_id).unwrap_or(Some(0));
+                let in_range = lookup(&sold, asset_id).unwrap_or(Some(Amount::ZERO));
                 out.push((
                     asset_id.clone(),
                     plus(
@@ -559,7 +559,7 @@ pub fn pnl_over_time(input: &PnlInputs<'_>) -> Result<Json, Failure> {
     let total_of = |parts: &[(String, Option<Amount>)]| {
         parts
             .iter()
-            .try_fold(0, |t: Amount, (_, v)| v.map(|x| t + x))
+            .try_fold(Amount::ZERO, |t: Amount, (_, v)| v.map(|x| t + x))
     };
     let blank = input
         .book
@@ -660,7 +660,7 @@ pub fn pnl_over_time(input: &PnlInputs<'_>) -> Result<Json, Failure> {
             if rows.iter().any(|(_, v)| v.is_none()) {
                 continue;
             }
-            let sum: Amount = rows.iter().map(|(_, v)| v.unwrap_or(0)).sum();
+            let sum: Amount = rows.iter().map(|(_, v)| v.unwrap_or(Amount::ZERO)).sum();
             if sum != period {
                 return Err(Failure::Refused(TaxError {
                     code: TAX_PNL_BREAKDOWN_MISMATCH,

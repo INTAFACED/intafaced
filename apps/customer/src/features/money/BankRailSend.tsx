@@ -30,7 +30,7 @@ const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).succes
 
 function Sends({ rows }: { rows: readonly RailSend[] }) {
   const { t } = railSendCopy.useCopy();
-  if (rows.length === 0) return <p className="money-caption">{t('none')}</p>;
+  if (rows.length === 0) return <p className="lt-muted">{t('none')}</p>;
   return (
     <>
       {rows.map((row) => (
@@ -39,13 +39,13 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
             <strong>{t('status_refused')}</strong>
             <small>{date(row.createdAt)}</small>
           </div>
-          <span className="numeric" dir="ltr">
+          <span className="lt-num" dir="ltr">
             {funds(row.amount, row.assetId)}
           </span>
           <span>
             {t(`rail_${row.rail}` as Key)} · <span lang="und">{row.recipient}</span>
             <br />
-            <small className="muted">{t('reference', { code: row.refusalCode })}</small>
+            <small className="lt-muted">{t('reference', { code: row.refusalCode })}</small>
           </span>
         </div>
       ))}
@@ -60,7 +60,7 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
 function RegionBlocked({ notice }: { notice: RegionNotice }) {
   const { t } = railSendCopy.useCopy();
   return (
-    <div className="failure" role="status" data-testid="rail-send-region" data-code={notice.code ?? ''} data-region={notice.region}>
+    <div className="lt-refusal" role="status" data-testid="rail-send-region" data-code={notice.code ?? ''} data-region={notice.region}>
       <h3>
         {t('regionTitle')} (<span lang="und">{notice.region}</span>)
       </h3>
@@ -95,15 +95,15 @@ function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }
     else setProblem(answer.message);
   }
   return (
-    <div className="failure" role="note" data-testid="rail-send-scam-warning" data-payee={payee.payeeId}>
+    <div className="lt-refusal" role="note" data-testid="rail-send-scam-warning" data-payee={payee.payeeId}>
       <h3>{t('scamTitle')}</h3>
       <p>{t('scamBody')}</p>
       <p>
-        <a className="text-link" href="/help/official-channels">
+        <a className="lt-link" href="/help/official-channels">
           {t('scamGuide')}
         </a>
       </p>
-      <div className="actions">
+      <div className="lt-actions">
         <Button variant="secondary" disabled={busy} onClick={() => void read()}>
           {t('scamRead')}
         </Button>
@@ -201,7 +201,7 @@ export function BankRailSend() {
 
   const loading = requirements.resource.status === 'loading' || spaces.resource.status === 'loading';
   return (
-    <div className="bd-stack" data-testid="rail-send">
+    <div className="lt-stack" data-testid="rail-send">
       <DepthPanel title={t('title')} lead={t('lead')}>
         {blocked ? (
           <RegionBlocked notice={blocked} />
@@ -212,8 +212,8 @@ export function BankRailSend() {
         ) : spaces.resource.status === 'failed' ? (
           <Failure result={spaces.resource.failure} retry={spaces.reload} />
         ) : (
-          <div className="bd-stack">
-            <label className="field" htmlFor={toField}>
+          <div className="lt-stack">
+            <label className="lt-field" htmlFor={toField}>
               <span id={`${toField}-label`}>{t('sendTo')}</span>
               <select
                 id={toField}
@@ -231,13 +231,13 @@ export function BankRailSend() {
             </label>
             {payee ? (
               <>
-                <p className="money-caption" data-testid="rail-send-payee">
+                <p className="lt-muted" data-testid="rail-send-payee">
                   {t(`rail_${payee.rail}` as Key)} · <span lang="und">{payee.recipient}</span> · <CoolingWords payee={payee} />
                 </p>
                 <ScamWarning payee={payee} onRead={payees.reload} />
               </>
             ) : (
-              <label className="field" htmlFor={railField}>
+              <label className="lt-field" htmlFor={railField}>
                 <span>{t('rail')}</span>
                 <select id={railField} value={railId} onChange={(event) => pick(event.target.value)}>
                   <option value="" />
@@ -252,13 +252,13 @@ export function BankRailSend() {
             {shown && (
               <>
                 {shown.partner === null && (
-                  <p className="failure" role="status" data-testid="rail-send-notice">
+                  <p className="lt-refusal" role="status" data-testid="rail-send-notice">
                     {t('noPartner', { rail: t(`rail_${shown.rail}` as Key) })}{' '}
-                    {shown.blocker && <small className="muted">{t('reference', { code: shown.blocker })}</small>}
+                    {shown.blocker && <small className="lt-muted">{t('reference', { code: shown.blocker })}</small>}
                   </p>
                 )}
                 {rail && !payee && (
-                  <div className="bd-stack" data-testid="rail-send-form" data-rail={rail.rail}>
+                  <div className="lt-stack" data-testid="rail-send-form" data-rail={rail.rail}>
                     <RailForm
                       rail={rail}
                       values={values}
@@ -270,9 +270,9 @@ export function BankRailSend() {
                   </div>
                 )}
                 {usable.length === 0 ? (
-                  <p className="money-caption">{t('noSpace')}</p>
+                  <p className="lt-muted">{t('noSpace')}</p>
                 ) : (
-                  <label className="field" htmlFor={spaceField}>
+                  <label className="lt-field" htmlFor={spaceField}>
                     <span>{t('from')}</span>
                     <select
                       id={spaceField}
@@ -305,7 +305,7 @@ export function BankRailSend() {
                     {problem ?? t('missing')}
                   </p>
                 )}
-                <div className="actions">
+                <div className="lt-actions">
                   <Button variant="primary" disabled={!from || checking} onClick={() => void send()}>
                     {t('send')}
                   </Button>
@@ -313,12 +313,12 @@ export function BankRailSend() {
               </>
             )}
             {outcome && (
-              <div className="failure" role="status" data-testid="rail-send-kept">
+              <div className="lt-refusal" role="status" data-testid="rail-send-kept">
                 <h3>{t('keptTitle')}</h3>
                 <p>{t('keptBody')}</p>
                 <p>
                   {t('noPartner', { rail: t(`rail_${outcome.rail}` as Key) })}{' '}
-                  <small className="muted">{t('reference', { code: outcome.refusalCode })}</small>
+                  <small className="lt-muted">{t('reference', { code: outcome.refusalCode })}</small>
                 </p>
               </div>
             )}

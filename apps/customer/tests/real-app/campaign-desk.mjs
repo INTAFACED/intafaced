@@ -4,7 +4,7 @@ import { chosePro, signIn, signUp } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { api, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
-import { testVenue } from './venue.mjs';
+import { testVenue, venueRecord } from './venue.mjs';
 import { sheet } from './venue-room.mjs';
 
 // What the campaigns journeys share: the two TEST operators' campaign desk, the person's own rewards and vouchers, and
@@ -208,4 +208,19 @@ export function signsThroughUs(J, RUN) {
       `approve-builder:${p.wallet}:${J}:${RUN}`,
     );
   };
+}
+
+/** The TEST venue's own fills of the person's wallet since `since`, of orders placed through INTAFACED (our builder fee above zero). */
+export async function ourVenueFills(p, since) {
+  const body = await venueRecord(p.wallet, '/fills', { since });
+  return body.value.filter((f) => !/^-?0(\.0+)?$/.test(f.builderFee) && !f.builderFee.startsWith('-'));
+}
+
+/** A venue fill's notional, price x amount, as an exact decimal string. */
+export function fillNotional(f) {
+  const [pw, pf = ''] = f.price.split('.');
+  const [aw, af = ''] = f.amount.split('.');
+  const n = ((BigInt(pw + pf.padEnd(18, '0')) * BigInt(aw + af.padEnd(18, '0'))) / 10n ** 18n).toString().padStart(19, '0');
+  const frac = n.slice(-18).replace(/0+$/, '');
+  return frac ? `${n.slice(0, -18)}.${frac}` : n.slice(0, -18);
 }

@@ -3,7 +3,6 @@ import { defineCopy } from '../../../shared/i18n';
 // Venue vaults (J-derivatives-31). English source; curly apostrophes on purpose. The venue is named only as its own status
 // names it. Every figure is the venue's; one it doesn't publish reads "not published", never a zero of ours.
 export const vaultsCopy = defineCopy('trade.vaults', {
-  eyebrow: 'Trade',
   title: 'Vaults',
   lead: 'Vaults the venue runs or lists, and your money in them. The vault and the money in it are the venue’s: it sets each lock-up and leader’s share, and counts your position in your venue account’s value.',
   ledgerNote:

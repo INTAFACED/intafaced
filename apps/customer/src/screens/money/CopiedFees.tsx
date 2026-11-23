@@ -22,7 +22,7 @@ export function CopiedFees() {
   if (read.status === 'ready' && read.data.rows.length === 0) return null;
   if (read.status === 'empty' || read.status === 'refused') return null;
   return (
-    <section aria-labelledby="money-copied-fees-title" data-testid="money-copied-fees" className="form-stack">
+    <section aria-labelledby="money-copied-fees-title" data-testid="money-copied-fees" className="lt-stack">
       <h2 id="money-copied-fees-title">
         {t('Title')}
         {read.status === 'ready' && read.data.venue?.test ? (
@@ -32,9 +32,9 @@ export function CopiedFees() {
           </>
         ) : null}
       </h2>
-      <p className="money-caption">{t('Lede')}</p>
-      {read.status === 'loading' ? <p className="money-caption">{t('Reading')}</p> : null}
-      {read.status === 'error' ? <p className="money-caption">{t('Unread')}</p> : null}
+      <p className="lt-muted">{t('Lede')}</p>
+      {read.status === 'loading' ? <p className="lt-muted">{t('Reading')}</p> : null}
+      {read.status === 'error' ? <p className="lt-muted">{t('Unread')}</p> : null}
       {read.status === 'ready' ? (
         <table aria-label={t('Title')} className="money-table money-table--activity">
           <thead>
@@ -109,11 +109,11 @@ function FillRow({
           <span className="money-act__title">
             {row.side === 'buy' ? t('Bought {amount} {symbol} at {price}', words) : t('Sold {amount} {symbol} at {price}', words)}
           </span>
-          <span className="money-act__sub">{t('Copying {lead}', { lead: row.lead.displayName ?? t('a leader no longer listed') })}</span>
-          <span data-testid="money-copied-fill__id" className="money-act__sub money-act__ref">
+          <span className="lt-hint">{t('Copying {lead}', { lead: row.lead.displayName ?? t('a leader no longer listed') })}</span>
+          <span data-testid="money-copied-fill__id" className="lt-hint lt-wrap">
             {t('Fill {id}', { id: row.fillId })}
           </span>
-          <span className="money-act__sub">
+          <span className="lt-hint">
             <time dateTime={row.filledAt}>{stamp(row.filledAt, zone)}</time>
           </span>
         </div>
@@ -121,20 +121,20 @@ function FillRow({
       <td data-testid="money-copied-fill__venue-fee" className="money-num">
         <div className="money-act__text">
           <span>{t('{amount} {asset}', { amount: exact(row.venueFee.amount), asset: row.venueFee.asset })}</span>
-          <span className="money-act__sub">{t('From {venue}, as it reports it', { venue })}</span>
+          <span className="lt-hint">{t('From {venue}, as it reports it', { venue })}</span>
         </div>
       </td>
       <td data-testid="money-copied-fill__builder-fee" className="money-num">
         <div className="money-act__text">
           <span>{t('{amount} {asset}', { amount: exact(row.builderFee.amount), asset: row.builderFee.asset })}</span>
-          <span className="money-act__sub">{t('From INTAFACED, charged on the venue')}</span>
+          <span className="lt-hint">{t('From INTAFACED, charged on the venue')}</span>
         </div>
       </td>
       <td data-testid="money-copied-fill__share">
         <div className="money-act__text">
           {share.amount ? <span>{share.amount}</span> : null}
-          <span className="money-act__sub">{share.state}</span>
-          {share.amount ? <span className="money-act__sub">{t('Paid by INTAFACED. Not charged to you.')}</span> : null}
+          <span className="lt-hint">{share.state}</span>
+          {share.amount ? <span className="lt-hint">{t('Paid by INTAFACED. Not charged to you.')}</span> : null}
         </div>
       </td>
     </tr>

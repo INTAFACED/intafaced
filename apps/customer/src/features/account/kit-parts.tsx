@@ -73,6 +73,17 @@ export function Failure({ result, retry }: { result: Refusal; retry?: () => void
   );
 }
 
+/** Nothing to show, said as such: its heading, its words and one next step, as the old kit's EmptyState says them. */
+export function Empty({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="lt-empty">
+      <h3 className="lt-empty-title">{title}</h3>
+      {children ? <p className="lt-empty-body">{children}</p> : null}
+      {action}
+    </div>
+  );
+}
+
 /** Data on its way: the kit's still shape, and the words a screen reader hears. */
 export function Loading({ label }: { label?: ReactNode }) {
   const { Copy } = uiCopy.useCopy();

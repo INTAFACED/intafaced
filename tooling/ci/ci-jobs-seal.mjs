@@ -12,6 +12,8 @@
  * - A run still going fails this verdict with a wait line; CI's last job (START_JOB) starts the seal when it finishes.
  * - Every test shard (`Tests (…)`) must succeed, and there must be one when the change needs tests; when the default
  *   branch says the change needs the full suite, every one of its SHARD_COUNT shards (`Tests (1/16)` …) must be there.
+ * - The Look gate (`Look / …`, look-pr.yml) must succeed when the change draws a Customer room (reachesLook), and any
+ *   job of the run that finished red fails, whether or not sealNeeded names it (#9920 merged with its Look gate red).
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
  *   holds it to the independent review. This script never runs or reads the pull request's code.
  *
@@ -20,7 +22,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { runJobs } from './run-jobs.mjs';
-import { SHARD_COUNT, classify, narrowCandidates, sealNeeded, shardMatrix } from './ci-affected.mjs';
+import { SHARD_COUNT, classify, narrowCandidates, reachesLook, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -28,9 +30,17 @@ import { githubFetch, githubToken } from './github-fetch.mjs';
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
 /** ci.yml's job names (`name:`), keyed as sealNeeded keys its results. */
-export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', format: 'Format', build: 'Typecheck & build', rust: 'Rust' };
+export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', build: 'Typecheck & build', rust: 'Rust' };
 /** The test matrix's jobs: `Tests (1/16)` … or `Tests (changed)`. */
 export const TEST_JOB = /^Tests \(.+\)$/;
+/** ci.yml's Look job (look-pr.yml, #9325): a reusable workflow, so its jobs are named `Look / Build (before)`,
+ *  `Look / Look gate on the rooms it changes (1/3)` …, and only a Look job skipped by its `if:` is named `Look`. */
+export const LOOK_JOB = /^Look( \/ .+)?$/;
+/** ci.yml's jobs that are not CI's verdict on the head: its own seal job (`CI jobs` on a pull request, which runs the pull
+ *  request's copy and which a factory pause turns red until merge-seal.yml's seal is re-run) and START_JOB. */
+const SEAL_JOBS = ['CI merge seal', 'CI jobs'];
+/** A finished job's conclusions that are not red. */
+const NOT_RED = ['success', 'skipped', 'neutral'];
 
 /** The ci.yml run that decides on `sha` for `event`: the newest by id. null when CI hasn't run there. */
 export function ciRunFor(runs, { sha, event }) {
@@ -50,12 +60,33 @@ export function jobResults(jobs) {
   const result = (j) => (j ? (j.status === 'completed' ? j.conclusion || 'missing' : j.status) : undefined);
   const out = {};
   for (const [key, name] of Object.entries(CI_JOBS)) out[key] = result(newest.get(name));
-  const tests = [...newest.values()].filter((j) => TEST_JOB.test(j?.name ?? ''));
-  // A red shard outranks a skipped one, so a failure beside skipped shards is never read as skipped.
-  const results = tests.map(result);
-  const bad = results.find((r) => r !== 'success' && r !== 'skipped') ?? results.find((r) => r !== 'success');
-  out['tests-full'] = tests.length ? (bad ?? 'success') : undefined;
+  // A matrix or reusable workflow is one result: a red job outranks a skipped one, so a failure beside skipped jobs is
+  // never read as skipped.
+  const oneResult = (pattern) => {
+    const results = [...newest.values()].filter((j) => pattern.test(j?.name ?? '')).map(result);
+    const bad = results.find((r) => r !== 'success' && r !== 'skipped') ?? results.find((r) => r !== 'success');
+    return results.length ? (bad ?? 'success') : undefined;
+  };
+  out['tests-full'] = oneResult(TEST_JOB);
+  out.look = oneResult(LOOK_JOB);
   return out;
+}
+
+/** Whether `name` is a job jobResults reads (so sealNeeded judges it). */
+const sealRead = (name) => Object.values(CI_JOBS).includes(name) || TEST_JOB.test(name) || LOOK_JOB.test(name);
+
+/**
+ * Every other job of the run that finished red, newest attempt of each name (#9920: a job the seal did not read let a
+ * red through). A job ci.yml adds later is held this way before anyone teaches sealNeeded its name; the seal jobs and
+ * START_JOB are not CI's verdict. Returns lines.
+ */
+export function otherRedJobs(jobs) {
+  const newest = new Map();
+  for (const j of [...(jobs ?? [])].sort((a, b) => a.id - b.id)) newest.set(j?.name, j);
+  return [...newest.values()]
+    .filter((j) => j?.name && !sealRead(j.name) && !SEAL_JOBS.includes(j.name) && j.name !== START_JOB)
+    .filter((j) => j.status === 'completed' && !NOT_RED.includes(j.conclusion))
+    .map((j) => `${j.name} was ${j.conclusion || 'missing'} (a job that ran red stays red)`);
 }
 
 /**
@@ -71,13 +102,15 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
   // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026). Its last job, START_JOB, is
   // what starts this seal, so it is still going while this reads.
-  const pending = (jobs ?? []).filter(
-    (j) => j?.name !== 'CI merge seal' && j?.name !== 'CI jobs' && j?.name !== START_JOB && j?.status !== 'completed',
-  );
+  const pending = (jobs ?? []).filter((j) => !SEAL_JOBS.includes(j?.name) && j?.name !== START_JOB && j?.status !== 'completed');
   if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, tree ? { forceFull, tree } : { forceFull, reach: null });
-  const problems = sealNeeded(flags, jobResults(jobs));
+  // The look gate, as ci.yml's changes job decides it (ci-affected.mjs main): a pull request's change that draws a
+  // Customer room or the kit; files unreadable whole count as drawing one. Never a merge queue's commit (main's look
+  // gate is the daily one). classify() leaves it out, so until #9920 this seal never asked for it.
+  flags.look = !forceFull && (files === null || reachesLook(files));
+  const problems = [...sealNeeded(flags, jobResults(jobs)), ...otherRedJobs(jobs)];
   // The full suite is the whole matrix: a pull request's own ci.yml can't narrow it to one passing shard.
   if (flags.full) {
     const names = new Set((jobs ?? []).map((j) => j?.name));
@@ -255,6 +288,13 @@ export function staleRulesRerun({ ci, money, model, rules }) {
  *  ending while the seal reads; GitHub re-runs a job only in a finished run). */
 export const RERUN_POLLS = 18;
 export const RERUN_POLL_MS = 10_000;
+/** rerunStaleGates's line when GitHub took the re-run. */
+export const RERAN = 're-ran Doctrine gates job';
+/** How long the seal then waits, in its own job, for the re-run Doctrine gates job to end: 15 minutes (the job's healthy
+ *  run is about 4, its timeout 10). */
+export const GATES_WAIT_POLLS = 90;
+/** At most this many re-runs in one seal job: main may change a rule again while one runs. */
+export const RERUN_ROUNDS = 2;
 
 /**
  * Re-runs `step`'s Doctrine gates job once its CI run has finished: `get` reads the run, `post` returns { status, message }.
@@ -265,13 +305,59 @@ export async function rerunStaleGates({ repo, step, get, post, sleep = (ms) => n
     const r = await get(`/repos/${repo}/actions/runs/${step.runId}`);
     if (r?.status === 'completed') {
       const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
-      if (status >= 200 && status < 300)
-        return `re-ran Doctrine gates job ${step.jobId} of CI run ${step.runId} on main's rules now; the seal starts again when it ends`;
+      if (status >= 200 && status < 300) return `${RERAN} ${step.jobId} of CI run ${step.runId} on main's rules now; the seal waits for it`;
       return `could not re-run Doctrine gates job ${step.jobId} of CI run ${step.runId} (${status} ${message}); re-run it by hand`;
     }
     await sleep(RERUN_POLL_MS);
   }
   return `CI run ${step.runId} had not finished after ${(RERUN_POLLS * RERUN_POLL_MS) / 1000} s; re-run Doctrine gates job ${step.jobId} by hand`;
+}
+
+/**
+ * Waits for the Doctrine gates job that replaced `step.jobId` in its CI run to end. Returns { done, line }: done once the
+ * newest Doctrine gates job is another job and has completed, whatever its conclusion (the next verdict reads it).
+ */
+export async function awaitGatesRerun({ repo, step, get, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  for (let i = 0; i < GATES_WAIT_POLLS; i++) {
+    await sleep(RERUN_POLL_MS);
+    const jobs = await runJobs(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest`, get);
+    const gates = (Array.isArray(jobs) ? jobs : []).filter((j) => j?.name === CI_JOBS.gates).sort((a, b) => b.id - a.id)[0];
+    if (gates && String(gates.id) !== String(step.jobId) && gates.status === 'completed')
+      return {
+        done: true,
+        line: `Doctrine gates job ${gates.id} of CI run ${step.runId} ended ${gates.conclusion}; the seal judges again`,
+      };
+  }
+  return {
+    done: false,
+    line: `the re-run Doctrine gates job of CI run ${step.runId} had not ended after ${(GATES_WAIT_POLLS * RERUN_POLL_MS) / 60_000} min; its end starts the seal again`,
+  };
+}
+
+/**
+ * The seal's verdicts, waiting in its own job for the Doctrine gates job it re-runs (project-state#3820). Before this the
+ * seal ended red as soon as it had re-run the job, and the red woke the builder, who merged main and pushed: on 22 Nov 2026,
+ * 27 of the 38 pushes that merged main after a seal red alone (175 of the day's 323 merged pull requests) came 0.5 to 4
+ * minutes after such a red, before the re-run that would have cleared it had ended. Now a stale rule is a running seal,
+ * never a red, until the re-run has judged; a change the re-run can't clear (a gate list read before FRESH_MAIN_STEP) is
+ * red as before. `judge()` returns { ci, money, model, rules }; `rerun(step)` and `wait(step)` are rerunStaleGates and
+ * awaitGatesRerun. Returns the last verdicts.
+ */
+export async function judgeWaitingOnGates({ judge, rerun, wait, log = console.log }) {
+  let v = await judge();
+  for (let round = 0; round < RERUN_ROUNDS; round++) {
+    const step = staleRulesRerun(v);
+    if (!step) break;
+    for (const x of [v.ci, v.money, v.model, v.rules]) for (const l of x.lines) log(`${x.ok ? '✓' : '…'} ${l}`);
+    const said = await rerun(step);
+    log(said);
+    if (!said.startsWith(RERAN)) break;
+    const waited = await wait(step);
+    log(waited.line);
+    if (!waited.done) break;
+    v = await judge();
+  }
+  return v;
 }
 
 /** main's commits on RULE_PATHS after `since` (and up to `until`, for a replay), one listing per path. */
@@ -330,6 +416,21 @@ async function main() {
     process.exit(1);
   }
   const get = (p) => api(p, GH_TOKEN);
+  const v = await judgeWaitingOnGates({
+    judge: () => verdicts({ get, REPO, sha, queue, PR_NUMBER }),
+    rerun: (step) => rerunStaleGates({ repo: REPO, step, get, post: (p) => apiPost(p, GH_TOKEN) }),
+    wait: (step) => awaitGatesRerun({ repo: REPO, step, get }),
+  });
+  const { ci, money, model, rules } = v;
+  for (const x of [ci, money, model, rules]) for (const l of x.lines) console.log(`${x.ok ? '✓' : '✖'} ${l}`);
+  if (ci.ok && money.ok && model.ok && rules.ok) return;
+  for (const x of [ci, money, model, rules])
+    if (!x.ok) for (const l of x.lines) console.error(`::error title=${x.down ? 'judge down: Model check' : 'CI merge seal'}::${l}`);
+  process.exit(1);
+}
+
+/** One reading of every verdict the seal gives on the head: { ci, money, model, rules }. */
+async function verdicts({ get, REPO, sha, queue, PR_NUMBER }) {
   const event = queue ? 'merge_group' : 'pull_request';
   const runs = (await get(`/repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=${event}&per_page=100`))?.workflow_runs;
   if (!Array.isArray(runs)) throw new Error(`ci.yml runs on ${sha}: not a list`);
@@ -379,13 +480,7 @@ async function main() {
   // main's rules as they are now (project-state#3326), on a pull request only: a merge queue's commit is built on main.
   const rules =
     !queue && run ? rulesVerdict({ run, jobs, changes: await ruleChanges(get, REPO, rulesTakenAt(run)) }) : { ok: true, lines: [] };
-  for (const v of [ci, money, model, rules]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
-  if (ci.ok && money.ok && model.ok && rules.ok) return;
-  for (const v of [ci, money, model, rules])
-    if (!v.ok) for (const l of v.lines) console.error(`::error title=${v.down ? 'judge down: Model check' : 'CI merge seal'}::${l}`);
-  const step = staleRulesRerun({ ci, money, model, rules });
-  if (step) console.log(await rerunStaleGates({ repo: REPO, step, get, post: (p) => apiPost(p, GH_TOKEN) }));
-  process.exit(1);
+  return { ci, money, model, rules };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

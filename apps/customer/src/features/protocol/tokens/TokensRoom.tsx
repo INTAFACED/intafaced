@@ -183,8 +183,8 @@ function TokenList({
           <p>
             <a href="#how-trending">{t('howTrending')}</a>
           </p>
-          <section id="how-trending" aria-label={t('howTrending')}>
-            <h3>{t('howTrending')}</h3>
+          <section id="how-trending" aria-label={t('howTrendingTitle')}>
+            <h3>{t('howTrendingTitle')}</h3>
             <p data-testid="trending-formula">{t('howTrendingBody')}</p>
           </section>
         </>

@@ -14,7 +14,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -89,7 +89,7 @@ impl Payout for StoryVenue {
             ("owner", Json::str(&venue.owner)),
             ("coin", Json::str(coin)),
             // `String(amount)` of the scaled bigint, as the TypeScript keeps it.
-            ("amount", Json::str(amount.to_string())),
+            ("amount", Json::str(amount.scaled().to_string())),
         ]));
         Ok(())
     }

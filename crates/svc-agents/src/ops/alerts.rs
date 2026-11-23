@@ -330,7 +330,8 @@ fn set_notifications(p: &Pool, state: &str, set_by: &str) -> Result<(), StoreErr
 }
 
 /// `publishPendingAgentAlerts`: every pending alert handed to notifications once, on its business key, while they are
-/// on. Marked handed off only after the bus took it; one the bus refused stays pending. Returns how many were handed.
+/// on, owed in the outbox and sent; marked handed off only once the bus has it, so one the bus refused stays pending.
+/// Returns how many were handed.
 pub fn publish_pending_agent_alerts(
     p: &Pool,
     m: &Metering,
@@ -372,9 +373,11 @@ pub fn publish_pending_agent_alerts(
             ("windowStart", Json::str(start)),
             ("windowEnd", iso(r.try_get(8)?)),
         ]);
-        let sent = envelope(m, AGENT_ALERT_FIRED, &key, payload, now)
-            .and_then(|env| m.bus.publish(AGENT_ALERT_FIRED, &key, &env));
-        if sent.is_err() {
+        let Ok(env) = envelope(m, AGENT_ALERT_FIRED, &key, payload, now) else {
+            continue;
+        };
+        db::with_client(p, |c| Ok(db::OUTBOX.write(c, &env)?))?;
+        if !db::OUTBOX.send(p, m.bus.as_ref(), &key)? {
             continue;
         }
         db::with_client(p, |c| {

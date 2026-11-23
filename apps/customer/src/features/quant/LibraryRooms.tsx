@@ -1,13 +1,15 @@
+// volt-room: /quant/library
 import { QUANT_LIBRARY_TAGS, type QuantLibraryTag } from '@intafaced/contracts/quant-library';
 import { QUANT_LIBRARY_BROWSE } from '@intafaced/contracts/quant-library-procedures';
 import { useState } from 'react';
+import { Button, EmptyState, Select } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Panel } from '../../shared/ui';
-import { Read, Select, preservePaperHref } from '../more';
+import { ReadView, RecordTable } from '../../shared/record/record-parts';
+import { preservePaperHref } from '../more';
 import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { QuantRooms } from './QuantRooms';
-import './algo.css';
 
 const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 /** How many listings one page of the library reads. A page size, not a product limit. */
@@ -19,34 +21,40 @@ export function LibraryRoom({ paper }: { paper: boolean }) {
   const [tag, setTag] = useState<QuantLibraryTag | ''>('');
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   return (
-    <>
-      <QuantRooms active="strategies" paper={paper} />
-      <Panel title={t('libraryTitle')}>
-        <div data-testid="quant-library" data-tag={tag}>
-          <p className="muted">{t('libraryIntro')}</p>
-          <Select
-            label={t('filterTag')}
-            value={tag}
-            onChange={(value) => {
-              setTag(QUANT_LIBRARY_TAGS.find((row) => row === value) ?? '');
-              setCursors([null]);
-            }}
-            options={[{ value: '', label: t('allTags') }, ...QUANT_LIBRARY_TAGS.map((row) => ({ value: row, label: t(`tag_${row}`) }))]}
-          />
-          {cursors.map((cursor, i) => (
-            <LibraryPage
-              key={`${tag}:${cursor ?? 'first'}`}
-              tag={tag || null}
-              cursor={cursor}
-              first={i === 0}
-              last={i === cursors.length - 1}
-              paper={paper}
-              onMore={(next) => setCursors((prev) => [...prev, next])}
+    <RecordListTemplate
+      title={t('libraryTitle')}
+      description={t('libraryIntro')}
+      state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
+      list={
+        <section>
+          <h2>{t('libraryTitle')}</h2>
+          <div data-testid="quant-library" data-tag={tag}>
+            <p className="lt-hint">{t('libraryIntro')}</p>
+            <Select
+              label={t('filterTag')}
+              value={tag}
+              onChange={(value) => {
+                setTag(QUANT_LIBRARY_TAGS.find((row) => row === value) ?? '');
+                setCursors([null]);
+              }}
+              options={[{ value: '', label: t('allTags') }, ...QUANT_LIBRARY_TAGS.map((row) => ({ value: row, label: t(`tag_${row}`) }))]}
             />
-          ))}
-        </div>
-      </Panel>
-    </>
+            {cursors.map((cursor, i) => (
+              <LibraryPage
+                key={`${tag}:${cursor ?? 'first'}`}
+                tag={tag || null}
+                cursor={cursor}
+                first={i === 0}
+                last={i === cursors.length - 1}
+                paper={paper}
+                onMore={(next) => setCursors((prev) => [...prev, next])}
+              />
+            ))}
+          </div>
+        </section>
+      }
+    />
   );
 }
 
@@ -72,20 +80,20 @@ function LibraryPage({
     `quant-library:${tag ?? ''}:${cursor ?? ''}`,
   );
   return (
-    <Read resource={page.resource} retry={page.reload}>
+    <ReadView resource={page.resource} retry={page.reload}>
       {(data) => (
         <>
           {data.entries.length === 0 && first ? (
             <EmptyState title={t('empty')} />
           ) : (
-            <DataTable
+            <RecordTable
               label={t('libraryTitle')}
               headers={[t('colTitle'), t('colTags'), t('colVisibility'), t('colLicence'), t('colListed')]}
             >
               {data.entries.map((row) => (
                 <tr key={row.listingId} data-testid="quant-library-row" data-listing-id={row.listingId} data-tags={row.tags.join(' ')}>
                   <td lang="und">
-                    <a className="text-link" href={preservePaperHref(`/quant/library/${encodeURIComponent(row.listingId)}`, paper)}>
+                    <a className="lt-link" href={preservePaperHref(`/quant/library/${encodeURIComponent(row.listingId)}`, paper)}>
                       {row.title}
                     </a>
                   </td>
@@ -95,15 +103,15 @@ function LibraryPage({
                   <td lang="zxx">{utcText(row.listedAt)}</td>
                 </tr>
               ))}
-            </DataTable>
+            </RecordTable>
           )}
           {last && data.nextCursor && (
-            <Button variant="secondary" onClick={() => onMore(data.nextCursor!)}>
+            <Button tone="secondary" onClick={() => onMore(data.nextCursor!)}>
               {t('more')}
             </Button>
           )}
         </>
       )}
-    </Read>
+    </ReadView>
   );
 }

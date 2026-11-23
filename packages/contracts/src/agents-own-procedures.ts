@@ -59,6 +59,13 @@ import {
   OWN_AGENT_POLICY_ACTIONS,
   OWN_AGENT_POLICY_SCOPES,
   ownAgentSchedulesSchema,
+  ownAgentInboxRowSchema,
+  ownAgentApprovalApprovedSchema,
+  ownAgentApprovalRequestSchema,
+  ownAgentApprovalEditedSchema,
+  ownAgentToolCallSchema,
+  ownAgentReviewCheckSchema,
+  ownAgentDryRunStartSchema,
 } from './agents-own.js';
 import { ownAgentUsageLimitsInputSchema, ownAgentUsageLimitsSchema } from './agents-usage-limits.js';
 import { idInput, ownBackgroundRunSchema } from './agents-call-schemas.js';
@@ -1187,5 +1194,198 @@ export const AGENTS_OWN_TRIGGERS_LIST = defineProcedure({
   samples: [
     { verdict: 'accept', input: { id: 'USDC' } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * The Approvals inbox (AG-approvals-01): the calls a rule held for the person across all their own agents, newest
+ * first, each with its agent. None of them has run.
+ */
+export const AGENTS_OWN_INBOX = defineProcedure({
+  ...base,
+  name: 'agents.own.inbox',
+  kind: 'query',
+  path: 'own.inbox',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(ownAgentInboxRowSchema),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_APPROVAL_APPROVE = defineProcedure({
+  ...base,
+  name: 'agents.own.approval.approve',
+  kind: 'mutation',
+  path: 'own.approval.approve',
+  access: { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
+  refusals: {},
+  input: z.object({ requestId: z.string().uuid() }),
+  output: ownAgentApprovalApprovedSchema,
+  samples: [
+    { verdict: 'accept', input: { requestId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_APPROVAL_REJECT = defineProcedure({
+  ...base,
+  name: 'agents.own.approval.reject',
+  kind: 'mutation',
+  path: 'own.approval.reject',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: z.object({ requestId: z.string().uuid() }),
+  output: ownAgentApprovalRequestSchema,
+  samples: [
+    { verdict: 'accept', input: { requestId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
+export const AGENTS_OWN_APPROVALS = defineProcedure({
+  ...base,
+  name: 'agents.own.approvals',
+  kind: 'query',
+  path: 'own.approvals',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(ownAgentApprovalRequestSchema),
+  samples: [
+    { verdict: 'accept', input: { id: 'x', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_APPROVAL_EDIT = defineProcedure({
+  ...base,
+  name: 'agents.own.approval.edit',
+  kind: 'mutation',
+  path: 'own.approval.edit',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: z.object({
+    requestId: z.string().uuid(),
+    input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+  }),
+  checks: { at_most_eight_keys: { at: 'input.input', says: 'at most eight keys' } },
+  output: ownAgentApprovalEditedSchema,
+  samples: [
+    { verdict: 'accept', input: { requestId: '33333333-3333-4333-8333-333333333333', input: {} } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        requestId: '33333333-3333-4333-8333-333333333333',
+        input: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
+  ],
+});
+
+/**
+ * One call of one of the agent's tools in its open session: consent for the tool's class, then the owner's
+ * baseline, then the person's rule, then the session's own guardrail. A call a rule asks about is stored as an
+ * approval request, once per request id, and the tool does not run. A tool with no door refuses
+ * `agents.tool_not_wired` and runs nothing.
+ */
+export const AGENTS_OWN_TOOL_TRY = defineProcedure({
+  ...base,
+  name: 'agents.own.tool.try',
+  kind: 'mutation',
+  path: 'own.tool.try',
+  access: { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
+  refusals: {},
+  input: idInput.extend({
+    sessionId: z.string().uuid(),
+    requestId: z.string().min(8).max(200),
+    tool: z.string().min(1).max(120),
+    input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+  }),
+  checks: { at_most_eight_keys: { at: 'input.input', says: 'at most eight keys' } },
+  output: ownAgentToolCallSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { id: 'x', sessionId: '33333333-3333-4333-8333-333333333333', requestId: 'xxxxxxxx', tool: 'x', input: {} },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        id: 'x',
+        sessionId: '33333333-3333-4333-8333-333333333333',
+        requestId: 'xxxxxxxx',
+        tool: 'x',
+        input: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
+  ],
+});
+
+/**
+ * What the reviewer would decide for one call of a catalogue tool, without running it or storing anything. A tool
+ * that can move value goes to the person and the reviewer is not asked.
+ */
+export const AGENTS_OWN_REVIEW_CHECK = defineProcedure({
+  ...base,
+  name: 'agents.own.review.check',
+  kind: 'query',
+  path: 'own.review.check',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({
+    tool: z.string().min(1).max(120),
+    input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+  }),
+  checks: { at_most_eight_keys: { at: 'input.input', says: 'at most eight keys' } },
+  output: ownAgentReviewCheckSchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'x', tool: 'x', input: {} } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: { id: 'x', tool: 'x', input: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' } },
+    },
+  ],
+});
+
+/**
+ * A dry run of one call of one of the agent's tools (AG-spend-04): every check a real call meets, in its order, and
+ * what the call would do. It opens no session and calls no tool, runtime, spend gate or ledger, so no ledger entry,
+ * intent or reservation is made; it is stored as a test run, labelled TEST and never billed. The same request id
+ * again is the same dry run.
+ */
+export const AGENTS_OWN_DRY_RUN = defineProcedure({
+  ...base,
+  name: 'agents.own.dryRun',
+  kind: 'mutation',
+  path: 'own.dryRun',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: ownAgentDryRunStartSchema,
+  checks: { at_most_eight_keys: { at: 'input.input', says: 'at most eight keys' } },
+  output: ownAgentTestRunSchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'x', requestId: 'xxxxxxxx', tool: 'x', input: {} } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        id: 'x',
+        requestId: 'xxxxxxxx',
+        tool: 'x',
+        input: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
   ],
 });

@@ -145,14 +145,14 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       </a>
       <header className="pub-heading">
         <h1>{copy.t('title')}</h1>
-        <p className="muted">{copy.t('intro')}</p>
+        <p className="lt-muted">{copy.t('intro')}</p>
       </header>
       <ol className="pub-steps" aria-label={copy.t('stepsLabel')}>
         {RECOVERY_STEPS.map((step, index) => (
           <li key={step} className={`pub-step pub-step--${states[step]}`} aria-current={states[step] === 'current' ? 'step' : undefined}>
             <span className="pub-step__number">{copy.t('stepNumber', { number: index + 1 })}</span>
             <h2>{copy.t(TITLE[step])}</h2>
-            <p className="muted">{copy.t(BODY[step])}</p>
+            <p className="lt-muted">{copy.t(BODY[step])}</p>
             {step === state.step && (
               <StepBody
                 step={step}
@@ -245,19 +245,19 @@ function StepBody({
         <Button type="submit" disabled={busy}>
           {busy ? copy.t('sending') : copy.t('sendCode')}
         </Button>
-        {limitLine ? <p className="muted">{limitLine}</p> : null}
+        {limitLine ? <p className="lt-muted">{limitLine}</p> : null}
       </form>
     );
   }
   return (
     <form ref={formRef} method="post" className="pub-form" onSubmit={onFinish} noValidate>
       {codeAsked && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {copy.t('codeOnItsWay')}
         </p>
       )}
       {limitLine ? (
-        <p className="muted" data-testid="reset-limit">
+        <p className="lt-muted" data-testid="reset-limit">
           {limitLine}
         </p>
       ) : null}

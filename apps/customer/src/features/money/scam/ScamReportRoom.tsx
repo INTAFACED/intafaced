@@ -1,12 +1,12 @@
 // volt-room: /bank/safety/scam
 import { useState, type FormEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { asAssetId } from '@intafaced/contracts/asset-id';
-import type { SupportScamContact, SupportScamReportInput, SupportScamWhen } from '@intafaced/contracts/support-safety';
+import type { SupportScamContact, SupportScamWhen } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
-import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
+import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend, sendScamReport } from '../safety-ack';
 
 /**
  * Report a scam (BK-safe-02, J-bank-18 #3), on the flow template. `support.safety.reportScam` checks with the bank that
@@ -45,7 +45,7 @@ export function ScamReportRoom() {
   const [transferId, setTransferId] = useState(transferFromUrl);
   const [contactedBy, setContactedBy] = useState<SupportScamContact>('phone_call');
   const [details, setDetails] = useState('');
-  const { send, busy, sent, refusal } = useSafetySend<SupportScamReportInput>('scam', 'safety.reportScam');
+  const { send, busy, sent, refusal } = useSafetySend('scam', sendScamReport);
   const earlier = useMyAcknowledgements('scam', sent?.id ?? null);
   const asset = assetId.trim().toUpperCase();
   const sentMoney = when === 'after_sending';
@@ -78,7 +78,7 @@ export function ScamReportRoom() {
         <div>
           {sent ? <Acknowledgement ack={sent} title={t('scamReceived')} live /> : null}
           <form aria-label={t('scamTitle')} onSubmit={(e) => void submit(e)}>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('scamWhenLabel')}</span>
               <select name="when" value={when} onChange={(e) => setWhen(e.target.value as SupportScamWhen)}>
                 {WHEN.map(([value, key]) => (
@@ -88,16 +88,16 @@ export function ScamReportRoom() {
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('scamAmountLabel')}</span>
               <input name="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('scamAssetLabel')}</span>
               <input name="asset" autoComplete="off" maxLength={16} value={assetId} onChange={(e) => setAssetId(e.target.value)} />
             </label>
             {sentMoney ? (
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('scamTransferLabel')}</span>
                 <input
                   name="transfer"
@@ -110,7 +110,7 @@ export function ScamReportRoom() {
                 <small id="scam-transfer-hint">{t('scamTransferHint')}</small>
               </label>
             ) : null}
-            <label className="field">
+            <label className="lt-field">
               <span>{t('scamContactLabel')}</span>
               <select name="contactedBy" value={contactedBy} onChange={(e) => setContactedBy(e.target.value as SupportScamContact)}>
                 {CONTACT.map(([value, key]) => (
@@ -120,11 +120,11 @@ export function ScamReportRoom() {
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('scamDetailsLabel')}</span>
               <textarea name="details" value={details} maxLength={5000} rows={5} onChange={(e) => setDetails(e.target.value)} />
             </label>
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || !ready}>
+            <Button type="submit" tone="primary" aria-busy={busy || undefined} disabled={busy || !ready}>
               {t('sendScamReport')}
             </Button>
           </form>
@@ -137,7 +137,7 @@ export function ScamReportRoom() {
           <p>{t('scamSummaryNever')}</p>
           <p>{t('scamSummaryOnce')}</p>
           <p>
-            <a className="text-link" href="/help/mule-policy">
+            <a className="lt-link" href="/help/mule-policy">
               {t('mulePolicyLink')}
             </a>
           </p>

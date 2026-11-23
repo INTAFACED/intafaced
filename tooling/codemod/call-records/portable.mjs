@@ -16,7 +16,9 @@
 //
 //   - a `.refine(..., message)` stays as written and is named in the record, in its message's words: an answer's in
 //     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
-//     that check alone refuses. A `.superRefine`, or a refine with no message written in its chain, has no words to name.
+//     that check alone refuses. A `.superRefine` is named the same way, in the words of each issue it raises
+//     (`ctx.addIssue({ message })`); one that raises an issue with no message written, or a refine with none, is left.
+//     On a door run (`--door`) a refine with no message takes the door's own name for it, as its words (door-refine.mjs).
 //
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
@@ -24,6 +26,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
+import { doorRefines, squash, wordsOf } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -258,14 +261,29 @@ function fix(target, construct) {
 
 /**
  * The `.refine(..., message)` a refined schema carries where it is written: its words, and a name for the check (the
- * schema's own name when it has one, else the key it sits under). `.superRefine` says nothing a record can quote.
+ * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
  */
-function refinementOf(target) {
-  const found = follow(target.q, target.n);
+function refinementOf(target, doorNames) {
+  let found = follow(target.q, target.n);
+  let named = unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name : undefined;
+  // `accountArchiveStateSchema.nullable()`: a wrapper that adds no check carries the refinement of the schema it wraps.
+  for (let i = 0; found && i < 10; i++) {
+    const { base, factory, methods } = chainOf(found.n);
+    if (factory || !methods.length || !methods.every((m) => WRAPPERS.includes(m.name))) break;
+    if (unwrap(base)?.type === 'Identifier') named = unwrap(base).name;
+    found = follow(found.q, base);
+  }
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];
+  // The door's names for the refines written with no message (door-refine.mjs).
+  const byDoor = [];
   for (const m of chainOf(found.n).methods) {
-    if (m.name === 'superRefine') return { why: 'a .superRefine names no rule in words' };
+    if (m.name === 'superRefine') {
+      const r = superRefineWords(found.q, m.call.arguments[0]);
+      if (r.why) return r;
+      says.push(...r.says);
+      continue;
+    }
     if (m.name !== 'refine') continue;
     const msg = m.call.arguments[1];
     const words =
@@ -273,14 +291,62 @@ function refinementOf(target) {
       (msg?.type === 'ObjectExpression'
         ? literal(msg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
         : undefined);
-    if (!words) return { why: 'its .refine has no message to name the rule by' };
+    if (!words) {
+      const fn = m.call.arguments[0];
+      const doorName = fn && msg === undefined ? doorNames?.get(squash(text(found.q, fn))) : undefined;
+      if (!doorName) return { why: 'its .refine has no message to name the rule by' };
+      byDoor.push(doorName);
+      says.push(wordsOf(doorName));
+      continue;
+    }
     says.push(words);
   }
   if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
-  const own =
-    unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
-  const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
+  const own = named ? named.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+  // One refine, named by the door: the record's check takes the door's name, so both sides call the rule the same.
+  const name = byDoor.length === 1 && says.length === 1 ? byDoor[0] : `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
+}
+
+/**
+ * The words of a `.superRefine`: the `message` of each `ctx.addIssue({ ..., message })` its function raises, written as
+ * a string. The function is written inline, or named (a function or const in its file, or imported). One issue raised
+ * without written words leaves the whole refinement, as a `.refine` with no message does: its rule has no words to name.
+ */
+function superRefineWords(q, fn) {
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') fn = b.declaration;
+    else if (b.kind === 'var' && b.declarator.init) fn = b.declarator.init;
+    else if (b.kind === 'import' && b.from.startsWith('.')) {
+      const file = resolveRelative(q.file, b.from);
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      fn = d.kind === 'function' ? d.declaration : d.kind === 'var' ? d.declarator.init : undefined;
+    } else break;
+  }
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type))
+    return { why: 'its .superRefine is not a function the codemod can read' };
+  const says = [];
+  let unnamed = false;
+  walk(fn.body, (n) => {
+    if (n.type !== 'CallExpression' || n.callee.type !== 'MemberExpression') return;
+    const prop = n.callee.property?.name;
+    if (prop === 'push' && n.callee.object.type === 'MemberExpression' && n.callee.object.property?.name === 'issues') unnamed = true;
+    if (prop !== 'addIssue') return;
+    const arg = unwrap(n.arguments[0]);
+    const words =
+      arg?.type === 'ObjectExpression'
+        ? literal(arg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : literal(arg);
+    if (words === undefined) unnamed = true;
+    else if (!says.includes(words)) says.push(words);
+  });
+  if (unnamed) return { why: 'its .superRefine raises an issue with no message written as a string' };
+  if (!says.length) return { why: 'its .superRefine raises no issue the codemod can read' };
+  return { says };
 }
 
 /** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits, and the names it gave. */
@@ -300,7 +366,7 @@ function checksText(named) {
 const jsonValueFrom = (file) =>
   file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
 
-export function plan(skipped, recordFiles, { door = false } = {}) {
+export function plan(skipped, recordFiles, { door = false, doorNames } = {}) {
   const edits = new Map();
   const left = [];
   const replays = new Set();
@@ -325,12 +391,12 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
       if (target && side && f.construct === REFINEMENT) {
         // A refinement stays where it is and is named in the record, in its own words: an answer's in `outputChecks`, an
         // input's in `checks` (samples.mjs then finds the input that check alone refuses).
-        const r = refinementOf(target);
+        const r = refinementOf(target, doorNames);
         if (r.why) left.push({ record: name, at: f.at, why: r.why });
         else {
           const at = `${side}${f.at.slice(root.length)}`;
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
-          named.get(r.key).at.push(at);
+          if (!named.get(r.key).at.includes(at)) named.get(r.key).at.push(at);
         }
         continue;
       }
@@ -461,7 +527,7 @@ function main() {
   const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
   const d = argv.indexOf('--door');
   const files = argv.filter((a, j) => j !== i && j !== i + 1 && (d < 0 || j !== d + 1) && !a.startsWith('--')).map((f) => resolve(f));
-  const { edits, left, replays } = plan(skipped, files, { door: argv.includes('--door') });
+  const { edits, left, replays } = plan(skipped, files, { door: d >= 0, doorNames: d >= 0 ? doorRefines(argv[d + 1]) : undefined });
   const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
   console.log(
     JSON.stringify(

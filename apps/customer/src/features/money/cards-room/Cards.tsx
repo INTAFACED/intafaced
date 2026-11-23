@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import { BANK_CARDS_PROGRAMME } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_PROGRAMME, BANK_CARDS_SET_STATUS } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
 import { DecisionMerchant, DeclineReason } from './CardBlocks';
@@ -175,7 +175,7 @@ export function CardActions({
         onClick={() =>
           protect({
             title: card.status === 'frozen' ? copyText('rooms.unfreeze.card') : copyText('rooms.freeze.card'),
-            procedure: 'cards.setStatus',
+            record: BANK_CARDS_SET_STATUS,
             facts: [cardFact, [copyText('rooms.funding.asset'), card.assetId]],
             notes: [
               card.simulated
@@ -197,7 +197,7 @@ export function CardActions({
         onClick={() =>
           protect({
             title: copyText('rooms.close.card'),
-            procedure: 'cards.setStatus',
+            record: BANK_CARDS_SET_STATUS,
             facts: [cardFact],
             notes: [card.simulated ? t('simClose') : copyText('rooms.close.this.card.this.action.does.not')],
             input: () => ({ cardId: card.id, status: 'closed' }),

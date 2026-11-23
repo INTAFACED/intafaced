@@ -23,7 +23,7 @@ export function StudioLibrary({
         empty={<EmptyState title={t('libraryNone')}>{t('libraryNoneBody')}</EmptyState>}
         action={(s) =>
           s.id === activeId ? (
-            <span className="muted">{t('opened')}</span>
+            <span className="lt-muted">{t('opened')}</span>
           ) : (
             <Button variant="secondary" onClick={() => onOpen(s)}>
               {t('open', { name: s.name })}

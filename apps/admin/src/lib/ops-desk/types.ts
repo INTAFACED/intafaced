@@ -171,6 +171,8 @@ export type RowAction =
   | 'identity.kyc_document.open'
   /** Accepting or rejecting one selfie that waits for comparison (`kyc.selfie.decide`), with a second founder's approval. */
   | 'identity.kyc_selfie.decide'
+  /** Approving one pending verification at its level (`kyc.approve`), with a second founder's approval. */
+  | 'identity.kyc.approve'
   /** Freezing one deposit address (one founder), or lifting its freeze with a second founder (svc-pay `founderAdmin.depositFreezes`). */
   | 'pay.deposit_address'
   /** Waiting on the sending platform, or releasing a declared deposit held for the inbound travel rule (one founder each). */

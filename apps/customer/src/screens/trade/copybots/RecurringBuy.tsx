@@ -1,27 +1,13 @@
-import { type ReactNode, useMemo, useState } from 'react';
-import {
-  Badge,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  EmptyState,
-  Field,
-  Input,
-  KeyValue,
-  Page,
-  PageHeader,
-  PageSection,
-  type BadgeTone,
-} from '@intafaced/ui';
+import { type ReactNode, useId, useMemo, useState } from 'react';
+import { Button, Radio, type MoneyStatus } from '@intafaced/ui/lit';
+import { KeyValue, SelectField, StatusChip, TextField } from '@intafaced/ui/lit/templates';
 import type { z } from 'zod';
 import type { recurringRuleSchema } from '@intafaced/contracts/trade-recurring-procedures';
 import { useApi, useSession } from '../../../features/session/session';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { useVenueMode } from '../../../features/trade/use-venue-mode';
-import { TestMark, VenueFrame, WalletBar, useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { TestMark, VenueFrame, WalletBar } from '../../../features/trade/venue/volt/VoltVenue';
 import { draftId, keys, preparedAnswerSchema, walletTypedData, type VenueUp } from '../../../features/trade/venue-api';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
@@ -29,7 +15,8 @@ import { useResource } from '../../../shared/resource';
 import { createRoomApi } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
-import { InfoNote, RefusalNote } from './parts';
+import { InfoNote, RefusalNote } from './notes';
+import { KitDialog, KitState, LinkButton, typedDecimal } from '../kit-parts';
 
 /**
  * The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16; svc-trade
@@ -56,12 +43,12 @@ const STATUS_WORD: Record<RecurringRule['status'], string> = {
   completed: 'Finished: most to invest reached',
   terminated: 'Ended',
 };
-const STATUS_TONE: Record<RecurringRule['status'], BadgeTone> = {
-  signing: 'warn',
-  active: 'lime',
-  suspended_insufficient_funds: 'warn',
-  completed: 'neutral',
-  terminated: 'neutral',
+const STATUS_MARK: Record<RecurringRule['status'], MoneyStatus> = {
+  signing: 'pending',
+  active: 'done',
+  suspended_insufficient_funds: 'pending',
+  completed: 'unknown',
+  terminated: 'unknown',
 };
 const OUTCOME_WORD: Record<RecurringRule['slots'][number]['outcome'], string> = {
   pending: 'Buying',
@@ -154,28 +141,21 @@ export function RecurringBuyButton({ asset }: { asset: string }) {
   const venueMode = useVenueMode();
   if (!session) return null;
   const venueUp = venueMode.mode === 'on' && venueMode.status.available ? venueMode.status : null;
-  const header = (
-    <DialogHeader>
-      <DialogTitle>{t('Recurring buy')}</DialogTitle>
-      <DialogDescription>
-        {t('Buy a basket of coins on a schedule, on your own venue account. Each time, each coin is bought as one order there.')}
-      </DialogDescription>
-    </DialogHeader>
+  const title = t('Recurring buy');
+  const description = t(
+    'Buy a basket of coins on a schedule, on your own venue account. Each time, each coin is bought as one order there.',
   );
   // Mounted when the form opens, so each opening is a new request with its own key.
   const dialog = !open ? null : venueUp ? (
-    <RecurringEditor asset={asset} status={venueUp} header={header} onClose={() => setOpen(false)} />
+    <RecurringEditor asset={asset} status={venueUp} title={title} description={description} onClose={() => setOpen(false)} />
   ) : (
-    <Dialog open onOpenChange={setOpen}>
-      <DialogContent className="cb-dialog">
-        {header}
-        <RefusalNote failure={failed('trade.recurring_unavailable')} />
-      </DialogContent>
-    </Dialog>
+    <KitDialog title={title} description={description} onClose={() => setOpen(false)}>
+      <RefusalNote failure={failed('trade.recurring_unavailable')} />
+    </KitDialog>
   );
   return (
     <>
-      <Button variant="secondary" fullWidth onClick={() => setOpen(true)}>
+      <Button tone="secondary" block onClick={() => setOpen(true)}>
         {t('Recurring buy')}
       </Button>
       {venueMode.mode === 'on' ? <VenueFrame mode={venueMode}>{dialog}</VenueFrame> : dialog}
@@ -185,7 +165,53 @@ export function RecurringBuyButton({ asset }: { asset: string }) {
 
 type Row = { symbol: string; weight: string; lowest: string; highest: string };
 
-function RecurringEditor({ asset, status, header, onClose }: { asset: string; status: VenueUp; header: ReactNode; onClose: () => void }) {
+/** A decimal box with its words above it and its unit under it; it refuses a keystroke past `places` decimals. */
+function DecimalField({
+  label,
+  value,
+  onChange,
+  places,
+  unit,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  places: number;
+  unit: string;
+  disabled?: boolean;
+}) {
+  return (
+    <TextField
+      label={label}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      spellCheck={false}
+      value={value}
+      onChange={(raw) => {
+        const next = typedDecimal(raw, places);
+        if (next !== null) onChange(next);
+      }}
+      hint={unit}
+      disabled={disabled}
+    />
+  );
+}
+
+function RecurringEditor({
+  asset,
+  status,
+  title,
+  description,
+  onClose,
+}: {
+  asset: string;
+  status: VenueUp;
+  title: string;
+  description: string;
+  onClose: () => void;
+}) {
   const { t } = roomCopy.useCopy();
   const api = useRoomApi();
   const venue = useVenueApi();
@@ -193,14 +219,12 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
   // the accessibility tree and block pointer input to it. The form keeps its state and comes back once the wallet answers.
   const [signing, setSigning] = useState(false);
   const steps = useWalletSteps(api, status, setSigning);
-  const frame = (body: ReactNode) => (
-    <Dialog open={!signing} onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent className="cb-dialog">
-        {header}
+  const frame = (body: ReactNode) =>
+    signing ? null : (
+      <KitDialog title={title} description={description} onClose={onClose}>
         {body}
-      </DialogContent>
-    </Dialog>
-  );
+      </KitDialog>
+    );
   const markets = useResource((signal) => venue.markets(signal), 'recurring-venue-markets');
   const spot = useMemo(
     () =>
@@ -224,8 +248,8 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
 
   if (saved) {
     return frame(
-      <div className="cb-form">
-        <p role="status" className="cb-note-body">
+      <div className="lt-stack">
+        <p role="status">
           {saved.status === 'signing'
             ? t('Saved. Nothing is bought until your wallet signs the permission.')
             : t('Saved. It buys {amount} {asset} each time, starting now.', {
@@ -233,9 +257,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
                 asset: saved.quoteAsset,
               })}
         </p>
-        <Button nativeButton={false} render={<a href={DCA_HREF} />}>
-          {t('Open my recurring buys')}
-        </Button>
+        <LinkButton href={DCA_HREF}>{t('Open my recurring buys')}</LinkButton>
       </div>,
     );
   }
@@ -277,7 +299,7 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
   }
 
   return frame(
-    <div className="cb-form">
+    <div className="lt-stack">
       <WalletBar />
       <InfoNote>
         {t(
@@ -286,15 +308,14 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
         )}{' '}
         <TestMark test={status.test} />
       </InfoNote>
-      <fieldset className="cb-form" aria-label={t('Pay with')}>
-        <legend className="cb-label">{t('Pay with')}</legend>
-        <label className="cb-check">
-          <input type="radio" name="recurring-funding" checked={funding === 'venue'} onChange={() => setFunding('venue')} />{' '}
+      <fieldset className="lt-stack" aria-label={t('Pay with')}>
+        <legend>{t('Pay with')}</legend>
+        <Radio name="recurring-funding" checked={funding === 'venue'} onSelect={() => setFunding('venue')}>
           {t('USDC on your venue account')}
-        </label>
-        <label className="cb-check">
-          <input type="radio" name="recurring-funding" checked={funding === 'card'} onChange={() => setFunding('card')} /> {t('Card')}
-        </label>
+        </Radio>
+        <Radio name="recurring-funding" checked={funding === 'card'} onSelect={() => setFunding('card')}>
+          {t('Card')}
+        </Radio>
       </fieldset>
       {funding === 'card' ? (
         <InfoNote tone="warn">
@@ -304,57 +325,43 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
       {rows.map((row, i) => {
         const n = String(i + 1);
         return (
-          <fieldset key={i} className="cb-form" aria-label={t('Coin {n} in the basket', { n })}>
-            <label className="cb-selectfield">
-              <span className="cb-label">{t('Coin {n}', { n })}</span>
-              <select
-                aria-label={t('Coin {n}', { n })}
-                value={row.symbol}
-                onChange={(e) => set(i, { symbol: e.target.value })}
-                disabled={busy}
-              >
-                {[...new Set([row.symbol, ...spot])].map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/-USDC$/, '')}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Field label={t('Weight {n}, %', { n })}>
-              <Input
-                kind="decimal"
-                value={row.weight}
-                onValueChange={(v) => set(i, { weight: v })}
-                precision={2}
-                trailing="%"
-                disabled={busy}
-              />
-            </Field>
-            <Field label={t('Lowest price {n}', { n })}>
-              <Input
-                kind="decimal"
-                value={row.lowest}
-                onValueChange={(v) => set(i, { lowest: v })}
-                precision={8}
-                trailing="USDC"
-                disabled={busy}
-              />
-            </Field>
-            <Field label={t('Highest price {n}', { n })}>
-              <Input
-                kind="decimal"
-                value={row.highest}
-                onValueChange={(v) => set(i, { highest: v })}
-                precision={8}
-                trailing="USDC"
-                disabled={busy}
-              />
-            </Field>
+          <fieldset key={i} className="lt-stack" aria-label={t('Coin {n} in the basket', { n })}>
+            <SelectField
+              label={t('Coin {n}', { n })}
+              value={row.symbol}
+              onChange={(symbol) => set(i, { symbol })}
+              disabled={busy}
+              options={[...new Set([row.symbol, ...spot])].map((s) => ({ value: s, label: s.replace(/-USDC$/, '') }))}
+            />
+            <DecimalField
+              label={t('Weight {n}, %', { n })}
+              value={row.weight}
+              onChange={(v) => set(i, { weight: v })}
+              places={2}
+              unit="%"
+              disabled={busy}
+            />
+            <DecimalField
+              label={t('Lowest price {n}', { n })}
+              value={row.lowest}
+              onChange={(v) => set(i, { lowest: v })}
+              places={8}
+              unit="USDC"
+              disabled={busy}
+            />
+            <DecimalField
+              label={t('Highest price {n}', { n })}
+              value={row.highest}
+              onChange={(v) => set(i, { highest: v })}
+              places={8}
+              unit="USDC"
+              disabled={busy}
+            />
           </fieldset>
         );
       })}
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={busy || rows.length >= 10}
         onClick={() =>
           setRows((all) => [
@@ -365,31 +372,27 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
       >
         {t('Add a coin')}
       </Button>
-      <Field label={t('Amount each time (USDC)')}>
-        <Input kind="decimal" value={amount} onValueChange={setAmount} precision={2} trailing="USDC" disabled={busy} />
-      </Field>
-      <label className="cb-selectfield">
-        <span className="cb-label">{t('How often')}</span>
-        <select aria-label={t('How often')} value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)} disabled={busy}>
-          {FREQUENCIES.map((f) => (
-            <option key={f.value} value={f.value}>
-              {t(f.label)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Field label={t('Most to invest (USDC)')}>
-        <Input kind="decimal" value={maxInvestment} onValueChange={setMaxInvestment} precision={2} trailing="USDC" disabled={busy} />
-      </Field>
-      <p className="cb-note-body">{t('Leave it blank and the recurring buy never ends by itself.')}</p>
-      <Button disabled={busy || funding === 'card'} onClick={() => void save()}>
+      <DecimalField label={t('Amount each time (USDC)')} value={amount} onChange={setAmount} places={2} unit="USDC" disabled={busy} />
+      <SelectField
+        label={t('How often')}
+        value={frequency}
+        onChange={(next) => setFrequency(next as Frequency)}
+        disabled={busy}
+        options={FREQUENCIES.map((f) => ({ value: f.value, label: t(f.label) }))}
+      />
+      <DecimalField
+        label={t('Most to invest (USDC)')}
+        value={maxInvestment}
+        onChange={setMaxInvestment}
+        places={2}
+        unit="USDC"
+        disabled={busy}
+      />
+      <p className="lt-hint">{t('Leave it blank and the recurring buy never ends by itself.')}</p>
+      <Button tone="primary" disabled={busy || funding === 'card'} onClick={() => void save()}>
         {t('Save')}
       </Button>
-      {detail ? (
-        <p role="alert" className="cb-note-body">
-          {detail}
-        </p>
-      ) : null}
+      {detail ? <p role="alert">{detail}</p> : null}
       {failure ? <RefusalNote failure={failure} /> : null}
     </div>,
   );
@@ -403,10 +406,10 @@ export function RecurringRoom({ path }: { path: string }) {
   const url = new URL(path, 'http://x');
   const share = url.searchParams.get('share');
   const body = !session ? (
-    <EmptyState
-      variant="refused"
+    <KitState
+      kind="refused"
       title={t('You are signed out')}
-      reason={t('Sign in to see your recurring buys.')}
+      body={t('Sign in to see your recurring buys.')}
       action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(url.pathname + url.search)}` }}
     />
   ) : share ? (
@@ -415,11 +418,30 @@ export function RecurringRoom({ path }: { path: string }) {
     <RecurringList />
   );
   return (
-    <Page landmark={false}>
-      <PageHeader title={share ? t('Recurring buy result') : t('Recurring buy (DCA)')} />
+    <div className="lt-stack">
+      <header>
+        <h1 className="lt-title">{share ? t('Recurring buy result') : t('Recurring buy (DCA)')}</h1>
+      </header>
       {venueMode.mode === 'on' ? <VenueFrame mode={venueMode}>{body}</VenueFrame> : body}
-    </Page>
+    </div>
   );
+}
+
+/** A titled block of the room: its heading names the section. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  const titleId = useId();
+  return (
+    <section className="lt-stack" aria-labelledby={titleId}>
+      <h2 id={titleId}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** A rule's state in words, with the kit's mark: active reads done, waiting and suspended pending, finished and ended neutral. */
+function RuleState({ status }: { status: RecurringRule['status'] }) {
+  const { t } = roomCopy.useCopy();
+  return <StatusChip status={STATUS_MARK[status]} label={t(STATUS_WORD[status] as 'Active')} />;
 }
 
 function RecurringList() {
@@ -427,21 +449,23 @@ function RecurringList() {
   const api = useRoomApi();
   const list = useResource((signal) => api.recurringList(signal), 'recurring-list');
   const [open, setOpen] = useState<string | null>(null);
-  if (list.resource.status === 'loading') return <p className="cb-note-body">{t('Checking')}</p>;
+  if (list.resource.status === 'loading') return <p className="lt-hint">{t('Checking')}</p>;
   if (list.resource.status === 'failed') return <RefusalNote failure={list.resource.failure} retry={list.reload} />;
   const rules = list.resource.data;
   return (
-    <PageSection title={t('My recurring buys')}>
-      <p className="cb-note-body">{t('Set one up from any coin page with Recurring buy.')}</p>
+    <Section title={t('My recurring buys')}>
+      <p className="lt-hint">{t('Set one up from any coin page with Recurring buy.')}</p>
       {rules.length === 0 ? (
-        <EmptyState title={t('You have no recurring buys')} reason={t('A recurring buy you save shows here.')} />
+        <KitState kind="empty" title={t('You have no recurring buys')} body={t('A recurring buy you save shows here.')} />
       ) : (
-        <table className="cb-table" aria-label={t('My recurring buys')}>
+        <table className="lt-table" aria-label={t('My recurring buys')}>
           <thead>
             <tr>
               <th scope="col">{t('Recurring buy')}</th>
               <th scope="col">{t('State')}</th>
-              <th scope="col">{t('Amount each time')}</th>
+              <th scope="col" data-align="end">
+                {t('Amount each time')}
+              </th>
               <th scope="col">{t('Action')}</th>
             </tr>
           </thead>
@@ -450,13 +474,13 @@ function RecurringList() {
               <tr key={rule.ruleId}>
                 <td>{t('Recurring buy {basket}', { basket: basketLine(rule) })}</td>
                 <td>
-                  <Badge tone={STATUS_TONE[rule.status]}>{t(STATUS_WORD[rule.status] as 'Active')}</Badge>
+                  <RuleState status={rule.status} />
                 </td>
-                <td className="numeric">
+                <td data-align="end">
                   {displayAmount(rule.amount)} {rule.quoteAsset}
                 </td>
                 <td>
-                  <Button variant="secondary" size={32} onClick={() => setOpen(rule.ruleId)}>
+                  <Button tone="secondary" onClick={() => setOpen(rule.ruleId)}>
                     {t('Manage')}
                   </Button>
                 </td>
@@ -474,7 +498,7 @@ function RecurringList() {
           }}
         />
       ) : null}
-    </PageSection>
+    </Section>
   );
 }
 
@@ -504,124 +528,111 @@ function RecurringManage({ ruleId, onClose }: { ruleId: string; onClose: () => v
   }
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogContent className="cb-dialog">
-        <DialogHeader>
-          <DialogTitle>{t('Manage recurring buy')}</DialogTitle>
-          <DialogDescription>{shown ? basketLine(shown) : t('Checking')}</DialogDescription>
-        </DialogHeader>
-        {!shown ? (
-          read.resource.status === 'failed' ? (
-            <RefusalNote failure={read.resource.failure} retry={read.reload} />
-          ) : null
-        ) : (
-          <div className="cb-form">
-            <KeyValue
-              items={[
-                { label: t('State'), value: t(STATUS_WORD[shown.status] as 'Active') },
-                { label: t('How often'), value: t(FREQUENCIES.find((f) => f.value === shown.frequency)!.label) },
-                {
-                  label: t('Most to invest'),
-                  value: shown.maxInvestment === null ? t('Not set') : `${displayAmount(shown.maxInvestment)} ${shown.quoteAsset}`,
-                },
-                { label: t('Trades on'), value: t('Your {venue} account {owner}', { venue: shown.venue.name, owner: shown.venue.owner }) },
-                { label: t('Agent permission'), value: `${shown.venue.agentName} ${shown.venue.agentAddress}` },
-              ]}
-            />
-            <TestMark test={shown.venue.test} />
-            {shown.status === 'suspended_insufficient_funds' ? (
-              <InfoNote tone="warn">
-                {t('Suspended: your venue account had less than {amount} {asset} free. It resumes by itself once the funds arrive.', {
-                  amount: displayAmount(shown.amount),
-                  asset: shown.quoteAsset,
-                })}
-              </InfoNote>
-            ) : null}
-            <Field label={t('Amount each time (USDC)')}>
-              <Input
-                kind="decimal"
-                value={amount ?? shown.amount}
-                onValueChange={setAmount}
-                precision={2}
-                trailing={shown.quoteAsset}
-                disabled={busy || ended}
-              />
-            </Field>
-            <Button
-              disabled={busy || ended}
-              onClick={() =>
-                void run(
-                  () => api.recurringUpdate({ ruleId, amount: amount ?? shown.amount, maxInvestment: shown.maxInvestment }),
-                  (r) =>
-                    t('Saved. The next buy spends {amount} {asset}; earlier buys are unchanged.', {
-                      amount: displayAmount(r.amount),
-                      asset: r.quoteAsset,
-                    }),
-                )
-              }
-            >
-              {t('Save')}
-            </Button>
-            <Slots rule={shown} />
-            {shown.conversions.length > 0 ? (
-              <KeyValue
-                items={shown.conversions.map((c) => ({
-                  label: t('Converted {coin}', { coin: c.symbol.replace(/-USDC$/, '') }),
-                  value: `${displayAmount(c.filled)} → ${displayAmount(c.received)} ${shown.quoteAsset}`,
-                }))}
-              />
-            ) : null}
-            <Button nativeButton={false} variant="secondary" render={<a href={`${DCA_HREF}?share=${encodeURIComponent(shown.ruleId)}`} />}>
-              {t('Open the share page')}
-            </Button>
-            {shown.status !== 'terminated' ? (
-              <Button variant="secondary" disabled={busy} onClick={() => setConfirming(true)}>
-                {t('End this recurring buy')}
-              </Button>
-            ) : null}
-            {note ? (
-              <p role="status" className="cb-note-body">
-                {note}
-              </p>
-            ) : null}
-            {failure ? <RefusalNote failure={failure} /> : null}
-          </div>
-        )}
-        {confirming && shown ? (
-          <Confirm
-            title={t('End this recurring buy?')}
-            body={t('No buy runs again, and the coins it bought are sold for {asset} once, at the venue’s best bid.', {
-              asset: shown.quoteAsset,
-            })}
-            action={t('End and convert to {asset}', { asset: shown.quoteAsset })}
-            onCancel={() => setConfirming(false)}
-            onConfirm={() => {
-              setConfirming(false);
-              void run(
-                () => api.recurringTerminate(ruleId),
-                () => t('Ended. What it bought was sold once.'),
-              );
-            }}
+    <KitDialog title={t('Manage recurring buy')} description={shown ? basketLine(shown) : t('Checking')} onClose={onClose}>
+      {!shown ? (
+        read.resource.status === 'failed' ? (
+          <RefusalNote failure={read.resource.failure} retry={read.reload} />
+        ) : null
+      ) : (
+        <div className="lt-stack">
+          <KeyValue
+            rows={[
+              { label: t('State'), value: t(STATUS_WORD[shown.status] as 'Active') },
+              { label: t('How often'), value: t(FREQUENCIES.find((f) => f.value === shown.frequency)!.label) },
+              {
+                label: t('Most to invest'),
+                value: shown.maxInvestment === null ? t('Not set') : `${displayAmount(shown.maxInvestment)} ${shown.quoteAsset}`,
+              },
+              { label: t('Trades on'), value: t('Your {venue} account {owner}', { venue: shown.venue.name, owner: shown.venue.owner }) },
+              { label: t('Agent permission'), value: `${shown.venue.agentName} ${shown.venue.agentAddress}` },
+            ]}
           />
-        ) : null}
-      </DialogContent>
-    </Dialog>
+          <TestMark test={shown.venue.test} />
+          {shown.status === 'suspended_insufficient_funds' ? (
+            <InfoNote tone="warn">
+              {t('Suspended: your venue account had less than {amount} {asset} free. It resumes by itself once the funds arrive.', {
+                amount: displayAmount(shown.amount),
+                asset: shown.quoteAsset,
+              })}
+            </InfoNote>
+          ) : null}
+          <DecimalField
+            label={t('Amount each time (USDC)')}
+            value={amount ?? shown.amount}
+            onChange={setAmount}
+            places={2}
+            unit={shown.quoteAsset}
+            disabled={busy || ended}
+          />
+          <Button
+            tone="primary"
+            disabled={busy || ended}
+            onClick={() =>
+              void run(
+                () => api.recurringUpdate({ ruleId, amount: amount ?? shown.amount, maxInvestment: shown.maxInvestment }),
+                (r) =>
+                  t('Saved. The next buy spends {amount} {asset}; earlier buys are unchanged.', {
+                    amount: displayAmount(r.amount),
+                    asset: r.quoteAsset,
+                  }),
+              )
+            }
+          >
+            {t('Save')}
+          </Button>
+          <Slots rule={shown} />
+          {shown.conversions.length > 0 ? (
+            <KeyValue
+              rows={shown.conversions.map((c) => ({
+                label: t('Converted {coin}', { coin: c.symbol.replace(/-USDC$/, '') }),
+                value: `${displayAmount(c.filled)} → ${displayAmount(c.received)} ${shown.quoteAsset}`,
+              }))}
+            />
+          ) : null}
+          <LinkButton href={`${DCA_HREF}?share=${encodeURIComponent(shown.ruleId)}`}>{t('Open the share page')}</LinkButton>
+          {shown.status !== 'terminated' ? (
+            <Button tone="secondary" disabled={busy} onClick={() => setConfirming(true)}>
+              {t('End this recurring buy')}
+            </Button>
+          ) : null}
+          {note ? <p role="status">{note}</p> : null}
+          {failure ? <RefusalNote failure={failure} /> : null}
+        </div>
+      )}
+      {confirming && shown ? (
+        <Confirm
+          title={t('End this recurring buy?')}
+          body={t('No buy runs again, and the coins it bought are sold for {asset} once, at the venue’s best bid.', {
+            asset: shown.quoteAsset,
+          })}
+          action={t('End and convert to {asset}', { asset: shown.quoteAsset })}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            void run(
+              () => api.recurringTerminate(ruleId),
+              () => t('Ended. What it bought was sold once.'),
+            );
+          }}
+        />
+      ) : null}
+    </KitDialog>
   );
 }
 
 function Confirm(props: { title: string; body: string; action: string; onCancel: () => void; onConfirm: () => void }) {
   const { t } = roomCopy.useCopy();
   return (
-    <section role="alertdialog" aria-label={props.title} className="cb-note" data-tone="warn">
-      <div>
-        <p className="cb-note-title">{props.title}</p>
-        <p className="cb-note-body">{props.body}</p>
-        <div className="cb-action-row">
-          <Button variant="secondary" onClick={props.onCancel}>
-            {t('Keep it')}
-          </Button>
-          <Button onClick={props.onConfirm}>{props.action}</Button>
-        </div>
+    <section role="alertdialog" aria-label={props.title} className="lt-refusal" data-refusal="refused" data-tone="warn">
+      <p className="lt-refusal-title">{props.title}</p>
+      <p className="lt-refusal-body">{props.body}</p>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={props.onCancel}>
+          {t('Keep it')}
+        </Button>
+        <Button tone="primary" onClick={props.onConfirm}>
+          {props.action}
+        </Button>
       </div>
     </section>
   );
@@ -629,25 +640,31 @@ function Confirm(props: { title: string; body: string; action: string; onCancel:
 
 function Slots({ rule }: { rule: RecurringRule }) {
   const { t } = roomCopy.useCopy();
-  if (rule.slots.length === 0) return <p className="cb-note-body">{t('No buy has run.')}</p>;
+  if (rule.slots.length === 0) return <p className="lt-hint">{t('No buy has run.')}</p>;
   return (
-    <table className="cb-table" aria-label={t('Buys')}>
+    <table className="lt-table" aria-label={t('Buys')}>
       <thead>
         <tr>
-          <th scope="col">{t('Buy')}</th>
-          <th scope="col">{t('Amount')}</th>
-          <th scope="col">{t('Spent')}</th>
+          <th scope="col" data-align="end">
+            {t('Buy')}
+          </th>
+          <th scope="col" data-align="end">
+            {t('Amount')}
+          </th>
+          <th scope="col" data-align="end">
+            {t('Spent')}
+          </th>
           <th scope="col">{t('State')}</th>
         </tr>
       </thead>
       <tbody>
         {rule.slots.map((s) => (
           <tr key={s.slot}>
-            <td className="numeric">{s.slot + 1}</td>
-            <td className="numeric">
+            <td data-align="end">{s.slot + 1}</td>
+            <td data-align="end">
               {displayAmount(s.amount)} {rule.quoteAsset}
             </td>
-            <td className="numeric">
+            <td data-align="end">
               {displayAmount(s.spent)} {rule.quoteAsset}
             </td>
             <td>{t(OUTCOME_WORD[s.outcome] as 'Bought')}</td>
@@ -667,7 +684,7 @@ function RecurringShare({ ruleId }: { ruleId: string }) {
   const api = useRoomApi();
   const read = useResource((signal) => api.recurringGet(ruleId, signal), `recurring-share:${ruleId}`);
   const [sheet, setSheet] = useState(false);
-  if (read.resource.status === 'loading') return <p className="cb-note-body">{t('Checking')}</p>;
+  if (read.resource.status === 'loading') return <p className="lt-hint">{t('Checking')}</p>;
   if (read.resource.status === 'failed') return <RefusalNote failure={read.resource.failure} retry={read.reload} />;
   const rule = read.resource.data;
   const { cost, value, profitPct } = rule.result;
@@ -684,27 +701,29 @@ function RecurringShare({ ruleId }: { ruleId: string }) {
     ...(profitPct === null ? [] : [t('Profit {pct}%', { pct: displayAmount(profitPct) })]),
   ].join('\n');
   return (
-    <PageSection title={basketLine(rule)}>
-      <section role="region" aria-label={t('Recurring buy result')} className="cb-form">
-        <KeyValue items={lines} />
+    <Section title={basketLine(rule)}>
+      <section role="region" aria-label={t('Recurring buy result')} className="lt-stack">
+        <KeyValue rows={lines} />
         {value === null ? <InfoNote>{t('Value is Not set while a coin in the basket has no price on the venue.')}</InfoNote> : null}
         <TestMark test={rule.venue.test} />
       </section>
-      <Button onClick={() => setSheet(true)}>{t('Share')}</Button>
-      <Dialog open={sheet} onOpenChange={setSheet}>
-        <DialogContent className="cb-dialog">
-          <DialogHeader>
-            <DialogTitle>{t('Share your result')}</DialogTitle>
-            <DialogDescription>{t('Copy these words to share them. Nothing is sent from here.')}</DialogDescription>
-          </DialogHeader>
-          <pre className="cb-note-body cb-share-text" data-testid="recurring-share-text">
+      <Button tone="primary" onClick={() => setSheet(true)}>
+        {t('Share')}
+      </Button>
+      {sheet ? (
+        <KitDialog
+          title={t('Share your result')}
+          description={t('Copy these words to share them. Nothing is sent from here.')}
+          onClose={() => setSheet(false)}
+        >
+          <pre className="lt-pre-wrap" data-testid="recurring-share-text">
             {text}
           </pre>
-          <Button variant="secondary" onClick={() => void navigator.clipboard?.writeText(text).catch(() => undefined)}>
+          <Button tone="secondary" onClick={() => void navigator.clipboard?.writeText(text).catch(() => undefined)}>
             {t('Copy')}
           </Button>
-        </DialogContent>
-      </Dialog>
-    </PageSection>
+        </KitDialog>
+      ) : null}
+    </Section>
   );
 }

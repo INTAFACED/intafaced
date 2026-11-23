@@ -88,7 +88,7 @@ describe('passkey identifier at the rendered form', () => {
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent).toBe(guidance);
     expect(document.activeElement).toBe(input);
-    expect(host.querySelector('.failure')).toBeNull();
+    expect(host.querySelector('.lt-refusal')).toBeNull();
     expect(optionsCalls()).toHaveLength(0);
     expect(nativeGet).not.toHaveBeenCalled();
     expect(localStorage.getItem(publicAuthKey)).toBeNull();
@@ -162,7 +162,7 @@ describe('passkey identifier at the rendered form', () => {
       release(new Response(JSON.stringify({ error: { message: 'Late isolated response' } }), { status: 503 }));
     });
     expect(signal.aborted).toBe(true);
-    expect(host.querySelector('.failure')).toBeNull();
+    expect(host.querySelector('.lt-refusal')).toBeNull();
     expect(identifier().value).toBe('');
     expect(location.search).toBe('?redirect=%2Fuc%2Fsafe');
     expect(nativeGet).not.toHaveBeenCalled();
@@ -189,9 +189,9 @@ describe('password sign-in refusals the service names (J-identity-02 #2, #7)', (
     const submit = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Sign in')!;
     await act(async () => submit.click());
     await act(async () => {
-      await vi.waitFor(() => expect(host.querySelector('.failure')).not.toBeNull());
+      await vi.waitFor(() => expect(host.querySelector('.lt-refusal')).not.toBeNull());
     });
-    return host.querySelector('.failure')!;
+    return host.querySelector('.lt-refusal')!;
   }
 
   it('rounds the lockout up to whole minutes from the service’s own wait', async () => {

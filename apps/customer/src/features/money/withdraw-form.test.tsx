@@ -265,7 +265,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
       failure: { ok: false, reason: 'error', status: 403, code: 'auth.forbidden', message: 'auth.forbidden' } as never,
     };
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('class="lt-refusal"');
     expect(html).not.toContain('auth.forbidden</');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
     expect(html).toContain('Add an address');
@@ -280,7 +280,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
         reload={() => undefined}
       />,
     );
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('class="lt-refusal"');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
   });
 });

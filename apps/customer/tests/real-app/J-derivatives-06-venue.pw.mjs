@@ -6,12 +6,12 @@ import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { doorCalls, ledgerUntouched, ledgerView, openVenueRoom, signedOnVenue, venueAt, venueNow, walletOwner } from './venue-door.mjs';
-import { continueInWallet, venueForThisFile } from './venue.mjs';
+import { continueInWallet, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-derivatives-06's venue steps, "I watch and top up the margin on an isolated position", on the person's own venue
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
 // app against the stack's TEST venue simulator (packages/venue-sim). One test per step, titled "J-derivatives-06 #<n>",
-// run in order on one TEST account; #4 to #7 are not here yet (each lands with its own build), and J-derivatives-06.pw.mjs
+// run in order on one TEST account; #5 to #7 are not here yet (each lands with its own build), and J-derivatives-06.pw.mjs
 // holds the same journey on our own futures engine.
 //
 // The Starts line, made at the start of #1 straight on the TEST venue with the person's own key: a TEST isolated long of
@@ -32,8 +32,12 @@ venueForThisFile(test);
 // ── the TEST venue, read and signed on directly ──
 
 const accountOf = (venue, owner) => ({ venueId: venue.id, owner, subAccount: null });
-/** The venue's own record for the account (`/positions`, `/balances`, `/account-summary`, `/isolated-margin`, ...). */
-const record = async (venue, owner, path, extra = {}) => (await venueAt(path, { account: accountOf(venue, owner), ...extra })).value;
+/**
+ * The venue's own record for the account (`/positions`, `/balances`, `/account-summary`, `/isolated-margin`, ...), read
+ * through the venue fixture (`venueRecord`): straight from the TEST venue on loopback, never through our door. The
+ * fixture reads the same TEST venue `venueNow` names, and checks it is labelled TEST.
+ */
+const record = async (venue, owner, path, extra = {}) => (await venueRecord(owner, path, extra)).value;
 const positionOn = async (venue, owner) => (await record(venue, owner, '/positions')).find((p) => p.symbol === BTC);
 const usdcOn = async (venue, owner) =>
   (await record(venue, owner, '/balances')).find((b) => b.asset === 'USDC') ?? { free: '0', locked: '0', total: '0' };
@@ -245,4 +249,132 @@ test(`${J} #3 removes margin: allowed down to the venue's limit; otherwise refus
     `After the change, from ${venue.name}: margin ${after.margin}, liquidation price ${after.liquidationPrice.value}.`,
   );
   await ledgerUntouched(s);
+});
+
+// ── #4: auto top-up through the agent permission ──
+
+const EACH = '10';
+const CAP = '25';
+const RAISED_CAP = '50';
+const PERMISSION_CAP = '30';
+/** The figure a top-up watches, as the venue reports it: the position's margin with its unrealised result. */
+const withResult = (p) => fromUnits(toUnits(p.margin) + toUnits(p.unrealisedPnl));
+
+/**
+ * The TEST mark control (`/test/set-mark` on the TEST venue): moves BTC-PERP's mark so the position's margin with its
+ * result is exactly `target`, read back from the venue. A long of SIZE moves SIZE per unit of mark.
+ */
+async function marginWithResultTo(venue, owner, target) {
+  const p = await positionOn(venue, owner);
+  const perUnit = toUnits(SIZE);
+  const delta = toUnits(withResult(p)) - toUnits(target);
+  const mark = toUnits(p.markPrice) - (delta * 10n ** 18n) / perUnit;
+  await venueAt('/test/set-mark', { symbol: BTC, price: fromUnits(mark) });
+  expect(withResult(await positionOn(venue, owner))).toBe(target);
+}
+
+test(`${J} #4 turns on auto top-up, setting the margin level that starts it, the amount each top-up adds, and a cap: our engine adds the set amount through the agent permission once each time margin falls to the set level, never past the cap or the permission's own cap`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(600_000);
+  const s = state();
+  const venue = await venueNow();
+  const wallet = await openVenueRoom(page, s, ROOM);
+  const start = await positionOn(venue, s.owner);
+  // The position is moving against the trader: the TEST mark falls from here, and is put back after the step.
+  const markBefore = start.markPrice;
+  try {
+    const level = fromUnits(toUnits(withResult(start)) - toUnits('20'));
+    const below = fromUnits(toUnits(level) - toUnits('1'));
+    const panel = await openMargin(page, venue);
+    const atu = panel.getByTestId('auto-top-up');
+    await expect(atu).toContainText(`Auto top-up on ${BTC}`);
+    await expect(atu.locator('[data-line="atu-state"]')).toHaveText('Off.', { timeout: 20_000 });
+    // The figure it watches is the venue's own.
+    await expect(atu.locator('[data-line="atu-margin"]')).toHaveText(withResult(start));
+    const box = (name) => atu.getByRole('textbox', { name, exact: true });
+    const state4 = atu.locator('[data-line="atu-state"]');
+    const watching = `On: watching for the margin to fall to ${level}.`;
+
+    // The person sets the level that starts a top-up, the amount each adds, a cap, and the agent permission's own cap; the
+    // wallet signs the agent permission once.
+    await box('Margin level that starts a top-up (USDC)').fill(level);
+    await box('Amount each top-up adds (USDC)').fill(EACH);
+    await box('Cap for this position (USDC)').fill(CAP);
+    await box('Agent permission cap (USDC)').fill(PERMISSION_CAP);
+    const asked = signatures(wallet);
+    await atu.getByRole('button', { name: 'Turn on auto top-up', exact: true }).click();
+    await continueInWallet(page);
+    await expect(atu.locator('[data-line="atu-permission"]')).toHaveText(`Approved on ${venue.name}.`, { timeout: 20_000 });
+    expect(signatures(wallet)).toBe(asked + 1);
+    await expect(state4).toHaveText(watching);
+    await expect(atu.locator('[data-line="atu-permission-cap"]')).toHaveText(PERMISSION_CAP);
+    // The venue lists the agent permission on the person's account: the key that signs every top-up, never a withdrawal.
+    const agents = await record(venue, s.owner, '/agents');
+    expect(agents.filter((x) => x.name === 'auto-top-up')).toHaveLength(1);
+
+    /** One fall of the margin to the level; the venue's margin after, once our engine has acted or not. */
+    const marginBase = toUnits(start.margin);
+    const crossing = async (added) => {
+      await marginWithResultTo(venue, s.owner, below);
+      const expected = fromUnits(marginBase + toUnits(added));
+      await expect(async () => expect((await positionOn(venue, s.owner)).margin).toBe(expected)).toPass({ timeout: 30_000 });
+      return expected;
+    };
+    const rows = atu.getByTestId('auto-top-ups').locator('tbody tr');
+
+    // Crossings 1 and 2: the set amount once each, through the agent permission (the wallet is not asked again), each
+    // re-armed only when the margin is back above the level.
+    for (const n of [1, 2]) {
+      await crossing(String(n * Number(EACH)));
+      await expect(rows).toHaveCount(n, { timeout: 20_000 });
+      await expect(rows.nth(n - 1)).toHaveAttribute('data-state', 'added');
+      await expect(rows.nth(n - 1).locator('[data-cell="amount"]')).toHaveText(EACH);
+      await expect(rows.nth(n - 1)).toHaveAttribute('data-key', `margin:${s.owner}:btc-perp:auto:${n}`);
+      // Once per crossing: the engine has read the position again since the top-up (it is watching for the next fall),
+      // and the venue's margin holds at exactly n top-ups.
+      await expect(state4).toHaveText(watching, { timeout: 20_000 });
+      expect((await positionOn(venue, s.owner)).margin).toBe(fromUnits(marginBase + toUnits(String(n * Number(EACH)))));
+    }
+    expect(signatures(wallet)).toBe(asked + 1);
+
+    // Crossing 3: 20 added, and 10 more would pass the cap of 25: nothing is sent, and the page names the cap.
+    await marginWithResultTo(venue, s.owner, below);
+    await expect(state4).toHaveText(`Stopped at this position’s cap: 20 of ${CAP} added, and ${EACH} more would pass it.`, {
+      timeout: 20_000,
+    });
+    expect((await positionOn(venue, s.owner)).margin).toBe(fromUnits(marginBase + toUnits('20')));
+    await expect(rows).toHaveCount(2);
+
+    // The person raises the position's cap; the permission's own cap of 30 now stops it at one more top-up.
+    await box('Cap for this position (USDC)').fill(RAISED_CAP);
+    await atu.getByRole('button', { name: 'Save auto top-up', exact: true }).click();
+    await expect(atu.getByTestId('auto-top-up-said')).toHaveText('Saved.', { timeout: 20_000 });
+    expect(signatures(wallet)).toBe(asked + 1);
+    await marginWithResultTo(venue, s.owner, fromUnits(toUnits(level) + toUnits('5')));
+    await expect(state4).toHaveText(watching, { timeout: 20_000 });
+    await crossing('30');
+    await expect(rows).toHaveCount(3, { timeout: 20_000 });
+    await expect(rows.nth(2)).toHaveAttribute('data-state', 'added');
+    await expect(atu.locator('[data-line="atu-permission-used"]')).toHaveText('30', { timeout: 20_000 });
+    await expect(state4).toHaveText(watching, { timeout: 20_000 });
+
+    // Crossing 5: the position's cap has room, and the permission's own cap of 30 is used: nothing is sent.
+    await marginWithResultTo(venue, s.owner, below);
+    await expect(state4).toHaveText(
+      `Stopped at the agent permission’s own cap: 30 of ${PERMISSION_CAP} used, and ${EACH} more would pass it.`,
+      { timeout: 20_000 },
+    );
+    const end = await positionOn(venue, s.owner);
+    expect(end.margin).toBe(fromUnits(marginBase + toUnits('30')));
+    await expect(rows).toHaveCount(3);
+    await expect(atu.locator('[data-line="atu-added"]')).toHaveText('30');
+    await expect(atu.locator('[data-line="atu-permission-room"]')).toHaveText('0');
+    expect(signatures(wallet)).toBe(asked + 1);
+    await stepPicture();
+    await ledgerUntouched(s);
+  } finally {
+    await venueAt('/test/set-mark', { symbol: BTC, price: markBefore });
+  }
 });
