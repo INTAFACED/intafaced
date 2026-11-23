@@ -312,15 +312,16 @@ export const moreRooms = areaRooms('more', moreCopy, [
   // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
   ...(
     [
-      ['learning', 'Academy learning'],
-      ['certificates', 'Academy certificates'],
-      ['rooms', 'Academy rooms'],
-      ['videos', 'Academy videos'],
-      ['programmes', 'Academy programmes'],
-      ['progress', 'Academy progress'],
+      // Written out whole so the look gate (tests/real-app/routes.mjs) shoots each tab (intafaced issue 10317).
+      ['/academy/learning', 'Academy learning'],
+      ['/academy/certificates', 'Academy certificates'],
+      ['/academy/rooms', 'Academy rooms'],
+      ['/academy/videos', 'Academy videos'],
+      ['/academy/programmes', 'Academy programmes'],
+      ['/academy/progress', 'Academy progress'],
     ] as const
-  ).map(([slug, title]) => ({
-    path: `/academy/${slug}`,
+  ).map(([path, title]) => ({
+    path,
     title,
     description: 'Rooms, learning and certifications' as const,
     door: 'More' as const,
