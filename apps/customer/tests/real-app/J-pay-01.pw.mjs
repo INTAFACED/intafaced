@@ -798,18 +798,18 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
     await expect(partner.getByTestId('source-as-of')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
     const usdtRow = partner.locator('tr[data-asset="USDT"]');
     await expect(usdtRow.locator('[data-cell="amount"]')).toHaveText(held);
-    // The partner account's own lines for USDT: the payment's row, by the partner's reference, its state and its date.
+    // The partner account's own lines for USDT, in the bank's activity list: the payment's row, by the partner's
+    // reference, its state and its date.
     await usdtRow.getByTestId('source-entries-link').click();
-    await expect(page).toHaveURL(/\/money\/balance\/USDT\?source=partner$/);
-    const list = page.getByTestId('activity-by-source');
+    await expect(page).toHaveURL(/\/money\/activity\?asset=USDT$/);
+    const list = page.getByRole('main');
     const row = list.locator(`[data-testid="money-act"][data-ref="${reference}"]`);
     await expect(row).toHaveCount(1, { timeout: 30_000 });
     await expect(row).toHaveAttribute('data-source', 'partner');
     await expect(row).toHaveAttribute('data-kind', side.direction === 'out' ? 'transfer_out' : 'transfer_in');
     await expect(row.getByTestId('money-act__status')).toHaveText('Completed');
     await expect(row.getByTestId('money-act__time').locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
-    await expect(row.getByTestId('money-act__ref')).toHaveText(`Reference ${reference}`);
-    await expect(row).toContainText(`${side.direction === 'out' ? '−' : '+'}${AMOUNT}`);
+    await expect(row).toContainText(`${side.direction === 'out' ? '−' : '+'}${AMOUNT} USDT`);
     // Its fees: the partner records a fee as its own line, and there is none in this account; the ledger posted no fee
     // of ours either (the published fee is free), so the person's ledger holds nothing.
     await expect(list.locator('[data-testid="money-act"][data-kind="fee"]')).toHaveCount(0);

@@ -366,7 +366,13 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
     sub = parts.length > 0 ? parts.join(' · ') : null;
   }
   return (
-    <tr data-testid="money-act" className="money-act" data-kind={item.kind}>
+    <tr
+      data-testid="money-act"
+      className="money-act"
+      data-kind={item.kind}
+      data-ref={item.txId}
+      data-source={item.heldAt ? 'partner' : undefined}
+    >
       <td>
         <div className="money-act__what">
           <span className="money-act__icon" data-direction={item.direction} aria-hidden="true">
