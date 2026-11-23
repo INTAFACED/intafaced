@@ -417,6 +417,81 @@ test('a helper name taken in the record file or the shared file never lands twic
   assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
 });
 
+test('a record whose import would close a cycle between two contracts files stays by name, named; one that closes none moves', () => {
+  // svc-bank on main (weed project-state#3755): ops.cardPayFromReconciliation reads `figures`, which reads `signed`. An
+  // earlier run left `signed` in bank-ops-procedures, so `figures` went to the shared file importing `signed` from there,
+  // and the record there imported `figures` back: one was read before it was declared (samples.mjs: "Cannot access
+  // 'figures' before initialization") and the whole bank run failed.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-cycle-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      'const signed = z.string().regex(/^-?\\d+$/);',
+      'const figures = z.object({ v: signed });',
+      'export function createAgentsRouter() {',
+      '  return router({',
+      "    own: router({ recon: scopedProcedure('agents:read').output(figures).query(() => ({ v: '1' })) }),",
+      "    misc: router({ get: scopedProcedure('agents:read').output(z.string()).query(() => '') }),",
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('agents', 'own.recon', undefined, z.unknown());",
+      "export const b = (api) => api.query('agents', 'misc.get', undefined, z.string());",
+      '',
+    ].join('\n'),
+    'packages/contracts/src/agents-own-procedures.ts': [
+      "import { z } from 'zod';",
+      '',
+      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+      'export const signed = z.string().regex(/^-?\\d+$/);',
+      '',
+    ].join('\n'),
+    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const other = z.string();\n",
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['AGENTS_MISC_GET'], 'the record that closes no cycle moves');
+  assert.deepEqual(
+    summary.hand.map((h) => [h.call, h.why]),
+    [
+      [
+        'agents own.recon',
+        'its record would import agents-call-schemas.ts into agents-own-procedures.ts, which agents-call-schemas.ts already imports: an import cycle',
+      ],
+    ],
+  );
+  const own = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.doesNotMatch(own, /agents-call-schemas/, 'the record file never imports the file that imports it');
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.doesNotMatch(shared, /agents-own-procedures|figures/, 'nor does the shared file take its helper');
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /api\.query\(["']agents["'], ["']own\.recon["']/, 'its caller stays by name');
+  assert.match(caller, /api\.call\(AGENTS_MISC_GET, /);
+});
+
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
   const { howToPlan } = await import('./report.mjs');
   const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
@@ -2352,6 +2427,76 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
     assert.ok(after.includes(kept), kept);
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
+});
+
+test("a map read of a hand schema whose call has a record reads the record's schema, so the copy goes; one with no record stays", async () => {
+  // svc-bank on main (weed project-state#3755): loans.projection, loans.payoffQuote, ramps.destinations.rename and
+  // sharedPots.invite had records and no caller by name, yet a test's `bankReads['x'].parse` or a write check's
+  // `(typeof bankWrites)['x']` kept each hand copy alive.
+  const { deadHandSchemas, readRecords } = await import('./dead-hand-schemas.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('record-reads-', {
+    'packages/contracts/src/bank-loans-procedures.ts': [
+      "const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const;",
+      'export const BANK_LOANS_QUOTE = defineProcedure({',
+      '  ...base,',
+      "  path: 'loans.quote',",
+      '});',
+      'export const BANK_LOANS_INVITE = defineProcedure({',
+      '  ...base,',
+      "  path: 'loans.invite',",
+      '});',
+    ],
+    [`${money}/contracts-loans.ts`]: [
+      "import { z } from 'zod';",
+      'export const loansReads = {',
+      "  'loans.quote': z.string(),",
+      "  'loans.own': z.string(),",
+      '} as const;',
+      "export const loansWrites = { 'loans.invite': z.object({ id: z.string() }), 'loans.ownWrite': z.string() } as const;",
+    ],
+    [`${money}/contracts.ts`]: [
+      "import { z } from 'zod';",
+      "import { loansWrites } from './contracts-loans';",
+      'export const bankWrites = { ...loansWrites } as const;',
+      "export const check = (data: unknown) => (data as z.infer<(typeof bankWrites)['loans.invite']>).id;",
+    ],
+    [`${money}/loans.test.ts`]: [
+      "import { bankReads, other } from './contracts';",
+      "expect(bankReads['loans.quote'].parse('1')).toBe('1');",
+      "expect(bankReads['loans.own'].parse('1')).toBe('1');",
+    ],
+    // A review handed no answer schema reads `bankWrites['x']` itself: a read by name, kept alive while no record exists.
+    [`${money}/review.test.ts`]: [
+      "import { bankWriteForReview } from './contracts';",
+      "const a = bankWriteForReview('loans.invite', { id: 'x' });",
+      "const b = bankWriteForReview('loans.ownWrite', { id: 'x' });",
+    ],
+    [`${money}/quote.test.ts`]: [
+      "import { bankReads, other } from './contracts';",
+      "expect(bankReads['loans.quote'].parse('1')).toBe('1');",
+      'expect(other).toBe(1);',
+    ],
+  });
+  readRecords(repo);
+  const read = (f) => readFileSync(join(repo, money, f), 'utf8');
+  assert.match(read('loans.test.ts'), /BANK_LOANS_QUOTE\.output\.parse/);
+  assert.match(read('loans.test.ts'), /bankReads\['loans\.own'\]/, 'a call with no record keeps its hand read');
+  assert.match(read('loans.test.ts'), /import \{ BANK_LOANS_QUOTE \} from '@intafaced\/contracts\/bank-loans-procedures';/);
+  assert.match(read('quote.test.ts'), /^import \{ other \} from '\.\/contracts';$/m, 'a map the file no longer reads leaves its import');
+  assert.match(read('contracts.ts'), /z\.infer<\(typeof BANK_LOANS_INVITE\)\['output'\]>/);
+  assert.match(read('review.test.ts'), /bankWriteForReview\('loans\.invite', \{ id: 'x' \}, BANK_LOANS_INVITE\.output\)/);
+  assert.match(
+    read('review.test.ts'),
+    /bankWriteForReview\('loans\.ownWrite', \{ id: 'x' \}\);/,
+    'no record: the review keeps its default',
+  );
+  for (const f of ['loans.test.ts', 'quote.test.ts', 'contracts.ts', 'review.test.ts']) forget(join(repo, money, f));
+  assert.deepEqual(
+    deadHandSchemas(repo).map((h) => h.name),
+    ['loans.quote', 'loans.invite'],
+    'the copies nothing else names are dead; the one with no record is not',
+  );
 });
 
 test('a wrapper that sends the call name it is handed, or a spec whose procedure it sends, is a site per caller string, moved whole; a near shape stays, named', async () => {

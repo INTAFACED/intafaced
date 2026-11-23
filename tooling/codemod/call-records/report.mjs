@@ -48,6 +48,7 @@ export function reasonOf(why) {
     [/has no procedure/, 'procedure the codemod cannot find'],
     [/two procedures under one path/, 'two procedures under one path (a switch router)'],
     [/clashes with another/, 'helper name clash (in its record file and its sub-area file)'],
+    [/an import cycle/, 'record that would close an import cycle between two contracts files'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
     [/which a record cannot name|does not map to a record's/, 'door access a record cannot name (Pre::CoachRun, Settle, ...)'],
