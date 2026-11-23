@@ -365,9 +365,9 @@ function PendingList({
           <p className="lt-note">{t('Pending empty')}</p>
         ) : null
       ) : (
-        // Not the dense table: its cells keep to one line, which pushed each row's Modify and Cancel past the panel's edge.
-        // Here the words wrap, so the list stays inside its box.
-        <table className="lt-table">
+        // The list sits in the desk's narrow ticket column, too narrow for its nine columns at any width: each order stacks
+        // as labelled lines, so its Modify and Cancel stay inside the panel.
+        <table className="lt-table" data-stack="always">
           <thead>
             <tr>
               {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
@@ -438,14 +438,22 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
   const asset = (leg: SpotLegView) => leg.lockedAsset ?? '';
   return (
     <tr data-client-order-id={o.clientOrderId} data-kind={o.kind} data-status={o.status} data-id={o.id}>
-      <td data-cell="kind">{t(`kind_${o.kind}`)}</td>
-      <td data-cell="side">{t(`side_${o.side}`)}</td>
-      <td data-cell="size">{canonical(o.quantity)}</td>
-      <td data-cell="trigger">{o.triggerPrice ? canonical(o.triggerPrice) : ''}</td>
-      <td data-cell="reference">
+      <td data-cell="kind" data-label={t('col_kind')}>
+        {t(`kind_${o.kind}`)}
+      </td>
+      <td data-cell="side" data-label={t('col_side')}>
+        {t(`side_${o.side}`)}
+      </td>
+      <td data-cell="size" data-label={t('col_size')}>
+        {canonical(o.quantity)}
+      </td>
+      <td data-cell="trigger" data-label={t('col_trigger')}>
+        {o.triggerPrice ? canonical(o.triggerPrice) : ''}
+      </td>
+      <td data-cell="reference" data-label={t('col_reference')}>
         {o.referencePrice ? `${canonical(o.referencePrice)} (${t('Reference note')})` : live ? t('reference_none') : ''}
       </td>
-      <td data-cell="status">
+      <td data-cell="status" data-label={t('col_status')}>
         {t(`status_${o.status}`)}
         {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
         {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
@@ -458,8 +466,10 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
           </span>
         ) : null}
       </td>
-      <td data-cell="where">{o.label}</td>
-      <td data-cell="legs">
+      <td data-cell="where" data-label={t('col_where')}>
+        {o.label}
+      </td>
+      <td data-cell="legs" data-label={t('col_legs')}>
         <ul>
           {o.legs.map((leg) => (
             <li key={leg.role} data-leg={leg.role} data-leg-status={leg.status} data-rests-on={leg.restsOn}>
@@ -468,7 +478,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
           ))}
         </ul>
       </td>
-      <td data-cell="actions">
+      <td data-cell="actions" data-label={t('col_actions')}>
         {modifiable && !editing ? (
           <Button size="sm" tone="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
             {t('Modify')}
