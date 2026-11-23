@@ -364,6 +364,31 @@ describe('deciding a VIP application', () => {
     expect(await counts()).toMatchObject({ events: 2, trials: 1 });
   });
 
+  it('answers the same approval whose twin is decided while it checks, not refusing the trial that twin granted', async () => {
+    const approvals = new MemoryApprovalBook();
+    const once = approvals.consume.bind(approvals);
+    let consumed: Awaited<ReturnType<typeof once>> | undefined;
+    approvals.consume = async (input) => (consumed ??= await once(input));
+    const id = await apply();
+    const ids = approveReview(approvals, id, 'approve', { tierId: 'test-vip-2', days: 30 });
+    const send = () => admin.review(writer(), { applicationId: id, decision: 'approve', reason: REASON, ...ids });
+    let twin: ReturnType<typeof send> | undefined;
+    // The second request has passed its replay check and read the application pending; the twin decides it in full now.
+    const admin = new VipReviewAdmin({
+      sql: sql(),
+      approvals,
+      proofKey: KEY,
+      now: () => clock,
+      scheduleAt: async () => {
+        if (!twin) await (twin = send());
+        return TRIAL;
+      },
+    });
+    const late = await send();
+    expect([late.application.status, (await twin!).application.status]).toEqual(['approved', 'approved']);
+    expect(await counts()).toMatchObject({ events: 2, trials: 1 });
+  });
+
   it('refuses the same approval sent again for another decision or reason', async () => {
     const { admin, approvals } = desk(TRIAL);
     const id = await apply();

@@ -87,6 +87,7 @@
   { "path": "admin.risk.history", "type": "query", "caller": "scope" },
   { "path": "admin.risk.priceBand", "type": "query", "caller": "scope" },
   { "path": "admin.risk.set", "type": "mutation", "caller": "scope" },
+  { "path": "admin.venueAccounts.get", "type": "query", "caller": "scope" },
   { "path": "admin.venueMarkets.delistingSchedule", "type": "mutation", "caller": "scope" },
   { "path": "admin.venueMarkets.limitsSet", "type": "mutation", "caller": "scope" },
   { "path": "admin.venueMarkets.list", "type": "query", "caller": "scope" },
