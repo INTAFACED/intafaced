@@ -14,6 +14,9 @@ COPY tooling/scripts/tsc.mjs ./tooling/scripts/tsc.mjs
 RUN pnpm install --frozen-lockfile --filter '@intafaced/customer...'
 ARG VITE_TEAM_URL
 ENV VITE_TEAM_URL=$VITE_TEAM_URL
+# Blank or test: a test-money build, whose page carries the TEST banner. real: a real-money build, which has none.
+ARG VITE_MONEY
+ENV VITE_MONEY=$VITE_MONEY
 RUN node apps/customer/deployment/validate-env.mjs \
     && pnpm --filter '@intafaced/customer^...' build \
     && pnpm --filter @intafaced/customer build

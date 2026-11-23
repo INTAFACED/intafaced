@@ -112,6 +112,8 @@ mod loans_sweep_db;
 mod ops_approval_golden;
 #[path = "ops_desk_db.rs"]
 mod ops_desk_db;
+#[path = "ops_desk_partner_balances_db.rs"]
+mod ops_desk_partner_balances_db;
 #[path = "partner_account_cash_out.rs"]
 mod partner_account_cash_out;
 #[path = "partner_account_closure.rs"]

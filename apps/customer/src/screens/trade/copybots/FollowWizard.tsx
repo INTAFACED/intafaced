@@ -224,7 +224,7 @@ export function FollowWizard({
             {listed ? (
               <KeyValue items={[{ label: t('Leader'), value: listed.displayName }]} />
             ) : (
-              <Field label={t('Leader ID')} hint={t('The ID the leader shares with you')} error={show(problems.leader)} required>
+              <Field label={t('Leader’s code')} hint={t('The code the leader gave you')} error={show(problems.leader)} required>
                 <Input kind="text" value={leader} onValueChange={setLeader} maxLength={120} autoComplete="off" />
               </Field>
             )}
