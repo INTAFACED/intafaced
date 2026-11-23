@@ -2196,7 +2196,7 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
-import { TRADE_ACCOUNT_CONTROLS_HISTORY } from './trade-account-controls-procedures.js';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY, TRADE_ACCOUNT_CONTROLS_GET_STATE } from './trade-account-controls-procedures.js';
 
 import {
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
@@ -4588,7 +4588,10 @@ const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_ROLE,
 ];
 
-const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [TRADE_ACCOUNT_CONTROLS_HISTORY];
+const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [
+  TRADE_ACCOUNT_CONTROLS_HISTORY,
+  TRADE_ACCOUNT_CONTROLS_GET_STATE,
+];
 
 const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
