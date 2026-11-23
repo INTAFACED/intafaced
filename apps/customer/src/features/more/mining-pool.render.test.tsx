@@ -70,11 +70,13 @@ describe('connect your miner', () => {
     expect(out).not.toContain('mining-secure-address');
   });
 
-  it('a test machine\'s own address is named in words, never printed as a host to trust', () => {
+  it("a test machine's own address is named in words, never printed as a host to trust", () => {
     for (const host of ['127.0.0.1', '198.51.100.1', 'pool.official-test.invalid', 'localhost']) {
       const data = { host, port: '3999', secureUrl: `stratum+ssl://${host}:4000`, accountId: 'a', workerNamePattern: null };
       const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
-      expect(out).toContain(`data-testid="mining-pool-address" lang="und" dir="ltr" title="${host}:3999">TEST address on this test machine`);
+      expect(out).toContain(
+        `data-testid="mining-pool-address" lang="und" dir="ltr" title="${host}:3999">TEST address on this test machine`,
+      );
       expect(out).toContain(`data-testid="mining-secure-address" lang="und" dir="ltr" title="stratum+ssl://${host}:4000">TEST address`);
       expect(out).toContain('aria-label="Copy pool address"');
     }
