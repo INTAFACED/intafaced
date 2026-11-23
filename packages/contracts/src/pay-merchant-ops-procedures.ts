@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema } from './merchant-portal.js';
 import { merchantActivationSchema } from './merchant-activation.js';
-import { limitInput, cursorInput, id } from './pay-founder-admin-procedures.js';
+import { id, limitInput, cursorInput } from './pay-founder-admin-procedures.js';
 import { payPageSchema } from './pay-merchant-reads.js';
 import { payActivityItemSchema, PAY_EXPORT_KINDS, payExportJobSchema, payExportDownloadSchema } from './pay-portal-reads.js';
 
@@ -41,30 +41,47 @@ export const PAY_MERCHANT_OPS_ACTIVATION_GET = defineProcedure({
   ],
 });
 
-/**
- * Merchant activity (portal /pay/activity).
- *
- * A read of rows the merchant already owns: payment events, team changes, KYB
- * transitions, dispute evidence and responses, export jobs, payout approvals,
- * webhook endpoints and deliveries, and each payer detail a teammate unmasked
- * (who, which field; the reason stays in `payment.unmaskReads`). `pay.control_audit` is not a source. That
- * table is the founder control room (captured-over-cap, destination reads,
- * tier and pricing edits).
- *
- * Destinations are masked with the same function the approval view uses. Free
- * text (KYB reasons, dispute notes, webhook payloads, signing secrets) is not
- * selected. Detail keys are an allowlist applied again in process, so a new
- * column cannot leak by being named in SQL alone.
- */
-export const ACTIVITY_OBJECT_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
-
-export const iso = z.string().datetime({ offset: true });
-
 export const teamRoles = ['admin', 'finance', 'developer', 'viewer'] as const;
 
 export const memberRoleSchema = z.enum(['owner', ...teamRoles]);
 
+export const teamMeSchema = z.object({ merchantId: z.string(), userId: z.string(), role: memberRoleSchema });
+
+export const evidenceKinds = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;
+
 export const timestamp = z.string().datetime({ offset: true });
+
+export const evidenceSchema = z.object({
+  evidenceId: z.string(),
+  kind: z.enum(evidenceKinds),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.string(),
+  sha256: z.string(),
+  note: z.string().nullable(),
+  addedBy: z.string(),
+  createdAt: timestamp,
+});
+
+/** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
+export const evidenceFileSchema = evidenceSchema.extend({ contentBase64: z.string() });
+
+export const iso = z.string().datetime({ offset: true });
+
+export const customerSummarySchema = z.object({
+  customerCount: z.number().int(),
+  activeSinceCount: z.number().int(),
+  repeatCustomerCount: z.number().int(),
+  activeSince: timestamp,
+});
+
+export const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
+
+export const kybCurrentSchema = z.object({ kybStatus: kybStatusSchema, kybRef: z.string().nullable(), mode: z.string() });
+
+export const invitationSchema = z.array(
+  z.object({ memberId: z.string(), merchantId: z.string(), role: z.enum(teamRoles), invitedAt: timestamp }),
+);
 
 export const memberSchema = z.object({
   memberId: z.string().nullable(),
@@ -79,27 +96,29 @@ export const memberSchema = z.object({
   cursor: z.string().nullable(),
 });
 
-export const kybEventSchema = z.object({
-  seq: z.string(),
-  fromStatus: z.string(),
-  toStatus: z.string(),
-  kybRef: z.string().nullable(),
-  decidedBy: z.enum(['merchant', 'intafaced']),
-  reason: z.string().nullable(),
-  at: timestamp,
-});
+export const unreadSchema = z.object({ unread: z.number().int() });
 
-export const teamEventSchema = z.object({
-  seq: z.string(),
-  memberUserId: z.string(),
-  action: z.string(),
-  fromRole: z.string().nullable(),
-  toRole: z.string().nullable(),
-  actorId: z.string(),
-  createdAt: timestamp,
-});
+export const notificationKinds = [
+  'payout_awaiting_approval',
+  'settlement_failed',
+  'payout_failed',
+  'limit_threshold',
+  'dispute_opened',
+  'dispute_due',
+  'webhook_failing',
+  'operator_pause',
+  'export_ready',
+  'team_change',
+  'payout_destination',
+] as const;
 
-export const exportJobSchema = payExportJobSchema;
+export const preferenceSchema = z.object({
+  kind: z.enum(notificationKinds),
+  inApp: z.boolean(),
+  threshold: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+  updatedAt: timestamp.nullable(),
+});
 
 /**
  * IN-APP NOTIFICATIONS ONLY. A row here is something a merchant sees when they
@@ -126,19 +145,300 @@ export const NOTIFICATION_KINDS = [
   'payout_destination',
 ] as const;
 
-export const notificationKinds = [
-  'payout_awaiting_approval',
-  'settlement_failed',
-  'payout_failed',
-  'limit_threshold',
-  'dispute_opened',
-  'dispute_due',
-  'webhook_failing',
-  'operator_pause',
-  'export_ready',
-  'team_change',
-  'payout_destination',
-] as const;
+export const stamp = z.string().datetime({ offset: true });
+
+export const healthSchema = z.object({
+  asOf: stamp,
+  endpoints: z.array(
+    z.object({
+      endpointId: z.string(),
+      status: z.enum(['active', 'disabled']),
+      consecutiveFailures: z.number().int().min(0),
+      deliveries: z.object({
+        pending: z.number().int().min(0),
+        delivered: z.number().int().min(0),
+        failed: z.number().int().min(0),
+        dead: z.number().int().min(0),
+        unknown: z.number().int().min(0).optional(),
+      }),
+      lastDeliveredAt: stamp.nullable(),
+    }),
+  ),
+});
+
+export const attemptsSchema = z.object({
+  deliveryId: z.string(),
+  attempts: z.array(
+    z.object({
+      attemptNo: z.number().int().min(1),
+      at: stamp,
+      outcome: z.enum(['delivered', 'failed', 'unknown']),
+      statusCode: z.number().int().nullable(),
+      error: z.string().nullable(),
+      durationMs: z.number().min(0),
+      resend: z.boolean(),
+    }),
+  ),
+});
+
+/** The owner's webhook values; each null is not set. */
+export const policySchema = z.object({
+  endpointCap: z.number().int().nullable(),
+  overlapMaxSeconds: z.number().int().nullable(),
+  resendWindowSeconds: z.number().int().nullable(),
+  retryScheduleSeconds: z.array(z.number().int()).nullable(),
+  resendRate: z.object({ maxPerWindow: z.number().int(), windowMs: z.number().int() }).nullable(),
+});
+
+export const guideSchema = z.object({
+  headers: z.object({ timestamp: z.string(), signature: z.string(), eventId: z.string() }),
+  algorithm: z.string(),
+  toleranceSeconds: z.number().int().nullable(),
+  senderIps: z.array(z.string()).nullable(),
+  vector: z.object({ secret: z.string(), timestamp: z.string(), body: z.string(), signature: z.string() }),
+});
+
+/** Which role the caller holds, so the portal can hide what they cannot do. */
+export const PAY_MERCHANT_OPS_TEAM_ME = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.me',
+  kind: 'query',
+  path: 'merchantOps.team.me',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: teamMeSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.disputes.getEvidence',
+  kind: 'query',
+  path: 'merchantOps.disputes.getEvidence',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({ evidenceId: id }),
+  output: evidenceFileSchema,
+  samples: [
+    { verdict: 'accept', input: { evidenceId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.customers.summary',
+  kind: 'query',
+  path: 'merchantOps.customers.summary',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({ activeSince: iso }),
+  output: customerSummarySchema,
+  samples: [
+    { verdict: 'accept', input: { activeSince: '2026-01-01T00:00:00.000Z' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_KYB_CURRENT = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.kyb.current',
+  kind: 'query',
+  path: 'merchantOps.kyb.current',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: kybCurrentSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.myInvitations',
+  kind: 'query',
+  path: 'merchantOps.team.myInvitations',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: invitationSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.acceptInvite',
+  kind: 'mutation',
+  path: 'merchantOps.team.acceptInvite',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: z.object({ memberId: id }),
+  output: memberSchema,
+  samples: [
+    { verdict: 'accept', input: { memberId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_NOTIFICATIONS_UNREAD_COUNT = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.notifications.unreadCount',
+  kind: 'query',
+  path: 'merchantOps.notifications.unreadCount',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: unreadSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.notifications.preferences.list',
+  kind: 'query',
+  path: 'merchantOps.notifications.preferences.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: z.array(preferenceSchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_SET = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.notifications.preferences.set',
+  kind: 'mutation',
+  path: 'merchantOps.notifications.preferences.set',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: z.object({
+    kind: z.enum(NOTIFICATION_KINDS),
+    inApp: z.boolean(),
+    threshold: z
+      .string()
+      .regex(/^[0-9]+(\.[0-9]{1,18})?$/)
+      .nullish(),
+  }),
+  output: preferenceSchema,
+  samples: [
+    { verdict: 'accept', input: { kind: 'payout_awaiting_approval', inApp: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_HEALTH = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.health',
+  kind: 'query',
+  path: 'merchantOps.webhooks.health',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: healthSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.deliveries.attempts',
+  kind: 'query',
+  path: 'merchantOps.webhooks.deliveries.attempts',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({ deliveryId: id }),
+  output: attemptsSchema,
+  samples: [
+    { verdict: 'accept', input: { deliveryId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_POLICY = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.policy',
+  kind: 'query',
+  path: 'merchantOps.webhooks.policy',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: policySchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_GUIDE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.guide',
+  kind: 'query',
+  path: 'merchantOps.webhooks.guide',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: guideSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Merchant activity (portal /pay/activity).
+ *
+ * A read of rows the merchant already owns: payment events, team changes, KYB
+ * transitions, dispute evidence and responses, export jobs, payout approvals,
+ * webhook endpoints and deliveries, and each payer detail a teammate unmasked
+ * (who, which field; the reason stays in `payment.unmaskReads`). `pay.control_audit` is not a source. That
+ * table is the founder control room (captured-over-cap, destination reads,
+ * tier and pricing edits).
+ *
+ * Destinations are masked with the same function the approval view uses. Free
+ * text (KYB reasons, dispute notes, webhook payloads, signing secrets) is not
+ * selected. Detail keys are an allowlist applied again in process, so a new
+ * column cannot leak by being named in SQL alone.
+ */
+export const ACTIVITY_OBJECT_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
+
+export const kybEventSchema = z.object({
+  seq: z.string(),
+  fromStatus: z.string(),
+  toStatus: z.string(),
+  kybRef: z.string().nullable(),
+  decidedBy: z.enum(['merchant', 'intafaced']),
+  reason: z.string().nullable(),
+  at: timestamp,
+});
+
+export const teamEventSchema = z.object({
+  seq: z.string(),
+  memberUserId: z.string(),
+  action: z.string(),
+  fromRole: z.string().nullable(),
+  toRole: z.string().nullable(),
+  actorId: z.string(),
+  createdAt: timestamp,
+});
+
+export const exportJobSchema = payExportJobSchema;
 
 export const notificationSchema = z.object({
   notificationId: z.string(),

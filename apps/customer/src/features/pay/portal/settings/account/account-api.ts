@@ -14,12 +14,12 @@ import {
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
-import { PAY_MERCHANT_OPS_ACTIVITY_LIST, PAY_MERCHANT_OPS_TEAM_LIST } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import {
   PAY_MERCHANT_BUSINESS_PROFILE_GET,
   PAY_MERCHANT_TERMS_ACCEPT,
   PAY_MERCHANT_ONBOARDING_PROGRESS,
 } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_OPS_ACTIVITY_LIST, PAY_MERCHANT_OPS_TEAM_LIST } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
 

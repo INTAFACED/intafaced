@@ -16,22 +16,6 @@ function declarationOf(p, node, depth = 0) {
   if (!node || depth > 8) return { p, node };
   if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression')
     return declarationOf(p, node.expression, depth + 1);
-  if (node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier' && node.property.type === 'Identifier') {
-    // `ns.memberSchema` through `import * as ns from './schemas'`: the const that file declares.
-    const ns = bindingOf(p, node.object, node.object.name);
-    const file = ns.kind === 'import' && ns.imported === '*' && ns.from.startsWith('.') ? resolveRelative(p.file, ns.from) : undefined;
-    if (!file) return { p, node };
-    const q = load(file);
-    for (const st of q.program.body) {
-      const decl = st.type === 'ExportNamedDeclaration' ? st.declaration : undefined;
-      const d =
-        decl?.type === 'VariableDeclaration' && decl.kind === 'const'
-          ? decl.declarations.find((x) => x.id.name === node.property.name)
-          : undefined;
-      if (d?.init) return declarationOf(q, d.init, depth + 1);
-    }
-    return { p, node };
-  }
   if (node.type !== 'Identifier') return { p, node };
   const b = bindingOf(p, node, node.name);
   if (b.kind === 'var' && b.declaration?.kind === 'const' && b.declarator.init) return declarationOf(p, b.declarator.init, depth + 1);
@@ -39,18 +23,47 @@ function declarationOf(p, node, depth = 0) {
 }
 
 /**
+ * A schema read through a namespace import (`p.teamMeSchema`, with `import * as p from './schemas'`), as the name its own
+ * file declares or re-exports: the record writes that name and the closure follows it from there, as it does a named
+ * import. Anything else is returned as it is.
+ */
+function throughNamespace(p, node) {
+  if (node?.type !== 'MemberExpression' || node.computed || node.object?.type !== 'Identifier' || node.property?.type !== 'Identifier')
+    return { p, node };
+  const b = bindingOf(p, node.object, node.object.name);
+  const file = b.kind === 'import' && b.imported === '*' ? resolveRelative(p.file, b.from) : undefined;
+  if (!file) return { p, node };
+  const q = load(file);
+  const name = node.property.name;
+  for (const stmt of q.program.body) {
+    const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : undefined;
+    if (decl?.type === 'VariableDeclaration')
+      for (const d of decl.declarations) if (d.id.type === 'Identifier' && d.id.name === name) return { p: q, node: d.id };
+    if (stmt.type === 'ExportNamedDeclaration' && !stmt.declaration && !stmt.source)
+      for (const sp of stmt.specifiers ?? [])
+        if (
+          (sp.exported.name ?? sp.exported.value) === name &&
+          (sp.local.name ?? sp.local.value) === name &&
+          sp.local.type === 'Identifier'
+        )
+          return { p: q, node: sp.local };
+  }
+  return { p, node };
+}
+
+/**
  * The output a record takes from its callers, `{ output: { p, node } }`, or `{ why }` naming the caller that keeps the
  * call by name. `schemaOf(s)` is the caller's answer schema node in its own file (undefined when it parses with none);
- * `checksOf(p, node)` lists what that schema checks beyond its shape (answerChecks in index.mjs); `itemOf(s)` is a list
- * caller's row schema, its answer a page of it (`{ output: { p, node, page: true } }`).
+ * `itemOf(s)` is a portal list caller's row schema, its answer a page of that row (`{ output: { p, node, page: true } }`);
+ * `checksOf(p, node)` lists what that schema checks beyond its shape (answerChecks in index.mjs).
  */
 export function answerFromCallers(repo, sites, { schemaOf, checksOf, itemOf = () => undefined }) {
   let taken;
   let first;
   for (const s of sites) {
-    const own =
-      s.schema ??
-      (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : itemOf(s) ? { p: load(s.file), node: itemOf(s), page: true } : undefined);
+    const item = s.schema || schemaOf(s) ? undefined : itemOf(s);
+    const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : item ? { p: load(s.file), node: item } : undefined);
+    const own = written && { ...throughNamespace(written.p, written.node), ...(item ? { page: true } : {}) };
     if (!own)
       return {
         why: `${at(repo, s)} reads the answer ${s.reader ? 'with its own reader function' : 'unparsed'}, not a zod schema a record can take`,

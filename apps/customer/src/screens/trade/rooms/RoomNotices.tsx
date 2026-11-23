@@ -48,7 +48,7 @@ export function WriteNotice({
   const { outcome, note } = writer;
   const pendingId = note.state === 'pending' ? note.pending.id : outcome.kind === 'uncertain' ? outcome.id : null;
   return (
-    <div className="flex flex-col gap-2" aria-live="polite">
+    <div className="lt-stack" aria-live="polite">
       {outcome.kind === 'done' && done ? <p className="m-0 text-sm text-fg">{done}</p> : null}
       {outcome.kind === 'refused' ? <Refusal words={outcome.words} size="inline" /> : null}
       {outcome.kind === 'blocked' ? (

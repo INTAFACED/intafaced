@@ -427,9 +427,9 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   await expect(order).toContainText('5 USDT, every week');
   const orderId = await order.getAttribute('data-id');
 
-  // The TEST card partner holds card money in USDC only (BANK_CARD_SIM_PARTNER_JSON, TEST 30 USDC spendable), so the
-  // card and its round-up are in USDC: TEST 10 USDC paid in at the partner bank, a USDC pot for the spare change, and a
-  // round-up to the next TEST 1 into it, made on that pot's own page.
+  // The TEST card spends from the person's USDC account at the partner bank, so the card and its round-up are in
+  // USDC: TEST 10 USDC paid in at the partner bank, a USDC pot for the spare change, and a round-up to the next TEST 1
+  // into it, made on that pot's own page.
   const usdc = await api.mutate('testPartner.fund', { fundId: `jb07-usdc-${who.email}`.slice(0, 64), assetId: 'USDC', amount: '10' });
   expect(usdc, JSON.stringify(usdc.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
   if (!named(await spaces(who), CHANGE)) {
@@ -450,7 +450,7 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDC');
   await expect(roundUp).toContainText('Active');
 
-  // A TEST card payment of 4.30 USDC at the TEST card partner, which holds the card money in its own TEST book:
+  // A TEST card payment of 4.30 USDC at the TEST card partner, from the person's USDC account at the partner bank:
   // authorised, then captured. The spare 0.70 moves into the pot with the capture, as one partner bank move.
   const cardId = randomUUID();
   const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDC', perAuthorizationLimit: '50' });
@@ -463,9 +463,9 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: change.id });
   expect(captured.roundUp.ledgerTxId).toBeUndefined();
   expect(captured.roundUp.partnerMoveId).toBeTruthy();
-  // Landed once: the pot gained 0.7 from the USDC account at the partner bank; the 4.30 left the card partner's book.
+  // Landed once: the pot gained 0.7 from the USDC account at the partner bank, which the 4.30 card payment left too.
   expect(toUnits(named(await spaces(who), CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
-  expect(toUnits((await usdcMain()).balance)).toBe(toUnits(usdcBefore) - toUnits('0.7'));
+  expect(toUnits((await usdcMain()).balance)).toBe(toUnits(usdcBefore) - toUnits('4.3') - toUnits('0.7'));
 
   // The standing order's first run, once its time has come.
   await expect
@@ -491,9 +491,15 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(toUnits(named(after, CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
   await ledgerUnchanged(who, run.read().ledger);
 
-  // The partner's own book: the round-up and the order's run are its only two moves of this step, each once, between
-  // the person's own accounts there; the figures the app shows for every space are the partner's.
-  const made = await partnerMovesSince(api.userId, movesAtStart);
+  // The partner's own book: beside the card payment's hold, one move from the USDC account into the partner's card
+  // holds, the round-up and the order's run are its only two moves of this step, each once, between the person's own
+  // accounts there; the figures the app shows for every space are the partner's.
+  const all = await partnerMovesSince(api.userId, movesAtStart);
+  const cardMoves = all.filter((m) => m.key.startsWith('card.partner.'));
+  expect(cardMoves).toMatchObject([
+    { from: { owner: api.userId, assetId: 'USDC', spaceId: null }, to: { owner: 'partner:card-holds' }, amount: '4.3' },
+  ]);
+  const made = all.filter((m) => !m.key.startsWith('card.partner.'));
   expect(made.map((m) => m.id).sort()).toEqual([captured.roundUp.partnerMoveId, orderRun.partnerMoveId].sort());
   const roundUpMove = made.find((m) => m.id === captured.roundUp.partnerMoveId);
   expect(roundUpMove).toMatchObject({
@@ -546,8 +552,9 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
     const rules = await api.query('autoInvest.list', { limit: 50, targetSpaceId: pot });
     expect(rules).toMatchObject({ ok: true, data: [] });
   });
-  // The refused round-up moved nothing at the partner: its book still lists only the step's two moves.
-  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(made.map((m) => m.id).sort());
+  // The refused round-up moved nothing at the partner: its book still lists only the step's moves, the card hold's and
+  // the two above.
+  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(all.map((m) => m.id).sort());
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({

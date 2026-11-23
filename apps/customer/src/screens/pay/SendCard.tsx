@@ -715,7 +715,7 @@ function SendForm({
       pickContact({ userId: entry.toUserId, handle: entry.handle, lastAt: entry.at, times: 1 });
     };
     return (
-      <div className="pay-body" data-testid="pay-receipt">
+      <div className="lt-stack" data-testid="pay-receipt">
         <div className="buy-receipt" role="status">
           <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
             ✓
@@ -803,7 +803,7 @@ function SendForm({
 
   return (
     <form
-      className="pay-body"
+      className="lt-stack"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -839,7 +839,7 @@ function SendForm({
       ) : null}
 
       <div className="pay-field" data-testid="to-field">
-        <label className="pay-field__label" htmlFor="pay-to">
+        <label className="lt-hint" htmlFor="pay-to">
           {byHandle ? payCopy.t('To') : payCopy.t('Account ID')}
         </label>
         <div className="pay-to">
@@ -885,7 +885,7 @@ function SendForm({
         </div>
         <div id="pay-to-status" className="pay-to__status" aria-live="polite" data-testid="to-status">
           {recipient.kind === 'checking' ? (
-            <span className="pay-muted">{payCopy.t('Checking handle')}</span>
+            <span className="lt-muted">{payCopy.t('Checking handle')}</span>
           ) : recipient.kind === 'found' ? (
             <>
               <PayeeLine who={recipient} locale={personal.requestedLocale} />
@@ -894,7 +894,7 @@ function SendForm({
                   {payCopy.t('Looks like saved', { handle: recipient.handle ?? '', saved: lookalike })}
                 </span>
               ) : savedUnchecked ? (
-                <span className="pay-muted" data-testid="pay-saved-unchecked">
+                <span className="lt-muted" data-testid="pay-saved-unchecked">
                   {payCopy.t('Saved not checked')}
                 </span>
               ) : null}
@@ -913,9 +913,9 @@ function SendForm({
               ) : null}
             </span>
           ) : note ? (
-            <span className="pay-muted">{note}</span>
+            <span className="lt-muted">{note}</span>
           ) : (
-            <span className="pay-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
+            <span className="lt-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
           )}
         </div>
         {contacts.length > 0 && recipient.kind !== 'found' ? (
@@ -937,7 +937,7 @@ function SendForm({
       </div>
 
       <div className="pay-field" data-testid="amount-field">
-        <span className="pay-field__label">{payCopy.t('Amount')}</span>
+        <span className="lt-hint">{payCopy.t('Amount')}</span>
         <div className="pay-field__main">
           <Select
             items={sourceItems}
@@ -991,7 +991,7 @@ function SendForm({
       </div>
 
       <div className="pay-field" data-testid="note-field">
-        <label className="pay-field__label" htmlFor="pay-note">
+        <label className="lt-hint" htmlFor="pay-note">
           {personal.t('note')}
         </label>
         <input
@@ -1123,7 +1123,7 @@ function SendForm({
                   </h3>
                   <p className="lt-hint">{payCopy.t('Step-up why')}</p>
                   <div className="pay-field">
-                    <label className="pay-field__label" htmlFor="pay-step-up-code">
+                    <label className="lt-hint" htmlFor="pay-step-up-code">
                       {payCopy.t('Authenticator code')}
                     </label>
                     <input

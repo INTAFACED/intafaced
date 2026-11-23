@@ -121,7 +121,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
       title={t('heading', { side: o.side === 'buy' ? t('buy') : t('sell'), symbol: o.symbol ?? o.marketId })}
       actions={back}
     >
-      <div className="orders-room">
+      <div className="lt-stack">
         <dl className="orders-list" aria-label={t('detailTitle')}>
           <Row label={t('fieldOrigin')}>
             <FuturesOrderOrigin origin={o.origin} />

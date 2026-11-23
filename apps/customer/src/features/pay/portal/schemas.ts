@@ -35,12 +35,19 @@ import {
 import {
   teamRoles,
   memberRoleSchema,
+  evidenceKinds,
   timestamp,
+  evidenceSchema,
+  customerSummarySchema,
+  kybStatusSchema,
+  kybCurrentSchema,
+  invitationSchema,
   memberSchema,
+  notificationKinds,
+  preferenceSchema,
   kybEventSchema,
   teamEventSchema,
   exportJobSchema,
-  notificationKinds,
   notificationSchema,
   preferenceChangeSchema,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
@@ -84,8 +91,6 @@ export type Freshness = MetricsFreshness;
 export type Snapshot = MerchantMetricsSnapshot;
 export type Series = MerchantMetricsSeries;
 
-const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
-export const kybCurrentSchema = z.object({ kybStatus: kybStatusSchema, kybRef: z.string().nullable(), mode: z.string() });
 export type KybEvent = z.infer<typeof kybEventSchema>;
 export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
 export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
@@ -106,10 +111,6 @@ export type TeamRole = (typeof teamRoles)[number];
 export type MemberRole = z.infer<typeof memberRoleSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type TeamEvent = z.infer<typeof teamEventSchema>;
-export const teamMeSchema = z.object({ merchantId: z.string(), userId: z.string(), role: memberRoleSchema });
-export const invitationSchema = z.array(
-  z.object({ memberId: z.string(), merchantId: z.string(), role: z.enum(teamRoles), invitedAt: timestamp }),
-);
 export type Invitation = z.infer<typeof invitationSchema>[number];
 
 /**
@@ -172,19 +173,7 @@ export const disputeSummarySchema = z.object({
   }),
   amountAtRisk: z.array(z.object({ assetId: asset, amount })),
 });
-export const evidenceKinds = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;
 export type EvidenceKind = (typeof evidenceKinds)[number];
-export const evidenceSchema = z.object({
-  evidenceId: z.string(),
-  kind: z.enum(evidenceKinds),
-  fileName: z.string(),
-  contentType: z.string(),
-  sizeBytes: z.string(),
-  sha256: z.string(),
-  note: z.string().nullable(),
-  addedBy: z.string(),
-  createdAt: timestamp,
-});
 export type Evidence = z.infer<typeof evidenceSchema>;
 export const disputeDetailSchema = disputeSchema.extend({
   canRespond: z.boolean(),
@@ -215,12 +204,6 @@ export const customerSchema = z.object({
   totals: z.array(totalsSchema),
 });
 export type Customer = z.infer<typeof customerSchema>;
-export const customerSummarySchema = z.object({
-  customerCount: z.number().int(),
-  activeSinceCount: z.number().int(),
-  repeatCustomerCount: z.number().int(),
-  activeSince: timestamp,
-});
 export const customerDetailSchema = customerSchema.extend({
   recentPayments: z.array(z.object({ paymentId: z.string(), status: z.string(), assetId: asset, amount, createdAt: timestamp })),
 });
@@ -231,17 +214,9 @@ export type ExportJob = PayExportJob;
 
 export type NotificationKind = (typeof notificationKinds)[number];
 export type Notification = z.infer<typeof notificationSchema>;
-export const preferenceSchema = z.object({
-  kind: z.enum(notificationKinds),
-  inApp: z.boolean(),
-  threshold: z.string().nullable(),
-  updatedBy: z.string().nullable(),
-  updatedAt: timestamp.nullable(),
-});
 export type Preference = z.infer<typeof preferenceSchema>;
 export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
-export const unreadSchema = z.object({ unread: z.number().int() });
 
 const merchantRecordSchema = z
   .object({
@@ -288,4 +263,15 @@ export type Approval = PayoutApproval;
 
 export type HaltScope = PayHaltScope;
 export type HaltStatus = PayHaltStatus;
-export { teamRoles, memberRoleSchema, memberSchema, exportJobSchema, notificationKinds, preferenceChangeSchema };
+export {
+  teamRoles,
+  memberRoleSchema,
+  evidenceKinds,
+  evidenceSchema,
+  customerSummarySchema,
+  kybCurrentSchema,
+  memberSchema,
+  notificationKinds,
+  preferenceSchema,
+};
+export { exportJobSchema, preferenceChangeSchema };

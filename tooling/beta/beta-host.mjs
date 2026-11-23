@@ -10,7 +10,8 @@
  *   node tooling/beta/beta-host.mjs serve     the supervisor: a round now and every BETA_EVERY_MIN minutes (30), and the
  *                                             TEST mailbox page; it exits after a round that changed this file, so
  *                                             systemd starts the new copy
- *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it, launch or update the stack,
+ *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours), launch
+ *                                             or update the stack,
  *                                             run the TEST funds check, write status.json
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
  *                                             stack's state folder); exit 1 on any finding
@@ -199,9 +200,21 @@ export function mailboxRows(text, { now = Date.now(), hours = 24, max = 60 } = {
   return rows.reverse().slice(0, max);
 }
 
+/** The rows a viewer may see: mail to TEST addresses whose local part is their token, or it, a dot and more. A token
+ * holds no dot (beta-front.mjs viewerToken), so one viewer's token is never the start of another's addresses. */
+export function viewerRows(rows, token) {
+  if (!token) return [];
+  return rows.filter((r) => {
+    const local = String(r.email ?? '')
+      .toLowerCase()
+      .split('@')[0];
+    return local === token || local.startsWith(`${token}.`);
+  });
+}
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
+export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = null } = {}) {
   const body = rows.length
     ? rows
         .map(
@@ -211,7 +224,7 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
         .join('\n')
     : '<tr><td colspan="4">No mail yet. Sign up in the app, then reload this page.</td></tr>';
   const state = status
-    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
+    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.mainAt && status.sha && status.mainAt !== status.sha ? ` (main is at ${esc(status.mainAt.slice(0, 9))}; the beta updates at most every 2 hours)` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
     : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="10"><title>TEST mailbox</title>
@@ -219,6 +232,7 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
 .test{background:#F5A915;color:#0b0b0b;font-weight:600;padding:.3rem .6rem;display:inline-block}table{border-collapse:collapse;width:100%}
 td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}</style></head>
 <body><p class="test">TEST MAILBOX: test accounts only, not real mail</p><h1>Codes and links the beta app sent</h1>${state}
+${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>. Sign up with one, for example <b>${esc(viewer)}.1@local-test.invalid</b>.</p>` : ''}
 <p><a href="${esc(link)}">Open the beta app</a>. This page reloads every 10 seconds.</p>
 <table><thead><tr><th>What</th><th>To</th><th>Code</th><th>Expires</th></tr></thead><tbody>
 ${body}
@@ -232,7 +246,16 @@ function serveMailbox(paths) {
       text = fs.readFileSync(path.join(paths.state, 'email-outbox.log'), 'utf8');
     } catch {}
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' });
-    res.end(mailboxPage(mailboxRows(text), { status: readJson(paths.status) }));
+    // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
+    // box's own loopback, without the header, every row.
+    const viewer = req.headers['x-beta-viewer'];
+    const rows = mailboxRows(text);
+    res.end(
+      mailboxPage(viewer === undefined ? rows : viewerRows(rows, String(viewer)), {
+        status: readJson(paths.status),
+        viewer: viewer ?? null,
+      }),
+    );
   });
   server.on('error', (err) => log(paths, `mailbox: ${err.message}`));
   server.listen(MAILBOX_PORT, '127.0.0.1');
@@ -279,9 +302,44 @@ function run(paths, cmd, args, { cwd, env }) {
  * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved:
  * check out, install, launch) or 'launch' (same commit: launch, which restarts only what is down).
  */
-export function decide({ screening, head, target }) {
+export function decide({ screening, head, target, updatedAt = null, now = Date.now() }) {
   if (!screening) return 'blocked';
-  return head === target ? 'launch' : 'update';
+  if (head === target) return 'launch';
+  return nextUpdateAt(updatedAt) <= now ? 'update' : 'launch';
+}
+
+/**
+ * The beta moves to main at most once every UPDATE_EVERY_MS. An update (checkout, install, rebuild) cost 10 CPU-minutes in
+ * one measured round, and main moves nearly every half hour; between updates a round only launches what is down.
+ */
+export const UPDATE_EVERY_MS = 2 * 3600_000;
+/** When the next update may run: UPDATE_EVERY_MS after the last one, or now when none is recorded. */
+const nextUpdateAt = (updatedAt) => {
+  const at = Date.parse(updatedAt ?? '');
+  return Number.isFinite(at) ? at + UPDATE_EVERY_MS : 0;
+};
+
+/**
+ * The beta's stop: the TEST market maker's own stop, then the stack's, as `verify stop` runs them, without its gate.
+ * `verify stop` stops only a stack that the latest `verify launch` started, and every round's launch after the first
+ * finds the stack running, so it left every process up, team-tls included. The beta owns its whole stack.
+ */
+export function stopCommands(paths) {
+  const scripts = path.join(paths.checkout, 'tooling', 'scripts');
+  return [
+    [path.join(scripts, 'local-test-market.mjs'), 'stop'],
+    [path.join(scripts, 'local-test-stack.mjs'), 'stop'],
+  ];
+}
+
+/** Run stopCommands in the beta checkout on its slot; resolves to the first failing exit code, else 0. */
+async function stopStack(paths) {
+  let code = 0;
+  for (const args of stopCommands(paths)) {
+    const c = await run(paths, 'node', args, { cwd: paths.checkout, env: stackEnv(paths) });
+    if (c !== 0 && code === 0) code = c;
+  }
+  return code;
 }
 
 /** The repository the beta checkout is a worktree of: the one holding this script's own checkout. */
@@ -308,8 +366,13 @@ async function round(paths = betaPaths()) {
   if (fetched.status !== 0) log(paths, `fetch failed (${fetched.stderr.trim()}); the round goes on with the last main it has`);
   const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
-  const step = decide({ screening: fs.existsSync(paths.screening), head, target });
-  log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)})`);
+  const prev = readJson(paths.status, {});
+  const step = decide({ screening: fs.existsSync(paths.screening), head, target, updatedAt: prev.updatedAt });
+  const held = step === 'launch' && head !== target;
+  log(
+    paths,
+    `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)}${held ? `; the next update is after ${new Date(nextUpdateAt(prev.updatedAt)).toISOString()}` : ''})`,
+  );
   if (step === 'blocked')
     return finish(paths, {
       state: 'blocked',
@@ -317,31 +380,45 @@ async function round(paths = betaPaths()) {
       sha: head,
     });
   const env = stackEnv(paths);
+  // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
+  const sha = step === 'update' ? target : head;
+  const updatedAt = step === 'update' ? new Date().toISOString() : prev.updatedAt;
+  const mainAt = target;
   if (step === 'update') {
     const co = git(paths.checkout, 'checkout', '--quiet', '--detach', target);
     if (co.status !== 0) return finish(paths, { state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head });
     if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0)
-      return finish(paths, { state: 'down', reason: 'pnpm install failed (round.log)', sha: target });
+      return finish(paths, { state: 'down', reason: 'pnpm install failed (round.log)', sha, updatedAt, mainAt });
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
   const check = await checkStack(paths.state, BETA_LINK);
   for (const l of check.lines) log(paths, `check: ${l}`);
   if (!check.ok) {
-    await run(paths, 'node', [stackCli, 'start', 'verify', 'stop'], { cwd: paths.checkout, env });
+    await stopStack(paths);
     return finish(paths, {
       state: 'refused',
       reason: 'the TEST funds check failed, so the stack was stopped',
       check: check.lines,
-      sha: target,
+      sha,
+      updatedAt,
+      mainAt,
     });
   }
   if (launched !== 0)
-    return finish(paths, { state: 'down', reason: `verify launch exited ${launched} (round.log)`, check: check.lines, sha: target });
-  const prev = readJson(paths.status, {});
+    return finish(paths, {
+      state: 'down',
+      reason: `verify launch exited ${launched} (round.log)`,
+      check: check.lines,
+      sha,
+      updatedAt,
+      mainAt,
+    });
   return finish(paths, {
     state: 'up',
-    sha: target,
+    sha,
+    updatedAt,
+    mainAt,
     upSince: prev.state === 'up' && prev.upSince ? prev.upSince : new Date().toISOString(),
     check: check.lines,
   });
@@ -363,8 +440,7 @@ const fileHash = (file) => {
 
 async function serve(paths) {
   const everyMin = Number(process.env.BETA_EVERY_MIN ?? 30);
-  if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55)
-    throw new Error('BETA_EVERY_MIN must be 5 to 55, so main shows within the hour');
+  if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55) throw new Error('BETA_EVERY_MIN must be 5 to 55');
   const mine = fileHash(SELF);
   serveMailbox(paths);
   for (;;) {
@@ -423,10 +499,7 @@ async function main(argv) {
     console.log(s ? JSON.stringify(s, null, 2) : `no round yet (${paths.status})`);
     return;
   }
-  if (cmd === 'stop') {
-    const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
-    process.exit(await run(paths, 'node', [stackCli, 'start', 'verify', 'stop'], { cwd: paths.checkout, env: stackEnv(paths) }));
-  }
+  if (cmd === 'stop') process.exit(await stopStack(paths));
   if (cmd === 'install') {
     if (process.platform !== 'linux') throw new Error('install writes a systemd user service: Linux only');
     const noCheckout = ensureCheckout(paths);

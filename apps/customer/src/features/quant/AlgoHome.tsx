@@ -13,7 +13,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
   const { userId } = useSession();
   const { t } = algoCopy.useCopy();
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <QuantRooms active="home" paper={paper} />
       <p className="more-badge">{t('simulated')}</p>
       {userId ? (
