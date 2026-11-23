@@ -25,7 +25,6 @@ test('no dev-only secret survives', () => {
 
 test('production posture is set', () => {
   for (const [k, v] of Object.entries(POSTURE)) assert.equal(env.get(k), v);
-  assert.match(env.get('WEBAUTHN_ORIGIN'), /^https:\/\//);
 });
 
 test('every database password compose reads is fresh and its role rotated', () => {

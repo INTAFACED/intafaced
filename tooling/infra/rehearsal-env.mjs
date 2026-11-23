@@ -23,8 +23,8 @@ export const POSTURE = {
   APP_ENV: 'staging',
   INTAFACED_BETA_POSTURE: 'test-networks',
   INTERNAL_SERVICE_BODY_BIND: 'require',
-  WEBAUTHN_RP_ID: 'localhost',
-  WEBAUTHN_ORIGIN: 'https://localhost:8090',
+  // A runner has no registrable domain, and identity refuses localhost as a relying party; passkeys are off here.
+  WEBAUTHN_ENABLED: 'off',
 };
 
 /**
@@ -44,6 +44,14 @@ export const TEST_STAND_INS = {
   LOAN_SWEEP_BATCH_SIZE: '1',
   TRANSFER_BATCH_SIZE: '1',
   IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+  P2P_FEE_BPS: '0',
+  P2P_ESCROW_DEADLINE_SECONDS: '120',
+  P2P_PAYMENT_DEADLINE_SECONDS: '180',
+  P2P_RELEASE_DEADLINE_SECONDS: '1800',
+  P2P_DISPUTE_SLA_SECONDS: '604800',
+  P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '3600',
+  P2P_SWEEP_INTERVAL_SECONDS: '30',
+  P2P_INSTRUMENT_RETENTION_DAYS: '90',
   NOTIFY_REQUIRED_CHANNELS: 'none',
   INDEXER_START_HEIGHT: '0',
   INDEXER_FINALITY_DEPTH: '2',
