@@ -12,9 +12,6 @@ import {
   accountClosureHistoryInputSchema,
   accountClosureResultSchema,
   accountArchiveInputSchema,
-  accountArchiveLookupInputSchema,
-  accountArchiveHistoryInputSchema,
-  accountArchiveStateSchema,
   accountArchiveResultSchema,
   accountTierMoveInputSchema,
   accountTierHistoryInputSchema,
@@ -22,9 +19,6 @@ import {
   accountLimitOverrideClearInputSchema,
   accountLimitOverrideSetInputSchema,
   accountLimitResultSchema,
-  accountLimitsHistoryInputSchema,
-  accountLimitsLookupInputSchema,
-  accountLimitsStateSchema,
   customerDetailReviewSchema,
   customerDetailReviewsInputSchema,
   customerDetailsEditInputSchema,
@@ -52,6 +46,10 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
@@ -190,14 +188,16 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(accountArchiveInputSchema)
         .output(accountArchiveResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.archive(ctx, input))),
-      archiveState: protectedProcedure
-        .input(accountArchiveLookupInputSchema)
-        .output(accountArchiveStateSchema.nullable())
-        .query(({ ctx, input }) => controlCall(() => controls.archiveState(ctx, input))),
-      archiveHistory: protectedProcedure
-        .input(accountArchiveHistoryInputSchema)
-        .output(z.array(accountArchiveResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input))),
+      archiveState: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
+        ({ ctx, input }) => controlCall(() => controls.archiveState(ctx, input)),
+        codedRefusal,
+      ),
+      archiveHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input)),
+        codedRefusal,
+      ),
       archiveProposals: mountRecord(
         IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
         ({ ctx }) => controlCall(() => controls.archiveProposals(ctx)),
@@ -244,10 +244,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
       ),
       // Limit overrides (J-ops-console-04 #12): a temporary override of one rail's figures for one asset, ending at a stored
       // time; above the owner ceiling it spends the other founder's approval.
-      limits: protectedProcedure
-        .input(accountLimitsLookupInputSchema)
-        .output(accountLimitsStateSchema.nullable())
-        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).state(ctx, input))),
+      limits: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_LIMITS,
+        ({ ctx, input }) => controlCall(() => limitsDesk(limits).state(ctx, input)),
+        codedRefusal,
+      ),
       limitsSet: protectedProcedure
         .input(accountLimitOverrideSetInputSchema)
         .output(accountLimitResultSchema)
@@ -256,10 +257,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(accountLimitOverrideClearInputSchema)
         .output(accountLimitResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).clear(ctx, input))),
-      limitsHistory: protectedProcedure
-        .input(accountLimitsHistoryInputSchema)
-        .output(z.array(accountLimitResultSchema))
-        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).history(ctx, input))),
+      limitsHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
+        ({ ctx, input }) => controlCall(() => limitsDesk(limits).history(ctx, input)),
+        codedRefusal,
+      ),
       listRestricted: scopedProcedure('admin:read')
         .input(
           z

@@ -436,6 +436,76 @@ pub fn pick_rule(rules: &[Rule], amount: Amount, payee: &str, payment_type: &str
     best
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// What the other business slices ask of the team (`BusinessTeamService.seat`, `approverPool`, `ruleList`)
+
+/// `seat`: the business account and what the caller may do on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Seat {
+    pub account_id: String,
+    pub name: String,
+    pub asset_id: String,
+    /// `active` or `closed`.
+    pub status: String,
+    /// Who opened the business: whose money the partner holds for it (`partnerFor`).
+    pub owner_user_id: Option<String>,
+    pub permissions: Vec<&'static str>,
+}
+
+impl Seat {
+    pub fn holds(&self, permission: &str) -> bool {
+        self.permissions.contains(&permission)
+    }
+}
+
+/// `seat`: the business first (`bank.business_not_found`), then the caller's membership (`bank.business_not_member`).
+pub fn seat<C: GenericClient>(c: &mut C, account_id: &str, user_id: &str) -> Result<Seat, Refusal> {
+    let a = account(c, account_id)?;
+    let m = member_or_none(c, account_id, user_id)?.ok_or_else(not_member)?;
+    Ok(Seat {
+        account_id: a.id,
+        name: a.name,
+        asset_id: a.asset_id,
+        status: a.status,
+        owner_user_id: a.owner_user_id,
+        permissions: m.permissions(),
+    })
+}
+
+/// `approverPool`: the members other than `exclude` who hold `approve`, in the order they joined.
+pub fn approver_pool<C: GenericClient>(
+    c: &mut C,
+    account_id: &str,
+    exclude: &str,
+) -> Result<Vec<String>, Refusal> {
+    Ok(member_rows(c, account_id)?
+        .into_iter()
+        .filter(|m| m.user_id != exclude && m.holds("approve"))
+        .map(|m| m.user_id)
+        .collect())
+}
+
+/// `ruleList`: the business's approval rules, oldest first, each with its id, as `pickRule` reads them.
+pub fn rule_list<C: GenericClient>(
+    c: &mut C,
+    account_id: &str,
+) -> Result<Vec<(String, Rule)>, Refusal> {
+    Ok(rule_rows(c, account_id)?
+        .into_iter()
+        .map(|r| {
+            (
+                r.id,
+                Rule {
+                    over_amount: r.over_amount,
+                    payee: r.payee,
+                    payment_type: r.payment_type,
+                    approvals: r.approvals,
+                },
+            )
+        })
+        .collect())
+}
+
 #[derive(Clone)]
 struct PaymentRow {
     id: String,
