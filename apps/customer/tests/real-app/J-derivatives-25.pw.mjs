@@ -140,11 +140,14 @@ test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: t
   await openAccount(page);
   const venueName = (await venueInfo()).displayName;
 
-  // Trading: the venue account as the venue's own record holds it, empty, with the venue named and an as-of time.
-  expect(await venueRecord(owner, '/balances').then((r) => r.value.filter((b) => toUnits(b.total) !== 0n))).toEqual([]);
+  // Trading: the venue account as the venue's own record holds it: empty, every asset it lists at 0 (the TEST venue lists
+  // USDC at 0.00), each row free, locked and total equal to the record, with the venue named and an as-of time.
+  const venueRows = (await venueRecord(owner, '/balances')).value;
+  expect(venueRows.filter((b) => toUnits(b.total) !== 0n)).toEqual([]);
   const venueBlock = trading(page).getByTestId('trading-venue');
   await expect(trading(page).getByRole('heading', { name: /^Trading\b/, level: 2 })).toBeVisible({ timeout: 20_000 });
-  await expect(venueBlock.getByTestId('trading-empty')).toHaveText('This venue account is empty.', { timeout: 20_000 });
+  await expect(venueBlock.locator('tr[data-asset]')).toHaveCount(venueRows.length, { timeout: 20_000 });
+  await tradingEqualsVenue(page, owner);
   await expect(venueBlock.getByTestId('trading-source')).toContainText(`From ${venueName} · As of `);
   await expect(venueBlock.getByTestId('trading-source').locator('[data-as-of]')).not.toHaveAttribute('data-as-of', '');
 
