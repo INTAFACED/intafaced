@@ -683,6 +683,7 @@ import {
   BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
 } from './bank-ops-procedures.js';
@@ -1367,6 +1368,13 @@ import {
   OPS_INCIDENTS_TASK,
   OPS_INCIDENTS_RESOLVE,
 } from './ops-incidents-procedures.js';
+
+import {
+  OPS_LEDGER_REVERSALS_REQUEST,
+  OPS_LEDGER_REVERSALS_EXECUTE,
+  OPS_LEDGER_REVERSALS_GET,
+  OPS_LEDGER_REVERSALS_LIST,
+} from './ops-ledger-reversals-procedures.js';
 
 import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
 
@@ -2193,6 +2201,7 @@ import {
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_VENUE_ACCOUNTS_GET,
   TRADE_ADMIN_CUSTOMER_ORDERS,
 } from './trade-admin-procedures.js';
 
@@ -2991,6 +3000,7 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
 ];
@@ -3718,6 +3728,13 @@ const part_ops_incidents_procedures: readonly ProcedureRecord[] = [
   OPS_INCIDENTS_INVITE,
   OPS_INCIDENTS_TASK,
   OPS_INCIDENTS_RESOLVE,
+];
+
+const part_ops_ledger_reversals_procedures: readonly ProcedureRecord[] = [
+  OPS_LEDGER_REVERSALS_REQUEST,
+  OPS_LEDGER_REVERSALS_EXECUTE,
+  OPS_LEDGER_REVERSALS_GET,
+  OPS_LEDGER_REVERSALS_LIST,
 ];
 
 const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
@@ -4574,6 +4591,7 @@ const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_VENUE_ACCOUNTS_GET,
   TRADE_ADMIN_CUSTOMER_ORDERS,
 ];
 
@@ -4895,6 +4913,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_ops_compliance_procedures,
   ...part_ops_console_mode_procedures,
   ...part_ops_incidents_procedures,
+  ...part_ops_ledger_reversals_procedures,
   ...part_ops_outreach_procedures,
   ...part_ops_preferences_procedures,
   ...part_ops_protocol_listing_procedures,

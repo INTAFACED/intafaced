@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseSync } from 'oxc-parser';
 import { readdirSync, readFileSync } from 'node:fs';
-import { CLASSES, GONE, ONE_RULE, classesIn, classesTestsFind, rank, recipe, WHOLE } from './volt-recipe.mjs';
+import { CLASSES, GONE, ONE_RULE, classesIn, classesTestsFind, rank, recipe, WHOLE, WHOLE_UNSPACED } from './volt-recipe.mjs';
 
 test('moves the old Button, its variants and loading, and the three classes onto the kit', () => {
   const { text, left } = recipe(
@@ -223,7 +223,9 @@ test('leaves a class on words with a typed arrow, which the kit draws instead', 
 
 test("every class the map moves to is the kit's own", () => {
   const css = readFileSync(new URL('../../packages/ui/src/lit/templates/templates.css', import.meta.url), 'utf8');
-  const missing = [...new Set(Object.values(CLASSES))].filter((kit) => !new RegExp(`\\.${kit}[\\s,{:]`).test(css));
+  const missing = [...new Set(Object.values(CLASSES).flatMap((v) => v.split(' ')))].filter(
+    (kit) => !new RegExp(`\\.${kit}[\\s,{:]`).test(css),
+  );
   assert.deepEqual(missing, []);
 });
 
@@ -372,4 +374,30 @@ test('a whole string of utilities moves to its one kit class, and only whole', (
   assert.match(held.text, /flex flex-col gap-2/);
   assert.match(held.left[0], /a test finds an element by flex-col/);
   for (const kit of Object.values(WHOLE)) assert.match(kit, /^lt-[a-z-]+$/);
+});
+
+test('the third map: a row, a field row, a list and a mono face move whole; a hint string moves only where no margin is lost', () => {
+  const { text, left } = recipe(
+    [
+      'export const a = <div className="flex flex-wrap items-center gap-2">a</div>;',
+      'export const b = <div className="flex flex-wrap items-end gap-3">b</div>;',
+      'export const c = <ul className="m-0 flex list-none flex-col gap-2 p-0">c</ul>;',
+      'export const d = <span className="text-sm text-fg-2">d</span>;',
+      'export const e = <p className="text-sm text-fg-2">e</p>;',
+      'export const f = <span className="dk-tif-label">f</span>;',
+      'export const g = <div className="vk-row">g</div>;',
+      '',
+    ].join('\n'),
+  );
+  assert.match(text, /<div className="lt-toolbar">a/);
+  assert.match(text, /<div className="lt-field-row">b/);
+  assert.match(text, /<ul className="lt-list">c/);
+  assert.match(text, /<span className="lt-hint">d/);
+  // A paragraph keeps the margin the kit's lt-hint sets to 0: left whole.
+  assert.match(text, /<p className="text-sm text-fg-2">e/);
+  assert.deepEqual(left, ['5: className "text-sm text-fg-2" (text-sm has no recipe)']);
+  // A class whose twin is two kit classes takes both.
+  assert.match(text, /<span className="lt-hint lt-nowrap">f/);
+  assert.match(text, /<div className="lt-toolbar">g/);
+  for (const kit of Object.values(WHOLE_UNSPACED)) assert.match(kit, /^lt-[a-z-]+$/);
 });

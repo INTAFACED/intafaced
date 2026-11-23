@@ -1119,6 +1119,47 @@ fn refuses_a_send_when_no_limits_are_published_nothing_reserved_nothing_posted()
 }
 
 #[test]
+fn a_quote_names_the_network_fee_the_partner_holding_the_money_reports_and_null_when_it_says_none()
+{
+    let Some(b) = bank_with(pay_owner()) else {
+        return;
+    };
+    b.sql(
+        "INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) \
+         VALUES ('EUR', 1000, 5000, 0)",
+    );
+    let quote = |b: &Bank| {
+        call(
+            b,
+            ADA,
+            RW,
+            "transfers.quote",
+            r#"{"assetId":"EUR","amount":"25"}"#,
+        )
+        .ok()
+    };
+    let set = |input: &str| call(&b, ADA, RW, "testPartner.set", input).ok();
+    set(r#"{"custody":"off"}"#);
+    let held = quote(&b);
+    assert_eq!(
+        held.get("networkFee"),
+        Some(&Json::str("0.5")),
+        "{}",
+        held.compact()
+    );
+    assert_eq!(held.get("withinPerTransfer"), Some(&Json::Bool(true)));
+    set(r#"{"fee":"unknown"}"#);
+    let unknown = quote(&b);
+    assert_eq!(
+        unknown.get("networkFee"),
+        Some(&Json::Null),
+        "{}",
+        unknown.compact()
+    );
+    assert!(b.ledger.p2p().is_empty());
+}
+
+#[test]
 fn quotes_only_a_published_zero_fee_and_refuses_an_unpublished_or_unwired_fee() {
     let Some(b) = bank_with(pay_owner()) else {
         return;
@@ -1150,6 +1191,8 @@ fn quotes_only_a_published_zero_fee_and_refuses_an_unpublished_or_unwired_fee() 
             ("remainingToday", Json::str("100")),
             ("fee", Json::str("0")),
             ("feeBlocker", Json::Null),
+            // On our own book a send crosses no network.
+            ("networkFee", Json::str("0")),
             ("withinPerTransfer", Json::Bool(true)),
             ("withinDaily", Json::Bool(true)),
         ])

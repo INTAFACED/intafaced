@@ -345,7 +345,7 @@ function BotsHub({ path }: { path: string }) {
           );
         // A bot that can't be set up now says so in words a person can read (the status beside it says why); a faded
         // button there was unreadable once the catalogue stacks on a phone.
-        if (!s.ready) return <span className="text-fg-2">{t('Not available')}</span>;
+        if (!s.ready) return <span className="lt-muted">{t('Not available')}</span>;
         if (r.id === 'twap' || r.id === 'vwap' || r.id === 'pov')
           return (
             <Button size={28} disabled={!session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>

@@ -400,6 +400,14 @@ async function sendFromWallet(page, wallet, to, amount, { prefilled = false } = 
   await form.getByRole('button', { name: 'Review', exact: true }).click();
   const summary = page.getByRole('dialog', { name: 'Review the send', exact: true });
   await expect(summary).toContainText(`${amount} ${TOKEN_USD.name}`);
+  // The amount the review shows the customer, read from the page: kept for #8 against the chain.
+  const amountLine = summary
+    .locator('dl > div')
+    .filter({ has: page.locator('dt', { hasText: /^Amount$/ }) })
+    .locator('dd');
+  const amountText = (await amountLine.innerText()).trim();
+  expect(amountText.endsWith(` ${TOKEN_USD.name}`), `the review names the token: ${amountText}`).toBe(true);
+  const shownAmount = amountText.slice(0, -` ${TOKEN_USD.name}`.length).replace(/,/g, '');
   await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(to.slice(-4));
   const sendsBefore = wallet.sends.length;
   await summary.getByRole('button', { name: 'Send', exact: true }).click();
@@ -421,20 +429,20 @@ async function sendFromWallet(page, wallet, to, amount, { prefilled = false } = 
   // One send, signed in the wallet.
   expect(wallet.sends.length - sendsBefore, 'the wallet sends once').toBe(1);
   expect(wallet.sends.at(-1).method).toBe('eth_sendTransaction');
-  return { hash, feeLine: page.getByTestId('send-network-fee') };
+  return { hash, shownAmount, feeLine: page.getByTestId('send-network-fee') };
 }
 
-/** The send's network fee as the page shows it, equal to what the chain's receipt says it paid; kept for #8. */
+/**
+ * The send's network fee as the page shows it, equal to what the chain's receipt says it paid; kept for #8. The TEST
+ * chain mines the send and its receipt is read here, so the fee is known at its source: the page must show that figure,
+ * and "not known" here would be a figure that differs from its source.
+ */
 async function feeShownEqualsChain(step, feeLine, hash) {
   const { fee } = await paidFee(hash);
-  await expect(feeLine).toHaveAttribute('data-fee', /^(known|unknown)$/, { timeout: 60_000 });
-  if ((await feeLine.getAttribute('data-fee')) === 'known') {
-    await expect
-      .poll(async () => BigInt(await feeLine.getAttribute('data-fee-units')), 'the network fee shown is the one the chain charged')
-      .toBe(fee);
-    await expect(feeLine).toContainText(`Network fee: ${eth(fee)} ETH`);
-    keepShown(step, `network fee of ${hash}, from the chain`, eth(BigInt(await feeLine.getAttribute('data-fee-units'))), eth(fee));
-  } else await expect(feeLine).toHaveText(/Network fee: not known/);
+  await expect(feeLine, 'the chain knows the fee, so the page shows it').toHaveAttribute('data-fee', 'known', { timeout: 60_000 });
+  await expect(feeLine, 'the network fee shown is the one the chain charged').toHaveAttribute('data-fee-units', fee.toString());
+  await expect(feeLine).toContainText(`Network fee: ${eth(fee)} ETH`);
+  keepShown(step, `network fee of ${hash}, from the chain`, eth(BigInt(await feeLine.getAttribute('data-fee-units'))), eth(fee));
   return fee;
 }
 
@@ -657,7 +665,7 @@ test(`${J} #5 pays a person: one send signed by the customer's wallet to the rec
   await signInNow(page);
   await page.goto('/wallet/send');
   await connectWhenAsked(page, page.getByRole('button', { name: 'Disconnect', exact: true }));
-  const { hash, feeLine } = await sendFromWallet(page, wallet, recipient, PAY);
+  const { hash, shownAmount, feeLine } = await sendFromWallet(page, wallet, recipient, PAY);
   await paidFee(hash);
   // Both wallets, read back from the chain: moved by exactly the amount.
   const raw = toUnits(PAY) / 10n ** 12n;
@@ -668,7 +676,12 @@ test(`${J} #5 pays a person: one send signed by the customer's wallet to the rec
   // One send: the only transaction from the wallet since the step began is this one.
   const head = await chain().getBlockNumber();
   expect(await sentSince(owner, fromBlock, head), 'the wallet sent one transaction').toEqual([hash.toLowerCase()]);
-  keepShown(5, 'amount sent, from the chain', PAY, usd(before.from - (await chainBalance(TOKEN_USD.address, owner))));
+  keepShown(
+    5,
+    'amount sent, shown on the review, from the chain',
+    shownAmount,
+    usd(before.from - (await chainBalance(TOKEN_USD.address, owner))),
+  );
   await ledgerHoldsNothing('after the send');
 });
 
@@ -723,18 +736,19 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     fromUnits(shownUnits(await withdrawalFact(shown, /^Amount$/).innerText())),
     w.amount,
   );
-  // Its fee, from the venue, shown or "not known".
+  // Its fee, from the venue.
   const fee = withdrawalFact(shown, /fee/i);
-  if (w.fee.known) {
-    await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
-    keepShown(6, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
-  } else await expect(fee).toHaveText(/not known/i);
-  // What arrived, read from the chain: the withdrawal less any network fee the venue took from it.
+  // The TEST venue publishes its withdrawal fee, so the page shows that figure, never "not known".
+  expect(w.fee, 'the venue reports the withdrawal fee it took').toMatchObject({ known: true });
+  await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
+  keepShown(6, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
+  // What arrived, read from the chain: exactly the withdrawal less the network fee the venue reports it took.
   await paidFee(w.txHash);
+  expect(w.networkFee, 'the venue reports the network fee it took').toMatchObject({ known: true });
   const arrived = (await chainBalance(TOKEN_USD.address, owner)) - walletBefore;
-  expect(arrived > 0n && arrived <= toUnits(PROFIT) / 10n ** 12n, `${usd(arrived)} arrived of ${PROFIT}`).toBe(true);
+  expect(arrived, `${usd(arrived)} arrived of ${PROFIT}`).toBe((toUnits(PROFIT) - toUnits(w.networkFee.value)) / 10n ** 12n);
   const after = await venueBalance(owner, 'USDC');
-  expect(toUnits(before.total) - toUnits(after.total)).toBe(toUnits(PROFIT) + (w.fee.known ? toUnits(w.fee.value) : 0n));
+  expect(toUnits(before.total) - toUnits(after.total)).toBe(toUnits(PROFIT) + toUnits(w.fee.value));
   expect(wallet.requests.length, 'the withdrawal was signed once').toBe(asked + 1);
 
   // Leg 2: from Home, the partner's pay-in for this customer, and Send in the wallet with it filled in.
@@ -953,10 +967,11 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   // token it pays out in (the form takes no finer amount). The venue keeps its fees finer than that unit, so what is left
   // under one unit stays on the venue: it is read below, exactly.
   const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
-  const published = terms.fee.known ? toUnits(terms.fee.value) : null;
-  const leftUnits = ((toUnits(before.free) - (published ?? 0n)) / usdcUnit) * usdcUnit;
-  const underUnit = toUnits(before.free) - (published ?? 0n) - leftUnits;
-  expect(leftUnits > 0n, `free ${before.free} covers the fee ${published === null ? 'not known' : fromUnits(published)}`).toBe(true);
+  expect(terms.fee, 'the venue publishes its withdrawal fee').toMatchObject({ known: true });
+  const published = toUnits(terms.fee.value);
+  const leftUnits = ((toUnits(before.free) - published) / usdcUnit) * usdcUnit;
+  const underUnit = toUnits(before.free) - published - leftUnits;
+  expect(leftUnits > 0n, `free ${before.free} covers the fee ${fromUnits(published)}`).toBe(true);
   const left = fromUnits(leftUnits);
   const walletBefore = await chainBalance(TOKEN_USD.address, owner);
   const { panel } = await venueDesk(page, { signedIn: true, wallet });
@@ -992,14 +1007,14 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     w.amount,
   );
   const fee = withdrawalFact(shown, /fee/i);
-  if (w.fee.known) {
-    await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
-    keepShown(7, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
-  } else await expect(fee).toHaveText(/not known/i);
+  // The TEST venue publishes its withdrawal fee, so the page shows that figure, never "not known".
+  expect(w.fee, 'the venue reports the withdrawal fee it took').toMatchObject({ known: true });
+  await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
+  keepShown(7, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
   expect(wallet.requests.length, 'the withdrawal was signed once').toBe(asked + 1);
   // And from the chain: the transfer the venue paid out landed in the wallet.
   // The venue's payout is one TEST USD transfer to the wallet in the transaction it names; the wallet rose by exactly it,
-  // and by the amount less the venue's network fee when the venue reports that fee.
+  // and by exactly the amount less the network fee the venue reports it took.
   await paidFee(w.txHash);
   const payout = await chain().getTransactionReceipt({ hash: w.txHash });
   const toWallet = payout.logs.filter(
@@ -1012,8 +1027,8 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   const paidOut = BigInt(toWallet[0].data);
   const arrived = (await chainBalance(TOKEN_USD.address, owner)) - walletBefore;
   expect(arrived, 'the wallet rose by exactly the payout').toBe(paidOut);
-  if (w.networkFee?.known) expect(paidOut).toBe(leftUnits / 10n ** 12n - toUnits(w.networkFee.value) / 10n ** 12n);
-  else expect(paidOut <= leftUnits / 10n ** 12n, 'the payout is never more than the withdrawal').toBe(true);
+  expect(w.networkFee, 'the venue reports the network fee it took').toMatchObject({ known: true });
+  expect(paidOut, 'the payout is the withdrawal less the venue’s network fee').toBe((leftUnits - toUnits(w.networkFee.value)) / 10n ** 12n);
   // The venue account reads empty in every asset but what no order or withdrawal can move: the venue's own record lists
   // nothing locked, exactly the coin under one lot that the sale left, and exactly the USDC under one unit of the token it
   // pays out in that the withdrawal left; the desk shows the venue's own USDC figures.

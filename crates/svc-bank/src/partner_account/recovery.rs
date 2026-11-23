@@ -78,13 +78,19 @@ pub fn call_signer(
 pub fn ledger_from_env(env: &BTreeMap<String, String>) -> Result<Box<dyn Ledger>, String> {
     Ok(match call_signer(env, "svc-ledger")? {
         None => Box::new(ledger::Unwired),
-        Some(signer) => Box::new(ledger::HttpLedger {
-            base: env_value(env, "LEDGER_URL")
-                .unwrap_or("http://localhost:4001")
-                .to_owned(),
-            signer,
-            fetch: Box::new(UreqFetch::new()),
-        }),
+        Some(signer) => {
+            let base = env_value(env, "LEDGER_URL").unwrap_or("http://localhost:4001");
+            Box::new(ledger::HttpLedger {
+                base: base.to_owned(),
+                post: Some(Box::new(crate::spaces::ports::LedgerHttp::new(
+                    base,
+                    signer.clone(),
+                    Box::new(UreqFetch::new()),
+                ))),
+                signer,
+                fetch: Box::new(UreqFetch::new()),
+            })
+        }
     })
 }
 
@@ -845,7 +851,8 @@ pub fn answer(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
                 ctx.input.get("ownerUserId").as_str().unwrap_or_default(),
             ),
             _ => {
-                // Nothing is read or written while no svc-ledger post door is wired (PORT.md, "The ledger").
+                // Nothing is read or written while no svc-ledger post door is wired (a door built without the
+                // service's environment).
                 if !d.wiring.recovery.ledger.posts() {
                     return Err(Refusal::Trpc(not_ported(Slice::PartnerAccount)));
                 }
