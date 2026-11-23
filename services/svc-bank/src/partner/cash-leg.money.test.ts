@@ -35,9 +35,11 @@ function world(opts: { failPayouts?: number } = {}) {
   partner.set('u1', { custody: 'off' });
   partner.fund('u1', { fundId: 'f1', assetId: 'EUR', amount: parseAmount('100') });
   const paid: { ref: string; amount: bigint }[] = [];
+  const asked: string[] = [];
   let failures = opts.failPayouts ?? 0;
   const payout: CashLegPayout = {
     async pay({ ref, amount }) {
+      asked.push(ref);
       if (failures > 0) {
         failures -= 1;
         throw new Error('lost');
@@ -55,7 +57,7 @@ function world(opts: { failPayouts?: number } = {}) {
   });
   const eur = () => partner.record('u1').accounts.find((a) => a.account.userId === 'u1' && a.account.assetId === 'EUR')?.amount;
   const moves = () => partner.record('u1').moves.filter((m) => m.key === KEY);
-  return { partner, legs, paid, eur, moves };
+  return { partner, legs, paid, asked, eur, moves };
 }
 
 describe('the partner cash leg', () => {
@@ -69,10 +71,13 @@ describe('the partner cash leg', () => {
   });
 
   it('carries one leg: the cash leaves once, the coin is paid once, at the rate', async () => {
-    const { legs, paid, eur, moves } = world();
+    const { legs, paid, asked, eur, moves } = world();
     const [a, b] = await Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]);
     const c = await legs.carry('u1', ask());
+    // Two callers at once share one carry: the payout is asked once, and both get the one stored leg.
+    expect(asked).toEqual([KEY]);
     expect(a).toEqual(b);
+    expect(b).toBe(c);
     expect(c.moveId).toBe(a.moveId);
     expect(a.state).toBe('delivered');
     expect(a.paid).toBe(parseAmount('20'));
@@ -98,6 +103,18 @@ describe('the partner cash leg', () => {
     expect(paid).toEqual([]);
     const done = await legs.carry('u1', ask());
     expect(done.state).toBe('delivered');
+    expect(paid).toHaveLength(1);
+    expect(moves()).toHaveLength(1);
+    expect(eur()).toBe(parseAmount('80'));
+  });
+
+  it('two Check agains at once on a sending leg pay the coin once and return the one stored leg', async () => {
+    const { legs, paid, asked, eur, moves } = world({ failPayouts: 1 });
+    await expect(legs.carry('u1', ask())).rejects.toMatchObject({ code: 'bank.cash_leg_sending' });
+    const [a, b] = await Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]);
+    expect(a.state).toBe('delivered');
+    expect(b).toBe(a);
+    expect(asked).toEqual([KEY, KEY]);
     expect(paid).toHaveLength(1);
     expect(moves()).toHaveLength(1);
     expect(eur()).toBe(parseAmount('80'));

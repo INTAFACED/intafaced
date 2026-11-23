@@ -149,6 +149,22 @@ export function testPartnerCashLegs(deps: {
   readonly payout: CashLegPayout;
 }): CashLegs {
   const legs = new Map<string, CashLeg>();
+  /** The carry running under each key: a second caller of a key waits for it, then reads the leg it stored. */
+  const carrying = new Map<string, Promise<unknown>>();
+
+  /** Runs `run` after every earlier carry of `key` has settled, so two callers at once never both move or both pay. */
+  function oneAtATime<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const turn = (carrying.get(key) ?? Promise.resolve()).then(run, run);
+    const settled = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    carrying.set(key, settled);
+    void settled.then(() => {
+      if (carrying.get(key) === settled) carrying.delete(key);
+    });
+    return turn;
+  }
 
   const why = (userId: string): string | null => {
     if (moneyHeldBy(deps.partner, userId, deps.custodyLayer) !== 'partner') return 'the partner does not hold this person’s cash';
@@ -194,60 +210,7 @@ export function testPartnerCashLegs(deps: {
     async carry(userId, ask) {
       if (!KEY_RE.test(ask.key)) throw new BankError('A cash leg is named by its convert key.', 'bank.cash_leg_invalid');
       if (ask.spend <= 0n || ask.least <= 0n) throw new BankError('A cash leg pays and receives above zero.', 'bank.cash_leg_invalid');
-      const prior = legs.get(ask.key);
-      if (prior) {
-        if (
-          prior.userId !== userId ||
-          prior.cash !== ask.cash ||
-          prior.coin !== ask.coin ||
-          prior.paid !== ask.spend ||
-          prior.venue.venueId !== ask.venue.venueId ||
-          prior.venue.owner !== ask.venue.owner
-        )
-          throw new BankError(
-            `The partner already holds a different cash leg under ${ask.key}, so this one was not made.`,
-            'bank.partner_move_conflict',
-          );
-        return finish(prior);
-      }
-      const reason = why(userId);
-      if (reason) throw notOffered(reason);
-      const rate = deps.rates.find((r) => r.cash === ask.cash && r.coin === ask.coin);
-      if (!rate) throw notOffered(`it gives no rate for ${ask.cash} to ${ask.coin}`);
-      const delivered = (mul(ask.spend, rate.rate, 'floor') / COIN_STEP) * COIN_STEP;
-      if (delivered < ask.least)
-        throw new BankError(
-          `The partner now gives ${formatAmount(delivered)} ${ask.coin} for ${formatAmount(ask.spend)} ${ask.cash}, less than the ${formatAmount(ask.least)} priced. Nothing was moved; get a new price.`,
-          'bank.cash_leg_rate_moved',
-        );
-      if (legs.size >= MAX_LEGS)
-        throw new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
-      const bank = bankOf(userId);
-      // The cash leaves the person's main balance as one partner move under the leg's own key.
-      const move = await bank.move({
-        key: ask.key,
-        from: { userId, assetId: ask.cash, spaceId: null },
-        to: partnerPayoutsAccount(ask.cash),
-        amount: ask.spend,
-      });
-      const leg: CashLeg = Object.freeze({
-        key: ask.key,
-        userId,
-        cash: ask.cash,
-        coin: ask.coin,
-        paid: ask.spend,
-        delivered,
-        rate: rate.rate,
-        venue: Object.freeze({ venueId: ask.venue.venueId, owner: ask.venue.owner.toLowerCase() }),
-        state: 'sending',
-        moveId: move.id,
-        movedAt: move.movedAt,
-        deliveredAt: null,
-        label: bank.label,
-        test: true,
-      });
-      legs.set(ask.key, leg);
-      return finish(leg);
+      return oneAtATime(ask.key, () => carryOne(userId, ask));
     },
 
     async leg(userId, key) {
@@ -255,6 +218,63 @@ export function testPartnerCashLegs(deps: {
       return leg && leg.userId === userId ? leg : null;
     },
   };
+
+  async function carryOne(userId: string, ask: CashLegAsk): Promise<CashLeg> {
+    const prior = legs.get(ask.key);
+    if (prior) {
+      if (
+        prior.userId !== userId ||
+        prior.cash !== ask.cash ||
+        prior.coin !== ask.coin ||
+        prior.paid !== ask.spend ||
+        prior.venue.venueId !== ask.venue.venueId ||
+        prior.venue.owner !== ask.venue.owner
+      )
+        throw new BankError(
+          `The partner already holds a different cash leg under ${ask.key}, so this one was not made.`,
+          'bank.partner_move_conflict',
+        );
+      return finish(prior);
+    }
+    const reason = why(userId);
+    if (reason) throw notOffered(reason);
+    const rate = deps.rates.find((r) => r.cash === ask.cash && r.coin === ask.coin);
+    if (!rate) throw notOffered(`it gives no rate for ${ask.cash} to ${ask.coin}`);
+    const delivered = (mul(ask.spend, rate.rate, 'floor') / COIN_STEP) * COIN_STEP;
+    if (delivered < ask.least)
+      throw new BankError(
+        `The partner now gives ${formatAmount(delivered)} ${ask.coin} for ${formatAmount(ask.spend)} ${ask.cash}, less than the ${formatAmount(ask.least)} priced. Nothing was moved; get a new price.`,
+        'bank.cash_leg_rate_moved',
+      );
+    if (legs.size >= MAX_LEGS)
+      throw new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
+    const bank = bankOf(userId);
+    // The cash leaves the person's main balance as one partner move under the leg's own key.
+    const move = await bank.move({
+      key: ask.key,
+      from: { userId, assetId: ask.cash, spaceId: null },
+      to: partnerPayoutsAccount(ask.cash),
+      amount: ask.spend,
+    });
+    const leg: CashLeg = Object.freeze({
+      key: ask.key,
+      userId,
+      cash: ask.cash,
+      coin: ask.coin,
+      paid: ask.spend,
+      delivered,
+      rate: rate.rate,
+      venue: Object.freeze({ venueId: ask.venue.venueId, owner: ask.venue.owner.toLowerCase() }),
+      state: 'sending',
+      moveId: move.id,
+      movedAt: move.movedAt,
+      deliveredAt: null,
+      label: bank.label,
+      test: true,
+    });
+    legs.set(ask.key, leg);
+    return finish(leg);
+  }
 }
 
 /**
