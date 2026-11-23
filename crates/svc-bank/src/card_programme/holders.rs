@@ -17,7 +17,7 @@ use crate::cards::reads::{HoldReads, test_card_holds};
 use crate::cards::{CARD_COLS, Card, core, ms};
 use crate::errors::Refusal;
 use crate::partner::{money_held_by, refuse};
-use crate::spaces::ports::{DirError, Lookup};
+use crate::spaces::ports::Lookup;
 use crate::spaces::space::{in_tx, pg, with};
 use crate::transfers::ports::RecipientStatus;
 
@@ -103,9 +103,6 @@ fn email_shape(e: &str) -> bool {
             .any(|(i, c)| c == '.' && i > 0 && i + 1 < domain.len())
 }
 
-/// `unconfiguredBusinessDirectory`'s words.
-const DIRECTORY_UNSET: &str = "IDENTITY_URL is unset, so svc-bank cannot read public handles from svc-identity. Team list, approval history and recipient lookup stay closed until that directory is connected (bank.business_directory_unset)";
-
 /// `findAccount`: an active account by exact email, or none.
 pub fn find_account(d: &Deps<'_>, email: &str) -> Result<Option<String>, Refusal> {
     let e = js_trim(email).to_lowercase();
@@ -114,8 +111,9 @@ pub fn find_account(d: &Deps<'_>, email: &str) -> Result<Option<String>, Refusal
     }
     match d.cards.t.spaces.directory.find_active(&Lookup::Email(e)) {
         Ok(found) => Ok(found.map(|(id, _)| id)),
-        Err(DirError::Unset) => Err(refuse("bank.business_directory_unset", DIRECTORY_UNSET)),
-        Err(DirError::Unavailable) => Err(refuse(
+        // `err.reason === 'unset'` keeps the directory's own sentence; any other failure is one sentence.
+        Err(err) if err.unset() => Err(refuse("bank.business_directory_unset", err.sentence())),
+        Err(_) => Err(refuse(
             "bank.business_directory_unavailable",
             "svc-identity did not answer the account lookup. Nothing was changed.",
         )),
