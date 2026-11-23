@@ -55,12 +55,22 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
 3. The app asks for the code from the email. The mailbox tab shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
    later is asked for a device code: it is in the same mailbox.
 4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
-   **Full**, enter any country code, and submit: the stack's TEST operators approve it within a minute. Sign out and in
-   once so the app sees it. TEST funds are added by an agent (below).
+   **Full**, enter any country code, and submit. Within a minute the stack's TEST approvers approve it and 1000 TEST
+   USDT reach the account, with nobody in the loop (below). Sign out and in once so the app sees it, then trade.
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
 
-**Approve and fund a TEST person (an agent, on the box).** Run these under the user's systemd manager, as the stack runs.
+**Invited testers are approved and funded automatically** (`tooling/beta/beta-invited.mjs`, #10243). The front passes
+each Access-verified viewer's token to the mailbox, and the mailbox records it in `~/.intafaced/beta/invited.json`;
+every invited person opens the mailbox for their sign-up code. Every 15 seconds `serve` runs one pass: an account whose
+address is a recorded token, or the token, a dot and more, at `local-test.invalid` has its pending Full (or Basic)
+request approved through the stack's two-person TEST door, and once it holds Full gets 1000 TEST USDT through the real
+ledger, once per account (a fixed ledger reference) and for at most 3 accounts per person
+(`~/.intafaced/beta/granted.json`). Any other account, uninvited or made on the box, gets nothing. The pass's lines are
+in `round.log`. Test, on the box: `node tooling/beta/beta-host.mjs invited-test --checkout ~/.intafaced/beta/checkout
+--watch`, run as below.
+
+**Approve or fund anyone else (an agent, on the box).** Run these under the user's systemd manager, as the stack runs.
 An agent's own shell may not read the stack's processes, and then the tools refuse with "not active".
 
 ```sh

@@ -18,6 +18,8 @@
  *   node tooling/beta/beta-host.mjs status    what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
+ *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
+ *                                             the journey-style test of invited testers (beta-invited.journey.mjs)
  *
  * What it keeps (AGENTS.md floor 1, 7 and 8):
  *   - It moves no money and posts nothing: the stack's own start readies it (TEST gates, TEST market maker, TEST
@@ -37,6 +39,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -72,6 +75,7 @@ export function betaPaths(home = os.homedir()) {
     status: path.join(root, 'status.json'),
     log: path.join(root, 'round.log'),
     screening: path.join(root, 'state', 'screening.local.json'),
+    ...invitedPaths(root),
     unit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta.service'),
   };
 }
@@ -239,7 +243,8 @@ ${body}
 </tbody></table></body></html>`;
 }
 
-function serveMailbox(paths) {
+/** The TEST mailbox page's server, on `port` (MAILBOX_PORT on the beta). */
+export function serveMailbox(paths, port = MAILBOX_PORT) {
   const server = http.createServer((req, res) => {
     let text = '';
     try {
@@ -249,6 +254,8 @@ function serveMailbox(paths) {
     // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
     // box's own loopback, without the header, every row.
     const viewer = req.headers['x-beta-viewer'];
+    // A viewer the front passed on came through Cloudflare Access, so is on the invite list (beta-invited.mjs).
+    if (viewer !== undefined && recordInvited(paths.invited, String(viewer))) log(paths, `mailbox: a new invited viewer, ${viewer}`);
     const rows = mailboxRows(text);
     res.end(
       mailboxPage(viewer === undefined ? rows : viewerRows(rows, String(viewer)), {
@@ -258,7 +265,7 @@ function serveMailbox(paths) {
     );
   });
   server.on('error', (err) => log(paths, `mailbox: ${err.message}`));
-  server.listen(MAILBOX_PORT, '127.0.0.1');
+  server.listen(port, '127.0.0.1');
   return server;
 }
 
@@ -438,11 +445,52 @@ const fileHash = (file) => {
   }
 };
 
+/** How often the invited testers' pass runs (beta-invited.mjs): a Full request is approved and funded within a minute. */
+const INVITED_EVERY_MS = 15_000;
+
+/**
+ * Whether the invited pass runs now: the stack is up, someone invited has opened the mailbox, and no pass is running.
+ * Idle (no invited viewer yet) it starts nothing.
+ */
+export const invitedPassDue = ({ state, invited, running }) => state === 'up' && invited > 0 && !running;
+
+/**
+ * One invited pass at a time, from the checkout's own copy, its lines in the round log; never longer than 2 minutes. A
+ * failed pass waits a minute before the next, so a stack that refuses fills the log once a minute, not every 15 s.
+ */
+export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-invited.mjs') } = {}) {
+  let running = false;
+  let nextAt = 0;
+  const tick = () => {
+    if (Date.now() < nextAt) return;
+    if (!invitedPassDue({ state: readJson(paths.status, {})?.state, invited: readInvited(paths.invited).size, running })) return;
+    running = true;
+    const out = fs.openSync(paths.log, 'a');
+    const args = [script, 'pass', '--root', paths.root, '--checkout', paths.checkout];
+    const child = spawn('node', args, { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
+    const timer = setTimeout(() => child.kill('SIGTERM'), 120_000);
+    let ended = false;
+    const end = (code) => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(timer);
+      fs.closeSync(out);
+      if (code !== 0) nextAt = Date.now() + 60_000;
+      running = false;
+    };
+    child.on('close', (code) => end(code ?? 1));
+    child.on('error', () => end(127));
+  };
+  const every = setInterval(tick, INVITED_EVERY_MS);
+  return () => clearInterval(every);
+}
+
 async function serve(paths) {
   const everyMin = Number(process.env.BETA_EVERY_MIN ?? 30);
   if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55) throw new Error('BETA_EVERY_MIN must be 5 to 55');
   const mine = fileHash(SELF);
   serveMailbox(paths);
+  invitedLoop(paths);
   for (;;) {
     try {
       await round(paths);
@@ -500,6 +548,8 @@ async function main(argv) {
     return;
   }
   if (cmd === 'stop') process.exit(await stopStack(paths));
+  // The journey-style test of the invited testers' approval and funds (#10243); it reads its own flags.
+  if (cmd === 'invited-test') return void (await import('./beta-invited.journey.mjs'));
   if (cmd === 'install') {
     if (process.platform !== 'linux') throw new Error('install writes a systemd user service: Linux only');
     const noCheckout = ensureCheckout(paths);
@@ -515,7 +565,7 @@ async function main(argv) {
     console.log(`installed ${paths.unit}; status: node tooling/beta/beta-host.mjs status`);
     return;
   }
-  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install');
+  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install | invited-test [--watch]');
   process.exit(2);
 }
 
