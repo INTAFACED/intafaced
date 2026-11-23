@@ -2446,6 +2446,42 @@ button.lt-tab {
   border-block-end: 1px solid var(--lit-line);
 }
 
+/* ---- a printable sheet: one document the reader prints on its own (a certificate) ---- */
+
+/* Centred and framed on screen; when the page is printed, only the sheet shows, as ink on paper. */
+.lt-print-sheet {
+  display: grid;
+  gap: var(--lit-gap-item);
+  justify-items: center;
+  text-align: center;
+  padding: var(--lit-gap-section) var(--lit-pad-panel);
+  border: 2px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.lt-print-sheet :is(h2, h3, p) {
+  margin: 0;
+}
+
+@media print {
+  body:has(.lt-print-sheet) * {
+    visibility: hidden !important;
+  }
+  .lt-print-sheet,
+  .lt-print-sheet * {
+    visibility: visible !important;
+  }
+  .lt-print-sheet {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    border-color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+    background: Canvas; /* look-drift-allow: print is ink on paper, the system's page colour whatever the scheme */
+    color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+  }
+}
+
 /* One record on one line: a leading mark, the record's lines taking the room, and its end part (a time, a mark) kept
    together at the end of the first line, never pushed under the words. */
 .lt-record-line {
