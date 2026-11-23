@@ -170,7 +170,8 @@ const unbuild = (pkg) => rmSync(join(pkg, 'node_modules', 'dep', 'dist'), { recu
 const real = (cwd) =>
   spawnSync(
     process.execPath,
-    [join(REPO, 'node_modules', ...(TSRS ? ['tsrs', 'bin', 'tsrs'] : ['typescript', 'bin', 'tsc'])), '-p', 'tsconfig.json', '--noEmit'],
+    // lib/tsc.js, not bin/tsc: the patched bin/tsc runs the wrapper, which would make the reference the wrapper itself.
+    [join(REPO, 'node_modules', ...(TSRS ? ['tsrs', 'bin', 'tsrs'] : ['typescript', 'lib', 'tsc.js'])), '-p', 'tsconfig.json', '--noEmit'],
     {
       cwd,
       encoding: 'utf8',
@@ -182,6 +183,15 @@ const sameAsReal = (pkg, label) => {
   assert.equal(got.status, want.status, label);
   return got;
 };
+
+test('the reference compiler is the plain one: it leaves no build-info, so the wrapper is never compared with itself', () => {
+  const pkg = depRepo();
+  build(pkg);
+  const r = real(pkg);
+  assert.equal(r.status, 0, r.stdout);
+  const cache = join(pkg, 'node_modules', '.cache', 'tsc');
+  assert.ok(!existsSync(cache) || readdirSync(cache).length === 0, 'real() went through tooling/scripts/tsc.mjs');
+});
 
 test('a check made before a dependency is built answers like the real compiler once it is built (20 Nov, #9253)', () => {
   const pkg = depRepo();
