@@ -170,6 +170,9 @@ export type VenueIntent =
   | { kind: 'schedule_cancel'; timeoutSec: number; time: null }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
+  // J-derivatives-06 #4: the margin top-up key approved on the person's own venue account, with no end date, under the
+  // business key svc-trade names for it (passed as the action key).
+  | { kind: 'approve_agent'; agentAddress: string; agentName: string; validUntil: null }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
   // The person's own sub-account (J-portfolio-04 #2): opened and moved into, each signed on the main account.
   | { kind: 'create_sub_account'; name: string; subAccountKey: string }

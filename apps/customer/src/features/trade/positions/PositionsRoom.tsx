@@ -37,6 +37,7 @@ import {
   totalsOf,
 } from './positions-math';
 import { positionsCopy } from './positions-copy';
+import { AutoTopUp } from './AutoTopUp';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
 
 /**
@@ -802,6 +803,17 @@ function IsolatedMargin({
             liquidation: after.liquidationPrice.known ? after.liquidationPrice.value : '—',
           })}
         </p>
+      ) : null}
+      {p.marginMode === 'isolated' ? (
+        <AutoTopUp
+          row={row}
+          owner={owner}
+          run={run}
+          onDone={() => {
+            read.reload();
+            onDone();
+          }}
+        />
       ) : null}
       <Button tone="secondary" onClick={onClose}>
         {t('close')}
