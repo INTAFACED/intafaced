@@ -244,9 +244,13 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   // Performance with its stated basis: the service reports none, so no figure is drawn.
   expect(read.performance).toEqual({ reported: false });
   const performance = main.getByRole('region', { name: 'Performance' });
-  await expect(performance).toContainText('No performance reported.');
-  await expect(performance).toContainText(/Basis:/);
-  await expect(performance).not.toContainText(/%|\d+\.\d+/);
+  // The region is its heading, the none line and the stated basis, word for word, and no figure anywhere in it.
+  await expect(performance.getByRole('heading', { level: 3 })).toHaveText('Performance');
+  await expect(performance.locator('p')).toHaveText([
+    'No performance reported.',
+    'Basis: this listing names no copy leader, bot or signal, so there is no record to measure. Nothing in the Market is ranked by returns.',
+  ]);
+  await expect(performance).not.toContainText(/%|\d/);
 
   // An unknown id: the service's typed not-found, and the page says so, never a blank page.
   const unknown = '00000000-0000-4000-8000-000000000000';
