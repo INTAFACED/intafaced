@@ -441,7 +441,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
           </EnginePanel>
           <p role="note">{t('sortNote')}</p>
           {/* The passes are sample rows the person filters and sorts here, so they stay readable; only the engine's output is blurred. */}
-          <div data-testid="optimise-passes">
+          <div data-testid="optimise-passes" className="lt-table-scroll">
             <table aria-label={t('passes')} className="lt-table">
               <thead>
                 <tr>
