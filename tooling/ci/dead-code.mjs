@@ -14,12 +14,16 @@
  * Usage (from the repo root):
  *   node tooling/ci/dead-code.mjs           run knip, compare with the baseline, exit 1 on a new finding
  *   node tooling/ci/dead-code.mjs --write   also delete the baseline rows knip no longer finds (never adds one)
- *   node tooling/ci/dead-code.mjs --cache   knip keeps its cache in node_modules/.cache/knip (the pre-push run, 8 s warm
- *                                           against 35 s cold on the box, 23 Nov); CI runs without it
+ *   node tooling/ci/dead-code.mjs --cache   knip keeps its cache in node_modules/.cache/knip (the pre-push run, 4 to 8 s
+ *                                           warm against 25 to 45 s cold on the box, 23 Nov); CI runs without it. A new
+ *                                           finding is judged again on a fresh cache before it fails: knip's cache keeps a
+ *                                           file's resolved imports while the file is unchanged, so an import whose target
+ *                                           came back after a checkout reads as unresolved and its exports as dead
+ *                                           (LoanDetail.tsx's two, checking out 55f82e29a after 5660af1ae, 23 Nov)
  * Its test, dead-code.test.mjs, plants each fault.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -96,8 +100,14 @@ function main() {
     process.exit(1);
   }
 
-  const found = findingsOf(runKnip(root, process.argv.includes('--cache')));
+  const cache = process.argv.includes('--cache');
   const baseline = JSON.parse(readFileSync(join(root, BASELINE), 'utf8'));
+  let found = findingsOf(runKnip(root, cache));
+  if (cache && compare(found, baseline).added.length) {
+    console.log('  dead code: a new finding on the cache; judged again on a fresh one');
+    rmSync(join(root, 'node_modules', '.cache', 'knip'), { recursive: true, force: true });
+    found = findingsOf(runKnip(root, true));
+  }
   const { added, gone } = compare(found, baseline);
 
   if (gone.length) {
