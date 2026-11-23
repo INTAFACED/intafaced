@@ -31,7 +31,7 @@ import {
 // TEST venue (svc-trade's user-venue door, switched on for this file); the partner is the stack's TEST partner bank, its
 // custody off, so it holds the spending money itself; the recipient of #5 is a second TEST wallet. Every signed action is
 // the customer's own, signed in the TEST wallet; each figure the app shows is read from its own source at the same
-// moment and kept, and #8 holds every one of them to its source. The ledger posts only our builder fee on the sale's fill.
+// moment and kept, and #8 holds every one of them to its source. The ledger posts only our builder fee on each sale's fill.
 const J = 'J-ops-console-27';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const SPOT = 'BTC-USDC';
@@ -42,7 +42,7 @@ const DEPOSIT = '100';
 const VENUE_FUNDING = '100';
 const BUY = '0.001';
 const SELL = '0.0005';
-/** TEST: the part of what is left that #8's planted break sells. */
+/** TEST: what #8's planted break sells, put on the venue account by the TEST venue's deposit control (#7 left less than one lot of it, which no order can sell). */
 const BREAK_SELL = '0.0002';
 /** What #5 pays the recipient, and what #6 moves from the venue to spending: TEST figures. */
 const PAY = '25';
@@ -250,6 +250,82 @@ async function placeOnDesk(page, wallet, side, price, amount) {
   return { review, intent, preview: (await preview.json()).value };
 }
 
+/**
+ * The venue's own record of this account's one order on `side` placed since `since`, once it has filled `amount` whole:
+ * its fills. The account is this run's own, so its only order on that side placed since then is the one just signed.
+ */
+async function filledOnVenue(side, since, amount) {
+  const { owner } = state();
+  let fills = [];
+  await expect
+    .poll(
+      async () => {
+        const orders = (await venueRecord(owner, '/order-history')).value.filter(
+          (r) => r.order.side === side && new Date(r.placedAt) >= since,
+        );
+        if (orders.length !== 1) return `orders ${orders.length}`;
+        fills = await fillsOf(orders[0].order.venueClientOrderId, since);
+        return fromUnits(fills.reduce((s, f) => s + toUnits(f.amount), 0n));
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(fromUnits(toUnits(amount)));
+  return fills;
+}
+
+/**
+ * Each of the venue's fills on the desk's own fills table: its price, amount, venue fee and builder fee, shown as the
+ * venue reports them, and kept for #8.
+ */
+async function fillsShownAsVenue(page, step, fills) {
+  await page
+    .locator('[role=tab]', { hasText: /^(Order history|Trade history|Fills)$/ })
+    .first()
+    .click();
+  const history = page.getByTestId('venue-fills');
+  for (const f of fills) {
+    const row = history.locator(`tr[data-fill="${f.fillId}"]`);
+    await expect(row).toHaveCount(1, { timeout: 20_000 });
+    const heads = (await row.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
+    const cells = await row.locator('td').allInnerTexts();
+    const col = (name) => {
+      const i = heads.findIndex((h) => name.test(h));
+      expect(i, `${name} in ${heads.join(' | ')}`).toBeGreaterThanOrEqual(0);
+      return cells[i];
+    };
+    expect(shownUnits(col(/^Price$/)), `${f.fillId} price`).toBe(toUnits(f.price));
+    await expect
+      .poll(async () => shownUnits(await row.locator('[data-cell="amount"]').innerText()), `${f.fillId} amount`)
+      .toBe(toUnits(f.amount));
+    expect(shownUnits(col(/venue.?s fee|^Fee$/i)), `${f.fillId} venue fee`).toBe(toUnits(f.venueFee));
+    keepShown(step, `fill ${f.fillId} venue fee, from the venue`, fromUnits(shownUnits(col(/venue.?s fee|^Fee$/i))), f.venueFee);
+    const builder = col(/builder fee/i);
+    if (toUnits(f.builderFee) === 0n) expect(builder).toMatch(/none|^0(\.0+)?/i);
+    else {
+      expect(shownUnits(builder), `${f.fillId} builder fee`).toBe(toUnits(f.builderFee));
+      keepShown(step, `fill ${f.fillId} builder fee, from the venue`, fromUnits(shownUnits(builder)), f.builderFee);
+    }
+  }
+}
+
+/** The ledger's builder fee for each of a sale's fills: booked once, under the fill's own key, equal to the venue's. */
+async function builderFeeBookedOnce(venueId, fills) {
+  const { owner } = state();
+  for (const f of fills) {
+    await expect.poll(async () => (await builderFeeTrace(venueId, owner, f.fillId)).found, { timeout: 60_000 }).toBe(true);
+    const booked = bookedFee(await builderFeeTrace(venueId, owner, f.fillId));
+    expect(booked.asset).toBe(f.feeAsset);
+    expect(dec(booked.amount), `the ledger's builder fee for ${f.fillId} is the venue's`).toBe(dec(f.builderFee));
+  }
+}
+
+/** What the desk's withdrawal line shows under one of its labels (its amount, its fee). */
+const withdrawalFact = (line, label) =>
+  line
+    .locator('div', { has: line.page().locator('dt', { hasText: label }) })
+    .locator('dd')
+    .first();
+
 // ---- Home: Spendable now and the partner's pay-in ----
 
 async function toHome(page) {
@@ -385,7 +461,19 @@ test(`${J} #1 signs up as a fresh customer: a new signed-in account; INTAFACED h
   await stepPicture();
   await page.keyboard.press('Escape');
   // INTAFACED holds nothing for it: the ledger lists no balance for the customer, or only zeros.
-  await ledgerHoldsNothing('a new account');
+  const ledger = await ledgerHoldsNothing('a new account');
+  // And no money of the account's sits anywhere INTAFACED could be holding it: read from the sources themselves, the
+  // venue's own record of the account (its TEST wallet's, which it connects in #3) lists nothing above zero in any asset,
+  // dated by the venue, and the chain reads that wallet empty of TEST USD. The app's figure for the customer, the ledger's
+  // balances above, is that same nothing: every asset it lists is 0 at the venue too.
+  const { owner } = state();
+  const atVenue = await venueRecord(owner, '/balances');
+  expect(Date.parse(atVenue.asOf), 'the venue dates its read').not.toBeNaN();
+  for (const b of atVenue.value) expect(toUnits(b.total), `the venue holds no ${b.asset} for the new account`).toBe(0n);
+  for (const asset of Object.keys(ledger))
+    expect(toUnits((await venueBalance(owner, asset)).total), `${asset}: the venue's figure equals the app's 0`).toBe(0n);
+  expect(toUnits((await venueBalance(owner, 'USDC')).total), 'the venue holds no USDC for the new account').toBe(0n);
+  expect(await chainBalance(TOKEN_USD.address, owner), 'the new wallet holds no TEST USD on the chain').toBe(0n);
 });
 
 test(`${J} #2 passes TEST verification: the account reads as fully verified, and the app stops asking to verify`, async ({ page }) => {
@@ -504,21 +592,7 @@ test(`${J} #4 buys on the desk, then sells part of it back: one signature and on
     await continueInWallet(page);
     await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(beforeBuy + 1);
     expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
-    let buyFills = [];
-    await expect
-      .poll(
-        async () => {
-          // The account is this run's own, so its only order on this side placed since then is this one.
-          const orders = (await venueRecord(owner, '/order-history')).value.filter(
-            (r) => r.order.side === 'buy' && new Date(r.placedAt) >= buySince,
-          );
-          if (orders.length !== 1) return `orders ${orders.length}`;
-          buyFills = await fillsOf(orders[0].order.venueClientOrderId, buySince);
-          return fromUnits(buyFills.reduce((s, f) => s + toUnits(f.amount), 0n));
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(fromUnits(toUnits(BUY)));
+    const buyFills = await filledOnVenue('buy', buySince, BUY);
     for (const f of buyFills) {
       expect(f.side).toBe('buy');
       expect(toUnits(f.builderFee), 'no builder fee on a spot buy').toBe(0n);
@@ -544,21 +618,7 @@ test(`${J} #4 buys on the desk, then sells part of it back: one signature and on
     await continueInWallet(page);
     await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(beforeSell + 1);
     expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
-    let sellFills = [];
-    await expect
-      .poll(
-        async () => {
-          // The account is this run's own, so its only order on this side placed since then is this one.
-          const orders = (await venueRecord(owner, '/order-history')).value.filter(
-            (r) => r.order.side === 'sell' && new Date(r.placedAt) >= sellSince,
-          );
-          if (orders.length !== 1) return `orders ${orders.length}`;
-          sellFills = await fillsOf(orders[0].order.venueClientOrderId, sellSince);
-          return fromUnits(sellFills.reduce((s, f) => s + toUnits(f.amount), 0n));
-        },
-        { timeout: 30_000 },
-      )
-      .toBe(fromUnits(toUnits(SELL)));
+    const sellFills = await filledOnVenue('sell', sellSince, SELL);
     for (const f of sellFills) {
       expect(f.side).toBe('sell');
       expect(toUnits(f.builderFee) > 0n, 'the sale carries our builder fee').toBe(true);
@@ -566,43 +626,11 @@ test(`${J} #4 buys on the desk, then sells part of it back: one signature and on
 
     // Each fill and its fees, shown on the desk as the venue reports them.
     await venueDesk(page, { signedIn: true, wallet });
-    await page
-      .locator('[role=tab]', { hasText: /^(Order history|Trade history|Fills)$/ })
-      .first()
-      .click();
-    const history = page.getByTestId('venue-fills');
-    for (const f of [...buyFills, ...sellFills]) {
-      const row = history.locator(`tr[data-fill="${f.fillId}"]`);
-      await expect(row).toHaveCount(1, { timeout: 20_000 });
-      const heads = (await row.locator('xpath=ancestor::table//th').allInnerTexts()).map((h) => h.trim());
-      const cells = await row.locator('td').allInnerTexts();
-      const col = (name) => {
-        const i = heads.findIndex((h) => name.test(h));
-        expect(i, `${name} in ${heads.join(' | ')}`).toBeGreaterThanOrEqual(0);
-        return cells[i];
-      };
-      expect(shownUnits(col(/^Price$/)), `${f.fillId} price`).toBe(toUnits(f.price));
-      await expect
-        .poll(async () => shownUnits(await row.locator('[data-cell="amount"]').innerText()), `${f.fillId} amount`)
-        .toBe(toUnits(f.amount));
-      expect(shownUnits(col(/venue.?s fee|^Fee$/i)), `${f.fillId} venue fee`).toBe(toUnits(f.venueFee));
-      keepShown(4, `fill ${f.fillId} venue fee, from the venue`, fromUnits(shownUnits(col(/venue.?s fee|^Fee$/i))), f.venueFee);
-      const builder = col(/builder fee/i);
-      if (toUnits(f.builderFee) === 0n) expect(builder).toMatch(/none|^0(\.0+)?/i);
-      else {
-        expect(shownUnits(builder), `${f.fillId} builder fee`).toBe(toUnits(f.builderFee));
-        keepShown(4, `fill ${f.fillId} builder fee, from the venue`, fromUnits(shownUnits(builder)), f.builderFee);
-      }
-    }
+    await fillsShownAsVenue(page, 4, [...buyFills, ...sellFills]);
     await panelEqualsVenue(page, 4);
 
     // The ledger: our builder fee for each of the sale's fills, booked once under its fill's own key, equal to the venue's.
-    for (const f of sellFills) {
-      await expect.poll(async () => (await builderFeeTrace(venueId, owner, f.fillId)).found, { timeout: 60_000 }).toBe(true);
-      const booked = bookedFee(await builderFeeTrace(venueId, owner, f.fillId));
-      expect(booked.asset).toBe(f.feeAsset);
-      expect(dec(booked.amount), `the ledger's builder fee for ${f.fillId} is the venue's`).toBe(dec(f.builderFee));
-    }
+    await builderFeeBookedOnce(venueId, sellFills);
     // Nothing for the buy: no builder fee was charged, so none was booked (the poster has run past it: the sale is booked).
     for (const f of buyFills) expect((await builderFeeTrace(venueId, owner, f.fillId)).found, `${f.fillId} booked nothing`).toBe(false);
     // Nothing on the ledger for the customer.
@@ -644,8 +672,9 @@ test(`${J} #5 pays a person: one send signed by the customer's wallet to the rec
   await ledgerHoldsNothing('after the send');
 });
 
-test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet, then a signed send to the TEST partner account; each leg sent once and read back from its source with its fee or "not known"; trading and spending each shown as their source reports, never added into one INTAFACED balance`, async ({
+test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet, then a signed send to the TEST partner account; each leg sent once and read back from its source with its fee or "not known"; trading and spending each shown as their source reports; a total is a sum with every part's source named, never shown as a balance INTAFACED holds`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const { owner, userId } = state();
@@ -686,11 +715,16 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
   expect(w).toMatchObject({ asset: 'USDC', status: 'done', destination: owner });
   expect(toUnits(w.amount)).toBe(toUnits(PROFIT));
   expect(w.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+  // Its amount, shown as the venue's own record of the withdrawal has it.
+  await expect.poll(async () => shownUnits(await withdrawalFact(shown, /^Amount$/).innerText())).toBe(toUnits(w.amount));
+  keepShown(
+    6,
+    'venue withdrawal amount, from the venue',
+    fromUnits(shownUnits(await withdrawalFact(shown, /^Amount$/).innerText())),
+    w.amount,
+  );
   // Its fee, from the venue, shown or "not known".
-  const fee = shown
-    .locator('div', { has: page.locator('dt', { hasText: /fee/i }) })
-    .locator('dd')
-    .first();
+  const fee = withdrawalFact(shown, /fee/i);
   if (w.fee.known) {
     await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
     keepShown(6, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
@@ -757,43 +791,175 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     .poll(async () => sameDecimal(await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free), { timeout: 30_000 })
     .toBe(true);
   keepShown(6, 'trading on the venue on Home, from the venue', await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free);
-  // Never one INTAFACED balance: Home's estimated value is made only of the three outside sources, each named with its own
-  // source and no part of INTAFACED's own; and in Spendable now, trading (the venue) and spending (the partner) are each
-  // their own line with their own source, apart from the wallet's.
-  const standingParts = page.getByTestId('home-standing').getByTestId('standing-part');
-  expect((await standingParts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-part')))).sort()).toEqual([
-    'partner',
-    'venue',
-    'wallet',
-  ]);
-  for (const row of await standingParts.all()) await expect(row.getByTestId('standing-part-source')).not.toBeEmpty();
+  // The wallet's own part, as the chain holds it now.
+  const walletRow = part(page, 'wallet');
+  await expect(walletRow.locator('[data-part-source]')).toContainText('read from the chain, as of');
+  const walletNow = usd(await chainBalance(TOKEN_USD.address, owner));
+  await expect
+    .poll(async () => sameDecimal(await amountOf(walletRow.locator('[data-part-amount]')), walletNow), { timeout: 30_000 })
+    .toBe(true);
+  keepShown(6, 'stablecoins in the wallet on Home, from the chain', await amountOf(walletRow.locator('[data-part-amount]')), walletNow);
+  // The total is a sum, and only that: Spendable now has exactly the three outside parts, each named as its own source's
+  // account and carrying that source's own words and time, and the one total it shows is those three figures added up,
+  // which are the partner's, the venue's and the chain's own figures read above.
   const parts = page.getByTestId('spendable-now').locator('li[data-spendable]');
   expect((await parts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-spendable')))).sort()).toEqual([
     'partner',
     'venue',
     'wallet',
   ]);
-  await expect(part(page, 'wallet').locator('[data-part-source]')).toContainText('read from the chain');
+  await expect(venueRow.locator('[data-part-name]')).toHaveText(`Withdrawable on ${(await venueInfo()).displayName}`);
+  await expect(partnerRow.locator('[data-part-name]')).toHaveText(/^At \S/);
+  await expect(walletRow.locator('[data-part-name]')).toHaveText('Stablecoins in your wallet');
+  for (const row of [partnerRow, venueRow, walletRow])
+    await expect(row.locator('[data-part-source] time')).toHaveAttribute('dateTime', /^\d{4}-\d\d-\d\dT/);
+  const sourcesTotal = fromUnits(toUnits(move.amount) + toUnits(venueNow.free) + toUnits(walletNow));
+  await expect(async () => {
+    const shownParts = [];
+    for (const row of [partnerRow, venueRow, walletRow]) shownParts.push(toUnits(await amountOf(row.locator('[data-part-amount]'))));
+    const shownTotal = toUnits(await amountOf(page.getByTestId('spendable-total')));
+    expect(shownTotal, 'the total shown is the three parts shown, added up').toBe(shownParts.reduce((sum, one) => sum + one, 0n));
+    expect(shownTotal, 'and the three sources’ own figures, added up').toBe(toUnits(sourcesTotal));
+  }).toPass({ timeout: 30_000 });
+  keepShown(
+    6,
+    'Spendable now total on Home, from the partner, the venue and the chain added up',
+    await amountOf(page.getByTestId('spendable-total')),
+    sourcesTotal,
+  );
+  // Never a balance INTAFACED holds: the total's own line is the figure and its unit alone, under the block's note that
+  // names the three places it comes from (the partner, the venue, the wallet), and nothing in either block names INTAFACED;
+  // Where you stand is made only of the same three outside sources, each naming its own source; its total, when it shows
+  // one, is its valued parts added up and rounded to the cent, and it shows none when no part is valued. The ledger holds
+  // nothing for the customer (below).
+  await expect(page.getByTestId('spendable-total')).toHaveText(/^\d[\d,]*(\.\d+)? USD$/);
+  await expect(page.getByTestId('spendable-now')).toContainText(
+    'Only money that is yours to spend today: your partner balance, what the venue lets you withdraw, and stablecoins in your wallet.',
+  );
+  await expect(page.getByTestId('spendable-now')).not.toContainText(/INTAFACED/i);
+  for (const id of ['standing-figure', 'standing-parts'])
+    await expect(page.getByTestId('home-standing').getByTestId(id)).not.toContainText(/INTAFACED/i);
+  const standing = page.getByTestId('home-standing');
+  const standingParts = standing.getByTestId('standing-part');
+  expect((await standingParts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-part')))).sort()).toEqual([
+    'partner',
+    'venue',
+    'wallet',
+  ]);
+  for (const row of await standingParts.all()) await expect(row.getByTestId('standing-part-source')).not.toBeEmpty();
+  await expect(standing.locator('[data-testid="standing-part"][data-part="venue"]').getByTestId('standing-part-source')).toHaveText(
+    'the venue’s own figures',
+  );
+  await expect(standing.locator('[data-testid="standing-part"][data-part="partner"]').getByTestId('standing-part-source')).toHaveText(
+    'the partner’s own figures',
+  );
+  await expect(standing.locator('[data-testid="standing-part"][data-part="wallet"]').getByTestId('standing-part-source')).toHaveText(
+    'read from the chain',
+  );
+  await expect(async () => {
+    const values = (await standingParts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-value-usd')))).filter(Boolean);
+    const cent = 10n ** 16n;
+    const sum = values.reduce((total, one) => total + toUnits(one), 0n);
+    const expected = values.length ? fromUnits(((sum + cent / 2n) / cent) * cent) : null;
+    const total = await standing.getByTestId('standing-figure').getAttribute('data-total-usd');
+    expect(total ? fromUnits(toUnits(total)) : null, 'Where you stand: the total is its valued parts added up').toBe(expected);
+  }).toPass({ timeout: 30_000 });
+  // The picture: Home, with Where you stand and Spendable now, each part with its source, and the partner's credit.
+  await page.getByTestId('spendable-now').scrollIntoViewIfNeeded();
+  await stepPicture(page);
   await ledgerHoldsNothing('after moving profit to spending');
 });
 
-test(`${J} #7 withdraws what is left on the venue to the TEST wallet: the wallet signs one venue withdrawal; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty; the ledger records nothing`, async ({
+test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is left on the venue to the TEST wallet: one signature and one venue order for the sale; its fill and fee as the venue reports them; our builder fee for the sale's fill on the ledger once, equal to the venue's; then the wallet signs one venue withdrawal of all the USDC; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty in every asset but the coin under one lot and the USDC under one unit of the token it pays out in; the ledger records nothing for the customer`, async ({
   page,
   stepPicture,
 }) => {
-  test.setTimeout(300_000);
-  const { owner } = state();
+  test.setTimeout(600_000);
+  const { owner, sellFills: earlierSales } = state();
+  if (!earlierSales?.length) throw new Error(`${J} #4 kept no sale, so there is no coin left of it to sell`);
+  const { id: venueId } = await venueInfo();
+  const ledgerBefore = await ledgerHoldsNothing('before the last sale');
+
+  // What is left of the coin, as the venue reports it: #4's buy less the venue's fee on it (taken in the coin) and less
+  // #4's sale. An order sells whole lots of the venue's own lot size, so the sale is every whole lot of it.
+  const coin = await venueBalance(owner, 'BTC');
+  expect(toUnits(coin.locked), 'none of the coin is locked behind an order').toBe(0n);
+  const market = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === SPOT);
+  const lot = toUnits(market.lotSize);
+  const saleUnits = (toUnits(coin.free) / lot) * lot;
+  expect(saleUnits > 0n, `the venue holds ${coin.free} BTC, at least one lot of ${market.lotSize}`).toBe(true);
+  const sale = fromUnits(saleUnits);
+  // A TEST buyer of this file's own rests the sale's size, so the order meets its whole size; taken off again after.
+  const buyer = `${J}-last-buyer-${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '1000', `seed:${buyer}:${owner}:USDC`);
+  const rested = await otherTraderRun(buyer, {
+    kind: 'place_order',
+    symbol: SPOT,
+    side: 'buy',
+    type: 'limit',
+    amount: sale,
+    price: BUYER_BID,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${buyer}:${owner}`,
+    builderFee: null,
+  });
+  expect(rested, JSON.stringify(rested).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  let wallet;
+  let lastSale = [];
+  try {
+    await signInNow(page);
+    ({ wallet } = await venueDesk(page, { signedIn: true }));
+    // The sale: one signature asked, one venue order. Our builder fee was approved in #4, so nothing else is signed.
+    const since = new Date(Date.now() - 1_000);
+    const askedBefore = wallet.requests.length;
+    const sell = await placeOnDesk(page, wallet, 'sell', BUYER_BID, sale);
+    expect(toUnits(sell.preview.builderFee.value.amount) > 0n, 'a spot sell carries our builder fee').toBe(true);
+    await expect(reviewSheet(page).getByRole('button', { name: 'Confirm sell', exact: true })).toBeEnabled({ timeout: 20_000 });
+    await confirm(page, 'sell');
+    await continueInWallet(page);
+    await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(askedBefore + 1);
+    expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+    lastSale = await filledOnVenue('sell', since, sale);
+    for (const f of lastSale) {
+      expect(f.side).toBe('sell');
+      expect(toUnits(f.builderFee) > 0n, 'the sale carries our builder fee').toBe(true);
+    }
+    expect(wallet.requests.length, 'one signature was asked for the sale').toBe(askedBefore + 1);
+    // Its fill and its fees, shown on the desk as the venue reports them.
+    await venueDesk(page, { signedIn: true, wallet });
+    await fillsShownAsVenue(page, 7, lastSale);
+    await panelEqualsVenue(page, 7);
+    // The ledger: our builder fee for the sale's fill, booked once under the fill's own key, equal to the venue's; and
+    // nothing for the customer.
+    await builderFeeBookedOnce(venueId, lastSale);
+    expect(await (await door()).balances()).toEqual(ledgerBefore);
+    run.write({ sellFills: [...earlierSales, ...lastSale] });
+  } finally {
+    await takeBack(buyer, `order:${buyer}:${owner}`).catch(() => undefined);
+  }
+
+  // Less than one lot of the coin is left, which no order can sell and no withdrawal moves: it stays on the venue, and
+  // is read back exactly at the end.
+  const dust = await venueBalance(owner, 'BTC');
+  const dustUnits = toUnits(coin.total) - saleUnits;
+  expect(toUnits(dust.total), 'what is left of the coin after the sale').toBe(dustUnits);
+  expect(dustUnits < lot, `${dust.total} BTC is under one lot of ${market.lotSize}`).toBe(true);
+  const usdcUnit = 10n ** (18n - BigInt(TOKEN_USD.decimals));
   const before = await venueBalance(owner, 'USDC');
   expect(toUnits(before.locked), 'nothing is locked behind an order').toBe(0n);
-  // What is left: the venue's free USDC less the withdrawal fee the venue publishes for it.
+
+  // All the USDC: the venue's free USDC less the withdrawal fee the venue publishes for it, in whole units of the USDC
+  // token it pays out in (the form takes no finer amount). The venue keeps its fees finer than that unit, so what is left
+  // under one unit stays on the venue: it is read below, exactly.
   const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
   const published = terms.fee.known ? toUnits(terms.fee.value) : null;
-  const leftUnits = toUnits(before.free) - (published ?? 0n);
+  const leftUnits = ((toUnits(before.free) - (published ?? 0n)) / usdcUnit) * usdcUnit;
+  const underUnit = toUnits(before.free) - (published ?? 0n) - leftUnits;
   expect(leftUnits > 0n, `free ${before.free} covers the fee ${published === null ? 'not known' : fromUnits(published)}`).toBe(true);
   const left = fromUnits(leftUnits);
   const walletBefore = await chainBalance(TOKEN_USD.address, owner);
-  await signInNow(page);
-  const { wallet, panel } = await venueDesk(page, { signedIn: true });
+  const { panel } = await venueDesk(page, { signedIn: true, wallet });
   const asked = wallet.requests.length;
   await panel.getByRole('button', { name: /^Withdraw/ }).click();
   const form = page.getByRole('dialog', { name: /withdraw/i });
@@ -818,14 +984,19 @@ test(`${J} #7 withdraws what is left on the venue to the TEST wallet: the wallet
   expect(w).toMatchObject({ asset: 'USDC', status: 'done', destination: owner });
   // Its amount and the venue's fee, from the venue, as the app shows them.
   expect(toUnits(w.amount)).toBe(leftUnits);
-  const fee = shown
-    .locator('div', { has: page.locator('dt', { hasText: /fee/i }) })
-    .locator('dd')
-    .first();
+  await expect.poll(async () => shownUnits(await withdrawalFact(shown, /^Amount$/).innerText())).toBe(toUnits(w.amount));
+  keepShown(
+    7,
+    'venue withdrawal amount, from the venue',
+    fromUnits(shownUnits(await withdrawalFact(shown, /^Amount$/).innerText())),
+    w.amount,
+  );
+  const fee = withdrawalFact(shown, /fee/i);
   if (w.fee.known) {
     await expect.poll(async () => shownUnits(await fee.innerText())).toBe(toUnits(w.fee.value));
     keepShown(7, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
   } else await expect(fee).toHaveText(/not known/i);
+  expect(wallet.requests.length, 'the withdrawal was signed once').toBe(asked + 1);
   // And from the chain: the transfer the venue paid out landed in the wallet.
   // The venue's payout is one TEST USD transfer to the wallet in the transaction it names; the wallet rose by exactly it,
   // and by the amount less the venue's network fee when the venue reports that fee.
@@ -843,15 +1014,44 @@ test(`${J} #7 withdraws what is left on the venue to the TEST wallet: the wallet
   expect(arrived, 'the wallet rose by exactly the payout').toBe(paidOut);
   if (w.networkFee?.known) expect(paidOut).toBe(leftUnits / 10n ** 12n - toUnits(w.networkFee.value) / 10n ** 12n);
   else expect(paidOut <= leftUnits / 10n ** 12n, 'the payout is never more than the withdrawal').toBe(true);
-  // The venue account reads empty: no USDC left on it, and the desk shows the venue's own figures.
-  const after = await venueBalance(owner, 'USDC');
-  expect(toUnits(after.total), 'the venue account holds no USDC').toBe(0n);
+  // The venue account reads empty in every asset but what no order or withdrawal can move: the venue's own record lists
+  // nothing locked, exactly the coin under one lot that the sale left, and exactly the USDC under one unit of the token it
+  // pays out in that the withdrawal left; the desk shows the venue's own USDC figures.
+  expect(underUnit >= 0n && underUnit < usdcUnit, `${fromUnits(underUnit)} USDC is under one unit of the payout token`).toBe(true);
+  const every = (await venueRecord(owner, '/balances')).value;
+  expect(
+    every.map((b) => b.asset),
+    'the venue lists the two assets the loop used',
+  ).toEqual(expect.arrayContaining(['BTC', 'USDC']));
+  for (const b of every) {
+    const kept = b.asset === 'USDC' ? underUnit : b.asset === 'BTC' ? dustUnits : 0n;
+    expect(toUnits(b.free), `the venue account's free ${b.asset}`).toBe(kept);
+    expect(toUnits(b.locked), `the venue account holds no locked ${b.asset}`).toBe(0n);
+    expect(toUnits(b.total), `the venue account's ${b.asset}`).toBe(kept);
+  }
   await panelEqualsVenue(page, 7);
-  // The picture from the top of the page, so the bar that stays at the top covers nothing of the panel.
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
+  // And Home reads the venue account in the venue's own name and time; what the venue lets the customer withdraw is the
+  // venue's own figure, the USDC under one payout unit.
+  await toHome(page);
+  const venuePart = page.getByTestId('home-standing').locator('[data-testid="standing-part"][data-part="venue"]');
+  await expect(venuePart).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
+  await expect(venuePart.getByTestId('standing-part-source')).toHaveText('the venue’s own figures');
+  await expect(venuePart.getByTestId('standing-part-as-of')).toHaveAttribute('datetime', /\d{4}-\d\d-\d\dT/);
+  const withdrawable = part(page, 'venue');
+  await expect(withdrawable.locator('[data-part-source]')).toContainText('the venue’s own figure, as of');
+  const venueEnd = await venueBalance(owner, 'USDC');
+  expect(toUnits(venueEnd.free), 'the venue lets the customer withdraw only what is under one unit').toBe(underUnit);
+  await expect
+    .poll(async () => sameDecimal(await amountOf(withdrawable.locator('[data-part-amount]')), venueEnd.free), { timeout: 30_000 })
+    .toBe(true);
+  keepShown(
+    7,
+    'withdrawable on the venue on Home, from the venue',
+    await amountOf(withdrawable.locator('[data-part-amount]')),
+    venueEnd.free,
+  );
+  // The picture: Home, where the venue account reads what is left under one lot and one payout unit, in the venue’s own name and time.
+  await venuePart.scrollIntoViewIfNeeded();
   await stepPicture(page);
   await ledgerHoldsNothing('after the last withdrawal');
 });
@@ -861,15 +1061,25 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
   stepPicture,
 }) => {
   test.setTimeout(480_000);
-  const { owner, sellFills, loopFrom, shown = [], userId } = state();
+  const { owner, sellFills, loopFrom, shown = [], userId, planted = [] } = state();
   if (!sellFills?.length || !loopFrom) throw new Error(`${J} #4 kept no sale, so the loop has nothing of ours to reconcile`);
   const { id: venueId } = await venueInfo();
   const from = new Date(loopFrom);
   const to = new Date(Date.now() + 10 * 60_000);
 
-  // The ledger's own records for the loop: our builder fee on the sale's fill, and nothing for the customer.
+  // What the venue reports for the loop now, read from its own record: every sale of this account since the loop began,
+  // each with our builder fee. They are the fills #4 and #7 kept, fee for fee, and no other (a fill this step's own
+  // planted break made on an earlier try is this step's, not the loop's).
+  const venueSales = (await venueRecord(owner, '/fills', { since: from.toISOString() })).value.filter(
+    (f) => f.side === 'sell' && !planted.includes(f.fillId),
+  );
+  expect(venueSales.map((f) => [f.fillId, dec(f.builderFee)]).sort()).toEqual(sellFills.map((f) => [f.fillId, dec(f.builderFee)]).sort());
+  expect(venueSales.length, 'the loop sold twice: part of the coin in #4, what was left in #7').toBeGreaterThanOrEqual(2);
+  for (const f of venueSales) expect(toUnits(f.builderFee) > 0n, `${f.fillId} carries our builder fee`).toBe(true);
+  // The ledger's own records for the loop: our builder fee on each sale's fill, equal to the venue's, and nothing for the
+  // customer.
   await ledgerHoldsNothing('at the reconciliation');
-  for (const f of sellFills) expect(dec(bookedFee(await builderFeeTrace(venueId, owner, f.fillId)).amount)).toBe(dec(f.builderFee));
+  for (const f of venueSales) expect(dec(bookedFee(await builderFeeTrace(venueId, owner, f.fillId)).amount)).toBe(dec(f.builderFee));
   // Any fee of ours on the send: none, so the partner's record of the customer carries no move of ours, only their pay-ins.
   const moves = await partnerMoves(userId);
   expect(
@@ -903,7 +1113,7 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
   const venue = await open();
   await expect(venue).toHaveAttribute('data-state', 'green');
   await expect(venue.getByTestId('builder-fee-verdict')).toContainText('Green: every builder fee the venue reports matches the ledger.');
-  for (const f of sellFills) {
+  for (const f of venueSales) {
     const row = venue.getByTestId('builder-fee-lines').locator(`tr[data-fill-id="${f.fillId}"]`);
     await expect(row).toHaveAttribute('data-state', 'matched');
     const cells = row.locator('td');
@@ -917,10 +1127,11 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
     expect(shown.filter((s) => s.step === step).length, `#${step} kept what it showed`).toBeGreaterThan(0);
   for (const s of shown) expect(sameDecimal(s.shown, s.source), `#${s.step} ${s.what}: shown ${s.shown}, source ${s.source}`).toBe(true);
 
-  // A difference is a break row, never an entry posted to make them agree: with the poster stopped, the customer's own
-  // sale of part of the BTC they still hold, sent through our door and signed by their wallet key, carries our builder fee
-  // the ledger does not have yet. The recon names that fill as a break; the ledger books nothing for it then, and books the
-  // fee itself, once, when the poster runs again.
+  // A difference is a break row, never an entry posted to make them agree: with the poster stopped, a sale by the customer,
+  // sent through our door and signed by their wallet key, carries our builder fee the ledger does not have yet. #7 left
+  // less than one lot of BTC, which no order can sell, so the TEST BTC it sells is put there by the TEST venue's deposit control: a planted fault,
+  // apart from the loop. The recon names that fill as a break; the ledger books nothing for it then, and books the fee
+  // itself, once, when the poster runs again.
   const counter = `${J}-break-bid-${process.env.JOURNEY_RUN_ID ?? 'local'}-${randomBytes(3).toString('hex')}`;
   const counterKey = `order:${counter}:buy`;
   const limit = (side, timeInForce, clientOrderKey) => ({
@@ -940,6 +1151,7 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
   try {
     await testDeposit(otherTraderKey(counter).address, 'USDC', '1000', `seed:${counter}:USDC`);
     expect(await otherTraderRun(counter, limit('buy', 'GTC', counterKey))).toMatchObject({ definite: true, accepted: true });
+    await testDeposit(owner, 'BTC', BREAK_SELL, `seed:${counter}:${owner}:BTC`);
     const breakFrom = new Date(Date.now() - 1_000);
     const me = await door();
     const prepared = await me.post('/api/v1/venue/prepare', {
@@ -970,6 +1182,7 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
         { timeout: 30_000 },
       )
       .toBe('filled');
+    run.write({ planted: [...planted, fill.fillId] });
     await expect
       .poll(
         async () => {
