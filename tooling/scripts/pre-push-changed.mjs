@@ -8,7 +8,7 @@
  * Each check runs only when the push changes what it reads, runs CI's own command or test, and a refusal names the
  * command that fixes it:
  *   format              prettier --check on the changed files                      CI's Format job
- *   dead-code           knip, cached in node_modules/.cache/knip                    the dead-code gate (Fast gates)
+ *   dead-code           knip, cached in node_modules/.cache/knip                    the dead-code gate (Doctrine gates)
  *   procedure registry  each package's procedure-registry.mjs --check              procedure-registry.test.ts
  *   volt count, recorded calls, ui tokens, ops-desk catalog: the one test file, after the turbo-cached build its
  *                       package's tests need                                       the Tests job

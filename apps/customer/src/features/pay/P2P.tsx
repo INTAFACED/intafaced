@@ -28,11 +28,11 @@ import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
 import { OrderReview } from './personal/OrderReview';
-import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { MethodsRoom } from './personal/MethodsRoom';
 import { P2PBoard } from './p2p-board/Board';
+import { AccessRoom } from './p2p-access/AccessRoom';
 // The other P2P rooms still draw the offer list's old look until they move to Volt.
 import './p2p-offer.css';
 
@@ -62,6 +62,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   // Payment methods is on its settings template, which draws its own title and the P2P rooms.
   if (showMethods && !tradeId && current !== '/chat' && !showOrders && !publish && !showAccess)
     return <MethodsRoom pay={pay} userId={userId} />;
+  // Trading access is on its flow template, which draws its own title and the P2P rooms.
+  if (showAccess && !tradeId && current !== '/chat' && !showOrders && !publish) return <AccessRoom pay={pay} userId={userId} />;
   // The offer board is on its overview template, which draws its own title and the P2P rooms.
   if (
     !tradeId &&
@@ -129,12 +131,6 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <div className="lt-stack">
           <OfferForm pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />
           <PublishAvailability pay={pay} />
-        </div>
-      ) : showAccess ? (
-        <div className="lt-stack">
-          <P2PEligibilityPanel pay={pay} userId={userId} />
-          <OwnCompletion pay={pay} userId={userId} />
-          <TradingProgramme pay={pay} userId={userId} />
         </div>
       ) : showMine ? (
         <P2POffers pay={pay} userId={userId} mine />
@@ -505,95 +501,5 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
         </p>
       )}
     </PaySection>
-  );
-}
-function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const [reason, setReason] = useState('');
-  const standing = useResource((signal) => pay.standing(signal), `pay:p2p-standing:${userId}`);
-  const access = useResource((signal) => pay.apiAccess(signal), `pay:p2p-api-access:${userId}`);
-  function refresh() {
-    standing.reload();
-    access.reload();
-  }
-  return (
-    <div className="lt-stack">
-      <PayNotice title={payCopy.t('p2pTradingStanding')}>
-        <PayCopy k="thisProgrammeIsYourPersonalP2pTrading" />
-      </PayNotice>
-      <PaySection
-        title={payCopy.t('yourProgrammeStatus')}
-        action={
-          <Button tone="secondary" onClick={refresh}>
-            <PayCopy k="refreshStanding" />
-          </Button>
-        }
-      >
-        <PayState resource={standing.resource} retry={standing.reload}>
-          {(data) =>
-            data ? (
-              <div className="lt-stack">
-                <PayDetails
-                  values={[
-                    [payCopy.t('standing'), data.status],
-                    [payCopy.t('applicationSubmitted'), data.appliedAt],
-                    [payCopy.t('decision'), data.decidedAt ?? payCopy.t('notRecorded')],
-                    [payCopy.t('tradesAtApplication'), String(data.appliedTradesTotal)],
-                  ]}
-                />
-                {['applied', 'approved', 'suspended'].includes(data.status) && (
-                  <>
-                    <Field label={payCopy.t('reasonForLeaving')} value={reason} onChange={(event) => setReason(event.target.value)} />
-                    <ReviewedAction
-                      title={payCopy.t('leaveP2pProgramme')}
-                      description={payCopy.t('withdrawYourPersonalP2pProgrammeMembershipYour')}
-                      review={<p>{reason}</p>}
-                      perform={() => pay.withdrawProgramme(reason.trim())}
-                      onConfirmed={refresh}
-                      disabled={!reason.trim()}
-                    />
-                  </>
-                )}
-                {['rejected', 'withdrawn'].includes(data.status) && (
-                  <ReviewedAction
-                    title={payCopy.t('reapplyToP2pProgramme')}
-                    description={payCopy.t('submitANewApplicationBasedOnCurrent')}
-                    perform={() => pay.applyProgramme()}
-                    onConfirmed={refresh}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="lt-stack">
-                <p className="lt-muted">
-                  <PayCopy k="noP2pProgrammeApplicationExistsForThis" />
-                </p>
-                <ReviewedAction
-                  title={payCopy.t('applyToP2pProgramme')}
-                  description={payCopy.t('submitAnApplicationOnYourOwnBehalf')}
-                  perform={() => pay.applyProgramme()}
-                  onConfirmed={refresh}
-                />
-              </div>
-            )
-          }
-        </PayState>
-      </PaySection>
-      <PaySection title={payCopy.t('p2pApiEligibility')}>
-        <PayState resource={access.resource} retry={access.reload}>
-          {(data) => (
-            <PayDetails
-              values={[
-                [
-                  payCopy.t('apiStanding'),
-                  data.eligible ? payCopy.t('eligibleByCurrentProgrammeStanding') : payCopy.t('notEligibleByCurrentProgrammeStanding'),
-                ],
-                [payCopy.t('currentCredential'), data.credential],
-                [payCopy.t('disputeDecisions'), payCopy.t('interactiveHumanOnly')],
-              ]}
-            />
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }

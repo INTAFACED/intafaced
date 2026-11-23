@@ -377,7 +377,7 @@ test('a red wire replay refuses the push, named; a green one lets it through (pr
 // lint ratchet; its second push, for the secret scan; its third, for the CI review's size count: three pushes for three
 // refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the size count planted
 // with the refusal that head got; the one push names both and lists them at the end. (The secret scan is a Doctrine gate,
-// CI's alone since 22 Nov: its Fast gates job names it about two minutes after the push.)
+// CI's alone since 22 Nov.)
 test('every check runs and every refusal is named in one run, listed at the end (fix/ps-3343-curriculum 09d41f0f86, replayed)', () => {
   const file = 'crates/svc-academy/scripts/record-curriculum.mjs';
   const p = plant({
@@ -561,5 +561,28 @@ test('a push to main is refused though it brings nothing new (main moved back to
     assert.doesNotMatch(r.out, SKIPPED);
   } finally {
     p.done();
+  }
+});
+
+// The CI-running notice, planted: it prints the shas the hook hands it, then exits as told (its own tests hold the real
+// one's reads of gh: tooling/scripts/pre-push-ci-running.test.mjs).
+const notice = (code) => ({
+  'tooling/scripts/pre-push-ci-running.mjs': `console.log('notice for ' + process.argv.slice(2).join(' ')); process.exit(${code});\n`,
+});
+
+test('the CI-running notice gets the head each push replaces and prints at the end; it never refuses (project-state#3754)', () => {
+  for (const code of [0, 1]) {
+    const p = plant({ change: notice(code) });
+    try {
+      assert.equal(p.push().code, 0);
+      const before = git(p.work, 'rev-parse', 'HEAD').trim();
+      writeFileSync(join(p.work, 'src', 'a.ts'), 'export const a = 2;\n');
+      git(p.work, 'commit', '-qam', 'again');
+      const r = p.push();
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, new RegExp(`^notice for ${before}$`, 'm'), 'its line names the replaced head');
+    } finally {
+      p.done();
+    }
   }
 });
