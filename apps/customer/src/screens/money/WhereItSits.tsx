@@ -9,7 +9,7 @@ import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
 import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
-import { useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
+import { usePartnerStanding, useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
 import { isHiddenPath, navigate } from './deps';
@@ -464,6 +464,18 @@ function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polle
       </section>
     </Source>
   );
+}
+
+/**
+ * The partner account on Assets when no wallet or venue is read (the venue door off): the money the partner bank holds,
+ * as it reports it, with its own time. Nothing when the partner holds none of this person's money.
+ */
+export function PartnerAccount() {
+  const { t } = whereCopy.useCopy();
+  const { displayCurrency } = usePreferences();
+  const { partner, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  if (partner.state === 'none') return null;
+  return <PartnerSource read={partner} valued={valued} t={t} />;
 }
 
 /** The partner account, when the partner holds the person's bank money: each asset as the partner reports it. */
