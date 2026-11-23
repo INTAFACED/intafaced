@@ -21,6 +21,7 @@ import { stopDecision } from '../scripts/verify-app.mjs';
 import { slotPorts } from '../scripts/local-test-facts.mjs';
 import { MARKET_INTERVAL_ENV, staleAfterMs, startArgs } from '../scripts/local-test-market.mjs';
 import { STACK_CODE_REACH_ENV, nodeServiceReach } from '../scripts/service-reach.mjs';
+import { pgDurable, pgServerFlags } from '../scripts/local-test-db-state.mjs';
 
 const environ = (obj) =>
   Object.entries(obj)
@@ -52,6 +53,14 @@ test('the beta, which no journey runs on, records no code reach and quotes its T
   assert.deepEqual(nodeServiceReach('/home/x/code', 'bank', { A: '1' }, env), { flags: [], env: { A: '1' } });
   assert.deepEqual(startArgs([], env), ['--interval', '300']);
   assert.ok(staleAfterMs(startArgs([], env)) > 300_000, 'a quiet log between two beta cycles is not STALE');
+});
+
+test('the beta keeps its database through a box restart: durable writes and no throwaway flags (#10352)', () => {
+  const env = stackEnv(betaPaths('/home/x'), {});
+  assert.equal(pgDurable(env), true);
+  assert.equal(pgServerFlags(env), '');
+  assert.equal(pgDurable({}), false, 'a journeys stack keeps the throwaway server');
+  assert.match(pgServerFlags({}), /fsync=off/);
 });
 
 test('outsideAddresses: loopback passes, any other host is named by key and host, never by value', () => {

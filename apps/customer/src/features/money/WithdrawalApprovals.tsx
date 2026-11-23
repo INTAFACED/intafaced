@@ -322,7 +322,6 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
       title={t('title')}
       description={t('description')}
       state={{ kind: 'ready' }}
-      summary={<p className="lt-hint">{t('money')}</p>}
       list={
         <>
           {!requested.ok ? (
