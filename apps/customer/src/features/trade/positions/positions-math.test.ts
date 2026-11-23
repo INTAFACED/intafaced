@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VenueFill, VenuePosition } from '../venue-api';
-import { breakEven, leverageBpsOfTimes, marginRatio, openingFees, pnlFormula, totalsOf } from './positions-math';
+import { breakEven, leverageBpsOfTimes, marginRatio, openingFees, pnlFormula, totalsOf, percentOf } from './positions-math';
 
 // J-derivatives-05 #1 #2: the room's figures from the venue's own position and fills. Every figure is TEST.
 
@@ -78,5 +78,11 @@ describe('positions room figures', () => {
   it('a leverage is a whole number of times', () => {
     expect(leverageBpsOfTimes('15')).toBe(150_000);
     for (const bad of ['0', '1.5', '', 'x', '-2']) expect(leverageBpsOfTimes(bad)).toBeNull();
+  });
+
+  it('a fraction the venue reports is drawn in percent to its last digit, nothing rounded', () => {
+    expect(percentOf('0.050000000000000001')).toBe('5.0000000000000001');
+    expect(percentOf('0.0123')).toBe('1.23');
+    expect(percentOf('0')).toBe('0');
   });
 });

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import type { ChipSpec } from '@/lib/merchants/chips';
-import { formatAmount, formatMoney, type AssetAmount } from '@/lib/merchants/money';
+import { formatAmount, formatMoney, type AssetAmount } from '@/lib/money';
 import type { PayFailure } from '@/lib/merchants/pay-call';
 import { explainRefusal } from '@/lib/merchants/registry-model';
 import { describeFreshness, type Freshness } from '@/lib/merchants/time';

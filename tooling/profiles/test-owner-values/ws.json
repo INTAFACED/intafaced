@@ -45,6 +45,46 @@
       "service": "ws",
       "value": "500",
       "note": "TEST page size for the listing svc-ws reads to know which markets exist, so a depth socket for a listed market is not closed as unknown on the test stack (J-cex-spot-14 #8). Blank in production refuses (ws.markets_list_limit_unset)."
+    },
+    "WS_MAX_NEW_CONNECTIONS_PER_MINUTE": {
+      "service": "ws",
+      "value": "6000",
+      "note": "TEST new sockets a minute, far above what one journeys shard opens."
+    },
+    "WS_PRIVATE_MAX_CONNECTIONS_PER_USER": {
+      "service": "ws",
+      "value": "8",
+      "note": "TEST private sockets one account may hold at once."
+    },
+    "WS_HEARTBEAT_MS": {
+      "service": "ws",
+      "value": "2000",
+      "note": "TEST a ping every 2 seconds, so a client that stops answering is ended within seconds (J-developer-09 #4). The code default stays 30 seconds."
+    },
+    "WS_TRADE_RECENT_LIMIT": {
+      "service": "ws",
+      "value": "50",
+      "note": "TEST recent prints a trades subscriber gets first."
+    },
+    "WS_DROP_COPY_RECENT_LIMIT": {
+      "service": "ws",
+      "value": "50",
+      "note": "TEST recent fills a drop-copy subscriber gets first."
+    },
+    "WS_PER_IP_MAX_CONNECTIONS": {
+      "service": "ws",
+      "value": "64",
+      "note": "TEST open public sockets per address, above what one journeys shard opens from the machine's own address, so J-developer-09 #6 can storm from its own 127.0.0.x. Blank in production refuses every public socket (ws.per_ip_cap_unset)."
+    },
+    "WS_PER_IP_STORMS_BEFORE_BAN": {
+      "service": "ws",
+      "value": "3",
+      "note": "TEST over-cap refusals that ban an address (J-developer-09 #6). Blank in production leaves the ban off."
+    },
+    "WS_PER_IP_BAN_SECONDS": {
+      "service": "ws",
+      "value": "20",
+      "note": "TEST ban of 20 seconds, short enough for a journey to wait out (J-developer-09 #6). LOCAL_STACK_WS_IP_BAN_SECONDS=off on a start or restart leaves it blank, so the ban is off and GET /policy says so. Blank in production leaves the ban off."
     }
   }
 }

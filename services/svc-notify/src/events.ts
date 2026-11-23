@@ -8,8 +8,13 @@ import {
   payDepositCreditPosted,
   bankScheduledReminder,
   bankScheduledFailed,
+  coreOpsReconciliationAlertAccepted,
+  coreOpsReconciliationAlertOpened,
+  coreOpsReconciliationAlertResolved,
+  coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
+  recurringBuySuspended,
   agentUsageAlertCrossed,
   agentAlertFired,
   agentApprovalRequested,
@@ -44,6 +49,8 @@ import {
 import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
 import { noticeVenueDelisting } from './venue-delisting-notice.js';
+import * as reconFeed from './reconciliation-alert-feed/feed.js';
+import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
@@ -266,6 +273,9 @@ export interface SubscribeOptions {
   readonly positionNotify?: PositionNotifyPolicy;
   readonly orderNotify?: OrderTerminalNotifyPolicy;
   readonly agentActionCompletedNotify?: AgentActionCompletedNotifyPolicy;
+  /** Where reconciliation alert transitions are kept; production passes the Postgres store, tests a memory one. */
+  readonly reconAlertFeed?: ReconAlertFeedStore;
+  readonly now?: () => Date;
 }
 
 /**
@@ -939,7 +949,9 @@ export async function subscribeNotificationEvents(
   );
 
   // Copy trading (J-copy-bots-otc-03 #6): svc-trade publishes after the skip row or the stop is saved. The notice says
-  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. Inbox only.
+  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. It goes out of app like
+  // any order notice: one email to a confirmed address when an email sender is set (the delivery row keeps it to one);
+  // with none, no address can be confirmed, nothing is sent, and the settings name vendor.email.
   attachments.push(
     await attach(bus, 'copySkipped', copySkipped.subject, 'notify-copy-skipped', async (payload) => {
       // A skip the follower chose (a pause or a stop) is theirs already; svc-trade does not send it, and none is written.
@@ -956,7 +968,6 @@ export async function subscribeNotificationEvents(
           sourceSubject: copySkipped.subject,
           // One notice per follow and leader fill, however often svc-trade sends it.
           sourceIdempotencyKey: `${payload.followId}:${payload.leaderFillId}`,
-          outOfApp: false,
         }),
       );
     }),
@@ -977,7 +988,26 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
-          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6): svc-trade publishes once per rule and slot
+  // after the status moved. One notice per rule and slot, however often it is sent; the room shows the suspended state.
+  attachments.push(
+    await attach(bus, 'recurringBuySuspended', recurringBuySuspended.subject, 'notify-recurring-buy-suspended', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.recurring_buy.suspended',
+          titleKey: 'notify.trade.recurring_buy_suspended.title',
+          bodyKey: 'notify.trade.recurring_buy_suspended.body',
+          params: { ruleId: payload.ruleId, asset: payload.asset, amount: payload.amount, free: payload.free },
+          href: '/trade/bots/dca',
+          severity: 'action',
+          sourceSubject: recurringBuySuspended.subject,
+          sourceIdempotencyKey: `${payload.ruleId}:${payload.slot}`,
         }),
       );
     }),
@@ -1234,6 +1264,55 @@ export async function subscribeNotificationEvents(
         }),
       );
     }),
+  );
+
+  // Reconciliation alert transitions from svc-ops (OPS-reconciliation-04): one feed row per business key, so a transition
+  // delivered twice is applied once. Ids, states and times only; no customer inbox row and no out-of-app send.
+  const feed = options.reconAlertFeed ?? new MemoryReconAlertFeedStore();
+  const now = options.now ?? (() => new Date());
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertOpened',
+      coreOpsReconciliationAlertOpened.subject,
+      'notify-recon-alert-opened',
+      async (p, env) => {
+        await feed.record(reconFeed.opened(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertUpdated',
+      coreOpsReconciliationAlertUpdated.subject,
+      'notify-recon-alert-updated',
+      async (p, env) => {
+        await feed.record(reconFeed.updated(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertResolved',
+      coreOpsReconciliationAlertResolved.subject,
+      'notify-recon-alert-resolved',
+      async (p, env) => {
+        await feed.record(reconFeed.resolved(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertAccepted',
+      coreOpsReconciliationAlertAccepted.subject,
+      'notify-recon-alert-accepted',
+      async (p, env) => {
+        await feed.record(reconFeed.accepted(p, env.idempotencyKey), now());
+      },
+    ),
   );
 
   // Class B growth pin: attach count must match the deliberate matrix.

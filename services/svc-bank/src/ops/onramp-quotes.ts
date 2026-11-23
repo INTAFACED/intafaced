@@ -3,7 +3,7 @@
  * exact pay amount, fee and rate as stored when quoted. Read only: a quote holds nothing and posts nothing, and this
  * read changes no row. Amounts leave as decimal strings from `formatAmount`, the strings the customer's own read gave.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { z } from 'zod';

@@ -15,6 +15,7 @@ import {
 import { sha256Hex, statementRange, todayEnd } from './ledger';
 import { clockMinutes } from './time';
 import { spotVenueCopy } from './venue-copy';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Asked = { status: 'idle' } | { status: 'busy' } | { status: 'job'; job: VenueStatementJob } | { status: 'refused'; text: string };
 
@@ -94,14 +95,14 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
             <div className="dk-statement-days">
               <label>
                 <span>{d('Statement from')}</span>
-                <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+                <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
               </label>
               <label>
                 <span>{d('Statement to')}</span>
-                <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+                <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
-            <p className="dk-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+            <p className="lt-hint">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
               <p className="dk-note dk-note--bad" role="alert">
                 {asked.text}
@@ -118,7 +119,7 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
             ) : null}
             {job?.sha256 ? <p className="dk-note dk-note-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
             {saved ? (
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {saved}
               </p>
             ) : null}

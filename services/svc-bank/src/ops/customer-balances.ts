@@ -2,13 +2,15 @@
  * A customer's balances for the finance-treasury desk (PF-balances-01, portfolio-balances-001 and -002).
  *
  * Read only, ledger reads only: the same `balanceBreakdown` and `balanceEntries` the customer sees, asked for the customer a
- * desk names. The operator needs `admin:treasury`; a customer's own session never reaches these. Who may hold that scope is
- * decided where scopes are granted (identity), so widening or narrowing the desk is a scope change and not a code change.
+ * desk names. The balances (`ops.customerBalances`) are open to the operator read scope `admin:read` or to `admin:treasury`
+ * (owner decision of 2026-11-06, docs/adr/2026-10-22-service-access-calls.md section 3.9's amendment); the entries behind them
+ * (`ops.customerBalanceEntries`) stay on `admin:treasury`. A customer's own session never reaches these. Who may hold a
+ * scope is decided where scopes are granted (identity), so widening or narrowing the desk is a scope change, not code.
  * No audit table is merged for operator reads (the same as `ops.transferDetail`), so every read writes one structured log
  * line with the operator and the customer BEFORE any figure is read; if that line cannot be written the read refuses.
  * Nothing is inserted and there is no export.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { anyScopeProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { activityFailure } from '../activity/activity.router.js';
@@ -66,7 +68,7 @@ export function flattenBreakdown(
 }
 
 export function customerBalancesProcedure(bank: BankServices, guard: Guard) {
-  return scopedProcedure('admin:treasury')
+  return anyScopeProcedure(['admin:read', 'admin:treasury'])
     .input(z.object({ userId: z.string().guid() }).strict())
     .output(
       z.object({

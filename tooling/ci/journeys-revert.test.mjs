@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import { moneyGuardAt } from './journey-verdict.mjs';
 import {
   REAL_APP,
@@ -10,7 +11,9 @@ import {
   bisectTitle,
   breakIssueNotes,
   cancelDoomed,
+  earlyJob,
   commitReaches,
+  isAutoRevert,
   coveredSteps,
   culpritOf,
   endedShards,
@@ -29,6 +32,7 @@ import {
   parseSteps,
   recoveryComment,
   recoveryRecord,
+  redRunOf,
   refreshWhy,
   refuseRevert,
   refusedAfterRevoke,
@@ -41,6 +45,7 @@ import {
   settleNotes,
   settledFor,
   shardOf,
+  spentWhy,
   subjectPr,
 } from './journeys-revert.mjs';
 
@@ -580,4 +585,94 @@ test('journeys-revert: cancelDoomed cancels only a main run holding the culprit 
       `${m}: a line per run weighed`,
     );
   }
+});
+
+// project-state #2997: #8817 stayed armed from 01:15 UTC on 18 Nov after main went green at 02:42 with its culprit in.
+test('spent: an open automatic revert closes once main passes its failing steps outright with the culprit still in', () => {
+  const body = [
+    'Automatic revert by the revert on main (tooling/ci/journeys-revert.mjs, OWNER 249 (3): "a red main is reverted").',
+    '',
+    '- Red run: https://github.com/o/r/actions/runs/44208633045 on `main`',
+    '- Failing: `J-portfolio-01 #1`, `J-portfolio-01 #3`',
+    '- Culprit: #8811, commit `061984dd94` fix(local-stack): x (#8811)',
+  ].join('\n');
+  const pr = (over = {}) => ({
+    number: 8817,
+    draft: false,
+    body,
+    user: { login: 'intafaced-mac-agents[bot]', type: 'Bot' },
+    head: { ref: 'revert/auto-061984dd94', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } },
+    ...over,
+  });
+  const states = (one = 'passed', three = 'passed') =>
+    new Map([
+      ['J-portfolio-01#1', one],
+      ['J-portfolio-01#3', three],
+    ]);
+  const at = { repo: 'o/r', holdsCulprit: true, pastRed: true };
+  assert.equal(redRunOf(body), 44208633045);
+  assert.equal(redRunOf('no line'), null);
+  assert.equal(isAutoRevert(pr(), 'o/r'), true);
+  const d = spentWhy(pr(), { ...at, states: states() });
+  assert.equal(d.close, true, '#8817: main green with its culprit in: closed');
+  assert.match(d.why, /J-portfolio-01#1, J-portfolio-01#3 passed outright on main with the culprit still in/);
+  const left = (over, why) => assert.equal(spentWhy(over.pr ?? pr(), { ...at, states: states(), ...over }).close, false, why);
+  left({ states: states('passed', 'failed') }, 'a failing step still red: left');
+  left({ states: states('passed', 'flaky') }, 'a pass only on the retry: left');
+  left({ states: new Map([['J-portfolio-01#1', 'passed']]) }, 'a step the run lacks: left');
+  left({ holdsCulprit: false }, 'the merge already gone from this head: left');
+  left({ holdsCulprit: undefined }, "a compare that couldn't say: left");
+  left({ pastRed: false }, "a run on a head before the red run's: left");
+  left(
+    { pr: pr({ body: body.replace(/^- Failing: .*$/m, '- Failing: `apps/x.test.ts`, the Build job') }) },
+    "main's CI revert names no step: left",
+  );
+  left({ pr: pr({ user: { login: 'ZenYoda3', type: 'User' } }) }, "a person's pull request: never");
+  left({ pr: pr({ head: { ...pr().head, ref: 'fix/x' } }) }, 'another branch: never');
+  left({ pr: pr({ head: { ...pr().head, repo: { full_name: 'x/y' } } }) }, 'a fork: never');
+  left({ pr: pr({ draft: true }) }, 'a draft: never');
+});
+
+test("early: its own GitHub error stops it and hands the run to the run-end start, never failing main's run (project-state#2548)", async () => {
+  const env = {
+    GITHUB_REPOSITORY: 'INTAFACED/intafaced',
+    WORKFLOW_ID: 'real-app-journeys.yml',
+    RUN_ID: '44608160601',
+    HEAD_SHA: 'c'.repeat(40),
+  };
+  const real = globalThis.fetch;
+  const out = [];
+  const log = console.log;
+  const write = process.stdout.write;
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  delete process.env.GITHUB_STEP_SUMMARY;
+  console.log = (line) => out.push(String(line));
+  process.stdout.write = (text) => (out.push(String(text)), true);
+  try {
+    // Run 44608160601, 19 Nov 2026: "✖ journeys-revert early: fetch failed", every journey green, main read red.
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+    assert.equal(await earlyJob(env), 0, 'a network failure: the job ends 0');
+    // Run 44579190194: "GitHub 403 on GET .../jobs: stopping, not retrying".
+    let calls = 0;
+    globalThis.fetch = async () => (calls++, new Response('{}', { status: 403 }));
+    assert.equal(await earlyJob(env), 0, 'a 403: the job ends 0');
+    assert.equal(calls, 1, 'a 403 stops at once: no retry');
+    // A known-good read passes through as before.
+    globalThis.fetch = async () => new Response(JSON.stringify({ head_branch: 'fix/x' }), { status: 200 });
+    assert.equal(await earlyJob(env), undefined, 'a run not on main: nothing to do, as before');
+  } finally {
+    globalThis.fetch = real;
+    console.log = log;
+    process.stdout.write = write;
+    if (summaryFile !== undefined) process.env.GITHUB_STEP_SUMMARY = summaryFile;
+  }
+  const text = out.join('\n');
+  assert.match(text, /::warning title=Journeys revert, early::stopped: fetch failed; the run-end start decides/);
+  assert.match(
+    text,
+    /stopped \(GitHub 403 on GET \/repos\/INTAFACED\/intafaced\/actions\/runs\/44608160601: stopping, not retrying\); the run-end start \(main trust\) decides/,
+  );
+  assert.match(text, /is not on main; nothing to do/);
 });

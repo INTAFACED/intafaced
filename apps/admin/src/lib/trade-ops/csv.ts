@@ -57,7 +57,7 @@ export function exportFilename(scope: string, asOfIso: string): string {
 
 // ── Datasets the desk can really export ─────────────────────────────────────
 
-export const EXPORT_DATASETS = ['open_orders', 'kill_switch_audit', 'restriction_history'] as const;
+export const EXPORT_DATASETS = ['open_orders', 'kill_switch_audit', 'restriction_history', 'chart_controls_audit'] as const;
 export type ExportDataset = (typeof EXPORT_DATASETS)[number];
 
 export const ORDER_COLUMNS = [
@@ -94,6 +94,7 @@ export const DATASET_LABEL: Record<ExportDataset, string> = {
   open_orders: 'Open orders (all accounts)',
   kill_switch_audit: 'Kill-switch audit',
   restriction_history: 'Restriction history for one user',
+  chart_controls_audit: 'Chart controls audit',
 };
 
 /** Open orders as export rows. Seeded rows are dropped unless asked for. */

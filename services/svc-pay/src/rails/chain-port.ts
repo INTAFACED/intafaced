@@ -1,4 +1,6 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { MemoryBroadcastStore, type KeyClosed } from './broadcast-store.js';
+import { BroadcastClosedError } from './durable-broadcast.js';
 
 /** A send the chain mined and reverted: it moved nothing. `depth` counts its block and every block since. */
 export interface RevertedSend {
@@ -121,7 +123,8 @@ export interface CryptoChainPort {
 
 export type ChainSendLookup =
   | { readonly state: 'sent'; readonly txHash: string; readonly amount: Amount | null; readonly assetId: string | null }
-  | { readonly state: 'not_sent' }
+  /** Never sent, and never will be: `closed` is the proof `BroadcastStore.close` took the key. */
+  | { readonly state: 'not_sent'; readonly closed: KeyClosed }
   | { readonly state: 'unknown' };
 
 /**
@@ -183,6 +186,8 @@ export class MemoryChain implements CryptoChainPort {
   private readonly answeredAt = new Map<string, number>();
   private readonly depthSet = new Map<string, Exclude<SendDepth, null>>();
   private readonly outbound: Array<ChainSendRequest & { txHash: string }> = [];
+  /** Keys a `not_sent` answer closed. */
+  private readonly keys = new MemoryBroadcastStore();
   private nonce = 0;
   private broadcastError: Error | null = null;
   private callError: Error | null = null;
@@ -209,7 +214,12 @@ export class MemoryChain implements CryptoChainPort {
 
   async lookupSend(idempotencyKey: string): Promise<ChainSendLookup> {
     const hit = this.outbound.find((row) => row.idempotencyKey === idempotencyKey);
-    if (!hit) return { state: 'not_sent' };
+    if (!hit) {
+      // Answered not sent, so the key is closed: a later send under it refuses, as on a real chain port.
+      const closed = await this.keys.close(idempotencyKey);
+      if (closed === 'held') throw new Error(`MemoryChain: key ${idempotencyKey} is held with no send recorded`);
+      return { state: 'not_sent', closed };
+    }
     return { state: 'sent', txHash: hit.txHash, amount: hit.amount, assetId: hit.assetId };
   }
 
@@ -224,6 +234,7 @@ export class MemoryChain implements CryptoChainPort {
     // no matter what the node is doing now.
     const existing = this.sent.get(request.idempotencyKey);
     if (existing) return existing;
+    if (this.keys.isClosed(request.idempotencyKey)) throw new BroadcastClosedError(request.idempotencyKey);
 
     this.takeCallError();
 
@@ -332,6 +343,7 @@ export class MemoryChain implements CryptoChainPort {
     this.answeredAt.clear();
     this.depthSet.clear();
     this.outbound.length = 0;
+    this.keys.reset();
     this.broadcastError = null;
     this.callError = null;
     this.nonce = 0;

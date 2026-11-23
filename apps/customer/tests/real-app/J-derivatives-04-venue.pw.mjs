@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { api, journeyState, restartService, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -47,7 +47,7 @@ const ORDER_CHANGES = { amendsInPlace: true, cancelsPerAction: 20 };
 test.beforeAll(async () => {
   test.setTimeout(240_000);
   expect((await testVenue('/test/switches', ORDER_CHANGES)).body).toMatchObject(ORDER_CHANGES);
-  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
 });
 test.afterAll(async () => {
   await testVenue('/test/switches', { amendsInPlace: false, cancelsPerAction: null });
@@ -245,7 +245,7 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   // afresh. Lowering the amount is then a reviewed cancel-and-replace too, and nothing changes until it is confirmed.
   const b = await restElsewhere(s.walletKey, 'amend-b');
   await testVenue('/test/switches', { amendsInPlace: false });
-  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   const other = await browser.newPage();
   try {
     expect((await testVenue('/venue')).body.venue.amendsInPlace).toBeUndefined();
@@ -275,7 +275,7 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   } finally {
     await other.close();
     await testVenue('/test/switches', { amendsInPlace: true });
-    restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   }
   // What rests goes, from another device, so #4 starts with nothing resting.
   const left = (await venueOpen(s.owner)).filter((o) => o.symbol === PERP);
@@ -454,7 +454,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
 
   // Where the venue has none: the same TEST venue declares no scheduled cancel, svc-trade restarted to read it afresh.
   await testVenue('/test/switches', { scheduledCancelMinLeadMs: null });
-  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   const other = await browser.newPage();
   try {
     expect((await testVenue('/venue')).body.venue.scheduledCancel).toBeUndefined();
@@ -472,7 +472,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
   } finally {
     await other.close();
     await testVenue('/test/switches', { scheduledCancelMinLeadMs: 5_000 });
-    restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   }
   expect((await testVenue('/venue')).body.venue.scheduledCancel).toEqual({ minLeadMs: 5_000 });
   await ledgerUntouched(s);
@@ -480,6 +480,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
 
 test(`${J} #6 with a take-profit and a stop-loss for the whole position resting, places another order that would close the whole position: refused; partial ones don't count`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const s = state();
@@ -554,6 +555,9 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
     await expect(page.getByRole('dialog', { name: 'Check before you sign', exact: true })).toHaveCount(0);
   }
   expect(await triggers()).toEqual(before);
+  // The step's picture: the refusal in the exit orders dialog, over the desk, with the whole take profit and stop loss
+  // and the part one listed under it, taken from the top so the bar that stays at the top covers nothing.
+  await stepPicture(page);
 
   // A part one still rests: parts don't count toward the one of each.
   await armOnVenue('Stop loss', '0.05', '2750');

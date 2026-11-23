@@ -1,17 +1,13 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
-import { limitsCopy } from '../quant/limits-copy';
-import { researchCopy } from '../quant/research-copy';
-import { PYTHON_TEMPLATE } from '../quant/python-template';
-import { sandboxLimitRefusalOf, sandboxLimitSentence } from '../quant/sandbox-limit-refusal';
 import { preservePaperHref } from './trade-context';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, parsesAs, type ApiResult } from '../../shared/api';
 import { refusalCopy } from '../../data/refusals';
 import {
   COST_MODELS,
@@ -27,19 +23,34 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { StudioLibrary } from '../quant/StudioLibrary';
-import { StudioSave } from '../quant/StudioSave';
-import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
-import { studioCopy } from '../quant/studio-copy';
-import { builderCopy } from '../quant/builder-copy';
-import { SignalBuilder } from '../quant/SignalBuilder';
-import { StudioTemplates } from '../quant/StudioTemplates';
-import { emptySignalRules } from '../quant/signal-rules';
 import { quantStrategyHeadSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { QUANT_BACKTEST_RUN } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_SANDBOX_CAPABILITIES, QUANT_SANDBOX_RUN } from '@intafaced/contracts/quant-sandbox-procedures';
+import { QUANT_SANDBOX_LANGUAGES } from '@intafaced/contracts/quant-wire';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
-import { QuantRooms } from '../quant/QuantRooms';
-import { PaperOrders } from '../quant/PaperOrders';
+import {
+  limitsCopy,
+  researchCopy,
+  PYTHON_TEMPLATE,
+  sandboxLimitRefusalOf,
+  sandboxLimitSentence,
+  StudioLibrary,
+  StudioSave,
+  fingerprint,
+  newLink,
+  readLink,
+  writeLink,
+  type StudioLink,
+  studioCopy,
+  builderCopy,
+  SignalBuilder,
+  StudioTemplates,
+  emptySignalRules,
+  QuantRooms,
+  PaperOrders,
+} from '../quant';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
@@ -50,6 +61,7 @@ const stamp = z.object({
   live: z.literal(false),
   simulated: z.literal(true),
 });
+type SandboxLanguage = (typeof QUANT_SANDBOX_LANGUAGES)[number];
 const runSchema = stamp.extend({
   ok: z.literal(true),
   language: z.enum(['javascript', 'typescript', 'python']),
@@ -135,7 +147,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     { userId } = useSession(),
     action = useAction(`quant-${mode}`);
   const [draftStart] = useState(() => (mode === 'studio' ? (readDraft(userId ?? null) ?? emptyDraft()) : emptyDraft()));
-  const [language, setLanguage] = useState('javascript'),
+  const [language, setLanguage] = useState<SandboxLanguage>('javascript'),
     [source, setSource] = useState(''),
     [cash, setCash] = useState(draftStart.cash),
     [name, setName] = useState(draftStart.name),
@@ -189,22 +201,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     lastAttempt.result.reason !== 'uncertain'
       ? lastAttempt
       : null;
-  const capabilities = useResource(
-    (signal) =>
-      api.query(
-        'quant',
-        'sandbox.capabilities',
-        undefined,
-        z.object({
-          isolate: z.enum(['wired', 'unwired']),
-          languages: z.array(z.enum(['javascript', 'typescript', 'python'])),
-          venueVault: z.enum(['trade-only', 'unset']),
-          refuse: z.string().nullable(),
-        }),
-        { signal },
-      ),
-    'quant-capabilities',
-  );
+  const capabilities = useResource((signal) => api.call(QUANT_SANDBOX_CAPABILITIES, undefined, { signal }), 'quant-capabilities');
   const validCash = signedDecimalSchema.safeParse(cash).success;
   useEffect(() => {
     if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, modules, drawdown, notional, kill });
@@ -256,26 +253,28 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   useEffect(() => {
     if (!opening) return;
     const controller = new AbortController();
-    void api.query('quant', 'studio.get', { id: opening }, quantStrategyHeadSchema, { signal: controller.signal }).then((res) => {
-      if (controller.signal.aborted) return;
-      if (!res.ok) {
-        setOpenFailure(res);
-        return;
-      }
-      const head = res.data;
-      load(head, { clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved: fingerprint(head) });
-      const url = new URL(window.location.href);
-      url.searchParams.delete('open');
-      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
-      setOpening(null);
-    });
+    void api
+      .call(QUANT_STUDIO_GET, { id: opening }, { signal: controller.signal, accept: parsesAs(quantStrategyHeadSchema) })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        if (!res.ok) {
+          setOpenFailure(res);
+          return;
+        }
+        const head = res.data;
+        load(head, { clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved: fingerprint(head) });
+        const url = new URL(window.location.href);
+        url.searchParams.delete('open');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+        setOpening(null);
+      });
     return () => controller.abort();
     // `load` only sets this form's state; the open is read once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api]);
   return (
     <div className="more-grid">
-      <QuantRooms active={mode} paper={paper} />
+      {mode === 'backtest' ? null : <QuantRooms paper={paper} />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
@@ -284,7 +283,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Panel title={copyText('quant.strategy.sandbox')}>
             <Read resource={capabilities.resource} retry={capabilities.reload}>
               {(c) => (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
                   <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
                   {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
@@ -309,18 +308,18 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     />
                   ),
                   run: async () => {
-                    const res = await api.mutate(
-                      'quant',
-                      'sandbox.run',
+                    const res = await api.call(
+                      QUANT_SANDBOX_RUN,
                       { language, source, cash, environment: 'paper', presentedAs: 'paper', idempotencyKey },
-                      runSchema.refine(
-                        (data) =>
+                      {
+                        // The simulation result must match the reviewed language and environment.
+                        accept: (data) =>
+                          parsesAs(runSchema)(data) &&
                           data.language === language &&
                           data.environment === 'paper' &&
                           data.kind === 'paper' &&
                           data.claimLabel === 'Paper — not live performance',
-                        'The simulation result does not match the reviewed language and environment',
-                      ),
+                      },
                     );
                     if (res.ok && action.isCurrent()) setResult(res.data);
                     // A plan limit that refused the start, or that ended the run, is named in the plan's words (J-algo-dev-12).
@@ -342,8 +341,11 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               <Select
                 label={copyText('quant.language')}
                 value={language}
-                onChange={setLanguage}
-                options={['javascript', 'typescript', 'python']}
+                onChange={(value) => {
+                  const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
+                  if (picked) setLanguage(picked);
+                }}
+                options={QUANT_SANDBOX_LANGUAGES}
               />
               <Field
                 label={copyText('quant.simulated.starting.cash')}
@@ -355,7 +357,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
               <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
                 <h4>{researchCopy.t('pyTitle')}</h4>
-                <p className="muted">{researchCopy.t('pyIntro')}</p>
+                <p className="lt-muted">{researchCopy.t('pyIntro')}</p>
                 <Button
                   type="button"
                   variant="secondary"
@@ -366,7 +368,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 >
                   {researchCopy.t('pyTemplate')}
                 </Button>{' '}
-                <a className="text-link" href="/developers/quant#python" data-testid="quant-python-package">
+                <a className="lt-link" href="/developers/quant#python" data-testid="quant-python-package">
                   {researchCopy.t('pyPackage')}
                 </a>
               </section>
@@ -383,7 +385,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Text k="quant.review.simulation" />
               </Button>
             </form>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
             </p>
           </Panel>
@@ -453,7 +455,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 )}
               </>
             ) : (
-              <p className="muted">
+              <p className="lt-muted">
                 <Text k="quant.run.the.connected.isolate.to.receive.its" />
               </p>
             )}
@@ -612,14 +614,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Copy k="originalAttempt" />
               </p>
               <code lang="zxx">{action.unresolvedId}</code>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="unknownBody" />
               </p>
-              <div className="actions">
-                <a className="button button--secondary" href="/support">
+              <div className="lt-actions">
+                <a className="lt-button lt-button-secondary" href="/support">
                   <Copy k="contact" />
                 </a>
-                <a className="button button--secondary" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="lt-button lt-button-secondary" href={preservePaperHref('/quant/studio', paper)}>
                   <Text k="quant.studio" />
                 </a>
               </div>
@@ -640,13 +642,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             </div>
             <div className="quant-analysis-draft" ref={draft}>
               <Panel title={t('draft')}>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="draftBody" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="fullStrategy" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="utc" />
                 </p>
                 <form
@@ -709,27 +711,27 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                               ),
                             ]}
                           />
-                          <p className="muted">
+                          <p className="lt-muted">
                             <Copy k="fullStrategy" />
                           </p>
                         </>
                       ),
                       run: async (canDispatch) => {
                         if (!canDispatch()) return authoredRefusal('aborted', { key: 'beforeDispatch' });
-                        const response = await api.mutate(
-                          'quant',
-                          'backtest.run',
-                          request,
-                          historicalResultSchema.refine(
-                            (data) => matchesHistoricalRequest(data, request),
-                            'The historical result does not match the reviewed strategy, windows and declared verdict',
-                          ),
-                        );
+                        // The historical result must match the reviewed strategy, windows and declared verdict.
+                        const response = await api.call(QUANT_BACKTEST_RUN, request, {
+                          accept: (data) => {
+                            const read = historicalResultSchema.safeParse(data);
+                            return read.success && matchesHistoricalRequest(read.data, request);
+                          },
+                        });
+                        // Accepted above, so the reply reads as this room's historical result.
+                        const read = response.ok ? { ...response, data: historicalResultSchema.parse(response.data) } : response;
                         if (action.isCurrent()) {
-                          setLastAttempt({ request, view, result: response });
-                          if (response.ok) setBt({ data: response.data, request, view });
+                          setLastAttempt({ request, view, result: read });
+                          if (read.ok) setBt({ data: read.data, request, view });
                         }
-                        return response;
+                        return read;
                       },
                     });
                   }}
@@ -745,16 +747,16 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                           ...strategyNames.map((name) => ({ value: name, label: name })),
                         ]}
                       />
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="strategyNote" />
                       </p>
                     </>
                   ) : (
-                    <div className="field" role="group" aria-label={t('strategyLabel')}>
+                    <div className="lt-field" role="group" aria-label={t('strategyLabel')}>
                       <span>{t('strategyLabel')}</span>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
-                        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                        <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
                           <Copy k="strategyOpenStudio" />
                         </a>
                       </p>
@@ -790,7 +792,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
                     options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
                   />
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="hypothesisNote" />
                   </p>
                   <Field
@@ -818,7 +820,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     </fieldset>
                   ))}
                   {!validAnalysis && (
-                    <p className="muted" id="quant-backtest-reason">
+                    <p className="lt-muted" id="quant-backtest-reason">
                       <Copy k="invalid" />
                     </p>
                   )}

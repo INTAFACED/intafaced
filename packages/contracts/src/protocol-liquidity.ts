@@ -15,7 +15,7 @@ export const LIQUIDITY_POOL_EXISTS = 'amm.pool_exists' as const;
 export const LIQUIDITY_NOT_A_POOL = 'protocol.not_factory_pool' as const;
 export const LIQUIDITY_FEES_COMPOUND = 'protocol.fees_compound' as const;
 /** The highest swap fee a pool can be created with, in bps: the pool contract's own cap (10%). */
-export const POOL_FEE_CAP_BPS = 1000;
+export const POOL_FEE_CAP_BPS = 1000 as const;
 
 const units = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const signedUnits = z.string().regex(/^(0|-?[1-9][0-9]*)$/);

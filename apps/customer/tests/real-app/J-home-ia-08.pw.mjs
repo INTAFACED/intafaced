@@ -74,7 +74,7 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   const web3Bar = page.getByRole('navigation', { name: 'Web3 sections on phone' });
   const exchangeBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
   await expect(web3Bar).toBeVisible();
-  expect(await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
+  await expect.poll(async () => await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
   await expect(web3Bar.getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
   await expect(exchangeBar).toHaveCount(0);
   await page.goto('/money');
@@ -151,7 +151,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
     await expect(row.getByRole('button', { name: label })).toBeDisabled();
     await expectServiceOff(row.locator('[data-not-connected]'), 'chain.go', label);
   }
-  // Swapping is blocked by a gap of our own on this stack: the shared empty-state component names it, with no code at all.
+  // Swapping is blocked by a gap of our own on this stack: the kit's shared empty-state component (`.lt-empty`, the Volt template's empty state) names it, with no code at all.
   await page.goto('/dex');
   await expectWeb3(page);
   const swap = page.locator('[data-action="swap"]');
@@ -159,7 +159,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   await expect(button).toBeDisabled();
   const note = swap.getByRole('note');
   await expect(note).toHaveCount(1);
-  const gap = note.locator(':scope > .empty-state');
+  const gap = note.locator(':scope > .lt-empty');
   await expect(gap).toHaveCount(1);
   await expect(gap.getByRole('heading')).toHaveText(/^Blocked: .+/);
   // The blocker it names is the one the disabled Swap names, once the room has read its sources: while a source is still
@@ -168,7 +168,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   const reading = async () => {
     const { title, said } = await swap.evaluate((row) => ({
       title: row.querySelector('button')?.getAttribute('title') ?? '',
-      said: row.querySelector('[role="note"] > .empty-state :is(h1, h2, h3, h4, h5, h6, [role="heading"])')?.textContent ?? '',
+      said: row.querySelector('[role="note"] > .lt-empty :is(h1, h2, h3, h4, h5, h6, [role="heading"])')?.textContent ?? '',
     }));
     const tidy = (text) => text.replace(/\s+/g, ' ').trim().toLowerCase();
     return { said: tidy(said), named: tidy(`Blocked: ${title}`) };

@@ -3,11 +3,17 @@
  * CI affected-path classifier.
  *
  * A pull request runs the tests of what it changed, not the whole suite:
- *   full     — a change on the run-everything list (contracts, events, ledger-client, config, auth, lockfile,
- *              turbo and tsconfig, tooling, workflows, gate files) or any path outside the product dirs;
+ *   full     — a change on the run-everything list (events, ledger-client, config, auth, lockfile, turbo and
+ *              tsconfig, tooling, workflows, gate files) or any path outside the product dirs;
  *   affected — turbo runs the changed packages, their dependents and the readers listed in
  *              tooling/ci/test-read-edges.json (`--filters` prints the turbo filters);
- *   neither  — docs only; the seal then needs no test job.
+ *              A lint rule or a gate's baseline file (isGateOnlyTooling) runs only the product tests that read it, and
+ *              so does a change that reaches no journey (narrowed).
+ *   neither  — docs only, or gate-only tooling no product test reads; the seal then needs no test job.
+ * Apart from those, `rust` says whether CI's Rust job runs (format, clippy, tests: `pnpm rust:check`): a change to a
+ * Rust file (isRustFile), to a TypeScript service a crate replaces (its code and the recorded answers the crate's tests
+ * read: rustCrates), to what defines that job, and every run-everything run. A change to Rust files alone runs no
+ * TypeScript tests.
  *
  *   node tooling/ci/ci-affected.mjs --files services/svc-protocol/src/x.ts
  *   node tooling/ci/ci-affected.mjs --github-output
@@ -17,10 +23,13 @@
  * `push:main` and a merge queue's commit (`merge_group`, what main becomes) always classify as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
-import { realpathSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
-import { allEdges } from './cross-package-reads.mjs';
+import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { allEdges, pathReadEdges } from './cross-package-reads.mjs';
+import { journeyTouch } from './journey-touch.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { SPLIT } from './test-shards.mjs';
+import { checkoutTree, covers, reachOf, readersOf } from './tooling-reach.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -31,7 +40,7 @@ export const FULL_TRIGGERS = [
   'pnpm-workspace.yaml',
   'turbo.json',
   'tsconfig.base.json',
-  'packages/contracts/',
+  // Not packages/contracts/: its dependents are turbo's to pick, and the readers of its files the read scan's.
   'packages/events/',
   // Imported by dozens of services (27 workspaces depend on ledger-client, 33 on config).
   'packages/ledger-client/',
@@ -55,6 +64,132 @@ const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md', 'SKILL.md']);
 
 const PRODUCT_DIRS = /^(apps|services|packages)\//;
 
+/**
+ * Tooling only the Doctrine gates job judges, which runs on every pull request: the lint rules (`tooling/lint/`, whose
+ * own tests are tooling tests) and a gate's baseline file (`tooling/ci/*baseline*.json`, read by its gate). A change
+ * there runs the product tests that read it (GATE_ONLY_READS through pathReadEdges: packages/config's copy-rule test
+ * reads tooling/lint/), never the whole suite. Before this, 26 bug fixes a day took all sixteen shards only for deleting
+ * lines from tooling/ci/conflict-keys-baseline.json, which no unit test reads (project-state#3379).
+ */
+export const GATE_ONLY_TOOLING = ['tooling/lint/'];
+const BASELINE = /^tooling\/ci\/[^/]*baseline[^/]*\.json$/;
+export const isGateOnlyTooling = (file) => BASELINE.test(posix(file)) || GATE_ONLY_TOOLING.some((d) => matchesPrefix(file, d));
+/** The paths a product test may read that isGateOnlyTooling covers: the lint folder and today's baseline files. */
+function gateOnlyReads(root = fileURLToPath(new URL('../..', import.meta.url))) {
+  const baselines = readdirSync(`${root}/tooling/ci`)
+    .filter((n) => BASELINE.test(`tooling/ci/${n}`))
+    .map((n) => `tooling/ci/${n}`);
+  return [...GATE_ONLY_TOOLING, ...baselines];
+}
+
+/**
+ * The files of a change that reaches no journey whose tests are their readers' alone: tooling, .github and agent-rule
+ * files (the run-everything list's `tooling/` and `.github/`, and the gate files) that no unit-test job runs or reads
+ * (tooling-reach.mjs `tests`, scanned from the tree judged: ci.yml and what its test jobs execute, turbo's inputs, a
+ * tooling workspace package). A change qualifies when it holds no product or Rust path and journey-touch.mjs picks no
+ * journeys for it (journeyTouch `none` with the same scan's `journeys`: every path is one no journeys run executes or
+ * reads, or tooling no journeys run reaches); anything else, or a tree that can't be scanned, keeps today's rules, so a
+ * pull request that touches product code, the stack or a journey keeps its tests. Each narrowed file runs the tests of
+ * the app, service and package folders whose files read it (tooling-reach.mjs readersOf), never the whole suite.
+ * `tree`: the tree judged (this checkout's by default; the seal's, the head commit's); `reach`: its answer, given
+ * (null: unscanned) or scanned only when the change could narrow. (Failure it prevents: in the 24 hours to 22 Nov 2026
+ * 01:00 UTC, 32 of 179 merged pull requests touched no product path, and every one ran all sixteen unit-test shards on
+ * every push, up to 9 minutes, for tooling no product test reads.)
+ */
+export function narrowed(files, { reach, tree } = {}) {
+  const list = (files || []).map(posix).filter(Boolean);
+  const candidates = narrowCandidates(list);
+  if (!candidates.length) return [];
+  if (reach === undefined) reach = reachOf(tree ?? rootTree());
+  if (!reach) return [];
+  if (journeyTouch(list, undefined, null, null, reach.journeys).mode !== 'none') return [];
+  return candidates.filter((f) => !covers(reach.tests, f));
+}
+
+/** The files narrowed could take before any scan: none when the change holds a product or Rust path. A caller with no
+ *  tree at hand (the seal) builds one only when this is not empty. */
+export function narrowCandidates(files) {
+  const list = (files || []).map(posix).filter(Boolean);
+  if (!list.length || list.some((f) => PRODUCT_DIRS.test(f) || isRustFile(f))) return [];
+  return list.filter(
+    (f) =>
+      !isGateOnlyTooling(f) &&
+      (isGateFile(f) || FULL_TRIGGERS.some((t) => matchesPrefix(f, t))) &&
+      (f.startsWith('tooling/') || f.startsWith('.github/') || isGateFile(f)),
+  );
+}
+
+// This checkout's tree, listed once (null: it can't be listed, so nothing narrows).
+let ownTree;
+function rootTree() {
+  if (ownTree === undefined)
+    try {
+      ownTree = checkoutTree(fileURLToPath(new URL('../..', import.meta.url)));
+    } catch {
+      ownTree = null;
+    }
+  return ownTree;
+}
+
+/** Rust's own files: the code, every crate's manifest, the lock file, and the workspace's toolchain and lint config. */
+const RUST_ROOT_FILES = new Set(['Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', 'rustfmt.toml', 'deny.toml']);
+export const isRustFile = (file) => {
+  const f = posix(file);
+  return (
+    f.endsWith('.rs') ||
+    f === 'Cargo.toml' ||
+    f.endsWith('/Cargo.toml') ||
+    RUST_ROOT_FILES.has(f) ||
+    f.startsWith('crates/') ||
+    f.startsWith('.cargo/')
+  );
+};
+/**
+ * The crates in `crates/`, each named after the TypeScript service it replaces. While a crate is built beside its
+ * TypeScript service, it is tested against that service's recorded answers, so a change there runs the Rust job before
+ * main does; once it replaced the service (`crates/svc-tax`), the answers live in the crate's own fixtures. Read from
+ * the folder, never kept by hand.
+ */
+export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url))) {
+  try {
+    return readdirSync(`${root}/crates`, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+/**
+ * Files outside `crates/` that the crates' tests read (`include_str!`): the compose file that starts svc-tax
+ * (crates/svc-tax/tests/boot.rs), and each crate's own records, `packages/<package>/procedures/<crate>.schema.json`
+ * (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs; crates/svc-academy/tests/procedure_records.rs). Another
+ * service's records reach no crate, so a change to them runs no Rust job.
+ */
+const RUST_READS = new Set([
+  'docker-compose.apps.yml',
+  // crates/svc-matching/tests/bus.rs: each engine event's subject is the one the catalog declares.
+  'packages/events/src/catalog.ts',
+  // crates/svc-matching/tests/boot.rs: the scrape job that reads matching's /metrics.
+  'tooling/infra/prometheus.yaml',
+  // crates/svc-matching/tests/ported_f_conformance.rs: the shared-conformance ADR and exchange-contract's enums.
+  'docs/adr/2026-09-18-matching-shared-conformance.md',
+  'packages/exchange-contract/src/schemas.ts',
+  // crates/svc-agents/tests/boot.rs: the compose pins' env names are the ones .env.example documents.
+  '.env.example',
+]);
+/** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
+const RUST_READS_UNDER = ['packages/ledger-client/src/'];
+const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;
+/** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
+export const reachesRust = (file, crates = rustCrates()) =>
+  isRustFile(file) ||
+  RUST_READS.has(posix(file)) ||
+  RUST_READS_UNDER.some((dir) => posix(file).startsWith(dir)) ||
+  crates.includes(RECORDS_FILE.exec(posix(file))?.[1] ?? '') ||
+  crates.some((name) => posix(file).startsWith(`services/${name}/`));
+/** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
+const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
+
 function posix(p) {
   return String(p || '')
     .replace(/\\/g, '/')
@@ -77,10 +212,13 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  * `edges` is tooling/ci/test-read-edges.json: tests in <reader> read files of each listed package. turbo's
  * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
  */
-export function readEdges() {
+export function readEdges(files = [], { tree } = {}) {
   // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected. The
-  // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree.
-  return allEdges();
+  // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree. The
+  // reads of gate-only tooling are added here only: a test reads them when it runs, which no typecheck or build hashes.
+  // So are the readers of a change's narrowed files (narrowed), when it has any.
+  const own = narrowed(files, { tree });
+  return mergeEdges(mergeEdges(allEdges(), pathReadEdges(gateOnlyReads())), own.length ? readersOf(own, tree ?? rootTree()) : {});
 }
 
 export function mergeEdges(a, b) {
@@ -93,20 +231,38 @@ export function mergeEdges(a, b) {
 /**
  * full     — run every test (run-everything list, gate files, anything outside the product dirs, push to main).
  * affected — run the tests of the changed packages, their dependents, and the readers of what they changed.
- * Neither  — nothing to test (docs only); the seal then needs no test job.
+ * Neither  — nothing to test (docs only, gate-only tooling no test reads, or narrowed files no test reads); the seal
+ *            then needs no test job.
+ * `edges` (readEdges' shape) says who reads gate-only tooling; read from the tree when one changed and none is given.
+ * `tree` is the tree judged (narrowed; this checkout's by default); `reach` (tooling-reach.mjs reachOf's shape, null:
+ * unscanned) and `readers` (readersOf's shape) stand in for its answers.
  */
-export function classify(files, { forceFull = false } = {}) {
-  if (forceFull) return { full: true, affected: false };
+export function classify(files, { forceFull = false, crates = rustCrates(), edges, reach, readers, tree } = {}) {
+  if (forceFull) return { full: true, affected: false, rust: true };
   const list = (files || []).map(posix).filter(Boolean);
+  const rust = list.some((f) => reachesRust(f, crates) || RUST_JOB_FILES.includes(f));
+  const narrow = new Set(narrowed(list, { reach, tree }));
   let affected = false;
   for (const file of list) {
-    if (isGateFile(file)) return { full: true, affected: false };
+    if (isGateOnlyTooling(file)) {
+      edges ??= readEdges([], { tree });
+      if (Object.values(edges).some((reads) => reads.some((d) => matchesPrefix(file, d)))) affected = true;
+      continue;
+    }
+    // A change that reaches no journey: this file runs its readers' tests alone (narrowed).
+    if (narrow.has(file)) {
+      readers ??= readersOf([...narrow], tree ?? rootTree());
+      if (Object.values(readers).some((reads) => reads.includes(file))) affected = true;
+      continue;
+    }
+    if (isGateFile(file)) return { full: true, affected: false, rust };
     if (isDoc(file)) continue;
-    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
+    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false, rust };
+    if (isRustFile(file) && !PRODUCT_DIRS.test(file)) continue; // the Rust job tests it
     if (PRODUCT_DIRS.test(file)) affected = true;
-    else return { full: true, affected: false }; // unknown root path: run everything, never a silent skip
+    else return { full: true, affected: false, rust }; // unknown root path: run everything, never a silent skip
   }
-  return { full: false, affected };
+  return { full: false, affected, rust };
 }
 
 /** turbo filters for an affected run: changed packages plus dependents, plus the readers of changed packages. */
@@ -174,18 +330,35 @@ export function testedPackages(filters, run = (args) => execFileSync('pnpm', arg
   }
 }
 
+/** What a pull request's look gate runs on (look-paths.mjs). The seal then needs its pass, as for the Rust job. */
+export { reachesLook };
+
 export function sealNeeded(flags, results) {
   const problems = [];
-  const always = ['changes', 'gates', 'format', 'build'];
+  const always = ['changes', 'gates', 'build'];
   for (const name of always) {
     const r = results[name];
     if (r !== 'success') problems.push(`${name} was ${r || 'missing'} (required)`);
   }
   // A skipped test job counts as a failure unless the classifier said there was nothing to test.
-  if (flags.full || flags.affected) {
-    if (results['tests-full'] !== 'success') {
-      problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
-    }
+  const testsNeeded = flags.full || flags.affected;
+  if (testsNeeded && results['tests-full'] !== 'success') {
+    problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
+  }
+  // The Rust job, when the change reaches Rust: skipped or missing is a failure then, as for the tests.
+  if (flags.rust && results.rust !== 'success') problems.push(`rust was ${results.rust || 'missing'} (the change reaches Rust)`);
+  // The look gate, when a pull request changes what a Customer room draws: skipped or missing is a failure then.
+  if (flags.look && results.look !== 'success') problems.push(`look was ${results.look || 'missing'} (the change draws a Customer room)`);
+  // A job that ran and did not succeed is red whatever this classification says. The run's own `changes` job may judge
+  // a different tree (the pull request merged onto main) and ask for tests this one doesn't; a red there must never
+  // pass. (The CI review on 21b74e6e, 22 Nov 2026: a reader main gained after the branch point.)
+  const ranRed = (r) => r !== undefined && r !== 'success' && r !== 'skipped';
+  for (const [name, needed] of [
+    ['tests-full', testsNeeded],
+    ['rust', flags.rust],
+    ['look', flags.look],
+  ]) {
+    if (!needed && ranRed(results[name])) problems.push(`${name} ran and was ${results[name]} (a job that ran red stays red)`);
   }
   return problems;
 }
@@ -244,13 +417,16 @@ function runSeal() {
   const flags = {
     full: process.env.FULL === 'true',
     affected: process.env.AFFECTED === 'true',
+    rust: process.env.RUST === 'true',
+    look: process.env.LOOK === 'true',
   };
   const results = {
     changes: process.env.CHANGES,
     gates: process.env.GATES,
-    format: process.env.FORMAT,
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
+    rust: process.env.RUST_RESULT,
+    look: process.env.LOOK_RESULT,
   };
   const problems = sealNeeded(flags, results);
   if (problems.length) {
@@ -277,15 +453,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   if (filesIdx >= 0) files = args.slice(filesIdx + 1);
   else files = gitChangedFiles();
   if (args.includes('--filters')) {
-    for (const f of affectedFilters(files, readEdges(), diffBase())) console.log(f);
+    for (const f of affectedFilters(files, readEdges(files), diffBase())) console.log(f);
     process.exit(0);
   }
   if (args.includes('--build-filters')) {
-    for (const f of buildFilters(files, readEdges(), diffBase())) console.log(f);
+    for (const f of buildFilters(files, readEdges(files), diffBase())) console.log(f);
     process.exit(0);
   }
   const flags = classify(files, { forceFull });
+  // Only a pull request's run: main's look is the daily look gate, and a merge queue's commit was sealed on its pull requests.
+  flags.look = process.env.GITHUB_EVENT_NAME === 'pull_request' && reachesLook(files);
   if (args.includes('--github-output'))
-    githubOutput(flags, flags.affected && !flags.full ? testedPackages(affectedFilters(files, readEdges(), diffBase())) : []);
+    githubOutput(flags, flags.affected && !flags.full ? testedPackages(affectedFilters(files, readEdges(files), diffBase())) : []);
   else console.log(JSON.stringify({ files, flags }, null, 2));
 }

@@ -4,8 +4,8 @@
  *
  * The models are found, never listed: every tracked `*.tla` file must sit in `services/<service>/model/` beside an
  * executable `check.sh`, or the plan fails naming it. A change is checked when it touches a service that has a model,
- * a file under `services/` that a model's COVERS.md names (the OneHold model covers svc-matching's book), the workflow
- * or this script. A checked change runs every model in the repo, not only the touched one.
+ * a file under `services/`, `packages/` or `crates/` that one of a model's COVERS files names (the OneHold model covers
+ * svc-matching's book and the ledger recipes that build its fill and release keys), the workflow or this script. A checked change runs every model in the repo, not only the touched one.
  *
  *   node tooling/ci/model-check.mjs plan < changed-paths.txt   one path per line; prints the plan as JSON
  *   node tooling/ci/model-check.mjs plan --all                 every model, whatever changed
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SELF = ['.github/workflows/model-check.yml', 'tooling/ci/model-check.mjs'];
 const MODEL_FILE = /^(services\/[^/]+)\/model\/([^/]+)\.tla$/;
-const NAMED_PATH = /services\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
+const NAMED_PATH = /(?:services|packages|crates)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
 
 /** The repo's tracked files, relative to root. */
 export function trackedFiles(root) {
@@ -58,18 +58,31 @@ export function findModels(root, files = trackedFiles(root)) {
   return { models: [...byDir.values()], errors };
 }
 
-/** The tracked paths under `services/` that a model's COVERS.md names, outside the model's own service. */
-export function namedPaths(root, model, tracked) {
-  let text = '';
-  try {
-    text = readFileSync(join(root, model.dir, 'COVERS.md'), 'utf8');
-  } catch {
-    return [];
+/** Each COVERS file of a model, `COVERS.md` and any `<name>-COVERS.md`, as { cover, text }; a missing one is skipped. */
+function coverTexts(root, model, files) {
+  const out = [];
+  for (const cover of [
+    'COVERS.md',
+    ...files.filter((f) => f.startsWith(`${model.dir}/`) && f.endsWith('-COVERS.md')).map((f) => f.slice(model.dir.length + 1)),
+  ]) {
+    try {
+      out.push({ cover, text: readFileSync(join(root, model.dir, cover), 'utf8') });
+    } catch {
+      continue;
+    }
   }
+  return out;
+}
+
+/** The paths under `services/`, `packages/` or `crates/` that a model's COVERS files name, outside the model's own service. */
+export function namedPaths(root, model, files) {
+  const tracked = new Set(files);
   const out = new Set();
-  for (const p of text.match(NAMED_PATH) ?? []) {
-    const path = p.replace(/[.]+$/, '');
-    if (!path.startsWith(`${model.service}/`) && tracked.has(path)) out.add(path);
+  for (const { text } of coverTexts(root, model, files)) {
+    for (const p of text.match(NAMED_PATH) ?? []) {
+      const path = p.replace(/[.]+$/, '');
+      if (!path.startsWith(`${model.service}/`) && tracked.has(path)) out.add(path);
+    }
   }
   return [...out].sort();
 }
@@ -87,12 +100,29 @@ export function hits(changed, models, named) {
   return out;
 }
 
+/**
+ * Each path a model's COVERS.md names that no tracked file is (or is a folder of): the model would go on passing while
+ * covering nothing there, so the plan fails naming it (project-state#2962). Pure.
+ */
+export function gonePaths(root, models, files) {
+  const errors = [];
+  for (const m of models) {
+    for (const { cover, text } of coverTexts(root, m, files)) {
+      for (const p of new Set((text.match(NAMED_PATH) ?? []).map((x) => x.replace(/[.]+$/, '')))) {
+        if (!files.some((f) => f === p || f.startsWith(`${p}/`)))
+          errors.push(`${m.dir}/${cover} names ${p}, which is gone: the model no longer covers it; fix ${cover} or the model`);
+      }
+    }
+  }
+  return errors;
+}
+
 /** The plan: { run, models, reasons, errors }. `all` runs every model whatever changed. */
 export function plan(root, changed, { all = false, files } = {}) {
   const list = files ?? trackedFiles(root);
-  const tracked = new Set(list);
-  const { models, errors } = findModels(root, list);
-  const named = new Map(models.map((m) => [m.dir, namedPaths(root, m, tracked)]));
+  const { models, errors: found } = findModels(root, list);
+  const errors = [...found, ...gonePaths(root, models, list)];
+  const named = new Map(models.map((m) => [m.dir, namedPaths(root, m, list)]));
   const reasons = all ? ['every model was asked for'] : hits(changed, models, named);
   return { run: errors.length === 0 && reasons.length > 0 && models.length > 0, models, reasons, errors };
 }

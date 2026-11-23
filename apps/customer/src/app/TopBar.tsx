@@ -22,7 +22,7 @@ export const preloadMerchantChrome = () => import('../features/pay/portal/chrome
 const MerchantTopBar = lazy(preloadMerchantChrome);
 const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
-/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner, and marks the banner as covering the top edge. */
+/** Sets `--if-banner-offset` to the TEST banner's height (28 px; deployment/test-banner.mjs), or 0 when there is no banner, and marks the banner as covering the top edge. */
 export function useBannerOffset() {
   useEffect(() => {
     const apply = () => {

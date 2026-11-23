@@ -8,13 +8,25 @@ import {
   SCAN_LABEL,
   addedByLabel,
   canOpen,
-  readFileDownload,
-  readTicketFile,
+  addedByOperatorOn,
+  downloadServes,
   readTicketFiles,
   readUploadParams,
   sizeLabel,
   uploadKey,
 } from './files';
+import { SUPPORT_DESK_ATTACH_OPS, SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS } from '@intafaced/contracts/support-desk-settings-procedures';
+
+/** A download as the desk reads it: the record's output, then the file asked for as decodable bytes. */
+function readFileDownload(raw: unknown, attachmentId = ID) {
+  const parsed = SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS.output.safeParse(raw);
+  return parsed.success && downloadServes(parsed.data, attachmentId) ? parsed.data : null;
+}
+/** One added file as the desk reads it: the record's output. */
+function readTicketFile(raw: unknown) {
+  const parsed = SUPPORT_DESK_ATTACH_OPS.output.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
 
 const ID = '44444444-4444-4444-8444-444444444444';
 const T = '22222222-2222-4222-8222-222222222222';
@@ -61,7 +73,8 @@ describe('readTicketFiles', () => {
 describe('readFileDownload', () => {
   const body = { id: ID, contentType: 'application/octet-stream', disposition: 'attachment', byteLength: 3, bodyBase64: 'aGkh' };
   it('reads what the contract writes and nothing looser', () => {
-    expect(readFileDownload(supportAttachmentDownloadSchema.parse(body))).toEqual({ id: ID, byteLength: 3, bodyBase64: 'aGkh' });
+    expect(readFileDownload(supportAttachmentDownloadSchema.parse(body))).toEqual(body);
+    expect(readFileDownload(body, T)).toBeNull();
     expect(readFileDownload({ ...body, contentType: 'text/html' })).toBeNull();
     expect(readFileDownload({ ...body, disposition: 'inline' })).toBeNull();
     expect(readFileDownload({ ...body, bodyBase64: 'not base64!' })).toBeNull();
@@ -110,6 +123,11 @@ describe('adding a file', () => {
     expect(readTicketFile(row({ storeKey: 'k' }))).toBeNull();
     expect(readTicketFile(null)).toBeNull();
     expect(readTicketFile([row()])).toBeNull();
+  });
+  it('takes an added file only on its own ticket and added by an operator', () => {
+    expect(addedByOperatorOn(readTicketFile(row({ uploadedBy: U }))!, T)).toBe(true);
+    expect(addedByOperatorOn(readTicketFile(row({ uploadedBy: U }))!, U)).toBe(false);
+    expect(addedByOperatorOn(readTicketFile(row())!, T)).toBe(false);
   });
   it('says who added a file', () => {
     expect(addedByLabel(readTicketFile(row())!)).toBe('Customer');

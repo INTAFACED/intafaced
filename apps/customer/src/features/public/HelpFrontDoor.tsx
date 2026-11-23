@@ -2,10 +2,10 @@ import { useId, useState } from 'react';
 import { supportAwaitingMineSchema } from '@intafaced/contracts/support-awaiting';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { Button } from '@intafaced/ui/lit';
+import { useApi, useSession } from '../session';
 import { helpCopy as copy } from './help-copy';
-import { supportNewHref, supportRequestHref } from '../more/support-desk';
+import { supportNewHref, supportRequestHref } from '../more';
 
 const awaitingMine = contractProcedure('support', 'awaitingMine', { output: supportAwaitingMineSchema });
 
@@ -27,9 +27,9 @@ function WaitingBanner({ userId }: { userId: string }) {
   if (read.status === 'loading') return null;
   if (read.status === 'failed')
     return (
-      <section className="help__card help__measure" aria-label={t('actionRequiredTitle')} data-testid="action-required-unread">
-        <p className="muted">{t('actionRequiredUnread')}</p>
-        <Button variant="secondary" onClick={waiting.reload}>
+      <section className="lt-stack" aria-label={t('actionRequiredTitle')} data-testid="action-required-unread">
+        <p className="lt-hint">{t('actionRequiredUnread')}</p>
+        <Button tone="secondary" onClick={waiting.reload}>
           {t('retry')}
         </Button>
       </section>
@@ -37,7 +37,7 @@ function WaitingBanner({ userId }: { userId: string }) {
   const { count, longestWaiting } = read.data;
   if (count === 0 || !longestWaiting) return null;
   return (
-    <section className="help__card help__measure" role="status" aria-label={t('actionRequiredTitle')} data-testid="action-required">
+    <section className="lt-stack" role="status" aria-label={t('actionRequiredTitle')} data-testid="action-required">
       <h2>{t('actionRequiredTitle')}</h2>
       <p>
         {count === 1 ? (
@@ -48,7 +48,7 @@ function WaitingBanner({ userId }: { userId: string }) {
           </>
         )}
       </p>
-      <a className="button button--primary" href={supportRequestHref(longestWaiting.ticketId)}>
+      <a className="lt-button lt-button-primary" href={supportRequestHref(longestWaiting.ticketId)}>
         {t('actionRequiredOpen')}
       </a>
     </section>
@@ -85,25 +85,27 @@ export function RequestEntry({ query = '', found = true, contact = false }: { qu
   const label = t(contact || (session && toForm) ? 'contactSupport' : session ? 'requestOpenDesk' : 'requestStart');
   if (session)
     return (
-      <a className="button button--secondary" href={destination}>
+      <a className="lt-button lt-button-secondary" href={destination}>
         {label}
       </a>
     );
   return (
     <>
-      <Button variant="secondary" aria-expanded={asking} aria-controls={prompt} onClick={() => setAsking(true)}>
+      <Button tone="secondary" aria-expanded={asking} aria-controls={prompt} onClick={() => setAsking(true)}>
         {label}
       </Button>
       {asking && (
-        <section id={prompt} className="help__card help__measure" role="status" data-testid="request-sign-in">
+        <section id={prompt} className="lt-stack" role="status" data-testid="request-sign-in">
           <h2>{t('requestSignInTitle')}</h2>
-          <p className="muted">{t('requestSignInBody')}</p>
-          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(destination)}`}>
-            {t('requestSignIn')}
-          </a>
-          <Button variant="secondary" onClick={() => setAsking(false)}>
-            {t('requestSignInClose')}
-          </Button>
+          <p className="lt-hint">{t('requestSignInBody')}</p>
+          <div className="lt-actions">
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(destination)}`}>
+              {t('requestSignIn')}
+            </a>
+            <Button tone="secondary" onClick={() => setAsking(false)}>
+              {t('requestSignInClose')}
+            </Button>
+          </div>
         </section>
       )}
     </>

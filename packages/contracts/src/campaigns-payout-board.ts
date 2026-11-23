@@ -9,7 +9,8 @@ import { REWARD_STATES, redemptionAttemptSchema } from './campaigns-rewards.js';
  * Where a reward intent stands on its way to the customer's own wallet, as finance reads it:
  *
  * - `owed`: owed from the campaign's budget, with no payment begun (it waits for its reason: a wallet, a hold, our wallet);
- * - `pending_funding`: the reward pot could not cover the budget it needs; the same key posts again once it is funded;
+ * - `pending_funding`: the reward pot could not cover the budget it needs; the same key posts again once it is funded
+ *   (a retry in flight still stands here until the ledger answers it);
  * - `sending`: a payment to the wallet is recorded and not yet booked: sent and waiting for the chain, or its answer lost
  *   and looked for on the chain by its own facts, never sent again;
  * - `paid`: the chain confirmed the payment and the ledger booked it, with both references;

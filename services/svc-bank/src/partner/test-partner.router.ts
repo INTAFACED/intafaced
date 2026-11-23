@@ -1,51 +1,19 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { assertSelf } from '../assert-self.js';
 import { BankError } from '../errors.js';
 import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
-import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
+import { NO_PARTNER_BANK_CODE, partnerFeesAccount, partnerPayoutsAccount } from './partner-bank.js';
 import { businessPartnerAccount } from '../business/business-team.js';
-import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
+import { TEST_PARTNER_MERCHANT, partnerReserve, type TestPartnerDoors } from './test-partner.js';
+import { testPartnerSwitches, type TestPartnerSwitches } from './test-partner-switches.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
-const switches = z
-  .object({
-    notOffered: z.array(z.enum(PARTNER_FEATURES)).max(PARTNER_FEATURES.length),
-    fee: z.enum(['known', 'unknown']),
-    reserve: z.enum(['none', 'required']),
-    down: z.boolean(),
-    figures: z.enum(['live', 'stale', 'unknown']),
-    rampQuote: z.enum(['live', 'expired']),
-    rampFee: z.enum(['known', 'unknown']),
-    custody: z.enum(['on', 'off']),
-    nextReply: z.enum(['answered', 'lost']),
-    cardHold: z.enum(['live', 'expired']),
-    cardDecline: z.enum(['none', 'unlisted']),
-    accountDetails: z.enum(['none', 'issued']),
-    purchaseHolds: z.enum(['reported', 'not_reported']),
-    purchaseHold: z.enum(['live', 'expired']),
-    legalHold: z.enum(['none', 'held']),
-    identityCase: z.enum(['accepted', 'not_accepted']),
-    bankRail: z.enum(['none', 'test']),
-    /** The TEST account holder name (J-bank-30): it must say TEST, so it never reads as a real person's account. */
-    holderName: z
-      .string()
-      .trim()
-      .regex(/^TEST \P{Cc}{1,120}$/u)
-      .nullable(),
-    payIn: z.enum(['answered', 'held']),
-    /** The asset the TEST partner reports one open TEST order in (J-bank-01 #3), or null for none. */
-    openOrder: z
-      .string()
-      .regex(/^[A-Z0-9]{2,16}$/)
-      .nullable(),
-  })
-  .strict();
-
-const view = switches.extend({
+/** The switches as `test-partner-switches.ts` declares them, with what the partner reports alongside. */
+const view = testPartnerSwitches.extend({
   label: z.string(),
   /** The reserve the partner requires of us as it reports it; an amount it has not given is null ("not known"). */
   partnerReserve: z.union([
@@ -54,14 +22,14 @@ const view = switches.extend({
   ]),
 });
 
-function on(partner: TestPartner | null): TestPartner {
+function on(partner: TestPartnerDoors | null): TestPartnerDoors {
   if (!partner) {
     throw new BankError('The TEST partner switches exist only on a stack that runs the TEST partner bank.', 'bank.test_partner_off');
   }
   return partner;
 }
 
-function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
+function out(partner: TestPartnerDoors, userId: string, now: TestPartnerSwitches) {
   return { label: partner.label, ...now, notOffered: [...now.notOffered], partnerReserve: partnerReserve(partner, userId)! };
 }
 
@@ -84,7 +52,7 @@ export function createTestPartnerRouter(
         }),
       ),
     set: scopedProcedure('bank:write', { module: 'bank' })
-      .input(switches.partial())
+      .input(testPartnerSwitches.partial())
       .output(view)
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -155,9 +123,14 @@ export function createTestPartnerRouter(
       .output(z.object({ label: z.string(), opening: z.string(), closing: z.string(), lines: z.number().int().nonnegative() }))
       .query(({ ctx, input }) =>
         guard(async () => {
-          const partner = on(bank.testPartner);
+          on(bank.testPartner);
           const { assetId } = await bank.businessTeam.assertOwner(input.accountId, ctx.principal.userId);
-          const st = await partner.bank.statement!(businessPartnerAccount(input.accountId, assetId), {
+          // Read through the guarded partner, like every door here: reads stay open under the freeze and a stop.
+          const held = bank.partnerCustody.bankFor(ctx.principal.userId);
+          if (!held?.statement) {
+            throw new BankError('This business’s money is not held at the TEST partner bank.', NO_PARTNER_BANK_CODE);
+          }
+          const st = await held.statement(businessPartnerAccount(input.accountId, assetId), {
             from: new Date(input.from),
             to: new Date(input.to),
           });
@@ -166,8 +139,9 @@ export function createTestPartnerRouter(
       ),
     /**
      * TEST money leaving the person's main balance at the TEST partner bank (J-bank-16 Starts: "a month of TEST activity
-     * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, or a TEST `payout` to the partner's
-     * outbound-payments account. A real send to a person at the partner is not built, and this door is not that: it is
+     * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, a TEST `payout` to the partner's
+     * outbound-payments account, or a TEST `fee` the partner charges into its own fees account (J-portfolio-03 #1's
+     * "other" line). A real send to a person at the partner is not built, and this door is not that: it is
      * refused off the TEST stack (`bank.test_partner_off`), obeys the posting freeze and partner stops, and posts nothing.
      */
     spend: scopedProcedure('bank:write', { module: 'bank' })
@@ -177,7 +151,7 @@ export function createTestPartnerRouter(
             spendId: z.string().min(8).max(64),
             assetId: z.string().regex(/^[A-Z0-9]{2,16}$/),
             amount: amountString,
-            kind: z.enum(['payment', 'payout']),
+            kind: z.enum(['payment', 'payout', 'fee']),
           })
           .strict(),
       )
@@ -196,7 +170,9 @@ export function createTestPartnerRouter(
             to:
               input.kind === 'payout'
                 ? partnerPayoutsAccount(input.assetId)
-                : { userId: TEST_PARTNER_MERCHANT, assetId: input.assetId, spaceId: null },
+                : input.kind === 'fee'
+                  ? partnerFeesAccount(input.assetId)
+                  : { userId: TEST_PARTNER_MERCHANT, assetId: input.assetId, spaceId: null },
             amount: parseAmount(input.amount),
           });
           return { label: moved.label, moveId: moved.id, amount: formatAmount(moved.amount) };

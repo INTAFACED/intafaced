@@ -2,6 +2,14 @@ import type { BankErrorTable } from '../bank-error-table.js';
 
 /** The refusals `partner/` throws, and what a caller is told for each (see `../errors.ts`). */
 export const PARTNER_BANK_ERRORS = {
+  /** The partner offers no cash leg for this person, cash or coin (J-cex-spot-11 #11): nothing moved. */
+  'bank.cash_leg_not_offered': 'PRECONDITION_FAILED',
+  /** A cash leg's key or amounts are not a convert's. */
+  'bank.cash_leg_invalid': 'BAD_REQUEST',
+  /** The partner's rate now gives less coin than the price the second leg was made with: nothing moved. */
+  'bank.cash_leg_rate_moved': 'CONFLICT',
+  /** The partner took the cash and has not yet paid the coin out: asking again under the key pays it once. */
+  'bank.cash_leg_sending': 'SERVICE_UNAVAILABLE',
   /** The partner has no such information request for this person. */
   'bank.info_request_not_found': 'NOT_FOUND',
   /** An information request takes one answer: it is already under review. */

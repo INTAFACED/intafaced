@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   BUSINESS_BOOK_FORMATS,
   businessAccountingConnectionSchema,
   businessBookLineSchema,
   businessBookStatementSchema,
   businessBooksOverviewSchema,
   businessCodingRuleSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-business-books';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { AccountingConnection, BookLineView, CodingRule } from '../business/business-books.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';

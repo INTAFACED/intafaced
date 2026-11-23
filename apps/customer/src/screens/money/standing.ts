@@ -1,5 +1,5 @@
 /**
- * Where a person stands on the launch model (OWNER 226; J-home-ia-01 #1 #3, J-wallet-01): the one rule Home and Assets
+ * Where a person stands on the launch model (J-home-ia-01 #1 #3, J-wallet-01): the one rule Home and Assets
  * both value holdings by, so the two rooms show the same figures to the digit.
  *
  * What a person holds sits in up to three places, each read from its own source with that source's as-of time: their
@@ -18,12 +18,20 @@
 import { div, formatAmount, mul, parseAmount, sum, type Amount } from '@intafaced/money-math';
 import type { ValuationPrices } from '@intafaced/contracts/valuation-prices';
 
+/**
+ * A part's figure is stale once its source's own time is more than 30 s old: ten of the rooms' 3 s reads
+ * (`standing-data.ts`), the limit the trade rooms hold prices to.
+ */
+export const STANDING_STALE_AFTER_MS = 30_000;
+
 export type PartId = 'wallet' | 'venue' | 'partner';
 
 /** One holding as its source reports it. */
 export interface SourceRow {
   asset: string;
   amount: string;
+  /** A row a source holds apart from its plain balance of `asset` (a venue vault position, `vault:<address>`). */
+  key?: string;
 }
 
 /** What one source answered: still reading, could not be read, or its rows as of its own time. */
@@ -39,8 +47,12 @@ export interface PartInput {
 }
 
 export interface ValuedRow extends SourceRow {
+  /** The published USD price the row is valued at, as published, or null when the asset has none. */
+  priceUsd: string | null;
   /** Full-precision USD value, or null when the asset has no published price. */
   valueUsd: string | null;
+  /** The row's share of the total, in percent to 2 places (rounded half up), or null when it or the total is not valued. */
+  share: string | null;
 }
 
 export interface ValuedPart {
@@ -71,6 +83,7 @@ export interface Standing {
 }
 
 const CENT: Amount = 10n ** 16n;
+const HUNDRED: Amount = 100n * 10n ** 18n;
 const SATOSHI: Amount = 10n ** 10n;
 
 /** Rounds a scaled amount half up to a step (10^16 is a cent, 10^10 is 8 places). Amounts here are never negative. */
@@ -101,16 +114,21 @@ export function standing(parts: PartInput[], prices: ValuationPrices | null, uni
         const price = priceOf.get(row.asset);
         if (price === undefined) {
           if (!unpriced.includes(row.asset)) unpriced.push(row.asset);
-          return { ...row, valueUsd: null };
+          return { ...row, priceUsd: null, valueUsd: null, share: null };
         }
         const value = mul(parseAmount(row.amount), price);
         values.push(value);
-        return { ...row, valueUsd: formatAmount(value) };
+        return { ...row, priceUsd: formatAmount(price), valueUsd: formatAmount(value), share: null };
       });
     priced.push(...values);
     return { ...base, asOf: part.read.asOf, rows, valueUsd: values.length > 0 ? formatAmount(sum(values)) : null };
   });
   const total = priced.length > 0 ? sum(priced) : null;
+  // Each valued row's share of the total, from full-precision figures: value × 100 / total, rounded once to 0.01.
+  if (total !== null && total > 0n)
+    for (const part of valued)
+      for (const row of part.rows)
+        if (row.valueUsd !== null) row.share = fixed(roundTo(div(mul(parseAmount(row.valueUsd), HUNDRED), total, 'floor'), CENT), 2);
   const btcPrice = priceOf.get('BTC');
   const btc =
     unit !== 'BTC'

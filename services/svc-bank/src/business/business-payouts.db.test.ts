@@ -243,6 +243,18 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     expect((await owner.businessPayouts.importRun({ accountId, runId, csv: CSV })).id).toBe(runId);
   });
 
+  it('the same import sent several times at once is one run, and every call gets it back (#8889)', async () => {
+    const { accountId, owner } = await business();
+    const runId = randomUUID();
+    for (let round = 0; round < 5; round++) {
+      const id = round === 0 ? runId : randomUUID();
+      const runs = await Promise.all(Array.from({ length: 8 }, () => owner.businessPayouts.importRun({ accountId, runId: id, csv: CSV })));
+      expect(runs.map((r) => [r.id, r.total, r.issues.length])).toEqual(Array.from({ length: 8 }, () => [id, '300', 2]));
+      expect(await sql`SELECT 1 FROM bank.business_bulk_lines WHERE run_id = ${id}::uuid`).toHaveLength(3);
+    }
+    expect(await sql`SELECT 1 FROM bank.business_bulk_runs WHERE account_id = ${accountId}::uuid`).toHaveLength(5);
+  });
+
   it('#2 at or above the threshold it waits for a different approver, then sends once', async () => {
     const { accountId, owner } = await business();
     const csv = `name,iban,amount,currency\nTEST Ana,${IBANS[0]},300,USDT\nTEST Ben,${IBANS[1]},200,USDT`;
@@ -396,6 +408,19 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     expect(await refused(owner.businessPayouts.signRun({ runId: later.id, signature: personalSign(later.message, KEY) }))).toBe(
       'bank.payroll_wallet_missing',
     );
+    // The same month pressed several times at once is one run with its payslips once, and no caller gets 23505.
+    // Ten months, eight calls each: an insert naming only `ON CONFLICT (run_key)` under read committed raises 23505 on
+    // (payroll_id, period) here.
+    for (let month = 3; month <= 12; month++) {
+      const period = `2027-${String(month).padStart(2, '0')}`;
+      const raced = await Promise.allSettled(Array.from({ length: 8 }, () => owner.businessPayouts.prepareRun({ payrollId, period })));
+      expect(raced.filter((r) => r.status === 'rejected').map((r) => codeOf((r as PromiseRejectedResult).reason))).toEqual([]);
+      const racedRuns = await sql<Array<{ id: string }>>`
+        SELECT id FROM bank.business_crypto_payroll_runs WHERE payroll_id = ${payrollId}::uuid AND period = ${period}
+      `;
+      expect(racedRuns).toHaveLength(1);
+      expect((await sql`SELECT 1 FROM bank.business_crypto_payslips WHERE run_id = ${racedRuns[0]!.id}::uuid`).length).toBe(1);
+    }
     // INTAFACED holds none of it: the partner balance and the ledger are untouched.
     expect(await held(accountId)).toBe(parseAmount('1000'));
     expect(ledger.journal()).toEqual([]);

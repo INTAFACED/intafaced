@@ -1,0 +1,173 @@
+import { z } from 'zod';
+import { defineProcedure, NO_INPUT } from './procedure.js';
+import {
+  convertPairsOutput,
+  decimal,
+  limitConvertOutput,
+  convertQuoteOutput,
+  convertAcceptInput,
+  convertTradeOutput,
+} from './trade-call-schemas.js';
+import { orderSideSchema } from './order-enums.js';
+
+// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
+/** svc-trade `convert.*`, one record per call: svc-trade mounts each (`mountRecord`) and every app caller calls it by its record. */
+
+const base = { service: 'svc-trade', module: 'trade', transport: 'trpc' } as const;
+
+/** What can be converted now, each coin with its per-conversion limit or none set (J-cex-spot-11 #1). */
+export const TRADE_CONVERT_PAIRS = defineProcedure({
+  ...base,
+  name: 'trade.convert.pairs',
+  kind: 'query',
+  path: 'convert.pairs',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: NO_INPUT,
+  output: convertPairsOutput,
+  samples: [{ verdict: 'accept' }],
+});
+
+/** The caller's limit converts, newest first: waiting, filled, ended and cancelled. */
+export const TRADE_CONVERT_LIMITS = defineProcedure({
+  ...base,
+  name: 'trade.convert.limits',
+  kind: 'query',
+  path: 'convert.limits',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.array(limitConvertOutput),
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Place a limit convert: the source held until a quote reaches the target rate, then settled once (#8). */
+export const TRADE_CONVERT_LIMIT_PLACE = defineProcedure({
+  ...base,
+  name: 'trade.convert.limitPlace',
+  kind: 'mutation',
+  path: 'convert.limitPlace',
+  access: { caller: 'scope', scope: 'trade:write', module: 'trade' },
+  refusals: { 'trade.convert_limit_unset': 'BAD_REQUEST' },
+  input: z.object({
+    symbol: z.string().min(3),
+    side: z.enum(['buy', 'sell']),
+    amount: decimal,
+    targetRate: decimal,
+    clientLimitId: z.string().min(8).max(64),
+  }),
+  output: limitConvertOutput,
+  samples: [
+    { verdict: 'accept', input: { symbol: 'USDC', side: 'buy', amount: '1', targetRate: '1', clientLimitId: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Cancel a waiting limit convert: its hold released once. */
+export const TRADE_CONVERT_LIMIT_CANCEL = defineProcedure({
+  ...base,
+  name: 'trade.convert.limitCancel',
+  kind: 'mutation',
+  path: 'convert.limitCancel',
+  access: { caller: 'scope', scope: 'trade:write', module: 'trade' },
+  refusals: {},
+  input: z.object({ id: z.string().uuid() }),
+  output: limitConvertOutput,
+  samples: [
+    { verdict: 'accept', input: { id: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** How one asset converts to another: a direct market, or a typed refusal such as a two-leg cash route (#11). */
+export const TRADE_CONVERT_ROUTE = defineProcedure({
+  ...base,
+  name: 'trade.convert.route',
+  kind: 'query',
+  path: 'convert.route',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: z.object({ from: z.string().regex(/^[A-Z0-9]{2,12}$/), to: z.string().regex(/^[A-Z0-9]{2,12}$/) }),
+  output: z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }),
+  samples: [
+    { verdict: 'accept', input: { from: 'USDC', to: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const lifecycle = z.enum(['quoted', 'accepted', 'settled', 'refused', 'expired', 'unknown']);
+
+export const historyRow = z.object({
+  quoteId: z.string(),
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimal,
+  outAmount: decimal,
+  lifecycle,
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  settledAt: z.string().nullable(),
+});
+
+export const TRADE_CONVERT_LIST = defineProcedure({
+  ...base,
+  name: 'trade.convert.list',
+  kind: 'query',
+  path: 'convert.list',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: { 'trade.convert_list_window_unset': 'BAD_REQUEST' },
+  input: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    limit: z.number().int().optional(),
+    cursor: z.string().optional(),
+  }),
+  output: z.object({ rows: z.array(historyRow), nextCursor: z.string().nullable() }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const TRADE_CONVERT_QUOTE = defineProcedure({
+  ...base,
+  name: 'trade.convert.quote',
+  kind: 'query',
+  path: 'convert.quote',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {
+    'trade.convert_insufficient_depth': 'BAD_REQUEST',
+    'trade.convert_spread_unset': 'BAD_REQUEST',
+    'trade.fx_not_spot': 'FORBIDDEN',
+    'trade.market_closed': 'BAD_REQUEST',
+  },
+  input: z.object({
+    symbol: z.string().min(3),
+    side: orderSideSchema,
+    /** Base amount. Exactly one of `qty` or `quoteQty`; the service refuses both or neither. */
+    qty: decimal.optional(),
+    /** Spend in the quote asset ("spend 100 USDT"), buy only; never charges more than this. */
+    quoteQty: decimal.optional(),
+  }),
+  output: convertQuoteOutput,
+  samples: [
+    { verdict: 'accept', input: { symbol: 'USDC', side: 'buy' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const TRADE_CONVERT_ACCEPT = defineProcedure({
+  ...base,
+  name: 'trade.convert.accept',
+  kind: 'mutation',
+  path: 'convert.accept',
+  access: { caller: 'scope', scope: 'trade:write', module: 'trade' },
+  refusals: { 'trade.convert_spread_unset': 'BAD_REQUEST' },
+  input: convertAcceptInput,
+  output: convertTradeOutput,
+  samples: [
+    { verdict: 'accept', input: { quoteId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

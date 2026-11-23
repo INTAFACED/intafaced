@@ -28,18 +28,18 @@ export function LinkPricePicker({
   // the field says why it is empty, and the amount is set by hand.
   if (resource.status === 'failed')
     return (
-      <div className="field">
+      <div className="lt-field">
         <span>{t('linkPrice')}</span>
-        <p className="muted" role="note">
+        <p className="lt-muted" role="note">
           {t('linkPriceUnreadable', { reason: resource.failure.message })}{' '}
-          <button type="button" className="text-link" onClick={reload}>
+          <button type="button" className="lt-link" onClick={reload}>
             {t('linkPriceRetry')}
           </button>
         </p>
       </div>
     );
   const choices = resource.data.items;
-  if (choices.length === 0 && !value) return <p className="muted">{t('linkPriceNoChoices')}</p>;
+  if (choices.length === 0 && !value) return <p className="lt-muted">{t('linkPriceNoChoices')}</p>;
   // A create being recovered keeps the price it was sent with, even once that price is no longer offered.
   const kept = value && !choices.some((choice) => choice.price.id === value) ? [[value, t('linkPriceKept')] as const] : [];
   return (

@@ -1,4 +1,4 @@
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { SEARCH_MISS_DAYS, type SearchMisses } from '@/lib/notify/search-misses-model';
 import './desk.css';
 

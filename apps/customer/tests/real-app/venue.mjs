@@ -5,6 +5,7 @@ import { expect } from './journey.mjs';
 import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -71,6 +72,14 @@ async function venueFetch(url, init) {
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
 export const TEST_VENUE_B = stackUrl('test-venue-b');
 
+/** A TEST venue's id and name, by its base URL, with the base it was read at. */
+export async function testVenueInfoAt(base) {
+  const { status, body } = await testVenueAt(base, '/venue');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.label).toBe('TEST');
+  return { id: body.venue.id, displayName: body.venue.displayName, base };
+}
+
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
   const res = await venueFetch(`${base}${path}`, {
@@ -79,6 +88,13 @@ export async function testVenueAt(base, path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
+}
+
+/** One call to either TEST venue that must answer 200: its JSON answer (a refusal fails the step with its words). */
+export async function venueOk(base, path, body) {
+  const { status, body: out } = await testVenueAt(base, path, body);
+  expect(status, JSON.stringify(out).slice(0, 300)).toBe(200);
+  return out;
 }
 
 /** The venue's id and the chain its signatures name. */
@@ -165,6 +181,21 @@ export async function openVenueDesk(page, who, path, privateKey) {
   return wallet;
 }
 
+/**
+ * Signs in, installs the browser TEST wallet with this key on the venue's chain, opens a venue page that is not a desk
+ * (an order, the order history) and connects the wallet when the page asks. Returns the wallet.
+ */
+export async function openVenuePage(page, who, path, privateKey) {
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(page, { chainId, privateKey });
+  await signIn(page, who);
+  await page.goto(path);
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
+  return wallet;
+}
+
 /** A balance row of the desk's venue balances: free, used and total as the desk shows them. */
 export async function shownBalance(page, asset) {
   const row = page.getByTestId('venue-balances').locator(`tr[data-asset="${asset}"]`);
@@ -220,5 +251,31 @@ export function venueWrites(page) {
     const p = new URL(r.url()).pathname;
     if (r.method() === 'POST' && (p === '/api/v1/venue/prepare' || p === '/api/v1/venue/submit')) sent.push(p);
   });
+  return sent;
+}
+
+/** A reply our door accepted: its body, or the step fails with what it said. */
+export function doorOk(res) {
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(200);
+  return res.body;
+}
+
+/** A prepared venue action signed by a wallet key, in the shape our door's submit takes. */
+export async function signPrepared(key, prepared) {
+  const t = prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: key.address.toLowerCase() };
+}
+
+/** One action the person's own wallet signs, through our door: prepared, signed, sent, and accepted by the venue. */
+export async function walletDoorAct(session, key, { subAccount = null, intent, actionKey = null }) {
+  const owner = key.address.toLowerCase();
+  const prepared = doorOk(
+    await session.post('/api/v1/venue/prepare', { owner, subAccount, signer: { role: 'owner', address: owner }, intent, actionKey }),
+  );
+  const sent = doorOk(
+    await session.post('/api/v1/venue/submit', { actionKey: prepared.actionKey, signature: await signPrepared(key, prepared.prepared) }),
+  );
+  expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   return sent;
 }

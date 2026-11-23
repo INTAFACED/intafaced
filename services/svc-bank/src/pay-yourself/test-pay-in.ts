@@ -16,7 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 
 /**
  * TEST: confirmations the TEST partner waits for before it credits a pay-in. Not a partner's terms. The stack's TEST chain
@@ -48,6 +48,8 @@ export interface PayInCredit {
   readonly txHash: string;
   readonly logIndex: number;
   readonly amount: Amount;
+  /** The address the transfer came from, lowercase, as the chain's transfer log names it (the venue's payout, or the person's own wallet). */
+  readonly from: string;
   /** pending: seen on chain, not yet credited by the partner; available: credited to the main balance. */
   readonly status: 'pending' | 'available';
   /** The partner holds its answer on this pay-in (the `payIn` switch). */
@@ -78,6 +80,7 @@ interface Kept {
   txHash: string;
   logIndex: number;
   amount: Amount;
+  from: string;
   block: bigint;
   seenAt: Date;
   availableAt: Date | null;
@@ -116,7 +119,7 @@ export function unitsToAmount(units: bigint, decimals: number): Amount {
 }
 
 export function testPayInRail(options: {
-  partner: TestPartner;
+  partner: TestPartnerDoors;
   rpcUrl: string;
   chainId: number;
   token: string;
@@ -171,6 +174,7 @@ export function testPayInRail(options: {
           txHash: k.txHash,
           logIndex: k.logIndex,
           amount: k.amount,
+          from: k.from,
           status: k.availableAt ? ('available' as const) : ('pending' as const),
           held,
           confirmations: Math.min(confirmations, TEST_PAY_IN_CONFIRMATIONS),
@@ -200,7 +204,8 @@ export function testPayInRail(options: {
           const userId = owners.get(to);
           if (!userId) continue;
           const units = BigInt(log.data);
-          if (units <= 0n) continue;
+          const sender = log.topics[1];
+          if (units <= 0n || !sender) continue;
           const logIndex = Number(BigInt(log.logIndex));
           const txHash = log.transactionHash.toLowerCase();
           const key = `bank.pay-in:usdc:${options.chainId}:${txHash}:${logIndex}`;
@@ -211,6 +216,7 @@ export function testPayInRail(options: {
             txHash,
             logIndex,
             amount: unitsToAmount(units, decimals),
+            from: `0x${sender.slice(-40)}`.toLowerCase(),
             block: BigInt(log.blockNumber),
             seenAt: clock(),
             availableAt: null,
@@ -242,6 +248,7 @@ export function payInCreditView(c: PayInCredit) {
     key: c.key,
     txHash: c.txHash,
     amount: formatAmount(c.amount),
+    from: c.from,
     status: c.status,
     held: c.held,
     confirmations: c.confirmations,
@@ -264,7 +271,7 @@ export function payInCredited(rail: PayInRail | null | undefined, userId: string
  * partner itself refuses to boot outside dev and test, and the rail refuses an RPC off loopback.
  */
 export function testPayInRailFor(
-  partner: TestPartner | null,
+  partner: TestPartnerDoors | null,
   settings: { rpcUrl?: string | undefined; chainId?: string | undefined; token?: string | undefined },
 ): PayInRail | null {
   const rpcUrl = settings.rpcUrl?.trim() ?? '';

@@ -146,7 +146,6 @@ export const deskCopy = defineCopy('support-desk', {
   attachEmpty: 'That file is empty. Pick another one.',
   attachUnreadable: 'Your browser could not read that file. Pick it again.',
   // Plain answers to the support service's refusals
-  answerMismatch: 'The answer did not match this request or account, so it was not used. Refresh and check before trying again.',
   refuseForbidden: 'Your account is not allowed to do this. Nothing was changed.',
   refuseSignedOut: 'You are signed out. Sign in again, then repeat this. Nothing was changed.',
   refuseNotFound: 'We could not find that request on your account. Nothing was changed.',

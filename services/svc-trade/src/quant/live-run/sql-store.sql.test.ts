@@ -99,6 +99,24 @@ describe('the live run store on Postgres', () => {
     expect((await store.listActive()).map((x) => x.runId)).toEqual([RUN]);
   });
 
+  it('the same start sent many times at once stores one run and every call gets it back (#8880)', async () => {
+    for (let round = 0; round < 25; round++) {
+      const r = {
+        ...run(),
+        runId: `a7000000-0000-4000-8000-${String(round).padStart(12, '0')}`,
+        agentAddress: `0x${String(round + 1).padStart(40, '0')}`,
+      };
+      const all = await Promise.allSettled(Array.from({ length: 8 }, () => store.insertOnce(r)));
+      const refused = all.filter((x) => x.status === 'rejected').map((x) => String((x as PromiseRejectedResult).reason));
+      expect(refused).toEqual([]);
+      for (const x of all) expect((x as PromiseFulfilledResult<LiveRunRecord>).value).toMatchObject({ runId: r.runId });
+      await store.move(USER, r.runId, ['running'], { state: 'stopped', endReason: 'user_stop', stoppedAt: new Date() });
+    }
+    const other = { ...run(), runId: 'a7000000-0000-4000-8000-0000000000ff', agentAddress: `0x${'1'.padStart(40, '0')}` };
+    await expect(store.insertOnce(other)).rejects.toThrow(/was not stored/);
+    expect(await store.find(USER, other.runId)).toBeNull();
+  });
+
   it('two orders at once under the same number admit one; the key again answers it; the next number moves once', async () => {
     const [x, y] = await Promise.all([
       store.admitOrder(order(1), ['running']),

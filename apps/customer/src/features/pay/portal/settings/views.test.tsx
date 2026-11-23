@@ -37,6 +37,7 @@ const expectPlain = (out: string) => expect(out).not.toMatch(/pay\.[a-z_]+/);
 const fresh = { asOf: '2026-10-15T10:00:00.000Z', lagSeconds: 4 };
 const snapshot = (patch: Partial<p.Snapshot> = {}): p.Snapshot => ({
   merchantId: 'm',
+  window: { kind: 'preset', preset: 'rolling_30d' },
   freshness: fresh,
   balances: [{ assetCode: 'USDT', clearing: '10.5', available: '1234.560000000000000001' }],
   paymentCount: 12,
@@ -148,7 +149,7 @@ describe('notifications', () => {
       ]),
     );
     expect(out).toContain('A customer challenged a payment');
-    expect(out).toMatch(/pp-sr">[^<]*<!-- -->unread/);
+    expect(out).toMatch(/lt-sr">[^<]*<!-- -->unread/);
     expect(out).toContain('href="/pay/disputes/dsp-1"');
     expect(out).toContain('Mark read');
     expect(out).toContain('Mark all read');

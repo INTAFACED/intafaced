@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
@@ -29,6 +29,7 @@ import type { ApiResult } from '../../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 import { definite } from './not-available';
 import { SubscriptionPriceFact, SubscriptionPricePicker, subscriptionPriceLabel } from '../catalog/SubscriptionPrice';
+import { PAY_SUBSCRIPTION_RESUME } from '@intafaced/contracts/pay-subscription-procedures';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -98,7 +99,7 @@ export function Subscriptions({
   const { api, userId } = useSession();
   const pay = useMemo(() => (authority ? createBusinessPayApi(api, userId, authority) : null), [api, userId, authority]);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PortalBack href={route.room === 'subscriptions' ? '/pay/merchant' : '/pay/subscriptions'}>
         {c.t(route.room === 'subscriptions' ? 'backHome' : 'subscriptionsTitle')}
       </PortalBack>
@@ -169,7 +170,7 @@ export function SubscriptionsView({
     return m ? cadenceLabel(m.cadence) : m === undefined ? '…' : c.t('termsNotShown');
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Freshness asOf={at} />
       <FilterRow
         label={c.t('subscriptionsTitle')}
@@ -206,7 +207,7 @@ export function SubscriptionsView({
                   cell: (s) => (
                     <>
                       <strong>{s.customerId}</strong>
-                      {s.stallReason && <small className="pay-cell-note">{c.t(`stall_${s.stallReason}`)}</small>}
+                      {s.stallReason && <small className="lt-hint">{c.t(`stall_${s.stallReason}`)}</small>}
                     </>
                   ),
                 },
@@ -228,7 +229,7 @@ export function SubscriptionsView({
                 status: <StatusChip entity="subscription" value={s.status} />,
               })}
             />
-            <div className="pp-actions">
+            <div className="lt-actions">
               {list.hasMore && (
                 <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
                   {list.more === 'loading' ? c.t('pay_loadingMore') : c.t('pay_loadMore')}
@@ -366,7 +367,7 @@ export function SubscriptionDetailView({
     ...(subscription.stalledAt ? [{ at: subscription.stalledAt, title: c.t('subscriptionStalled') }] : []),
   ].sort((a, b) => a.at.localeCompare(b.at));
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection
         title={c.t('keyFacts')}
         action={
@@ -380,7 +381,7 @@ export function SubscriptionDetailView({
           values={[
             [
               c.t('customer'),
-              <a className="text-link" href={`/pay/customers/${encodeURIComponent(subscription.customerId)}`}>
+              <a className="lt-link" href={`/pay/customers/${encodeURIComponent(subscription.customerId)}`}>
                 {subscription.customerId}
               </a>,
             ],
@@ -429,7 +430,7 @@ export function SubscriptionDetailView({
         <Timeline items={events} label={c.t('history')} />
       </PaySection>
       <PaySection title={c.t('cycleHistory')}>
-        <p className="muted">{c.t('loadedWindow')}</p>
+        <p className="lt-muted">{c.t('loadedWindow')}</p>
         <Gate resource={cycles} retry={reload}>
           {(data) =>
             data.cycles.length ? (
@@ -444,12 +445,12 @@ export function SubscriptionDetailView({
                       <td>{asset ? <Money value={cycle.amount} asset={asset} /> : c.t('assetUnavailable')}</td>
                       <td>
                         <CycleChip status={cycle.status} />
-                        {cycle.exhausted && <p className="muted">{c.t('subscriptionRefusal')}</p>}
+                        {cycle.exhausted && <p className="lt-muted">{c.t('subscriptionRefusal')}</p>}
                       </td>
                       <td>{cycle.attemptCount}</td>
                       <td>
                         {cycle.paymentId ? (
-                          <a className="text-link" href={`/pay/payments/${encodeURIComponent(cycle.paymentId)}`}>
+                          <a className="lt-link" href={`/pay/payments/${encodeURIComponent(cycle.paymentId)}`}>
                             {c.t('openPayment')}
                           </a>
                         ) : (
@@ -488,7 +489,7 @@ export function SubscriptionDetailView({
                     </td>
                     <td>
                       {e.paymentId ? (
-                        <a className="text-link" href={`/pay/payments/${encodeURIComponent(e.paymentId)}`}>
+                        <a className="lt-link" href={`/pay/payments/${encodeURIComponent(e.paymentId)}`}>
                           {e.paymentId}
                         </a>
                       ) : (
@@ -530,7 +531,7 @@ function SubscriptionRecovery({
     };
   }, []);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {/* One message about the unconfirmed request: the latest check's answer replaces the general notice. */}
       {(message || !outcomeShown) && (
         <p className="pp-callout" role="status">
@@ -596,7 +597,7 @@ function SubscriptionActions({
   const locked = Boolean(pay.guard.status(`${pay.authority!.userId}:subscription:${s.id}`));
   const disabled = locked || Boolean(pay.access('pay:write'));
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {locked && (
         <SubscriptionRecovery
           key={`${pay.authority!.userId}:${s.id}`}
@@ -607,7 +608,7 @@ function SubscriptionActions({
           }}
         />
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         {(['pause', 'resume', 'cancel'] as const)
           .filter((action) =>
             action === 'pause'
@@ -644,10 +645,9 @@ function SubscriptionActions({
                 perform={async () => {
                   try {
                     if (action === 'resume') {
-                      const result = await pay.mutate(
-                        'subscription.resume',
+                      const result = await pay.mutateRecord(
+                        PAY_SUBSCRIPTION_RESUME,
                         { subscriptionId: s.id },
-                        z.object({ subscription: subscriptionSchema, projectedEnd: z.string().nullable() }),
                         'pay:write',
                         `subscription:${s.id}`,
                         'active',
@@ -749,7 +749,7 @@ export function CreateSubscriptionView({
   useEffect(() => setUncertainShown(''), [mandateId]);
   const allowed = posture.status === 'ready' && posture.data.paths.some((p) => p.path === path && p.charge !== 'refuse');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={c.t('railPosture')}>
         <Gate resource={posture} retry={reload}>
           {() => <p className="pp-callout">{c.t('railPostureBody')}</p>}
@@ -759,7 +759,7 @@ export function CreateSubscriptionView({
         <Gate resource={mandates} retry={reload}>
           {() =>
             choices.length ? (
-              <div data-testid="form-stack" className="form-stack pp-form">
+              <div data-testid="form-stack" className="lt-stack">
                 <SelectField
                   label={c.t('chooseMandate')}
                   value={mandateId}
@@ -819,7 +819,7 @@ export function CreateSubscriptionView({
                 )}
                 {createNotice && <p role="status">{createNotice}</p>}
                 {mandateId && (
-                  <a className="text-link" href={`/pay/subscriptions?mandateId=${encodeURIComponent(mandateId)}`}>
+                  <a className="lt-link" href={`/pay/subscriptions?mandateId=${encodeURIComponent(mandateId)}`}>
                     {taken.has(mandateId) ? c.t('openExisting') : c.t('subscriptionsTitle')}
                   </a>
                 )}
@@ -889,7 +889,7 @@ export function CreateSubscriptionView({
           }
         </Gate>
         {created && (
-          <a className="text-link" href={`/pay/subscriptions/${encodeURIComponent(created)}`}>
+          <a className="lt-link" href={`/pay/subscriptions/${encodeURIComponent(created)}`}>
             {c.t('openNewSubscription')}
           </a>
         )}

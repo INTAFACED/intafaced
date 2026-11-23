@@ -1,12 +1,15 @@
+// volt-room: /uc/promotion/perks
 import { useMemo } from 'react';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { OverviewTemplate } from '@intafaced/ui/lit/templates';
 import { POINTS_TIER_OWNER_QUESTION } from '@intafaced/contracts/campaigns-catalogue';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
-import { useSession } from '../session/session';
-import { EmptyState, Page, Panel } from '../../shared/ui';
-import { feeTierFetcher, type FeeTier, type FeeTierPass } from '../public/fee-tier';
-import { PromotionTabs } from './Promotions';
+import { useSession } from '../session';
+
+import { feeTierFetcher, type FeeTier, type FeeTierPass } from '../public';
+import { PromotionTabs } from './promotion-tabs';
 import { promotionsCopy } from './promotions-copy';
 import { perksCopy } from './perks-copy';
 
@@ -22,27 +25,28 @@ export function PromotionPerks() {
   const { userId } = useSession();
   const { t, Copy } = promotionsCopy.useCopy();
   return (
-    <div className="promotions">
-      <Page title={t('title')} description={t('description')}>
-        {userId ? (
-          <>
-            <PromotionTabs view="perks" />
-            <SignedInPerks />
-          </>
+    <OverviewTemplate
+      title={t('title')}
+      description={t('description')}
+      state={{ kind: 'ready' }}
+      rooms={userId ? <PromotionTabs view="perks" /> : undefined}
+      hero={null}
+      sections={
+        userId ? (
+          <SignedInPerks />
         ) : (
           <EmptyState
             title={t('signIn')}
+            body={t('guest')}
             action={
-              <a className="text-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fperks">
+              <a className="lt-link" href="/login?redirect=%2Fuc%2Fpromotion%2Fperks">
                 <Copy k="signIn" />
               </a>
             }
-          >
-            <Copy k="guest" />
-          </EmptyState>
-        )}
-      </Page>
-    </div>
+          />
+        )
+      }
+    />
   );
 }
 
@@ -58,16 +62,17 @@ const utc = (iso: string): string => `${iso.slice(0, 19).replace('T', ' ')} UTC`
 export function PerksView({ load }: { load: Loadable<FeeTier | null> }) {
   const { t } = perksCopy.useCopy();
   return (
-    <section className="perks" aria-label={t('title')} data-testid="perks" data-state={load.status}>
-      <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+    <section aria-label={t('title')} data-testid="perks" data-state={load.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {load.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
         {load.status === 'error' ? (
           <p role="alert" data-testid="perks-failed">
             {t('failed')}{' '}
-            <button type="button" className="text-link" onClick={load.retry}>
+            <Button tone="quiet" onClick={load.retry}>
               {t('retry')}
-            </button>
+            </Button>
           </p>
         ) : null}
         {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
@@ -78,7 +83,7 @@ export function PerksView({ load }: { load: Loadable<FeeTier | null> }) {
         ) : null}
         {load.status === 'ready' && load.data ? <Perks tier={load.data} /> : null}
         <PointsTier />
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -94,7 +99,7 @@ function Perks({ tier }: { tier: FeeTier }) {
         <p>
           {t('tierLead')} <strong lang="zxx">{tier.tier}</strong>
         </p>
-        <p className="muted">{t('tierBasis')}</p>
+        <p className="lt-hint">{t('tierBasis')}</p>
         <p data-testid="perks-multiplier" data-multiplier={rate?.takerMultiplier ?? ''}>
           {t('multiplier')}:{' '}
           {rate && rate.takerMultiplier !== null ? (
@@ -125,16 +130,16 @@ function Perks({ tier }: { tier: FeeTier }) {
       <section aria-label={t('passTitle')} data-testid="perks-pass">
         <h3>{t('passTitle')}</h3>
         {pass ? (
-          <p className="badge" data-testid="perks-pass-badge" data-pass={pass.passKey} data-tier={pass.tierId} data-ends={pass.endsAt}>
+          <p className="lt-chip" data-testid="perks-pass-badge" data-pass={pass.passKey} data-tier={pass.tierId} data-ends={pass.endsAt}>
             <strong>{t('passBadge')}</strong> <span lang="zxx">{pass.tierId}</span> {t('passUntil')}{' '}
             <time dateTime={pass.endsAt}>{utc(pass.endsAt)}</time>
           </p>
         ) : (
-          <p className="muted" data-testid="perks-pass-none">
+          <p className="lt-hint" data-testid="perks-pass-none">
             {t('passNone')}
           </p>
         )}
-        {pass ? <p className="muted">{t('passApplied')}</p> : null}
+        {pass ? <p className="lt-hint">{t('passApplied')}</p> : null}
         {tier.passes && tier.passes.length > 0 ? <Passes passes={tier.passes} /> : null}
       </section>
     </>
@@ -146,7 +151,7 @@ const bps = (value: number): string => `${(value / 100).toFixed(2)}%`;
 function Passes({ passes }: { passes: readonly FeeTierPass[] }) {
   const { t } = perksCopy.useCopy();
   return (
-    <table data-testid="perks-passes">
+    <table className="lt-table" data-testid="perks-passes">
       <caption>{t('passesTitle')}</caption>
       <thead>
         <tr>

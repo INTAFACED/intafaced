@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
-import { orderIdsIn } from '@/lib/trade-ops/order-read';
+import { orderIdsIn, venueOrderIdsIn } from '@/lib/trade-ops/order-read';
 import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
 import { claimGate, DESK_COMMENTS_READ, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
@@ -11,6 +11,7 @@ import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
 import { CustomerCard } from './support-customer-card';
+import { ChartsLookupPanel } from './support-charts-lookup';
 import { TicketOwner } from './support-ticket-owner';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
@@ -151,11 +152,17 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         <strong>What the customer wrote</strong>
         <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t.body}</p>
       </div>
-      {orderIdsIn(t.subject, t.body).length > 0 ? (
+      {orderIdsIn(t.subject, t.body).length + venueOrderIdsIn(t.subject, t.body).length > 0 ? (
         <nav aria-label="Orders the customer named" className="dk-row">
           {/* J-cex-spot-18 #1: each order id the customer wrote opens that order in Trade ops, read and audited there. */}
           {orderIdsIn(t.subject, t.body).map((orderId) => (
             <a key={orderId} className="adm-btn" href={`/trade-ops/orders/${orderId}`}>
+              Open order {orderId}
+            </a>
+          ))}
+          {/* A routed order is read from the venue by this customer's own address, so the link names the customer. */}
+          {venueOrderIdsIn(t.subject, t.body).map((orderId) => (
+            <a key={orderId} className="adm-btn" href={`/trade-ops/orders/${orderId}?account=${encodeURIComponent(t.userId)}`}>
               Open order {orderId}
             </a>
           ))}
@@ -214,6 +221,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
 
       <TicketOwner key={`owner:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
       <CustomerCard key={`customer:${t.id}`} ticketId={t.id} />
+      <ChartsLookupPanel key={`charts:${t.id}`} ticketId={t.id} />
 
       <h4>Conversation</h4>
       {detail.comments.kind === 'failed' ? (
@@ -305,6 +313,8 @@ function TicketHistory({ rows, anyFailed }: { rows: readonly HistoryRow[]; anyFa
 
 export function SupportDeskView(p: DeskViewProps) {
   const q = p.queue;
+  // A due time shows only once a response target is active and a request on this page started a clock under it.
+  const showsDue = q?.queue.kind === 'ok' && q.queue.data.entries.some((e) => e.responseDue !== null);
   return (
     <div className="dk" data-testid="support-desk">
       <div className="adm-pagehead">
@@ -366,6 +376,7 @@ export function SupportDeskView(p: DeskViewProps) {
                     <th>Category</th>
                     <th>Status</th>
                     <th>Score</th>
+                    {showsDue && <th>Due</th>}
                     <th>Waiting</th>
                     <th>Open</th>
                   </tr>
@@ -387,6 +398,13 @@ export function SupportDeskView(p: DeskViewProps) {
                       <td>{e.category}</td>
                       <td>{e.status}</td>
                       <td>{e.score}</td>
+                      {showsDue && (
+                        <td data-testid="queue-due">
+                          {e.responseDue
+                            ? `${formatWhen(e.responseDue.dueAt)} (first reply within ${e.responseDue.targetMinutes} min)`
+                            : 'No target'}
+                        </td>
+                      )}
                       <td>{formatAge(e.ageMs)}</td>
                       <td>
                         <button

@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -9,7 +10,10 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const address = vi.fn();
 const readFundingNotices = vi.hoisted(() => vi.fn());
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 // The funding notice banner reads on its own; FundingNotices.render.test.tsx covers it.
 vi.mock('./funding-notices-reads', async (original) => ({
   ...(await original<typeof import('./funding-notices-reads')>()),
@@ -43,7 +47,7 @@ afterEach(() => {
 const catalogue: DepositCatalogue = {
   assets: [
     {
-      assetId: 'USDT',
+      assetId: asAssetId('USDT'),
       networks: [
         { id: 'ethereum', label: 'Ethereum', minimumDeposit: '10', confirmationsRequired: 12, estimatedArrivalMinutes: 5 },
         { id: 'tron', label: 'Tron', minimumDeposit: '5.5', confirmationsRequired: 20, estimatedArrivalMinutes: 3 },

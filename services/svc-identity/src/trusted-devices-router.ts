@@ -1,8 +1,15 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { AuthService } from './auth/auth-service.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { TrustedDeviceError } from './auth/trusted-devices.js';
+import {
+  IDENTITY_TRUSTED_DEVICES_LIST,
+  IDENTITY_TRUSTED_DEVICES_REMOVE,
+  IDENTITY_TRUSTED_DEVICES_APPROVE,
+  IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
+} from '@intafaced/contracts/identity-trusted-devices-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /** The wire shape of a trusted-device refusal. Also used by the public `auth.device*` doors in router.ts. */
 export function trustedDeviceTrpcError(err: TrustedDeviceError): TRPCError {
@@ -33,8 +40,6 @@ function refuseDelegated(principal: { kid?: string | null | undefined; sub_accou
   if (principal.kid || principal.sub_account) throw new SecurityStepUpError('identity.delegated_refused');
 }
 
-const iso = z.string().datetime({ offset: true });
-
 /**
  * Top-level `trustedDevices` (I-signin-sessions-07). `list` answers this account's trusted devices, whether the owner
  * turned the new-device check on, and the sign-ins waiting for approval. `approve` lets a session on a trusted device
@@ -45,29 +50,9 @@ const iso = z.string().datetime({ offset: true });
 export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecurityStepUp) {
   return router({
     trustedDevices: router({
-      list: scopedProcedure('identity:read')
-        .output(
-          z
-            .object({
-              check: z.enum(['on', 'off']),
-              devices: z.array(
-                z
-                  .object({
-                    id: z.string().guid(),
-                    label: z.string(),
-                    firstSeenAt: iso,
-                    lastSeenAt: iso,
-                    trustedUntil: iso.nullable(),
-                    current: z.boolean(),
-                    newSignIn: z.boolean(),
-                  })
-                  .strict(),
-              ),
-              waiting: z.array(z.object({ flowId: z.string().guid(), label: z.string(), createdAt: iso, expiresAt: iso }).strict()),
-            })
-            .strict(),
-        )
-        .query(async ({ ctx }) => {
+      list: mountRecord(
+        IDENTITY_TRUSTED_DEVICES_LIST,
+        async ({ ctx }) => {
           try {
             const [devices, waiting] = await Promise.all([
               auth.trustedDevices(ctx.principal.userId, ctx.principal.sid ?? null),
@@ -94,11 +79,12 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
           } catch (err) {
             return mapError(err);
           }
-        }),
-      approve: scopedProcedure('identity:write')
-        .input(z.object({ flowId: z.string().guid(), stepUpApprovalId: z.string().min(1).max(128).nullish() }).strict())
-        .output(z.object({ approved: z.literal(true) }).strict())
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      approve: mountRecord(
+        IDENTITY_TRUSTED_DEVICES_APPROVE,
+        async ({ ctx, input }) => {
           try {
             refuseDelegated(ctx.principal);
             if (!ctx.principal.sid)
@@ -114,19 +100,12 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
           } catch (err) {
             return mapError(err);
           }
-        }),
-      remove: scopedProcedure('identity:write')
-        .input(
-          z
-            .object({
-              deviceId: z.string().guid(),
-              clientRequestId: z.string().min(1).max(128),
-              stepUpApprovalId: z.string().min(1).max(128).nullish(),
-            })
-            .strict(),
-        )
-        .output(z.object({ removed: z.boolean(), sessionsEnded: z.number().int().nonnegative() }).strict())
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      remove: mountRecord(
+        IDENTITY_TRUSTED_DEVICES_REMOVE,
+        async ({ ctx, input }) => {
           try {
             refuseDelegated(ctx.principal);
             await stepUp.require(
@@ -139,18 +118,21 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
           } catch (err) {
             return mapError(err);
           }
-        }),
-      confirmSignIn: scopedProcedure('identity:write')
-        .input(z.object({ deviceId: z.string().guid() }).strict())
-        .output(z.object({ confirmed: z.number().int().nonnegative() }).strict())
-        .mutation(async ({ ctx, input }) => {
+        },
+        codedRefusal,
+      ),
+      confirmSignIn: mountRecord(
+        IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
+        async ({ ctx, input }) => {
           try {
             refuseDelegated(ctx.principal);
             return await auth.confirmTrustedDeviceSignIn(ctx.principal.userId, input.deviceId, ctx.principal.sid ?? null);
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

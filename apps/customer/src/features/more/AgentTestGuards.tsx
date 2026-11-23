@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure } from './agent-room/parts';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
-import { ownAgentTestRunSchema, type OwnAgentTestRun } from '@intafaced/contracts/agents-own';
+import { type OwnAgentTestRun } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_TEST_APPROVE } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * The hostile content and output guards of a test engine run, as the Test panel shows them (AG-guardrails-03;
@@ -47,12 +49,7 @@ export function GuardOutcome({ agentId, run, onDecided }: { agentId: string; run
     if (!guard.approval) return;
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.testApprove',
-      { id: agentId, runId: run.id, payload: guard.approval },
-      ownAgentTestRunSchema,
-    );
+    const res = await api.call(AGENTS_OWN_TEST_APPROVE, { id: agentId, runId: run.id, payload: guard.approval });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     if (res.data.kind === 'engine_run') onDecided(res.data);
@@ -66,7 +63,7 @@ export function GuardOutcome({ agentId, run, onDecided }: { agentId: string; run
           <h4>
             {t('contentTitle')} · <strong data-testid="content-trust">{t(`trust_${guard.content.trust}`)}</strong>
           </h4>
-          <p className="muted">{t('contentNote')}</p>
+          <p className="lt-muted">{t('contentNote')}</p>
           <blockquote data-testid="content-text" lang="und">
             {run.content}
           </blockquote>
@@ -87,7 +84,7 @@ export function GuardOutcome({ agentId, run, onDecided }: { agentId: string; run
           </dl>
           <p>{t('approvalOnly')}</p>
           {guard.outcome === 'awaiting_approval' ? (
-            <Button disabled={busy} onClick={() => void approve()}>
+            <Button tone="primary" disabled={busy} onClick={() => void approve()}>
               {t('approve')}
             </Button>
           ) : null}

@@ -1,15 +1,32 @@
-import { SubNav } from '@intafaced/ui';
-import { preservePaperHref } from '../more/trade-context';
+import { Tabs } from '@intafaced/ui/lit/templates';
+import { preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 
 export type QuantRoomId =
-  'home' | 'strategies' | 'studio' | 'backtest' | 'sandbox' | 'editor' | 'tester' | 'optimise' | 'data' | 'execution';
+  | 'home'
+  | 'strategies'
+  | 'shared'
+  | 'library'
+  | 'live'
+  | 'limits'
+  | 'studio'
+  | 'backtest'
+  | 'sandbox'
+  | 'editor'
+  | 'tester'
+  | 'optimise'
+  | 'data'
+  | 'execution';
 
 /** Every Algo dev room, always listed: the same room switch Trade uses, so moving between rooms behaves the same everywhere. */
 /** Each room's link; `label` is its copy key, which is the id unless the id already names other copy. */
 export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string; label?: 'strategiesRoom' }[] = [
   { id: 'home', href: '/quant' },
   { id: 'strategies', href: '/quant/strategies', label: 'strategiesRoom' },
+  { id: 'shared', href: '/quant/shared' },
+  { id: 'library', href: '/quant/library' },
+  { id: 'live', href: '/quant/live' },
+  { id: 'limits', href: '/quant/limits' },
   { id: 'studio', href: '/quant/studio' },
   { id: 'backtest', href: '/quant/backtest' },
   { id: 'sandbox', href: '/quant/sandbox' },
@@ -20,18 +37,9 @@ export const QUANT_ROOMS: readonly { id: QuantRoomId; href: string; label?: 'str
   { id: 'execution', href: '/execution' },
 ];
 
-export function QuantRooms({ active, paper = false }: { active: QuantRoomId; paper?: boolean }) {
+/** The Algo dev rooms as the kit's section tab bar: the route's room lit, its detail pages under it (a strategy, a listing). */
+export function QuantRooms({ paper = false }: { paper?: boolean }) {
   const { t } = algoCopy.useCopy();
-  return (
-    <SubNav
-      aria-label={t('rooms')}
-      active={active}
-      className="px-0"
-      items={QUANT_ROOMS.map((room) => ({
-        id: room.id,
-        label: t(room.label ?? room.id),
-        href: preservePaperHref(room.href, paper),
-      }))}
-    />
-  );
+  const items = QUANT_ROOMS.map((room) => ({ label: t(room.label ?? room.id), href: preservePaperHref(room.href, paper) }));
+  return <Tabs label={t('rooms')} items={items} />;
 }

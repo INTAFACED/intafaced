@@ -182,13 +182,3 @@ export async function listAddressInternalPage(
   const nextCursor = fetched.length > q.limit && last ? { height: last.blockHeight, index: last.index, hash: last.hash } : null;
   return { rows, nextCursor };
 }
-
-/** The end of a UTC calendar day ("2026-01-01" → 2026-01-02T00:00:00Z), or null for a date that does not exist. */
-export function endOfUtcDay(date: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) return null;
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const start = new Date(Date.UTC(year, month - 1, day));
-  if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) return null;
-  return new Date(start.getTime() + 86_400_000);
-}

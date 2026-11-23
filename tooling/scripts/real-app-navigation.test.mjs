@@ -1,13 +1,14 @@
-// responseAfterNavigation (apps/customer/tests/real-app/navigation.mjs, docs/runbooks/harness-rewrite-plan.md piece 7):
-// a response the old page made before the navigation committed is never the one returned, nor one the old page started
-// before the navigation that answers after it committed (#8061); the body is read when the response arrives, and the
-// listeners are gone afterwards; a reloaded page's read whose body the browser no longer holds is skipped for the page's
-// next read (J-wallet-04 #7 on #8634). Run: node tooling/scripts/real-app-navigation.test.mjs
+// answersAfterNavigation (apps/customer/tests/real-app/navigation.mjs, docs/runbooks/harness-rewrite-plan.md piece 7), the one
+// way a journey reads an answer after a reload or a goto (garden/no-stale-read refuses the others): a response the old page
+// made before the navigation committed is never the one returned, nor one the old page started before the navigation that
+// answers after it committed (#8061); the body is read when the response arrives, and the listeners are gone afterwards; a
+// reloaded page's read whose body the browser no longer holds is skipped for the page's next read (J-wallet-04 #7 on
+// #8634). Run: node tooling/scripts/real-app-navigation.test.mjs
 // Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-const { GONE, responseAfterNavigation } = await import('../../apps/customer/tests/real-app/navigation.mjs');
+const { GONE, answerAfterNavigation, answersAfterNavigation } = await import('../../apps/customer/tests/real-app/navigation.mjs');
 
 /**
  * A page whose reload sends its document request (started at 2), answers `before` (the old page's read, started at 1),
@@ -41,11 +42,13 @@ function fakePage({ before, after, frames = ['main'], late = false, newGone = nu
     name,
     url: () => 'http://127.0.0.1:3210/api/bank/trpc/ramps.destinations.list',
     status: () => 200,
+    ok: () => true,
+    headers: () => ({}),
     request: () => ({ method: () => 'GET', timing: () => ({ startTime }) }),
-    json: async () => {
+    text: async () => {
       if (gone instanceof Error) throw gone;
       if (gone) throw new Error('Response body is not available for a response that was navigated away from.');
-      return body;
+      return JSON.stringify(body);
     },
   });
   const docRequest = { isNavigationRequest: () => true, frame: () => main, timing: () => ({ startTime: 2 }) };
@@ -73,39 +76,50 @@ function fakePage({ before, after, frames = ['main'], late = false, newGone = nu
 }
 
 const match = (r) => r.request().method() === 'GET' && /ramps\.destinations\.list/.test(r.url());
+const reload = (page) => () => page.reload();
+/** What a step checks of an answer: its status, its request's start, its body. */
+const read = async (a) => ({ status: a.status(), startedAt: a.request().timing().startTime, body: await a.json() });
 {
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] } });
-  const { res, doc } = await responseAfterNavigation(page, match);
-  assert.deepEqual(res, { status: 200, startedAt: 3, body: { rows: ['new'] } }, "the reloaded page's own read, not the old page's");
-  assert.equal(doc.request().timing().startTime, 2);
+  const answer = await answerAfterNavigation(page, match, reload(page));
+  assert.deepEqual(
+    await read(answer),
+    { status: 200, startedAt: 3, body: { rows: ['new'] } },
+    "the reloaded page's own read, not the old page's",
+  );
   assert.equal(page.listeners(), 0, 'the listeners are removed');
 }
 {
   // #8061: the old page's read answers after the commit, its body gone; it is not matched, so its body is never read.
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] }, late: true });
-  const { res } = await responseAfterNavigation(page, match);
-  assert.deepEqual(res, { status: 200, startedAt: 3, body: { rows: ['new'] } }, 'the late old read is not the one read');
+  const answer = await answerAfterNavigation(page, match, reload(page));
+  assert.deepEqual(await read(answer), { status: 200, startedAt: 3, body: { rows: ['new'] } }, 'the late old read is not the one read');
   assert.equal(page.listeners(), 0, 'the listeners are removed');
 }
 {
   // A child frame's navigation is not the page's: the match waits for the main frame.
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] }, frames: ['child', 'main'] });
-  assert.deepEqual((await responseAfterNavigation(page, match)).res.body, { rows: ['new'] });
+  assert.deepEqual(await (await answerAfterNavigation(page, match, reload(page))).json(), { rows: ['new'] });
 }
 {
-  // `navigate` and `read` are the caller's.
-  const { page } = fakePage({ before: 'x', after: 'y' });
-  const { res } = await responseAfterNavigation(page, match, { navigate: () => page.reload(), read: async (r) => `read ${r.name}` });
-  assert.equal(res.body, 'read new');
+  // Several answers from one navigation, each its own match, in the order asked.
+  const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] } });
+  const answers = await answersAfterNavigation(page, [match, (r) => match(r) && r.name === 'new'], reload(page));
+  assert.deepEqual(await Promise.all(answers.map((a) => a.json())), [{ rows: ['new'] }, { rows: ['new'] }]);
+  assert.equal(page.listeners(), 0, 'the listeners are removed');
 }
 {
   // J-wallet-04 #7 on #8634: the reloaded page's own first read answered with its body gone. It is no answer the test
   // can check, so the page's next read is the one returned.
-  const gone = new Error('response.json: Protocol error (Network.getResponseBody): No data found for resource with given identifier');
+  const gone = new Error('response.text: Protocol error (Network.getResponseBody): No data found for resource with given identifier');
   assert.ok(GONE.test(gone.message) && GONE.test('No resource with given identifier found'), "the browser's two wordings");
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] }, newGone: gone });
-  const { res } = await responseAfterNavigation(page, match);
-  assert.deepEqual(res, { status: 200, startedAt: 4, body: { rows: ['new'] } }, "a gone body is skipped for the page's next read");
+  const answer = await answerAfterNavigation(page, match, reload(page));
+  assert.deepEqual(
+    await read(answer),
+    { status: 200, startedAt: 4, body: { rows: ['new'] } },
+    "a gone body is skipped for the page's next read",
+  );
   assert.equal(page.listeners(), 0, 'the listeners are removed');
 }
 {
@@ -113,14 +127,15 @@ const match = (r) => r.request().method() === 'GET' && /ramps\.destinations\.lis
   const gone = new Error('No data found for resource with given identifier');
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] }, newGone: gone });
   await assert.rejects(
-    responseAfterNavigation(page, (r) => match(r) && r.name !== 'new'),
+    answerAfterNavigation(page, (r) => match(r) && r.name !== 'new', reload(page)),
     (err) => err === gone,
   );
+  assert.equal(page.listeners(), 0, 'the listeners are removed');
 }
 {
   // Any other read error is no gone body: it fails at once, and the next read is never taken.
-  const broken = new SyntaxError('Unexpected token < in JSON at position 0');
+  const broken = new Error('Target page, context or browser has been closed');
   const { page } = fakePage({ before: { rows: ['old'] }, after: { rows: ['new'] }, newGone: broken });
-  await assert.rejects(responseAfterNavigation(page, match), /Unexpected token/);
+  await assert.rejects(answerAfterNavigation(page, match, reload(page)), /has been closed/);
 }
-console.log("real-app navigation: a response is read from the page's next navigation only");
+console.log("real-app navigation: an answer is read from the page's next navigation only");

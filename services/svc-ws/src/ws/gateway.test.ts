@@ -335,12 +335,8 @@ describe('the websocket gateway, over a real socket', () => {
 
     client.socket.close();
     await client.closure();
-    // close → detach is same-tick on the server; poll briefly if the event loop is busy.
-    for (let i = 0; i < 20 && hub.connections !== 0; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    expect(hub.connections).toBe(0);
+    // close → detach is same-tick on the server; wait for it if the event loop is busy.
+    await vi.waitFor(() => expect(hub.connections).toBe(0));
     // The book goes with it — a book nobody watches goes stale, and a stale
     // book handed out as a "snapshot" is a lie with a sequence number on it.
     expect(hub.bookFor(MARKET)).toBeUndefined();
@@ -369,11 +365,9 @@ describe('the websocket gateway, over a real socket', () => {
     // Wait until the hub holds the subscription: a print before that has no watcher and is dropped. A fixed 50 ms was not
     // always enough on a loaded runner, and the print never came (#6027). With a ring, a print held while the seat is
     // still opening is replayed to it.
-    const until = Date.now() + 4_000;
-    while (tradeHub.connections <= watching) {
-      if (Date.now() > until) throw new Error('the trades subscription never reached the hub');
-      await new Promise((r) => setTimeout(r, 5));
-    }
+    await vi.waitFor(() => expect(tradeHub.connections, 'the trades subscription never reached the hub').toBeGreaterThan(watching), {
+      timeout: 4_000,
+    });
 
     tradeHub.ingest({
       marketId: MARKET,
@@ -457,13 +451,8 @@ describe('the websocket gateway, over a real socket', () => {
     expect(hub.connections).toBe(1);
 
     // Two heartbeat windows: first marks not-alive + ping; second terminates.
-    await Promise.race([client.closure(), new Promise<void>((r) => setTimeout(r, 2_000))]);
-    expect(client.closed).not.toBeNull();
-    const deadline = Date.now() + 2_000;
-    while (hub.connections !== 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(hub.connections).toBe(0);
+    await vi.waitFor(() => expect(client.closed).not.toBeNull(), { timeout: 2_000 });
+    await vi.waitFor(() => expect(hub.connections).toBe(0), { timeout: 2_000 });
   });
 });
 
@@ -620,7 +609,7 @@ describe('the HTTP half', () => {
   it('serves recent public prints when the tape is live — not an empty wrapper', async () => {
     const sink = { bufferedBytes: 0, send: () => undefined, close: () => undefined };
     tradeHub.attach(MARKET, sink);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setImmediate(resolve));
     tradeHub.ingest({
       marketId: MARKET,
       price: '30100.5',
@@ -650,7 +639,7 @@ describe('the HTTP half', () => {
     // are diffed against, not with a fresh upstream read.
     const sink = { bufferedBytes: 0, send: () => undefined, close: () => undefined };
     hub.attach(MARKET, sink);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setImmediate(resolve));
     hub.ingest(snapshot(77, [['100', '3']]));
     source.current = snapshot(999); // upstream has moved on; we must not read it
 

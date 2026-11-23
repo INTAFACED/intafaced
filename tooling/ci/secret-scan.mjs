@@ -44,7 +44,7 @@
  *
  * The paragraph above used to say a secret in a `.java`/`.ts` file was "a
  * different, rarer problem". That was wrong, and the A1.4 audit
- * (docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md) only looked like it swept
+ * (2026-07-30, in git history; kept facts in docs/SECRET-ROTATION-READINESS.md §1.5) only looked like it swept
  * the vendored tree because it swept `.properties`. Reading source found a
  * live third-party captcha key pair hard-coded in a controller of a PUBLISHED,
  * RUNNING jar, and a node credential inside a URL in a test's `main()`. Neither
@@ -410,7 +410,7 @@ const SECRET_BY_CONVENTION = [
  * Rules for this list, and they are the only thing keeping it honest:
  *
  *   1. An entry is a promise that the finding is in the owner action list at
- *      `docs/SECRET-ROTATION-READINESS-2026-08-03.md`. `action` names the item.
+ *      `docs/SECRET-ROTATION-READINESS.md`. `action` names the item.
  *   2. An entry that no longer matches a real violation at that file and line
  *      is a FAILURE, not a silent pass. A register you can leave behind is a
  *      register that becomes an exemption list.
@@ -430,7 +430,7 @@ const KNOWN_DISCLOSED = [
   // 2026-10-19: the six vendored-tree rows (admin console key, captcha pair, geetest key,
   // 2FA demo seed, ACT node credential) left this register because vendor/ was deleted,
   // not because the RISK is gone. The values stay disclosed in git history; their owner
-  // rotations remain open in docs/SECRET-ROTATION-READINESS-2026-08-03.md.
+  // rotations remain open in docs/SECRET-ROTATION-READINESS.md.
   // NOT listed, and the omission is a checked result rather than an oversight:
   // `01_wallet_rpc/usdt/.../JsonrpcClient.java:163` also embeds a credentialled
   // URL in a `main()`, but its password is IDENTICAL to its username and the
@@ -455,7 +455,7 @@ const KNOWN_DISCLOSED = [
   // covering two findings that are gone while implying they are still there.
   //
   // What did NOT change: the seeds are still disclosed in git history, so
-  // OWNER-1 in docs/SECRET-ROTATION-READINESS-2026-08-03.md stays open. It is
+  // OWNER-1 in docs/SECRET-ROTATION-READINESS.md stays open. It is
   // an owner rotation, and removing a literal from HEAD has never been able to
   // un-disclose it. The entries left this register because the CODE finding is
   // gone, not because the RISK is.
@@ -501,6 +501,49 @@ function exemptReason(rel) {
 const TRACKED_FILES = new Set(tracked());
 
 const isPlaceholder = (value) => PLACEHOLDER_VALUES.some((p) => p.test(value.trim()));
+
+/**
+ * The call records' published schema (`packages/contracts/procedures/<service>.schema.json`, written by `procedures:write`,
+ * never by hand) holds two things that sit under credential-shaped key names and are public, and only these are let through,
+ * only in those files:
+ *   · a sample input whose field is `token` or `key` and whose value is an EVM ADDRESS (a token contract, a session key's
+ *     address): exactly 20 bytes of hex (`0x` + 40). Key material is 32 bytes or more (a private key is `0x` + 64), so a
+ *     key pasted there is still a finding, and so is any other key name holding 20 bytes of hex;
+ *   · a refusal code (`amm.identical_tokens`: a dotted `<area>.<code>` name) mapped to the tRPC status it is sent with,
+ *     matched whole against the fixed set tRPC sends, never a prefix or a pattern.
+ * Every other file, and every other key, is judged as before.
+ */
+const RECORD_SCHEMA = /^packages\/contracts\/procedures\/svc-[a-z0-9-]+\.schema\.json$/;
+const RECORD_ADDRESS_FIELDS = new Set(['token', 'key']);
+const REFUSAL_CODE_KEY = /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9_]+)+$/;
+const EVM_ADDRESS_VALUE = /^0x[0-9a-fA-F]{40}$/;
+const TRPC_STATUS_WORDS = new Set([
+  'BAD_REQUEST',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'METHOD_NOT_SUPPORTED',
+  'TIMEOUT',
+  'CONFLICT',
+  'PRECONDITION_FAILED',
+  'PAYLOAD_TOO_LARGE',
+  'UNPROCESSABLE_CONTENT',
+  'TOO_MANY_REQUESTS',
+  'CLIENT_CLOSED_REQUEST',
+  'INTERNAL_SERVER_ERROR',
+  'NOT_IMPLEMENTED',
+  'BAD_GATEWAY',
+  'SERVICE_UNAVAILABLE',
+  'GATEWAY_TIMEOUT',
+]);
+/** A key or value as JSON writes it inside an object, its quotes and the comma before the next key taken off. */
+const jsonText = (text) => text.trim().replace(/^"|",?$|"$/g, '');
+const isRecordSchemaPublic = (rel, key, value) => {
+  if (!RECORD_SCHEMA.test(rel)) return false;
+  const name = jsonText(key);
+  const v = jsonText(value);
+  return (RECORD_ADDRESS_FIELDS.has(name) && EVM_ADDRESS_VALUE.test(v)) || (REFUSAL_CODE_KEY.test(name) && TRPC_STATUS_WORDS.has(v));
+};
 
 /**
  * `key:` as an ATTRIBUTE-NAME field, not as a credential.
@@ -566,7 +609,7 @@ const isCacheKeyField = (rel, key, value) => {
  * of not being a *disclosure*. If one of these ever guards something reachable,
  * the finding is the reachability, not the literal, and this scan is the wrong
  * tool for it. Host exposure is checked against `docker ps`; see
- * docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md.
+ * docs/SECRET-ROTATION-READINESS.md §1.7.
  */
 const isMatchedDevPair = (user, password) => user.toLowerCase() === password.toLowerCase();
 
@@ -592,6 +635,16 @@ const isMatchedDevPair = (user, password) => user.toLowerCase() === password.toL
 const FILE_PATH_ELEMENT = String.raw`"[^"\s:@]*\/[^"\s:@]*\.[A-Za-z0-9]{1,8}"`;
 const FILE_PATH_LIST = new RegExp(String.raw`^\[\s*${FILE_PATH_ELEMENT}(?:\s*,\s*${FILE_PATH_ELEMENT})*\s*\]\s*,?$`);
 const isFilePathList = (key, rawValue) => /^tokens$/i.test(key) && FILE_PATH_LIST.test(rawValue.trim());
+
+/**
+ * A venue's spot pair naming its two tokens by index under a key literally named `tokens`: `"tokens": [1, 0]`, as the
+ * Hyperliquid test network's `spotMeta` answers it (packages/venue-hyperliquid recordings/). Both must hold: the key is
+ * exactly `tokens`, and the value is a list of exactly two whole numbers of at most five digits. A string, one number,
+ * a longer number or a longer list is still a finding.
+ * @param {string} key the assignment key, unquoted
+ * @param {string} rawValue the text after the `:` / `=`, trailing comma allowed
+ */
+const isTokenIndexPair = (key, rawValue) => /^tokens$/i.test(key) && /^\[\s*\d{1,5}\s*,\s*\d{1,5}\s*\]\s*,?$/.test(rawValue.trim());
 
 /**
  * A source constant that holds the NAME of an environment variable, or a URL
@@ -723,7 +776,12 @@ for (const rel of TRACKED_FILES) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
-        } else if (!isPlaceholder(value) && !isFilePathList(key, rawValue)) {
+        } else if (
+          !isPlaceholder(value) &&
+          !isRecordSchemaPublic(rel, key, value) &&
+          !isFilePathList(key, rawValue) &&
+          !isTokenIndexPair(key, rawValue)
+        ) {
           violations.push({
             check: 'committed-credential',
             file: rel,
@@ -840,7 +898,7 @@ for (const v of violations) {
 // Rule 2: an entry that no longer describes a real finding is itself a failure.
 const staleRegisterEntries = REGISTERED.filter((e) => !seenRegisterKeys.has(registerKey(e)));
 
-const ROTATION_DOC = 'docs/SECRET-ROTATION-READINESS-2026-08-03.md';
+const ROTATION_DOC = 'docs/SECRET-ROTATION-READINESS.md';
 
 // Printed on EVERY run, green or red. A disclosure the owner has not yet
 // rotated should be as visible on the thousandth build as on the first.

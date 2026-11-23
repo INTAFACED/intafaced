@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank `businessTeam.*` (J-bank-19; BK-biz-01 to BK-biz-04): a business bank team and its approval rules.
@@ -47,7 +48,7 @@ export const businessTeamMemberSchema = z
 
 export const businessTeamOverviewSchema = z
   .object({
-    account: z.object({ id: z.string(), name: z.string(), assetId: z.string(), status: z.enum(['active', 'closed']) }).strict(),
+    account: z.object({ id: z.string(), name: z.string(), assetId: assetIdSchema, status: z.enum(['active', 'closed']) }).strict(),
     owner: z.boolean(),
     me: businessTeamMemberSchema,
     /** The owner-set invite lifetime; null while it is not set (every invite refuses). */
@@ -100,7 +101,7 @@ export const businessTeamPaymentSchema = z
     makerHandle: z.string(),
     payee: z.string(),
     paymentType: z.enum(BUSINESS_PAYMENT_TYPES),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     /** The rule that applied when it was proposed; null when none did and it was sent at once. */
     rule: businessTeamRuleSchema.nullable(),
@@ -120,7 +121,7 @@ export const businessTeamPaymentSchema = z
 export const businessTeamSpendSchema = z
   .object({
     scope: z.enum(['team', 'self']),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     partnerLabel: z.string(),
     members: z.array(
       z

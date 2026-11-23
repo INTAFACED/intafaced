@@ -30,7 +30,8 @@ import { RecipientStateUnavailableError, memoryRecipientState } from '../recipie
 import { postToRail } from '../personal-pay/post.js';
 import { collectionPartnerKey, collectionTransferId } from './direct-debits.js';
 import { partnerPayoutsAccount, type PostingFreeze } from '../partner/partner-bank.js';
-import { TEST_PARTNER_DD_BLOCKED, testPartner, type TestPartner } from '../partner/test-partner.js';
+import { testPartner, type TestPartner } from '../partner/test-partner.js';
+import { TEST_PARTNER_DD_BLOCKED } from '../partner/test-partner-direct-debits.js';
 import { ddSimCollectionBody, ddSimMandateBody } from './job-bodies.js';
 import { DD_SIM_RAIL, directDebitSimScheme, unsetDirectDebitScheme, type DirectDebitScheme } from './scheme.js';
 

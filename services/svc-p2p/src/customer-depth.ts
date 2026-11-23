@@ -5,11 +5,13 @@
  * the caller's own trades. Money stays in the ledger. This file does not
  * invent a handle, a fee, or a notification delivery.
  */
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
 import { ONGOING_TRADE_STATUSES } from './take-limits.js';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { P2P_BOARD_SORTS } from '@intafaced/contracts/p2p-procedures';
 
 export interface BoardOffer {
   id: string;
@@ -23,7 +25,7 @@ export interface BoardOffer {
   maxAmt: Amount;
   totalAmt: Amount;
   remainingAmt: Amount;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   /** Maker verification tier at create. Null when the row never stored one. */
   makerTier: string | null;
@@ -134,9 +136,7 @@ export async function eitherBlocked(sql: Queryable, a: string, b: string): Promi
   return Boolean(rows[0]);
 }
 
-/** Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by. */
-export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
-export type BoardSort = (typeof BOARD_SORTS)[number];
+export type BoardSort = (typeof P2P_BOARD_SORTS)[number];
 
 export interface OfferCursor {
   sort: BoardSort;
@@ -162,7 +162,7 @@ export function decodeOfferCursor(cursor: string): OfferCursor {
   const [sort, float, price, createdAt, id, extra] = raw.split('\n');
   if (
     extra !== undefined ||
-    !(BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
+    !(P2P_BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
     (float !== '0' && float !== '1') ||
     !price ||
     !createdAt ||
@@ -205,7 +205,7 @@ interface BoardRow {
   max_amt: string;
   total_amt: string;
   remaining_amt: string;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   maker_tier: string | null;
   accepts_non_instant?: boolean;

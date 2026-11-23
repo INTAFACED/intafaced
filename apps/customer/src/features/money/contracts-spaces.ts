@@ -1,7 +1,6 @@
 /** Spaces and pots: shared pots, the income sorter, and a space's goal and lock. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { spaceSchema } from './client';
 
 /** Shared pots (BK-acct-09, J-bank-07 #6): who shares which pot, invites with their lifetime, from the bank. */
 const sharedPotRoleSchema = z.enum(['contributor', 'viewer']);
@@ -120,35 +119,7 @@ export const spaceLockStateSchema = z.object({
 });
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const spacesReads = {
-  'sorter.list': sorterListSchema,
-  'sorter.runs': z.array(sorterRunSchema),
-  'sharedPots.list': sharedPotsSchema,
-  'sharedPots.activity': z.array(sharedPotActivitySchema),
-  'spaces.list': z.array(spaceSchema),
-  'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
-} as const;
+export const spacesReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const spacesWrites = {
-  'spaces.create': z.object({ id: z.string(), name: z.string() }),
-  'spaces.archive': z.object({ archived: z.literal(true) }),
-  'spaces.setGoal': spaceLockStateSchema,
-  'spaces.setLock': spaceLockStateSchema,
-  'spaces.requestUnlock': spaceLockStateSchema,
-  'spaces.cancelUnlock': spaceLockStateSchema,
-  // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
-  'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
-  'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
-  'sorter.create': sorterSchema,
-  'sorter.cancel': sorterSchema,
-  'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
-  'sharedPots.cancelInvite': z.object({ cancelled: z.literal(true) }),
-  'sharedPots.accept': z.object({ spaceId: z.string(), role: sharedPotRoleSchema }),
-  'sharedPots.decline': z.object({ declined: z.literal(true) }),
-  'sharedPots.leave': z.object({ left: z.literal(true) }),
-  'sharedPots.remove': z.object({ removed: z.literal(true) }),
-  'sharedPots.linkCard': sharedPotCardSchema,
-  'sharedPots.unlinkCard': z.object({ unlinked: z.literal(true) }),
-  'sharedPots.freezeCard': sharedPotCardSchema,
-} as const;
+export const spacesWrites = {} as const;

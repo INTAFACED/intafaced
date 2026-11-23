@@ -11,6 +11,7 @@ export const spotConditionalCopy = defineCopy('trade.spot.venue.conditional', {
   kind_oco: 'OCO',
   kind_bracket: 'Bracket',
   kind_oto: 'Linked close',
+  kind_gtd: 'Good till date',
   side_buy: 'Buy',
   side_sell: 'Sell',
   Size: 'Size ({base})',
@@ -81,6 +82,9 @@ export const spotConditionalCopy = defineCopy('trade.spot.venue.conditional', {
   status_filled: 'Filled',
   status_failed: 'Failed',
   status_cancelled: 'Cancelled',
+  status_expired: 'Expired',
+  'Expires at': 'expires {at}; INTAFACED cancels what is unfilled then',
+  'Expired at': 'cancelled by INTAFACED at its expiry, {at}; the venue released its lock',
   leg_waiting: 'waiting',
   leg_armed: 'armed',
   leg_triggered: 'triggered',
@@ -106,4 +110,5 @@ export const spotConditionalCopy = defineCopy('trade.spot.venue.conditional', {
   'Cancel reason entry_filled_nothing': 'The entry filled nothing, so no exit was placed.',
   'Cancel reason take_profit_ended': 'The take profit ended on the venue, so the stop loss ended with it.',
   'Cancel reason cancelled': 'Cancelled by you.',
+  'Cancel reason ended_on_venue': 'Ended on the venue.',
 });

@@ -5,16 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 3200",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "build": "node ../../tooling/scripts/tsc.mjs --noEmit && vite build",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs --noEmit",
+    "test": "node ../../tooling/vitest/run-all.mjs vite.config.ts vitest.render.config.ts",
     "test:deployment": "node --test deployment/host-dispatch.node-test.mjs deployment/validate-env.node-test.mjs deployment/security-headers.node-test.mjs",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "test:real-app": "playwright test --config tests/real-app/real-app.playwright.config.mjs",
     "test:watch": "vitest",
     "room:new": "node scripts/new-room.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 3200",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf dist .turbo",
+    "render:compare": "vitest run --config vitest.render.config.ts",
+    "render:record": "RENDER_RECORD=1 vitest run --config vitest.render.config.ts"
   },
   "dependencies": {
     "@intafaced/contracts": "workspace:*",

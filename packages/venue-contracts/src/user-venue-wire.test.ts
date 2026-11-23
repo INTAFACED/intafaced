@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueWireError, decodeVenueWire, encodeVenueWire } from './user-venue-wire.js';
-import type { PreparedVenueAction, UserVenueMarket } from './user-venue.js';
+import type { PreparedVenueAction, UserVenueBalance, UserVenueMarket } from './user-venue.js';
 
 describe('user-venue wire', () => {
   const prepared: PreparedVenueAction = {
@@ -30,6 +30,20 @@ describe('user-venue wire', () => {
     const best = { symbol: 'BTC-PERP', bid: parseAmount('64999'), ask: null };
     expect(decodeVenueWire(JSON.parse(JSON.stringify(encodeVenueWire(best))))).toEqual(best);
     expect(() => decodeVenueWire({ bid: 64999 })).toThrow(/decimal string/);
+  });
+
+  it("carries a balance's lock split (J-portfolio-01 #4) as decimal strings both ways", () => {
+    const balance: UserVenueBalance = {
+      asset: 'USDC',
+      free: parseAmount('280'),
+      locked: parseAmount('720'),
+      total: parseAmount('1000'),
+      lockedBy: { inOrders: parseAmount('20'), margin: parseAmount('600'), staked: parseAmount('100') },
+    };
+    const wire = JSON.parse(JSON.stringify(encodeVenueWire(balance)));
+    expect(wire.lockedBy).toEqual({ inOrders: '20', margin: '600', staked: '100' });
+    expect(decodeVenueWire<UserVenueBalance>(wire)).toEqual(balance);
+    expect(() => decodeVenueWire({ ...wire, lockedBy: { ...wire.lockedBy, staked: 100 } })).toThrow(VenueWireError);
   });
 
   it('refuses a JSON number in a money field', () => {

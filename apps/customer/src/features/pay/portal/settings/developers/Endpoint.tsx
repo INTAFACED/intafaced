@@ -47,7 +47,7 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
           <EmptyState
             title={t('endpointMissing')}
             action={
-              <a className="text-link" href="/pay/developer/webhooks">
+              <a className="lt-link" href="/pay/developer/webhooks">
                 {t('backToEndpoints')}
               </a>
             }
@@ -83,10 +83,10 @@ export function EndpointView({
   const setRevealed = setHeldRevealed ?? setOwnRevealed;
   const mine = health?.endpoints.find((e) => e.endpointId === endpoint.id);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <DetailHeader
         back={{ href: '/pay/developer/webhooks', label: t('backToEndpoints') }}
-        title={<span className="pp-wrap">{shownEndpointUrl(endpoint.url)}</span>}
+        title={<span className="lt-wrap">{shownEndpointUrl(endpoint.url)}</span>}
         status={<StatusChip entity="endpoint" value={endpoint.status} />}
         subtitle={endpoint.status === 'disabled' ? t('disabledSubtitle') : t('activeSubtitle')}
       />
@@ -124,12 +124,12 @@ export function EndpointView({
               : []),
           ]}
         />
-        {endpoint.previousSecretUntil && <p className="muted">{t('overlapNote')}</p>}
-        <p className="muted">{t('queryHidden')}</p>
+        {endpoint.previousSecretUntil && <p className="lt-muted">{t('overlapNote')}</p>}
+        <p className="lt-muted">{t('queryHidden')}</p>
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
       <PaySection title={t('manageTitle')} description={t('manageBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <ChangeAddress api={api} endpoint={endpoint} canManage={canManage} onDone={reload} />
           <RotateEndpointSecret
             api={api}
@@ -148,14 +148,14 @@ export function EndpointView({
               disabledReason={t('readOnlyRole')}
               review={
                 <p>
-                  <strong className="pp-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
+                  <strong className="lt-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
                 </p>
               }
               perform={() => api.endpointDisable(endpoint.id)}
               onConfirmed={reload}
             />
           ) : (
-            <p className="muted">{t('cannotReEnable')}</p>
+            <p className="lt-muted">{t('cannotReEnable')}</p>
           )}
         </div>
       </PaySection>
@@ -213,11 +213,11 @@ function ChangeAddress({
           <dl className="pay-details">
             <div>
               <dt>{t('from')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(endpoint.url)}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(endpoint.url)}</dd>
             </div>
             <div>
               <dt>{t('to')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(url.trim())}</dd>
             </div>
           </dl>
         }

@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { POINTS_TIER_OWNER_QUESTION } from '@intafaced/contracts/campaigns-catalogue';
-import { feeTierSchema, type FeeTier } from '../public/fee-tier';
+import { feeTierSchema, type FeeTier } from '../public';
 import { PerksView } from './PerksRoom';
 
 // J-campaigns-14 #1 #2 #4: the tier on spend with its multiplier and the next tier, the pass badge with its end time while

@@ -450,7 +450,7 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
   await page.getByRole('button', { name: `Buy ${market.base}` }).click();
   const review = reviewSheet(page);
   await expect(review).toBeVisible();
-  expect((await review.getByTestId('client-order-id').innerText()).trim()).toMatch(/^\S+$/);
+  await expect.poll(async () => (await review.getByTestId('client-order-id').innerText()).trim()).toMatch(/^\S+$/);
   await expect(review.locator('dt', { hasText: 'Fee role' }).locator('xpath=..')).toContainText('Maker');
   // After the review opened, another TEST trader offers at that price on the venue, so this buy would now take it.
   const seller = `${J}-7-${market.symbol}-${owner.slice(2, 10)}`;

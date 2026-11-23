@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { jsonValueSchema, type JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import {
@@ -1474,9 +1475,10 @@ export class TokenService {
    * The stored fee-decay schedule as the owner's door sees it: the row, or null while blank, and its version. A row
    * that does not parse is returned as stored, so the owner can see what to replace.
    */
-  async feeDiscountScheduleRow(): Promise<{ schedule: unknown; version: string }> {
+  async feeDiscountScheduleRow(): Promise<{ schedule: JsonValue; version: string }> {
     const raw = await readFeeDiscountRow(this.sql);
-    return { schedule: feeDiscountScheduleBlank(raw) ? null : raw, version: feeDiscountScheduleVersion(raw) };
+    // A jsonb column: a JSON document whatever was stored, checked as one here.
+    return { schedule: feeDiscountScheduleBlank(raw) ? null : jsonValueSchema.parse(raw), version: feeDiscountScheduleVersion(raw) };
   }
 
   /**

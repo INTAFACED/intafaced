@@ -15,7 +15,7 @@ import {
   secondReason,
   writeReads,
 } from './step-read.mjs';
-import { attach, picturesIn, waitOver } from './step-pictures.mjs';
+import { STEP_PICTURE, attach, fetchRun, picturesIn, waitOver } from './step-pictures.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -227,7 +227,10 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
   const leak = 'it never checks that the balance equals the deposit exactly';
   attach(dir, shards({ 'J-x-01 #2 sees': true }));
-  writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak, picture: 'SHOWN' }]));
+  writeFileSync(
+    join(dir, 'answer.json'),
+    answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak, picture: 'SHOWN', picture_note: '' }]),
+  );
   const v = cmdRead(dir, env);
   assert.equal(v.ok, true);
   const raw = readFileSync(join(dir, 'read.json'), 'utf8');
@@ -244,7 +247,7 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   // The control: FAITHFUL is a success.
   writeFileSync(
     join(dir, 'answer.json'),
-    answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe', picture: 'SHOWN' }]),
+    answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe', picture: 'SHOWN', picture_note: '' }]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
   assert.match(readFileSync(join(dir, 'status.tsv'), 'utf8'), /^success\t1 FAITHFUL/);
@@ -264,14 +267,16 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     })(),
   });
   const ok = [
-    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
-    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
   ];
   for (const [why, text] of [
     ['unanswered', answer(ok.slice(0, 1))],
     ['bad verdict', answer([{ ...ok[0], verdict: 'FINE' }, ok[1]])],
     ['no picture answer', answer([{ ...ok[0], picture: undefined }, ok[1]])],
     ['bad picture answer', answer([{ ...ok[0], picture: 'FINE' }, ok[1]])],
+    ['no picture_note', answer([{ ...ok[0], picture_note: undefined }, ok[1]])],
+    ['bad picture_note', answer([{ ...ok[0], picture_note: 7 }, ok[1]])],
     ['errored', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true })],
     ['not JSON', 'oops'],
     ['answered twice', answer([ok[0], ok[1], { ...ok[1], step: 'J-wallet-01#1', verdict: 'WEAK' }])],
@@ -376,8 +381,8 @@ test('#2693: each step gets its own end picture from the newest run; a step with
   writeFileSync(
     join(dir, 'answer.json'),
     answer([
-      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
-      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
     ]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
@@ -397,8 +402,8 @@ test('#2693 planted: a BROKEN picture caps a FAITHFUL verdict at WEAK; NOT SHOWN
   writeFileSync(
     join(dir, 'answer.json'),
     answer([
-      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'BROKEN' },
-      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'NOT SHOWN' },
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'BROKEN', picture_note: '' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'NOT SHOWN', picture_note: '' },
     ]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
@@ -439,4 +444,145 @@ test('#2693 review S5 planted: a picture that is a link, or that climbs out of i
   assert.equal(pics.has('J-x-01#1'), true, 'the control: a plain file inside its shard is a picture');
   assert.equal(pics.has('J-x-01#2'), false, 'a link');
   assert.equal(pics.has('J-x-01#3'), false, 'a path out of the shard');
+});
+
+// project-state #2952: J-derivatives-01 #2 at run 44213652045 attached eight window pictures, seven of them a campaigns
+// page an earlier file left open, and the reader was shown the last one listed, a campaigns page: NOT SHOWN. The test's own
+// whole page, attached as STEP_PICTURE, is the step's picture wherever it stands in the list.
+test('#2952 planted: the step picture is chosen over the window pictures of other pages; without one, the last stays', () => {
+  const root = shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': true });
+  const art = join(root, '900-1', 'real-app-journeys-shard-1');
+  const report = join(art, 'home/runner/work/_temp/journeys/report.json');
+  const doc = JSON.parse(readFileSync(report, 'utf8'));
+  const own = '/tmp/intafaced-real-app/results/t0/step-picture.png';
+  const left = '/tmp/intafaced-real-app/results/t0/test-finished-7.png';
+  for (const p of [own, left]) writeFileSync(join(art, p.slice(1)), 'png');
+  const a = doc.suites[0].suites[0].specs[0].tests[0].results[0].attachments;
+  a.splice(0, a.length, { name: 'screenshot', contentType: 'image/png', path: '/tmp/intafaced-real-app/results/t0/test-finished-1.png' });
+  a.splice(1, 0, { name: STEP_PICTURE, contentType: 'image/png', path: own });
+  a.push({ name: 'screenshot', contentType: 'image/png', path: left });
+  doc.suites[0].suites[0].specs[1].tests[0].results[0].attachments.push({
+    name: 'screenshot',
+    contentType: 'image/png',
+    path: '/tmp/intafaced-real-app/results/t1/test-finished-1.png',
+  });
+  writeFileSync(report, JSON.stringify(doc));
+  const pics = picturesIn(root);
+  assert.match(pics.get('J-x-01#1').file, /t0\/step-picture\.png$/, 'the step picture, not the last window picture');
+  assert.match(pics.get('J-x-01#2').file, /t1\/test-finished-1\.png$/, 'the control: no step picture, the last stays');
+  // The fixture that attaches it names it the same.
+  const fixture = readFileSync(new URL('../../apps/customer/tests/real-app/journey.mjs', import.meta.url), 'utf8');
+  assert.match(fixture, new RegExp(`const STEP_PICTURE = '${STEP_PICTURE}';`));
+});
+
+// project-state #3162: a local read fetched about 60 shard zips in a row with no retry, and one transient HTTP 503 on any
+// of them ended the whole read with no read. A failed shard is tried again (shard-download.mjs's rule); a refusal is not,
+// and the last failure still ends the fetch with no .done.
+const failing = (code) => {
+  const e = new Error('Command failed: sh -c gh api ...');
+  e.stderr = Buffer.from(`gh: HTTP ${code}`);
+  return e;
+};
+const quiet = { log: () => {} };
+
+test('a shard download that fails once with a 503 is tried again and the run still unpacks whole', () => {
+  const pic = tmp();
+  const arts = [1, 2, 3].map((i) => ({ id: i, name: `real-app-journeys-shard-${i}` })).concat({ id: 9, name: 'other' });
+  const calls = [];
+  const waits = [];
+  const get = (_repo, a, dir) => {
+    calls.push(a.id);
+    if (a.id === 2 && calls.filter((x) => x === 2).length === 1) throw failing(503);
+    writeFileSync(join(dir, 'report.json'), '{}');
+  };
+  const n = fetchRun('o/r', { id: 44, run_attempt: 1 }, pic, { ...quiet, list: () => arts, get, wait: (ms) => waits.push(ms) });
+  assert.equal(n, 3);
+  assert.deepEqual(calls, [1, 2, 2, 3]);
+  assert.deepEqual(waits, [10_000]);
+  assert.ok(existsSync(join(pic, '44-1', '.done')));
+  assert.ok(existsSync(join(pic, '44-1', 'real-app-journeys-shard-2', 'report.json')));
+});
+
+test('a shard that keeps failing, or is refused, still ends the fetch, and no .done is written', () => {
+  const arts = [{ id: 1, name: 'real-app-journeys-shard-1' }];
+  for (const [code, tries] of [
+    [503, 3],
+    [403, 1],
+  ]) {
+    const pic = tmp();
+    let seen = 0;
+    const get = () => {
+      seen++;
+      throw failing(code);
+    };
+    assert.throws(
+      () => fetchRun('o/r', { id: 5 }, pic, { ...quiet, list: () => arts, get, wait: () => {} }),
+      new RegExp(`shard-1: .*HTTP ${code}`),
+    );
+    assert.equal(seen, tries, `HTTP ${code}`);
+    assert.ok(!existsSync(join(pic, '5-1', '.done')));
+  }
+});
+
+// A BROKEN picture's finding was lost in the one `note` the test verdict also uses: the read now keeps the reader's
+// picture_note as picture.note, so the builder who takes the step knows what to fix. It changes no verdict, cap or status.
+test('a BROKEN or NOT SHOWN picture keeps its picture_note as picture.note; verdicts, caps and a SHOWN read are unchanged', async () => {
+  const dir = tmp();
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1 #2', loadWords: words, runId: RUN });
+  attach(dir, shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': true }));
+  const read = (one, two) => {
+    writeFileSync(
+      join(dir, 'answer.json'),
+      answer([
+        { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', ...one },
+        { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', ...two },
+      ]),
+    );
+    const v = cmdRead(dir, env);
+    assert.equal(v.ok, true, v.why);
+    return { v, raw: readFileSync(join(dir, 'read.json'), 'utf8'), status: readFileSync(join(dir, 'status.tsv'), 'utf8') };
+  };
+  // An answer without the field is not well-formed, as one without its note is: no read.
+  for (const bad of [
+    { picture: 'BROKEN' },
+    { picture: 'BROKEN', picture_note: 7 },
+    { picture: 'BROKEN', picture_note: '', note: undefined },
+  ]) {
+    writeFileSync(
+      join(dir, 'answer.json'),
+      answer([
+        { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', ...bad },
+        { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+      ]),
+    );
+    assert.deepEqual(cmdRead(dir, env), { ok: false, why: 'the reads are not well-formed' }, JSON.stringify(bad));
+  }
+  const chart = 'the price chart is drawn with no height under the order buttons, top of the desk';
+  const before = read({ picture: 'BROKEN', picture_note: '' }, { picture: 'NOT SHOWN', picture_note: '' });
+  const after = read({ picture: 'BROKEN', picture_note: chart }, { picture: 'NOT SHOWN', picture_note: 'a dialog fading out' });
+  const doc = JSON.parse(after.raw);
+  assert.deepEqual(
+    doc.steps.map((s) => [s.readers[0].verdict, s.picture.seen, s.picture.capped, s.picture.note]),
+    [
+      ['WEAK', 'BROKEN', true, chart],
+      ['FAITHFUL', 'NOT SHOWN', false, 'a dialog fading out'],
+    ],
+  );
+  assert.equal(after.status, before.status, 'the status is the same with or without the finding');
+  const strip = (raw) => JSON.parse(raw).steps.map(({ picture: { note: _note, ...p }, ...s }) => ({ ...s, picture: p }));
+  assert.deepEqual(strip(after.raw), strip(before.raw), 'the finding adds picture.note and changes nothing else');
+  // A blank finding is no note, and the run's log says so.
+  assert.equal(JSON.parse(before.raw).steps[0].picture.note, undefined);
+  assert.match(before.v.why, /; 2 BROKEN or NOT SHOWN picture\(s\) without the reader's picture_note$/);
+  assert.doesNotMatch(after.v.why, /without the reader's picture_note/);
+  // A SHOWN read is the same file whatever picture_note says; so is a step with no picture (NOT READ).
+  const shown = read({ picture: 'SHOWN', picture_note: '' }, { picture: 'SHOWN', picture_note: '' });
+  assert.equal(read({ picture: 'SHOWN', picture_note: chart }, { picture: 'SHOWN', picture_note: chart }).raw, shown.raw);
+  assert.deepEqual(Object.keys(JSON.parse(shown.raw).steps[0].picture), ['seen', 'file', 'run', 'capped']);
+  // The finding is public, so step words in it are withheld like a note's.
+  const leak = read(
+    { picture: 'BROKEN', picture_note: 'it never checks that the balance equals the deposit exactly' },
+    { picture: 'SHOWN', picture_note: '' },
+  );
+  assert.match(JSON.parse(leak.raw).steps[0].picture.note, /withheld/);
 });

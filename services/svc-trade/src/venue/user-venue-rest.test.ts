@@ -245,6 +245,18 @@ describe('/api/v1/venue/*', () => {
     expect(bad.statusCode).toBe(400);
   });
 
+  it("J-derivatives-06 #1 #3: account-summary and isolated-margin answer the venue's own figures; no position refuses in words", async () => {
+    await mount(door());
+    const summary = await app.inject({ method: 'GET', url: `/api/v1/venue/account-summary?owner=${owner}` });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().value).toMatchObject({ asset: expect.any(String), marginRatio: expect.any(Object) });
+    for (const k of ['equity', 'free', 'usedMargin', 'maintenanceMargin']) expect(typeof summary.json().value[k]).toBe('string');
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}&symbol=BTC-PERP` });
+    expect(none.statusCode).toBe(422);
+    expect(JSON.stringify(none.json())).toContain('no position is open on BTC-PERP');
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}` })).statusCode).toBe(400);
+  });
+
   it("best-prices answers the venue's best bid and ask as decimal strings, and refuses without a symbol", async () => {
     await mount(door());
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
@@ -313,6 +325,21 @@ describe('/api/v1/venue/*', () => {
       arrivalSeconds: 60,
     });
     expect((await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}` })).statusCode).toBe(400);
+  });
+
+  it('J-wallet-24 #5 #6: deposit-routes answers each asset the venue lists with the route it publishes, or none', async () => {
+    await mount(door());
+    sim.setAssetRoute('ZZB', { network: 'TEST other chain', how: 'TEST: send ZZB on TEST other chain to your venue address' });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/deposit-routes?owner=${owner}` });
+    expect(res.statusCode, res.body).toBe(200);
+    const rows = res.json().value as { asset: string; network: string | null; how: string | null }[];
+    expect(rows.find((r) => r.asset === 'ZZB')).toEqual({
+      asset: 'ZZB',
+      network: 'TEST other chain',
+      how: 'TEST: send ZZB on TEST other chain to your venue address',
+    });
+    // An asset the venue lists and publishes no route for: not offered, never a route of ours.
+    expect(rows.find((r) => r.asset === 'BTC')).toEqual({ asset: 'BTC', network: null, how: null });
   });
 
   it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {

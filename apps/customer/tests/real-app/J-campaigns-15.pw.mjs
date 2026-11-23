@@ -81,7 +81,8 @@ test(`${J} #1 opens the points area in /uc/promotion: the wallet, members and li
   const me = person(`jc15me${tag}`.slice(0, 20));
   await signUpInBrowser(page, me);
   await page.goto('/uc/promotion');
-  const account = (await page.locator('.promotions__owner [lang="zxx"]').textContent())?.trim();
+  // The page shows the account's short reference; the whole id it stands for is on the same element.
+  const account = (await page.locator('[data-testid="promotions-owner"] [data-reference]').getAttribute('data-reference'))?.trim();
   expect(account, 'the promotions page names the signed-in account').toBeTruthy();
   run.write({ me, account });
 

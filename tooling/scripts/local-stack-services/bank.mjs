@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
+import { userVenueKind } from '../local-test-venue.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
 import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS, TEST_CHAIN_ID } from '../local-test-facts.mjs';
@@ -366,6 +367,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testC
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // LOCAL TEST cash leg of a cash convert (J-cex-spot-11 #11), not a partner's price: the TEST partner sells USDC at a
+    // TEST 1.08 a euro and 1 a dollar, paid into the person's own TEST venue account. Only with the TEST venue running.
+    ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'sim'
+      ? { BANK_TEST_CASH_LEG_RATES: 'EUR:USDC:1.08,USD:USDC:1', BANK_TEST_CASH_LEG_VENUE_URL: urlOf('test-venue') }
+      : {}),
     // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
     // owner's or counsel's call, and the answer and the screen say TEST.
     BANK_TAX_EFFECTS: 'test',

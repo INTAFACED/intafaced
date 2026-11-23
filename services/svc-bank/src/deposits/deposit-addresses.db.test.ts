@@ -24,7 +24,8 @@ const SECRET = 'bank-deposit-addresses-edge-secret';
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const CONFIRM = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-const NOW = new Date('2026-10-24T12:00:00.000Z');
+// Far ahead of the database's real now(): a 30-day address made at NOW stays active whenever the test runs.
+const NOW = new Date('2098-10-24T12:00:00.000Z');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -162,11 +163,11 @@ describe('extra deposit addresses (real Postgres)', () => {
       addressIndex: 1,
       address: 'test-addr-1111-1',
       label: 'Savings',
-      expiresAt: '2026-11-23T12:00:00.000Z',
+      expiresAt: '2098-11-23T12:00:00.000Z',
       state: 'active',
     });
     // Custody was asked for number 1 with the owner's window from now.
-    expect(asked.at(-1)).toEqual({ userId: HOLDER, ...pair, addressIndex: 1, expiresAt: '2026-11-23T12:00:00.000Z' });
+    expect(asked.at(-1)).toEqual({ userId: HOLDER, ...pair, addressIndex: 1, expiresAt: '2098-11-23T12:00:00.000Z' });
     await user.deposits.addresses.create(pair);
     const list = await user.deposits.addresses.list({ assetId: 'USDT' });
     expect(list.cap).toBe(3);
@@ -174,8 +175,8 @@ describe('extra deposit addresses (real Postgres)', () => {
     // The first address, then the newest first.
     expect(list.items.map((row) => [row.addressIndex, row.label, row.expiresAt, row.state])).toEqual([
       [0, null, null, 'active'],
-      [2, null, '2026-11-23T12:00:00.000Z', 'active'],
-      [1, 'Savings', '2026-11-23T12:00:00.000Z', 'active'],
+      [2, null, '2098-11-23T12:00:00.000Z', 'active'],
+      [1, 'Savings', '2098-11-23T12:00:00.000Z', 'active'],
     ]);
     // The first address door still returns the first address, never an extra one.
     expect((await user.deposits.address(pair)).address).toBe('test-addr-1111-0');

@@ -2,12 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 import { DepositAddressesView } from './DepositAddresses';
 import type { DepositAddressItem, DepositAddressList, DepositNetworkView } from './deposit-reads';
 
@@ -51,7 +55,7 @@ const network: DepositNetworkView = {
   estimatedArrivalMinutes: 5,
 };
 const item = (over: Partial<DepositAddressItem>): DepositAddressItem => ({
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   networkId: 'ethereum',
   addressIndex: 0,
   address: '0xfirst',

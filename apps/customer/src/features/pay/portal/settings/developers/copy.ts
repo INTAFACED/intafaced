@@ -7,6 +7,13 @@ import { registerRefusals } from '../../refusal';
  * are this page's subject, so they stay.
  */
 const en = {
+  keysExplain:
+    'A key’s secret is shown only once, when you make it. Revoking a key stops it working straight away, and it cannot be undone.',
+  signingExplain:
+    'Requiring signed requests refuses any call without a valid signature. Requiring an allowed address refuses the key until you save an address list.',
+  webhooksExplain:
+    'Each address gets every event for your account. An endpoint’s signing secret is shown only once, when it is made or replaced.',
+  sandboxExplain: 'Everything on this page works with test money. Nothing here moves real money.',
   // frame
   navLabel: 'Developer pages',
   navKeys: 'API keys',
@@ -96,7 +103,6 @@ const en = {
   noKeysMatch: 'No keys match',
   noKeysMatchBody: 'Try a different search or status.',
   neverUsed: 'Never used',
-  usedAt: 'Last used',
   modeTest: 'Test',
   modeLive: 'Live',
   revokeKey: 'Revoke key',

@@ -34,7 +34,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { StepUpCheckError } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import { VenueRefusalError, VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { AgentAccountError, type AgentAccounts } from './agent-account.js';
@@ -50,7 +50,15 @@ export function agentAccountReply(reply: FastifyReply, err: unknown) {
   if (err instanceof AgentAccountError) {
     return reply.code(err.status).send({
       code:
-        err.status === 404 ? 'NotFound' : err.status === 400 ? 'BadRequest' : err.status === 503 ? 'ExchangeNotAvailable' : 'InvalidOrder',
+        err.status === 404
+          ? 'NotFound'
+          : err.status === 400
+            ? 'BadRequest'
+            : err.status === 503
+              ? 'ExchangeNotAvailable'
+              : err.status === 423
+                ? 'AccountSuspended'
+                : 'InvalidOrder',
       message: err.message,
       intafacedCode: err.code,
       ...err.detail,

@@ -5,8 +5,13 @@
  * code. J-charts-desk-14 (#8569) merged with eight FAITHFUL reads while its chart had zero height; the picture of its own
  * step showed the empty chart to a reader who was not told about it.
  *
- * Playwright saves one picture per test (`screenshot: 'on'` in the journeys config) and lists it in the shard's
- * report.json; real-app-journeys.yml uploads both in each `real-app-journeys-shard-<n>` artifact.
+ * Each test that has a page of its own attaches the whole of that page, named STEP_PICTURE, where it calls `stepPicture()`
+ * at the step's state, else as it ended (the `stepPicture` fixture in apps/customer/tests/real-app/journey.mjs; a test that
+ * leaves the step's screen last calls it before: garden/step-picture-before-leaving); that picture is the step's. Playwright also saves the
+ * window of every page still open in the worker (`screenshot: 'on'` in the journeys config): a test with no step picture
+ * keeps the last of those. project-state #2952: of the NOT SHOWN pictures sampled, most had the step's rows below the
+ * window's edge, and some were a page an earlier file left open. real-app-journeys.yml uploads the pictures and the shard's
+ * report.json in each `real-app-journeys-shard-<n>` artifact.
  *
  *   node tooling/ci/step-pictures.mjs wait <read dir> <pictures dir>     in the Proof read job: waits for the head's
  *        journeys runs (GH_TOKEN, GITHUB_REPOSITORY, HEAD_SHA; WAIT_MINUTES, default 50) and unpacks their shards
@@ -14,13 +19,18 @@
  *        meta.json; a step with none is NOT READ (step-read.mjs), never a pass
  *   node tooling/ci/step-pictures.mjs fetch --run <id> <pictures dir>     one run's shards, for a read made off CI
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
+import { downloadShards, pause } from './shard-download.mjs';
+import { countCall } from './api-count.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
+/** The name of the whole-page picture of a test's own page (journey.mjs `stepPicture`). */
+export const STEP_PICTURE = 'step-picture';
 export const SHARD = /^real-app-journeys-shard-/;
 const STEP = /^(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+) ?#(\d+)\b/;
 const norm = (s) => String(s).replace(/\s+/g, '');
@@ -50,7 +60,7 @@ function reports(dir) {
 
 /**
  * Each step's picture in the shards unpacked under `dir` (one folder per run attempt, then per artifact): the image the
- * step's test's last try attached, from the newest run that has one. Returns Map<step id without spaces, { file, run }>,
+ * step's test's last try attached (its STEP_PICTURE, else the last), from the newest run that has one. Returns Map<step id without spaces, { file, run }>,
  * `file` an absolute path that exists. Pure apart from reading `dir`.
  */
 export function picturesIn(dir) {
@@ -77,7 +87,8 @@ export function picturesIn(dir) {
       const step = `${m[1]}#${m[2]}`;
       if (out.has(step)) continue;
       const last = (sp.tests ?? []).flatMap((t) => t.results ?? []).at(-1);
-      const img = (last?.attachments ?? []).filter((a) => a?.contentType === 'image/png' && a.path).at(-1);
+      const pngs = (last?.attachments ?? []).filter((a) => a?.contentType === 'image/png' && a.path);
+      const img = pngs.find((a) => a.name === STEP_PICTURE) ?? pngs.at(-1);
       if (!img) continue;
       // The artifact keeps each file under its absolute path less the leading slash. The pull request's own run wrote the
       // shard and its report.json, so a picture counts only as a plain file inside its own artifact's folder: never a
@@ -138,31 +149,50 @@ export function attach(readDir, picDir) {
   return `pictures: ${have} of ${meta.required.length} step(s)`;
 }
 
-const api = (path) => JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+const api = (path) => {
+  countCall();
+  return JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+};
 
-/**
- * One run attempt's shard artifacts, unpacked under `<picDir>/<run>-<attempt>/<artifact>/`, every link the zip held
- * deleted. Done once: a `.done` file is written only after every shard unpacked, so a fetch that failed part way is made
- * again whole.
- */
-export function fetchRun(repo, run, picDir) {
-  const into = join(picDir, `${run.id}-${run.run_attempt ?? 1}`);
-  if (existsSync(join(into, '.done'))) return 0;
-  rmSync(into, { recursive: true, force: true });
-  const arts = api(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts ?? [];
-  let n = 0;
-  for (const a of arts.filter((x) => SHARD.test(x.name) && !x.expired)) {
-    const dir = join(into, a.name);
-    mkdirSync(dir, { recursive: true });
-    const zip = join(dir, 'a.zip');
-    execFileSync('sh', [
+/** One shard's zip, downloaded and unpacked into `dir`, every link it held deleted. */
+const unpack = (repo, artifact, dir) =>
+  execFileSync(
+    'sh',
+    [
       '-c',
       'gh api "$1" > "$2" && unzip -qo "$2" -d "$3" && rm -f "$2" && find "$3" -type l -delete',
       'sh',
-      `repos/${repo}/actions/artifacts/${a.id}/zip`,
-      zip,
+      `repos/${repo}/actions/artifacts/${artifact.id}/zip`,
+      join(dir, 'a.zip'),
       dir,
-    ]);
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  );
+
+const shards = (repo, run) => api(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts ?? [];
+
+/**
+ * One run attempt's shard artifacts, unpacked under `<picDir>/<run>-<attempt>/<artifact>/`. Done once: a `.done` file is
+ * written only after every shard unpacked, so a fetch that failed part way is made again whole. Each shard goes through
+ * shard-download.mjs `downloadShards`, the journeys run's own rule: a 5xx or dropped connection is tried again after a
+ * pause, a refusal never; a full run is about 60 zips, and one transient 503 used to end a local read (project-state
+ * #3162). A rate limit is not waited out here: the CI wait polls again, and a local read says why.
+ */
+export function fetchRun(repo, run, picDir, { list = shards, get = unpack, wait = pause, log = console.error } = {}) {
+  const into = join(picDir, `${run.id}-${run.run_attempt ?? 1}`);
+  if (existsSync(join(into, '.done'))) return 0;
+  rmSync(into, { recursive: true, force: true });
+  let n = 0;
+  for (const a of list(repo, run).filter((x) => SHARD.test(x.name) && !x.expired)) {
+    const dir = join(into, a.name);
+    const download = () => {
+      // A fresh folder each try: a half-unpacked zip never mixes with the next.
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+      get(repo, a, dir);
+    };
+    const got = downloadShards({ download, wait, now: Date.now, log: (l) => log(`${a.name}: ${l}`) }, { maxWaits: 0 });
+    if (!got.ok) throw new Error(`${a.name}: ${got.why}`);
     n++;
   }
   mkdirSync(into, { recursive: true });
@@ -172,7 +202,7 @@ export function fetchRun(repo, run, picDir) {
 
 /** Whether a finished run was deferred for main (it ran nothing now and is re-run later; main-first.mjs). */
 const deferred = (repo, run) =>
-  (api(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`).jobs ?? [])
+  (runJobsSync(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, api) ?? [])
     .find((j) => j?.name === TOUCH_JOB)
     ?.steps?.some((s) => s?.name === DEFER_MARK && s?.conclusion === 'success') ?? false;
 

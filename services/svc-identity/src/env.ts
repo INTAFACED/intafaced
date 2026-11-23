@@ -5,6 +5,7 @@ import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
+import { parseRegistrationAllowlist } from './registration-allowlist.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
@@ -118,6 +119,25 @@ const schema = serviceEnvSchema
        */
       REGISTRATION_OPEN: registrationOpen,
       /**
+       * Invited addresses that may sign up while REGISTRATION_OPEN=false (a staging stack open to a short list).
+       * Comma-separated emails. Ignored while registration is open; refuses nothing while unset.
+       * Blank / unset → no list. Malformed → fail boot.
+       */
+      REGISTRATION_EMAIL_ALLOWLIST: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseRegistrationAllowlist(raw ?? '');
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'REGISTRATION_EMAIL_ALLOWLIST is malformed',
+            });
+            return z.NEVER;
+          }
+        }),
+      /**
        * WebAuthn relying party. Defaults suit local dev; production must set
        * the real registrable domain and HTTPS origin.
        */
@@ -168,6 +188,12 @@ const schema = serviceEnvSchema
        * `auth.request_window_unset` and the published policy shows the window as not set.
        */
       IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
+      /**
+       * The owner's stream-token lifetime, whole seconds from 1 to 3600 (J-developer-09 #2): how long a token from
+       * `POST /api/v1/stream/token` opens the private stream. Blank = unset: every mint refuses
+       * `identity.stream_token_ttl_unset`.
+       */
+      IDENTITY_STREAM_TOKEN_TTL_SECONDS: z.string().optional().default(''),
       /**
        * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
        * with a fresh factor. Blank (or anything else): signing stays required on such a key.

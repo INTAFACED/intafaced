@@ -32,6 +32,25 @@ function createPersistentTestGuard(storage: JournalStorage) {
   return createPayMutationGuard(storage, true, { durable: () => storage, locks: () => locks });
 }
 
+/** The fields svc-p2p always sends on an order, and the ones `trades.get` adds. */
+const TRADE_WIRE = {
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
+  terms: null,
+  displayStatus: 'completed',
+  feeBps: 30,
+  fee: null,
+  netAmount: null,
+  settlement: { instant: true },
+  releasePreview: null,
+  escrowHeld: '0',
+  reminders: { count: 0, lastAt: null, nextAt: null, max: null },
+  mismatch: null,
+  paymentValidation: { blocker: null },
+  cancelReason: null,
+} as const;
 describe('Personal Pay network boundary', () => {
   it('sends exact asset units from the caller’s ledger space with one stable transfer identity', async () => {
     const requests: { url: string; method: string; body?: unknown }[] = [];
@@ -51,11 +70,23 @@ describe('Personal Pay network boundary', () => {
               name: 'Main',
               goalTarget: null,
               lockedUntil: null,
+              unlocksAt: null,
+              unlockRequestedAt: null,
+              billsPot: null,
+              heldAt: null,
               balance: '100.000000000000000001',
               ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
             },
           ]);
-        return response({ ledgerTxId: 'ledger-confirmed', amount: '0.000000000000000001' });
+        // svc-bank's whole `transfers.toUser` reply, which its record checks: no partner move, note, reference or request.
+        return response({
+          ledgerTxId: 'ledger-confirmed',
+          partnerMove: null,
+          amount: '0.000000000000000001',
+          note: null,
+          reference: null,
+          requestId: null,
+        });
       },
     });
     const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
@@ -80,6 +111,10 @@ describe('Personal Pay network boundary', () => {
             name: 'Main',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: 0.1,
             ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
           },
@@ -106,12 +141,60 @@ describe('Personal Pay network boundary', () => {
             name: 'Savings',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: '1',
             ledgerAccount: { ownerType: 'subaccount', ownerId: spaceId, assetId: 'USDT', kind: 'available' },
           },
         ]),
     });
     expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces()).toMatchObject({ ok: true, data: [{ id: spaceId }] });
+  });
+  it('a space the partner bank holds is read, and not offered as a source to pay from (#8841)', async () => {
+    const heldId = '55555555-5555-4555-8555-555555555555';
+    const row = { goalTarget: null, lockedUntil: null, unlocksAt: null, unlockRequestedAt: null, billsPot: null };
+    const api = createApiClient({
+      fetch: async () =>
+        response([
+          {
+            ...row,
+            id: spaceId,
+            assetId: 'USDT',
+            kind: 'primary',
+            name: 'Main',
+            balance: '5',
+            ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'available' },
+            heldAt: null,
+          },
+          {
+            ...row,
+            id: heldId,
+            assetId: 'EUR',
+            kind: 'primary',
+            name: 'TEST partner account',
+            balance: '12.5',
+            ledgerAccount: null,
+            heldAt: {
+              label: 'TEST partner',
+              asOf: '2026-11-18T00:00:00.000Z',
+              figure: {
+                state: 'known',
+                source: 'TEST partner',
+                amount: '12.5',
+                asOf: '2026-11-18T00:00:00.000Z',
+                staleAfterMs: 60_000,
+                reason: null,
+              },
+            },
+          },
+        ]),
+    });
+    const read = await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces();
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    if (!read.ok) return;
+    expect(read.data.map((space) => space.id)).toEqual([spaceId]);
   });
 });
 
@@ -137,6 +220,7 @@ describe('Unconfirmed Pay outcomes', () => {
       escrowedAt: '2026-10-07T12:00:00Z',
       resolvedAt: released ? '2026-10-07T12:01:00Z' : null,
       settledAt: settled ? '2026-10-07T12:02:00Z' : null,
+      ...TRADE_WIRE,
     });
     const api = createApiClient({
       fetch: async (_url, options) => {
@@ -274,6 +358,7 @@ describe('Business Pay authority boundary', () => {
             kybStatus: 'approved',
             kybRef: 'verified',
             feeBps: null,
+            starterFee: null,
           });
         throw new TypeError('TEST disconnected');
       },
@@ -335,7 +420,16 @@ describe('Business Pay authority boundary', () => {
     const api = createApiClient({
       fetch: async (url) =>
         String(url).includes('merchant.me')
-          ? response({ id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null })
+          ? response({
+              id: merchantId,
+              userId,
+              mode: 'gateway',
+              status: 'active',
+              kybStatus: 'approved',
+              kybRef: 'verified',
+              feeBps: null,
+              starterFee: null,
+            })
           : response([
               {
                 id: transferId,
@@ -412,6 +506,7 @@ describe('subscription.create attempt ids', () => {
       kybStatus: 'approved',
       kybRef: 'verified',
       feeBps: null,
+      starterFee: null,
     });
   }
   function attemptOf(key: string | undefined) {
@@ -693,6 +788,10 @@ describe('Send original context admission and settlement', () => {
       name: 'Main',
       goalTarget: null,
       lockedUntil: null,
+      unlocksAt: null,
+      unlockRequestedAt: null,
+      billsPot: null,
+      heldAt: null,
       balance: '9999999999999999999.000000000000000001',
       ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
     },
@@ -802,7 +901,16 @@ describe('Send original context admission and settlement', () => {
     const stored = journal();
     const api = createApiClient({
       fetch: async (_url, options) =>
-        options?.method === 'POST' ? response({ ledgerTxId: 'current-original', amount: input.amount }) : response(spaces),
+        options?.method === 'POST'
+          ? response({
+              ledgerTxId: 'current-original',
+              partnerMove: null,
+              amount: input.amount,
+              note: null,
+              reference: null,
+              requestId: null,
+            })
+          : response(spaces),
     });
     expect(await createPersonalPayApi(api, userId, stored.guard).send(input, () => true)).toMatchObject({ ok: true });
     expect([stored.saves(), stored.removals(), stored.values.size]).toEqual([1, 1, 0]);
@@ -1113,6 +1221,17 @@ describe('Feature-owned original P2P reconciliation holds its admission lease', 
       minAmount: '1',
       maxAmount: '2',
       remainingAmount: '2',
+      totalAmount: '2',
+      filledAmount: '0',
+      tradesCompleted: 0,
+      nonInstantMethods: [],
+      acceptsNonInstant: false,
+      releaseWindowSeconds: null,
+      pauseReason: null,
+      closeReason: null,
+      visibility: 'public',
+      statusSince: '2026-10-10T00:00:00Z',
+      relistedFrom: null,
       methods: [],
       terms: '',
       status,
@@ -1230,6 +1349,17 @@ describe('Exact original P2P reconciliation identity', () => {
                   minAmount: '1',
                   maxAmount: '2',
                   remainingAmount: '2',
+                  totalAmount: '2',
+                  filledAmount: '0',
+                  tradesCompleted: 0,
+                  nonInstantMethods: [],
+                  acceptsNonInstant: false,
+                  releaseWindowSeconds: null,
+                  pauseReason: null,
+                  closeReason: null,
+                  visibility: 'public',
+                  statusSince: '2026-10-10T00:00:00Z',
+                  relistedFrom: null,
                   methods: [],
                   terms: '',
                   status: 'paused',
@@ -1253,6 +1383,7 @@ describe('Exact original P2P reconciliation identity', () => {
                   escrowedAt: '2026-10-10T00:01:00Z',
                   resolvedAt: '2026-10-10T00:02:00Z',
                   settledAt: '2026-10-10T00:03:00Z',
+                  ...TRADE_WIRE,
                 },
           );
         },
@@ -1407,6 +1538,16 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
       minAmount: '1',
       maxAmount: '2',
       remainingAmount: '2',
+      totalAmount: '2',
+      filledAmount: '0',
+      tradesCompleted: 0,
+      nonInstantMethods: [],
+      acceptsNonInstant: false,
+      releaseWindowSeconds: null,
+      closeReason: null,
+      visibility: 'public',
+      statusSince: '2026-10-10T00:00:00Z',
+      relistedFrom: null,
       methods: ['test-bank-transfer'],
       terms: '',
       status: 'paused',

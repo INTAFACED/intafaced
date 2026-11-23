@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
+ * Merge-seal step: a pull request that changes gate-file or look-baseline paths, or draws a Customer room, is sealed only when
  * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head, and
  * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
  * (JUDGE_CHECK; one model call answers both).
  *
- *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
+ *   HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
+ *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  *
  * What counts (ciReviewVerdict), read from GitHub's Actions API, never from a comment or a status: a workflow run of
  * exactly REVIEW_WORKFLOW, started by `pull_request_target` (so GitHub ran the default branch's copy of the file and
@@ -24,19 +25,22 @@
  * hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
- * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
- * 2026-10-26). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
+ * Only gate-file, look-baseline and Customer-room changes need it (owner decisions 2026-10-22 and, for baselines,
+ * 2026-10-26; for rooms, AGENTS.md's design change and its pictures' review). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
  * request. On a merge queue's commit (`merge_group`) the
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -270,8 +274,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 
 /**
  * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
- * or a look baseline. Money and security code alone does not (owner decision
- * 2026-11-06). An empty file list fails closed.
+ * a look baseline, or a change that draws a Customer room or kit part (look-paths.mjs reachesLook), whose review is
+ * given the look gate's before and after pictures (REVIEW.md item 6; AGENTS.md: a design change merges "on its checks
+ * and the independent review of those pictures"). Until this, #9910 merged over the review's FAIL on /bank's rows
+ * (job 137281761301, 22 Nov 2026): the pictures were judged and the verdict was not read. Money and security code alone
+ * does not (owner decision 2026-11-06). An empty file list fails closed.
  */
 export function reviewReason(files) {
   if (files.length === 0) return 'no changed files could be read for this head';
@@ -279,8 +286,15 @@ export function reviewReason(files) {
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
   const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
+  const room = files.find(drawsRoom);
+  if (room) return `draws a Customer room: ${room}`;
   return null;
 }
+
+/** A test draws no room: a test-only change keeps its own judge (JUDGE_CHECK), and a review FAIL never blocks it. */
+const TEST_PATH = /(^|\/)tests?\/|\.(test|spec|pw)\.[cm]?[jt]sx?$/;
+/** Whether a changed path draws a Customer room or kit part: the look gate runs for it (reachesLook) and it is not a test. */
+export const drawsRoom = (f) => reachesLook([f]) && !TEST_PATH.test(f);
 
 /** The verdicts a change needs, each with why: the CI review's two parts, its review and its test part (none when neither applies). */
 export function requiredChecks(files) {
@@ -342,6 +356,12 @@ export const missingTitle = (why) =>
   /the judge was down in run/.test(String(why ?? ''))
     ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)'
     : 'Review sign-off missing';
+
+/** Why a sign-off is missing, as the seal prints it: a draft's review never ran, so re-running it can't help. */
+export const missingWhy = (why, pull) =>
+  pull?.draft
+    ? `this pull request is a draft and the CI review skips drafts (${REVIEW_WORKFLOW}): run \`gh pr ready ${pull.number}\``
+    : why;
 
 export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
@@ -428,26 +448,9 @@ export function reviewJob(sha, verdict = 'success', { status = 'completed', test
   };
 }
 
-/**
- * A GitHub GET. In CI it is fetch with the job's token. `--via-gh` (the dry run on a person's machine) reads through the
- * logged-in `gh` CLI instead, so no token is handled here; the answer has the same { ok, status, json() } shape.
- */
-async function get(url, init) {
-  if (!process.argv.includes('--via-gh')) return fetch(url, init);
-  const { spawnSync } = await import('node:child_process');
-  const r = spawnSync('gh', ['api', '-i', url.replace('https://api.github.com/', '')], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (r.error) throw new Error(`--via-gh: could not run gh (${r.error.message})`);
-  const status = Number(/^HTTP\/[\d.]+ (\d+)/.exec(r.stdout ?? '')?.[1] ?? 0);
-  const body = String(r.stdout ?? '')
-    .split(/\r?\n\r?\n/)
-    .slice(1)
-    .join('\n\n');
-  return { ok: status >= 200 && status < 300, status, json: async () => JSON.parse(body) };
-}
-
 /** GET a GitHub API path; any failure ends the seal (fail closed), except a 404 when `missingOk` (then null). */
 async function api(path, token, { missingOk = false } = {}) {
-  const res = await get(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
   if (missingOk && res.status === 404) return null;
@@ -460,6 +463,19 @@ async function api(path, token, { missingOk = false } = {}) {
     process.exit(1);
   }
   return res.json();
+}
+
+/** A GraphQL read; throws on any HTTP error or GraphQL error, so its caller decides (readIndexLive reads over REST). */
+async function graphql(query, variables, token) {
+  const res = await githubFetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(httpMessage('/graphql', res));
+  const out = await res.json();
+  if (!out?.data || out?.errors?.length) throw new Error(`GraphQL: ${JSON.stringify(out?.errors ?? 'no data').slice(0, 300)}`);
+  return out.data;
 }
 
 /**
@@ -582,7 +598,8 @@ export async function readReviewRuns(repo, sha, token, branch, get = api, now = 
     return SHA40.test(t) && t !== tree && String(r?.head_sha ?? '').toLowerCase() !== sha.toLowerCase();
   };
 
-  if (!cache.live.has(repo)) cache.live.set(repo, await readIndexLive(repo, token, get));
+  if (!cache.live.has(repo))
+    cache.live.set(repo, await readIndexLive(repo, token, get, get === api ? (q, v) => graphql(q, v, token) : null));
   const bounds = cache.live.get(repo);
   if (!bounds.open && now() > bounds.end) {
     // The window has closed: its runs are listed once per seal, kept whole, and each head reads those on its own code
@@ -658,49 +675,117 @@ async function readMergeBase(repo, sha, token, get) {
  * when the newest version doesn't index: every run up to now, with a warning. Any unreadable list or version fails
  * closed.
  */
-export async function readIndexLive(repo, token, get = api) {
+export async function readIndexLive(repo, token, get = api, graph = null) {
   const workflow = await get(`/repos/${repo}/actions/workflows/${REVIEW_WORKFLOW.split('/').pop()}`, token);
   const start = Date.parse(workflow?.created_at ?? '');
   if (!Number.isFinite(start)) throw new Error(`${REVIEW_WORKFLOW}: no readable created_at; the seal fails closed`);
-  // Newest first, a page at a time, ending at the first version that doesn't index: one content read per edit since
-  // the index last went live. Each indexing version must be a commit GitHub made when it merged a pull request into
-  // REVIEW_BASE (one parent, named as that pull request's merge commit), and the time is that pull request's
-  // `merged_at`, GitHub's record, never a committer date an author could set. Anything else leaves the window open.
-  const landed = async (c) => {
-    if (!Array.isArray(c?.parents) || c.parents.length !== 1) return null;
-    const pulls = await get(`/repos/${repo}/commits/${c.sha}/pulls`, token);
-    if (!Array.isArray(pulls)) throw new Error(`the pull requests of ${c.sha}: not a list; the seal fails closed`);
-    const p = pulls.find((x) => x?.merge_commit_sha === c.sha && x?.base?.ref === REVIEW_BASE);
-    const at = Date.parse(p?.merged_at ?? '');
-    return Number.isFinite(at) ? at : null;
-  };
-  let began = null;
-  let beganAt = null;
-  let unconfirmed = null;
-  let seen = 0;
-  walk: for (let page = 1; ; page++) {
+  // One GraphQL read of the versions, 20 a page, instead of two REST reads per edit since the index went live: 74 calls
+  // of the workflow token's hourly budget on every seal by 22 Nov 2026, the most of any seal step, and growing with each
+  // edit to the workflow (project-state#3718). Any answer it can't read whole falls back to the REST walk, which decides
+  // as before, so this read is never the cause of a seal's verdict.
+  if (graph) {
+    try {
+      return liveBounds(start, await walkIndexed(graphVersions(repo, graph)));
+    } catch (e) {
+      console.log(`${REVIEW_WORKFLOW}'s history by GraphQL unread (${String(e.message).split('\n')[0].slice(0, 200)}); read over REST`);
+    }
+  }
+  return liveBounds(start, await walkIndexed(restVersions(repo, token, get)));
+}
+
+const liveBounds = (start, beganAt) =>
+  beganAt === null ? { start, open: true } : { start, end: Math.max(start, beganAt) + INDEX_MARGIN_MS, open: false };
+
+/** The versions of REVIEW_WORKFLOW on REVIEW_BASE, newest first, read over REST: a page of commits, then each one's text and pull requests when asked. */
+async function* restVersions(repo, token, get) {
+  for (let page = 1; ; page++) {
     if (page > 50) throw new Error(`${REVIEW_WORKFLOW}: no version without the index in 5,000 commits; the seal fails closed`);
     const batch = await get(
       `/repos/${repo}/commits?sha=${REVIEW_BASE}&path=${encodeURIComponent(REVIEW_WORKFLOW)}&per_page=100&page=${page}`,
       token,
     );
     if (!Array.isArray(batch)) throw new Error(`${REVIEW_WORKFLOW}'s commits on ${REVIEW_BASE}: not a list; the seal fails closed`);
-    seen += batch.length;
-    for (const c of batch) {
-      if (!SHA40.test(String(c?.sha ?? ''))) throw new Error(`${REVIEW_WORKFLOW}: a commit with no readable sha; the seal fails closed`);
-      const f = await get(`/repos/${repo}/contents/${REVIEW_WORKFLOW}?ref=${c.sha}`, token, { missingOk: true });
-      if (f !== null && typeof f?.content !== 'string')
-        throw new Error(`${REVIEW_WORKFLOW} at ${c.sha}: no readable content; the seal fails closed`);
-      if (f === null || !indexesFirst(Buffer.from(f.content, 'base64').toString('utf8'))) break walk;
-      const at = await landed(c);
-      if (at === null) {
-        unconfirmed = c.sha;
-        break walk;
-      }
-      began = c;
-      beganAt = at;
-    }
+    for (const c of batch)
+      yield {
+        sha: c?.sha,
+        parents: Array.isArray(c?.parents) ? c.parents.length : null,
+        text: async () => {
+          const f = await get(`/repos/${repo}/contents/${REVIEW_WORKFLOW}?ref=${c.sha}`, token, { missingOk: true });
+          if (f !== null && typeof f?.content !== 'string')
+            throw new Error(`${REVIEW_WORKFLOW} at ${c.sha}: no readable content; the seal fails closed`);
+          return f === null ? null : Buffer.from(f.content, 'base64').toString('utf8');
+        },
+        pulls: async () => {
+          const pulls = await get(`/repos/${repo}/commits/${c.sha}/pulls`, token);
+          if (!Array.isArray(pulls)) throw new Error(`the pull requests of ${c.sha}: not a list; the seal fails closed`);
+          return pulls.map((x) => ({ merge: x?.merge_commit_sha, base: x?.base?.ref, mergedAt: x?.merged_at }));
+        },
+      };
     if (batch.length < 100) break;
+  }
+}
+
+/** The GraphQL read of REVIEW_WORKFLOW's versions on a branch: each commit, its parent count, the file's text there and its pull requests. */
+export const INDEX_HISTORY_QUERY = `query($owner: String!, $name: String!, $ref: String!, $path: String!, $after: String) {
+  repository(owner: $owner, name: $name) { object(expression: $ref) { ... on Commit {
+    history(path: $path, first: 20, after: $after) { pageInfo { hasNextPage endCursor } nodes {
+      oid parents { totalCount } file(path: $path) { object { ... on Blob { text isTruncated } } }
+      associatedPullRequests(first: 10) { nodes { mergeCommit { oid } baseRefName mergedAt } } } } } } } }`;
+
+/** restVersions' versions from INDEX_HISTORY_QUERY's pages; anything not read whole throws (readIndexLive then reads over REST). */
+async function* graphVersions(repo, graph) {
+  const [owner, name] = repo.split('/');
+  let after = null;
+  for (let page = 1; ; page++) {
+    if (page > 250) throw new Error(`${REVIEW_WORKFLOW}: no version without the index in 5,000 commits`);
+    const h = (await graph(INDEX_HISTORY_QUERY, { owner, name, ref: REVIEW_BASE, path: REVIEW_WORKFLOW, after }))?.repository?.object
+      ?.history;
+    if (!Array.isArray(h?.nodes) || typeof h?.pageInfo?.hasNextPage !== 'boolean') throw new Error('the history is not a list');
+    for (const n of h.nodes) {
+      const blob = n?.file?.object;
+      if (n?.file != null && (typeof blob?.text !== 'string' || blob?.isTruncated !== false)) throw new Error(`no whole text at ${n?.oid}`);
+      const prs = n?.associatedPullRequests?.nodes;
+      if (!Array.isArray(prs) || !Number.isSafeInteger(n?.parents?.totalCount)) throw new Error(`no parents or pull requests at ${n?.oid}`);
+      yield {
+        sha: n.oid,
+        parents: n.parents.totalCount,
+        text: async () => (n.file == null ? null : blob.text),
+        pulls: async () => prs.map((p) => ({ merge: p?.mergeCommit?.oid, base: p?.baseRefName, mergedAt: p?.mergedAt })),
+      };
+    }
+    if (!h.pageInfo.hasNextPage) break;
+    after = h.pageInfo.endCursor;
+  }
+}
+
+/**
+ * Newest first, ending at the first version that doesn't index: each indexing version must be a commit GitHub made when
+ * it merged a pull request into REVIEW_BASE (one parent, named as that pull request's merge commit), and the time is
+ * that pull request's `merged_at`, GitHub's record, never a committer date an author could set. Anything else leaves the
+ * window open (null). `versions`: restVersions or graphVersions. Returns the time it went live, or null.
+ */
+async function walkIndexed(versions) {
+  let began = null;
+  let beganAt = null;
+  let unconfirmed = null;
+  let seen = 0;
+  for await (const v of versions) {
+    seen++;
+    if (!SHA40.test(String(v?.sha ?? ''))) throw new Error(`${REVIEW_WORKFLOW}: a commit with no readable sha; the seal fails closed`);
+    const text = await v.text();
+    if (text === null || !indexesFirst(text)) break;
+    let at = null;
+    if (v.parents === 1) {
+      const p = (await v.pulls()).find((x) => x?.merge === v.sha && x?.base === REVIEW_BASE);
+      const t = Date.parse(p?.mergedAt ?? '');
+      if (Number.isFinite(t)) at = t;
+    }
+    if (at === null) {
+      unconfirmed = v.sha;
+      break;
+    }
+    began = v;
+    beganAt = at;
   }
   if (seen === 0) throw new Error(`${REVIEW_WORKFLOW}: no commits on ${REVIEW_BASE}; the seal fails closed`);
   if (!began || unconfirmed) {
@@ -709,9 +794,9 @@ export async function readIndexLive(repo, token, get = api) {
         ? `::warning title=Tree index time unconfirmed::${REVIEW_WORKFLOW} at ${unconfirmed} isn't a pull request's merge into ${REVIEW_BASE} by GitHub, so when the index went live can't be read from GitHub's record; the seal reads every CI review run up to now, in slices.`
         : `::warning title=Tree index not live::${REVIEW_BASE}'s ${REVIEW_WORKFLOW} doesn't index its head before the review, so the seal reads every CI review run up to now, in slices.`,
     );
-    return { start, open: true };
+    return null;
   }
-  return { start, end: Math.max(start, beganAt) + INDEX_MARGIN_MS, open: false };
+  return beganAt;
 }
 
 /**
@@ -762,8 +847,7 @@ export async function readTree(repo, sha, token, get = api) {
 async function readAttempts(repo, run, token) {
   const out = [];
   for (let n = 1; n <= Math.max(1, Number(run.run_attempt) || 1); n++) {
-    const r = await api(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs?per_page=100`, token);
-    out.push(r?.jobs ?? []);
+    out.push((await runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs`, (p) => api(p, token))) ?? []);
   }
   return out;
 }
@@ -771,7 +855,7 @@ async function readAttempts(repo, run, token) {
 /**
  * `merge_group`: MERGE_GROUP_BASE_SHA, MERGE_GROUP_HEAD_SHA and MERGE_GROUP_HEAD_REF from the event. The dry run reads the
  * same way for any two commits of main and a queue branch name, and reads closed pull requests too:
- *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> --via-gh
+ *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head>
  */
 async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   const io = {
@@ -798,25 +882,28 @@ async function main() {
   const dry = process.argv.indexOf('--merge-group-dry-run');
   if (dry > 0) {
     const [base, head, pr] = process.argv.slice(dry + 1).filter((a) => !a.startsWith('--'));
-    const { GH_TOKEN = 'via-gh', REPO } = process.env;
-    if (!REPO || !base || !head || !pr || (!process.env.GH_TOKEN && !process.argv.includes('--via-gh'))) {
-      console.error('usage: REPO=owner/name review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> [--via-gh]');
+    const { REPO } = process.env;
+    const GH_TOKEN = githubToken();
+    if (!REPO || !base || !head || !pr) {
+      console.error('usage: REPO=owner/name review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head>');
       process.exit(1);
     }
     const headRef = `refs/heads/gh-readonly-queue/main/pr-${pr}-${base}`;
     return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: true });
   }
   if (process.env.MERGE_GROUP_HEAD_SHA) {
-    const { GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
-    if (!GH_TOKEN || !REPO || !base || !headRef) {
-      console.error('::error::review-marker on a merge group needs GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA and MERGE_GROUP_HEAD_REF');
+    const { REPO, MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
+    const GH_TOKEN = githubToken();
+    if (!REPO || !base || !headRef) {
+      console.error('::error::review-marker on a merge group needs REPO, MERGE_GROUP_BASE_SHA and MERGE_GROUP_HEAD_REF');
       process.exit(1);
     }
     return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: false });
   }
-  const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER } = process.env;
-  if (!GH_TOKEN || !HEAD_SHA || !REPO) {
-    console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
+  const { HEAD_SHA, REPO, PR_NUMBER } = process.env;
+  const GH_TOKEN = githubToken();
+  if (!HEAD_SHA || !REPO) {
+    console.error('::error::review-marker needs HEAD_SHA and REPO');
     process.exit(1);
   }
   let needs = [{ check: REVIEW_CHECK, reason: 'not a pull request' }];
@@ -842,7 +929,7 @@ async function main() {
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
     if (needs.length === 0) {
       console.log(
-        'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
+        'independent review not required: no gate file, look baseline, Customer room, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
       );
       return;
     }
@@ -885,7 +972,7 @@ async function main() {
   }
   for (const [label, { reason }] of open)
     console.error(
-      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${missingWhy(last.get(label)?.why, pull)}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
     );
   process.exit(1);
 }

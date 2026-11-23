@@ -11,8 +11,12 @@
 \* Fixed, the proposed fix: `not_sent` closes the key. The status query takes the key's claim itself (the same INSERT ...
 \* ON CONFLICT DO NOTHING the send uses): won, nothing was or ever will be sent under it and the answer is `not_sent`;
 \* lost, a send holds it and the answer is `unknown` until it has a hash. A send that finds the key closed sends nothing.
+\*
+\* TakesPending (#8828, with Fixed): the query also takes a claim that has no signed bytes yet, so a send that claimed the
+\* key and died (or whose signer threw) before journalling them no longer strands the hold. A send still signing then
+\* fails at putSigned, which needs the pending claim, and broadcasts nothing.
 EXTENDS Integers
-CONSTANTS CanLose, Fixed
+CONSTANTS CanLose, Fixed, TakesPending
 NULL == "none"
 
 VARIABLES
@@ -60,7 +64,9 @@ PClaim == /\ ppc = "claim"
           /\ UNCHANGED <<closed, signed, signs, sent, hashed, dispatched, reversals, failed, lock, rpc, restarts>>
 PSign == /\ Step("sign", "putSigned") /\ signs' = signs + 1
          /\ UNCHANGED <<claimed, closed, signed, sent, hashed, dispatched, reversals, failed, lock, rpc, restarts>>
-PPutSigned == /\ Step("putSigned", "broadcast") /\ signed' = TRUE
+\* putSigned needs the pending claim: a key a query closed refuses, and the send ends with nothing journalled.
+PPutSigned == /\ ppc = "putSigned"
+              /\ IF closed THEN (ppc' = "end" /\ UNCHANGED signed) ELSE (ppc' = "broadcast" /\ signed' = TRUE)
               /\ UNCHANGED <<claimed, closed, signs, sent, hashed, dispatched, reversals, failed, lock, rpc, restarts>>
 PBroadcast == /\ Step("broadcast", "put") /\ sent' = TRUE
               /\ UNCHANGED <<claimed, closed, signed, signs, hashed, dispatched, reversals, failed, lock, rpc, restarts>>
@@ -74,14 +80,18 @@ PCrash == /\ ppc \notin {"idle", "dead"}
           /\ restarts' = (IF restarts > 0 THEN restarts - 1 ELSE 0)
           /\ Free("payer")
           /\ UNCHANGED <<chainVars, dispatched, reversals, failed, rpc>>
+\* A later retry of the payout, after the payer ran out of retries: it resumes journalled signed bytes (claim answers
+\* `resume`). Without signed bytes a retry only stalls on the claim, as above, so it is not modelled.
+PRetry == /\ ppc = "dead" /\ signed /\ ~hashed /\ ~failed /\ ppc' = "idle"
+          /\ UNCHANGED <<chainVars, dispatched, reversals, failed, lock, rpc, restarts>>
 
 \* ---- the reconciler (reconcileDispatchedPayout) ----
 RLock == /\ rpc = "idle" /\ lock = NULL /\ dispatched /\ ~failed /\ lock' = "reconciler" /\ rpc' = "query"
          /\ UNCHANGED <<chainVars, dispatched, reversals, failed, ppc, restarts>>
-\* lookupSend: a hash -> sent; signed bytes -> unknown; else not_sent. Fixed: a key a send has claimed -> unknown, and a
-\* not_sent answer takes the claim (closes the key) in the same step.
+\* lookupSend: a hash -> sent; signed bytes -> unknown; else not_sent. Fixed: a not_sent answer closes the key in the same
+\* step; without TakesPending a key a send has claimed -> unknown, with it the claim is taken and the answer is not_sent.
 Answer == IF hashed THEN "sent" ELSE IF signed THEN "unknown"
-          ELSE IF Fixed /\ claimed /\ ~closed THEN "unknown" ELSE "not_sent"
+          ELSE IF Fixed /\ ~TakesPending /\ claimed /\ ~closed THEN "unknown" ELSE "not_sent"
 \* not_sent: post the reverse (keyed: once) and mark the settlement failed. sent: it finishes. unknown: the hold stays.
 RQuery == /\ rpc = "query"
           /\ IF Answer = "not_sent" /\ ~failed
@@ -91,8 +101,12 @@ RQuery == /\ rpc = "query"
           /\ rpc' = "done" /\ Free("reconciler")
           /\ UNCHANGED <<signed, signs, sent, hashed, dispatched, ppc, restarts>>
 
+\* The end: both have stopped and the held money has its answer: sent (hashed), given back (failed), or never held. It
+\* changes nothing, so the deadlock check fails any other state with no step out: a payout frozen with its hold stuck.
+Done == /\ ppc \in {"idle", "dead"} /\ rpc \in {"idle", "done"} /\ (hashed \/ failed \/ ~dispatched) /\ UNCHANGED vars
+
 Next == \/ LoseLock \/ PLock \/ PMark \/ PClaim \/ PSign \/ PPutSigned \/ PBroadcast \/ PPut \/ PEnd \/ PCrash
-        \/ RLock \/ RQuery
+        \/ PRetry \/ RLock \/ RQuery \/ Done
 Spec == Init /\ [][Next]_vars
 
 \* ---- the rules ----

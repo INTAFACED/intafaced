@@ -1,4 +1,5 @@
-import { router, protectedProcedure, accountControlResultSchema } from '@intafaced/contracts';
+import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
+import { router, protectedProcedure } from '@intafaced/contracts/trpc';
 import { callFounderControl, identityFreezeInputSchema, type FounderControlsPort } from './controls/founder-controls-router.js';
 
 /** Legacy name, same founder transaction; old reasonless bodies refuse. */

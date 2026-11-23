@@ -24,7 +24,7 @@ export const AGENT_CATALOGUE: readonly CatalogueAgent[] = [
 export const SESSION_AGENT_IDS = AGENT_CATALOGUE.filter((agent) => agent.kind === 'session').map((agent) => agent.id);
 
 /** The guardrail a session agent publishes (svc-agents `agent.get`). */
-export const guardrailSchema = z
+const guardrailSchema = z
   .object({
     agentId: z.string(),
     version: z.number().int().positive(),
@@ -38,6 +38,8 @@ export const guardrailSchema = z
         maxCallsPerSession: z.number().int().nullable(),
         /** Every refusal the runtime can return for this tool, as codes, in the order it checks them. */
         refusals: z.array(z.string()),
+        /** The tool's declared input and output fields, each with its type in words; null when it declares none. */
+        shape: z.object({ input: z.record(z.string(), z.string()), output: z.record(z.string(), z.string()) }).nullable(),
       }),
     ),
     capacityMode: z.string().nullable(),
@@ -69,7 +71,7 @@ export type Guardrail = NonNullable<z.infer<typeof guardrailSchema>>;
 export type Eligibility = NonNullable<Guardrail['eligibility']>;
 
 /** The stored agent list (svc-agents `agent.catalogue`): disabled agents stay in it with enabled false. */
-export const storedCatalogueSchema = z.array(
+const storedCatalogueSchema = z.array(
   z.object({
     agentId: z.string(),
     name: z.string().nullable(),

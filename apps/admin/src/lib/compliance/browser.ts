@@ -1,6 +1,6 @@
 /** Browser hop for the live compliance section. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { ComplianceRead, Disposition } from './model';
 import { isRecord } from '@intafaced/contracts/guards';
 

@@ -42,11 +42,14 @@ const APPROVAL = {
   assetCode: 'USDT',
   payloadHash: `sha256:${'a'.repeat(64)}`,
   status: 'pending',
-  makerUserId: 'u1',
+  makerUserId: 'b1111111-1111-4111-8111-111111111111',
   checkerUserId: null,
   createdAt: '2026-10-15T00:00:00.000Z',
   decidedAt: null,
   expiresAt: '2026-10-16T00:00:00.000Z',
+  railId: 'crypto-native',
+  destinationKind: 'crypto',
+  destinationMasked: '0x7a3f…4421',
 };
 
 describe('portal api (W3b reads)', () => {
@@ -93,13 +96,15 @@ describe('portal api (W3b reads)', () => {
     expect((await portal.usage(M)).ok).toBe(false);
   });
   it('lists approvals at the largest page the service allows', async () => {
-    const { calls, portal } = harness(() => ok({ items: [APPROVAL], nextCursor: null }));
+    const { calls, portal } = harness(() => ok({ items: [APPROVAL], nextCursor: null, dailyPayoutRemaining: [] }));
     const result = await portal.approvals(M, '');
     expect(input(calls[0]!.url)).toEqual({ merchantId: M, limit: 200 });
     expect(result.ok && result.data[0]?.status).toBe('pending');
   });
   it('refuses an approval with a malformed fingerprint rather than showing it', async () => {
-    const { portal } = harness(() => ok({ items: [{ ...APPROVAL, payloadHash: 'not-a-hash' }], nextCursor: null }));
+    const { portal } = harness(() =>
+      ok({ items: [{ ...APPROVAL, payloadHash: 'not-a-hash' }], nextCursor: null, dailyPayoutRemaining: [] }),
+    );
     expect((await portal.approvals(M, '')).ok).toBe(false);
   });
   it('sends a monthly volume and the conversion flag only when asked for', async () => {

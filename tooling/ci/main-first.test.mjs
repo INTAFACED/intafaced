@@ -59,6 +59,16 @@ test('mainWaiting: a main run still taking runners, and the runs that hold nothi
       { name: RELEASE_JOB, status: 'in_progress' },
       { name: 'Journeys (shard 1 of 2)', status: 'queued' },
     ],
+    // Planned, its build still running: the shards need the build,, so none is queued yet.
+    12: [
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
+      { name: 'Build the stack once', status: 'in_progress' },
+    ],
+    13: [
+      { name: 'What this run runs', status: 'completed', conclusion: 'success' },
+      { name: 'Build the stack once', status: 'completed', conclusion: 'success' },
+      { name: 'Journeys (shard 1 of 2)', status: 'in_progress' },
+    ],
   };
   const jobsOf = async (id) => jobs[id];
   const run = (id, status, over = {}) => ({ id, status, head_branch: 'main', event: 'push', ...over });
@@ -77,6 +87,8 @@ test('mainWaiting: a main run still taking runners, and the runs that hold nothi
     [[run(11, 'in_progress')], /1 job\(s\) waiting/], // its release still running: it reads runs as they are now
     [[run(10, 'queued'), run(9, 'queued')], /run 9 is queued/], // another main run still waits
     [[run(9, 'pending')], null], // waiting behind the running main run in its group: no runner asked for
+    [[run(12, 'in_progress')], /not queued its shards yet \(its build is running\)/],
+    [[run(13, 'in_progress')], null],
     [[run(1, 'in_progress', { head_branch: 'feature' })], null],
     [[run(1, 'in_progress', { event: 'pull_request' })], null], // a pull request from a branch named main
     [[run(4, 'in_progress'), run(1, 'in_progress')], /run 1 has 1 job/],

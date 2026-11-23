@@ -1,12 +1,13 @@
-import { expect } from './journey.mjs';
+import { TAPE_WAIT } from '../../../../tooling/scripts/journey-shards.mjs';
+import { expect, test } from './journey.mjs';
 import { EDGE } from './stack.mjs';
+import { MINUTE, utcMinuteOf } from './clock.mjs';
 
 // The TEST tape the algo journeys backtest on: closed 1m bars of BTC/USDT from the local TEST market maker.
 
 /** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
 export function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
+  return utcMinuteOf(Date.now() - minutesAgo * MINUTE);
 }
 
 /** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
@@ -26,6 +27,7 @@ export async function closedBarsSince(minute) {
  */
 export async function tapeWindow(minutes, { least = 8, count = (bars) => bars.length, what = 'closed TEST bars of BTC/USDT' } = {}) {
   let window;
+  const started = Date.now();
   await expect
     .poll(
       async () => {
@@ -39,5 +41,8 @@ export async function tapeWindow(minutes, { least = 8, count = (bars) => bars.le
       },
     )
     .toBeGreaterThanOrEqual(least);
+  // The wait is the shard's clock, not the step's work: the shard planner leaves it out of the step's time and plans the
+  // wait itself (journey-shards.mjs TAPE_READY_MINUTES).
+  test.info().annotations.push({ type: TAPE_WAIT, description: String(Date.now() - started) });
   return window;
 }

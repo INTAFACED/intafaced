@@ -1,11 +1,10 @@
 /** The business bank: members, roles, approvals and recipient lookup. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { businessListSchema, businessSchema } from './business-schema';
 
-export { businessSchema } from './business-schema';
-export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
-export const approvalSchema = z.object({
+export { businessSchema } from '../session';
+const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
+const approvalSchema = z.object({
   id: z.string(),
   accountId: z.string(),
   makerUserId: z.string(),
@@ -28,43 +27,21 @@ export const pendingApprovalSchema = approvalSchema.extend({
   receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
   receiverOwnerName: z.string().nullable(),
 });
+/** The team as the business room reads it: members only, without the pending controls the record also carries. */
 export const teamSchema = z.object({
   members: z.array(z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema, handle: z.string() })),
 });
-export const recipientSpaceSchema = z.discriminatedUnion('found', [
-  z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().guid().nullable() }),
-]);
+
+/** The caller's own stricter answers for `business.pending` and `business.myRole`: only the three roles this room knows. */
+export const pendingApprovalsSchema = z.array(pendingApprovalSchema);
+export const myRoleSchema = z.object({ role: memberRoleSchema });
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const businessReads = {
-  'business.list': businessListSchema,
-  'business.pending': z.array(pendingApprovalSchema),
-  'business.members': teamSchema,
-  'business.myRole': z.object({ role: memberRoleSchema }),
-  'business.resolveRecipientSpace': recipientSpaceSchema,
-} as const;
+export const businessReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const businessWrites = {
-  'business.create': businessSchema,
-  'business.addMember': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
-  'business.proposeTransfer': z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('posted'), transferId: z.string(), ledgerTxId: z.string() }),
-    z.object({ kind: z.literal('pending'), approval: approvalSchema }),
-  ]),
   'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
-  'business.setMemberRole': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
-  'business.removeMember': z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }),
   'business.reject': z.object({ ok: z.literal(true) }),
   'business.cancel': z.object({ ok: z.literal(true) }),
-  'business.runPayroll': z.object({
-    payrollId: z.string(),
-    accountId: z.string(),
-    fromSpaceId: z.string(),
-    assetId: z.string(),
-    ledgerTxId: z.string(),
-    recipients: z.array(z.object({ toSpaceId: z.string(), amount: money })),
-    createdAt: z.string(),
-  }),
 } as const;

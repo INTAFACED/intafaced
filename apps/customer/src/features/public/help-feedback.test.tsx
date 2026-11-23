@@ -15,12 +15,21 @@ const world = vi.hoisted(() => ({
   sent: [] as unknown[],
   answer: undefined as unknown as (input: Record<string, unknown>) => unknown,
 }));
-vi.mock('../session/session', () => {
+vi.mock('../session', () => {
   const api = {
     query: async () => ({ ok: true, data: [] }),
     mutate: async (_module: string, _procedure: string, input: Record<string, unknown>) => {
       world.sent.push(input);
       return world.answer(input);
+    },
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
     },
   };
   return {

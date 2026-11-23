@@ -15,9 +15,9 @@ import type { ChannelRow } from './notify-api';
 /** J-charts-desk-10: the per-alert channel choice and what each firing did, as the page shows them. */
 
 const offRows: ChannelRow[] = [
-  { channel: 'inapp', configured: true, available: true },
-  { channel: 'email', configured: false, available: false, reason: 'channel.not_configured' } as ChannelRow,
-  { channel: 'push', configured: false, available: false, reason: 'channel.not_configured' } as ChannelRow,
+  { channel: 'inapp', configured: true, available: true, reason: null, requires: [], socket: null },
+  { channel: 'email', configured: false, available: false, reason: 'channel.not_configured', requires: [], socket: null },
+  { channel: 'push', configured: false, available: false, reason: 'channel.not_configured', requires: [], socket: null },
 ];
 
 let host: HTMLElement;
@@ -77,7 +77,12 @@ describe('the delivery choice', () => {
 
   it('helpers: blocks from the service status, the intent sends only ticked channels', () => {
     expect(channelBlock({ status: 'ready', value: offRows }, 'email')).toBe('off');
-    expect(channelBlock({ status: 'ready', value: [{ channel: 'email', configured: true, available: false }] }, 'email')).toBeNull();
+    expect(
+      channelBlock(
+        { status: 'ready', value: [{ channel: 'email', configured: true, available: false, reason: null, requires: [], socket: null }] },
+        'email',
+      ),
+    ).toBeNull();
     expect(channelBlock({ status: 'failed' }, 'push')).toBe('unknown');
     expect(deliveryIntent({ email: true, push: false, webhookUrl: '  https://h.example/x ' })).toEqual({
       channels: ['email'],

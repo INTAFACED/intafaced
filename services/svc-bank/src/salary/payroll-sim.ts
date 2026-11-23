@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { railRecorder, type RailRecorder } from '../cash-out/rail-records.js';
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 
 /**
  * THE PAYROLL STAND-IN, AND IT IS A TEST FIXTURE (J-bank-30, BK-salary-03).
@@ -30,7 +30,7 @@ export const PAYROLL_SIM_LABEL = 'TEST payroll network (payroll-sim)';
 /** The payroll network on the stack, the partner bank its credits land in, and its own record. */
 export interface PayrollPartner {
   readonly label: string;
-  readonly partner: TestPartner;
+  readonly partner: TestPartnerDoors;
   /** The stand-in's own TEST record of credits and reversals; null when no folder was given (nothing kept). */
   readonly records: RailRecorder | null;
 }
@@ -53,7 +53,7 @@ export class PayrollSimRefusedError extends Error {
  */
 export function payrollPartnerFor(
   setting: PayrollPartnerSetting,
-  partner: TestPartner | null,
+  partner: TestPartnerDoors | null,
   env: { readonly APP_ENV?: string; readonly NODE_ENV?: string },
   recordsDir?: string,
 ): PayrollPartner | null {

@@ -93,6 +93,18 @@ function doorCalls(page) {
   });
   return { all: calls, of: (name) => calls.filter((c) => c.path === name), sent: () => calls.filter((c) => c.path !== 'preview') };
 }
+/**
+ * Every venue prepare answer this page gets, in order: the intent and the venue client id it names (a placed order's own,
+ * or the one order a cancel names). `since(n)` is every answer after the first `n`.
+ */
+function prepareAnswers(page) {
+  const answers = [];
+  page.on('response', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST')
+      answers.push(r.json().then((b) => ({ status: r.status(), intent: b.prepared?.intent, id: b.prepared?.venueClientOrderId ?? null })));
+  });
+  return { count: () => answers.length, since: (n) => Promise.all(answers.slice(n)), all: () => Promise.all(answers) };
+}
 /** The next venue preview the page asks for, and the venue's answer to it. */
 const nextPreview = (page) =>
   page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
@@ -662,7 +674,7 @@ test(`${J} #3 sets the ladder to double columns with a price step of 2 ticks; pr
   await expect(dom(page)).toHaveAttribute('data-step-ticks', '2');
   for (const name of ['My bids', 'Bids (BTC)', 'Price (USDC)', 'Asks (BTC)', 'My asks'])
     await expect(ladder(page).getByRole('columnheader', { name })).toBeVisible();
-  expect(same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
+  await expect.poll(async () => same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
 
   await expect
     .poll(
@@ -744,8 +756,8 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
   // The ticket holds the clicked price and the click's size.
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
   await page.waitForTimeout(1_000);
   expect(door.sent()).toEqual([]);
   expect(await venueOpen(owner)).toEqual(openBefore);
@@ -778,6 +790,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
 
 test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const s = state();
@@ -811,8 +824,8 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   const spreadText = await spread.innerText();
   await expect(buy).toHaveAccessibleDescription(spreadText);
   await expect(sell).toHaveAccessibleDescription(spreadText);
-  expect(same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
-  expect(same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
 
   await group.getByLabel('Click size (BTC)').fill(SMALL);
   const review = reviewSheet(page);
@@ -837,7 +850,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(same(sold.price, bidShown) && same(sold.amount, SMALL)).toBe(true);
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
-  expect(same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
+  await expect.poll(async () => same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
 
   // A type the venue market does not list: the venue desk's existing reason, and no review, no draft.
   const rules = await venueMarketRules();
@@ -864,6 +877,10 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(signatures(wallet)).toBe(0);
   expect(await venueOpen(owner)).toEqual(openBefore);
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
+  // The step's picture: the chart's Buy and Sell with the spread and the Stop refusal, from the top, so the bar that stays
+  // at the top of a scrolled page is not drawn over the chart's trade row.
+  await expect(note).toHaveText('Stop: not offered by this venue');
+  await stepPicture(page);
 });
 
 test(`${J} #6 turns instant placement on: a click sends after the settings summary; off, it always reviews`, async ({ page }) => {
@@ -993,6 +1010,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   await openDom(page);
   await setLadder(page, 'Single', '1 tick');
   const door = doorCalls(page);
+  const answers = prepareAnswers(page);
   const review = reviewSheet(page);
   const clickSize = chartTrade(page).getByLabel('Click size (BTC)');
   const cancelReview = page.getByTestId('of-cancel-review');
@@ -1069,6 +1087,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   expect(door.of('prepare').filter((c) => c.body.intent.kind === 'cancel_order' || c.body.intent.kind === 'cancel_orders')).toHaveLength(
     named.length,
   );
+  // One cancel names my resting order, by the client order key its own prepare used.
+  const reviewedCancels = (await answers.all()).filter((a) => a.intent?.kind === 'cancel_order' && a.id === restId);
+  expect(reviewedCancels).toHaveLength(1);
+  expect(reviewedCancels[0].intent.clientOrderKey).toBe(rest.clientOrderKey);
   expect(signatures(w)).toBe(2 + named.length);
   let signed = 2 + named.length;
 
@@ -1098,6 +1120,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const sellIntent = door.of('prepare').at(-1).body.intent;
   expect(sellIntent).toMatchObject({ side: 'sell', type: 'limit' });
   expect(same(sellIntent.price, bidConfirmed) && same(sellIntent.amount, freeConfirmed)).toBe(true);
+  const sellId = (await answers.all()).at(-1).id;
+  await expect.poll(async () => (await venueByClientId(owner, sellId))?.side ?? null, { timeout: 20_000 }).toBe('sell');
+  const sellOrder = await venueByClientId(owner, sellId);
+  expect(sameDecimal(sellOrder.price, bidConfirmed) && sameDecimal(sellOrder.amount, freeConfirmed)).toBe(true);
   signed += 1;
   expect(signatures(w)).toBe(signed);
   await expect.poll(async () => toUnits((await venueBalance(owner, 'BTC')).free) < lot, { timeout: 20_000 }).toBe(true);
@@ -1109,6 +1135,9 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
     .getByRole('button', { name: `${SMALL} BTC` })
     .click();
   const instantSent = submits();
+  const instantPrepared = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
   const instantPrice = await pressAskCell(page, 4);
   await continueInWallet(page);
   await expect.poll(submits, { timeout: 20_000 }).toBe(instantSent + 1);
@@ -1116,19 +1145,33 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const instantIntent = door.of('prepare').at(-1).body.intent;
   expect(same(instantIntent.price, instantPrice) && same(instantIntent.amount, SMALL)).toBe(true);
   signed += 1;
-  let instantId = null;
-  await expect
-    .poll(async () => {
-      const o = (await venueOpen(owner)).find((x) => sameDecimal(x.price, instantPrice));
-      instantId = o?.venueClientOrderId ?? null;
-      return instantId !== null;
-    })
-    .toBe(true);
-  await pressRowCancel(page, instantPrice);
-  await continueInWallet(page);
+  // The instant order is named by the venue client id its own prepare returned, never by its price.
+  const instantId = (await (await instantPrepared).json()).prepared.venueClientOrderId;
+  expect(instantId).toBeTruthy();
+  await expect.poll(async () => (await venueByClientId(owner, instantId))?.status, { timeout: 20_000 }).toBe('open');
+  const instantOrder = await venueByClientId(owner, instantId);
+  expect(sameDecimal(instantOrder.price, instantPrice) && sameDecimal(instantOrder.amount, SMALL) && instantOrder.side === 'buy').toBe(
+    true,
+  );
+  // Instant one-click cancel on its row, once the page has read every order of mine there: no review, one signed cancel
+  // per order at the row and no more, one of them naming exactly the instant order.
+  const atInstantRow = (await venueOpen(owner)).filter((o) => sameDecimal(o.price, instantPrice)).map((o) => o.venueClientOrderId);
+  expect(atInstantRow).toContain(instantId);
+  const cancelsBefore = answers.count();
+  await pressRowCancel(page, instantPrice, atInstantRow.length);
+  for (let i = 0; i < atInstantRow.length; i++) await continueInWallet(page);
   await expect(cancelReview).toHaveCount(0);
-  await expect.poll(async () => (await venueByClientId(owner, instantId)).status, { timeout: 20_000 }).toBe('canceled');
-  signed += 1;
+  // Every order at the row is cancelled: the page sends one cancel per order, in turn, so all of them are in by then.
+  await expect
+    .poll(async () => (await Promise.all(atInstantRow.map((id) => venueByClientId(owner, id)))).map((o) => o.status), { timeout: 30_000 })
+    .toEqual(atInstantRow.map(() => 'canceled'));
+  const instantCancels = await answers.since(cancelsBefore);
+  expect(instantCancels.map((a) => a.intent?.kind).every((k) => k === 'cancel_order' || k === 'cancel_orders')).toBe(true);
+  expect(instantCancels).toHaveLength(atInstantRow.length);
+  const namingInstant = instantCancels.filter((a) => a.id === instantId);
+  expect(namingInstant).toHaveLength(1);
+  expect(namingInstant[0].intent.clientOrderKey).toBe(instantIntent.clientOrderKey);
+  signed += atInstantRow.length;
   expect(signatures(w)).toBe(signed);
 
   // Instant one-click close: buy a little at the venue's ask first (instant, one signature), then one limit sell of every
@@ -1150,6 +1193,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const instantClose = door.of('prepare').at(-1).body.intent;
   expect(instantClose).toMatchObject({ side: 'sell', type: 'limit' });
   expect(same(instantClose.price, bidNow) && same(instantClose.amount, freeNow)).toBe(true);
+  const closeId = (await answers.all()).at(-1).id;
+  await expect.poll(async () => (await venueByClientId(owner, closeId))?.side ?? null, { timeout: 20_000 }).toBe('sell');
+  const closeOrder = await venueByClientId(owner, closeId);
+  expect(sameDecimal(closeOrder.price, bidNow) && sameDecimal(closeOrder.amount, freeNow)).toBe(true);
   signed += 1;
   await expect.poll(async () => toUnits((await venueBalance(owner, 'BTC')).free) < lot, { timeout: 20_000 }).toBe(true);
   await page.waitForTimeout(1_000);
@@ -1162,6 +1209,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
         .of('prepare')
         .filter((x) => x.body.intent.kind === 'place_order' && x.body.intent.clientOrderKey === c.body.intent.clientOrderKey),
     ).toHaveLength(1);
+  // And the venue holds exactly one order under each placed client id.
+  const placedIds = (await answers.all()).filter((a) => a.intent?.kind === 'place_order').map((a) => a.id);
+  expect(new Set(placedIds).size).toBe(placedIds.length);
+  for (const id of placedIds) expect((await venueByClientId(owner, id))?.venueClientOrderId).toBe(id);
 
   await turnInstantOff(page);
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
@@ -1252,9 +1303,9 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
       )
       .toBe('same');
     // The print at my price moved the chance above zero, and the order ahead shrank to 0.001 BTC.
-    expect(toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
-    expect(toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
-    expect(toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
     await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^At most 0\.0010* BTC ahead of you at this price$/);
     await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
     await expect(row.getByTestId('of-queue-basis')).toContainText(

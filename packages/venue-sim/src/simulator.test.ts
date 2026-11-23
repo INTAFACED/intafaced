@@ -9,6 +9,7 @@ import {
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenueAccount,
+  type UserVenueBalance,
   type VenueIntent,
 } from '@intafaced/venue-contracts';
 import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
@@ -109,7 +110,7 @@ function order(
   };
 }
 
-function balanceOf(list: readonly { asset: string; free: Amount; locked: Amount; total: Amount }[], asset: string) {
+function balanceOf(list: readonly UserVenueBalance[], asset: string): UserVenueBalance {
   return list.find((b) => b.asset === asset) ?? { asset, free: ZERO, locked: ZERO, total: ZERO };
 }
 
@@ -169,6 +170,7 @@ describe('TEST venue simulator: a booked deficit (J-campaigns-19 #5)', () => {
       free: a('-30'),
       locked: ZERO,
       total: a('-30'),
+      lockedBy: { inOrders: ZERO, margin: ZERO, staked: ZERO },
     });
     // The deficit never enters the balances the simulator trades on, so its invariant holds and a submit still lands.
     w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:deficit');
@@ -183,7 +185,13 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
     expect(w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:0xabc:0')).toBe(true);
     expect(w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:0xabc:0')).toBe(false);
     const b = balanceOf((await w.sim.balances(w.trader)).value, 'USDC');
-    expect(b).toEqual({ asset: 'USDC', free: a('1000'), locked: ZERO, total: a('1000') });
+    expect(b).toEqual({
+      asset: 'USDC',
+      free: a('1000'),
+      locked: ZERO,
+      total: a('1000'),
+      lockedBy: { inOrders: ZERO, margin: ZERO, staked: ZERO },
+    });
   });
 
   it('#7–#8 a limit buy rests with the venue lock, a TEST sell fills it as maker with the venue fee and no builder fee, and a sell pays the builder fee', async () => {
@@ -411,6 +419,32 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     expect(
       await refusal(w.sim.prepare(w.trader, w.wallet.signer, perpOrder('buy', '60000', '0.01', 'order:t:d7', { timeInForce: 'ALO' }))),
     ).toBe('not_offered');
+  });
+
+  it('J-portfolio-01 #4: the venue splits its lock into orders, margin and stake, adding to locked exactly', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:split');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:split');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
+    await w.run(w.otherWallet, w.other, perpOrder('sell', '60000', '0.1', 'order:maker:split'));
+    await w.run(w.wallet, w.trader, perpOrder('buy', '60000', '0.1', 'order:t:split:open'));
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.001', 'order:t:split:rest'));
+    expect(w.sim.testStake(w.trader, 'USDC', a('100'), 'stake:t:split')).toBe(true);
+    // The same TEST stake again is taken once; a stake past free is refused and changes nothing.
+    expect(w.sim.testStake(w.trader, 'USDC', a('100'), 'stake:t:split')).toBe(false);
+    expect(() => w.sim.testStake(w.trader, 'USDC', a('100000'), 'stake:t:split:big')).toThrow(/more than free/);
+    const usdc = balanceOf((await w.sim.balances(w.trader)).value, 'USDC');
+    const rest = (await w.sim.openOrders(w.trader)).value.find((o) => o.symbol === 'BTC-USDC')!;
+    expect(usdc.lockedBy).toEqual({ inOrders: rest.locked, margin: a('600'), staked: a('100') });
+    expect(usdc.locked).toBe(add(add(rest.locked, a('600')), a('100')));
+    expect(usdc.total).toBe(add(usdc.free, usdc.locked));
+    await w.run(w.wallet, w.trader, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:split:rest' });
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').lockedBy).toEqual({
+      inOrders: ZERO,
+      margin: a('600'),
+      staked: a('100'),
+    });
   });
 
   it('#8–#10 opens one isolated long, reports it as the venue does, closes 40 percent then the rest', async () => {

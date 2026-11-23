@@ -25,7 +25,8 @@ const BLOCKS = {
   // withdrawals go on; `OperationIdentityDecisions.decide` refuses every fresh svc-trade operation.
   closing: ['trade'],
   // `AuthService.createApiKey` refuses `identity.account_frozen_self`; the freeze revoked every session and key when set.
-  self_freeze: ['create_api_key'],
+  // `OperationIdentityDecisions.decide` cancels every fresh svc-trade operation with the same code (J-wallet-13 #2).
+  self_freeze: ['create_api_key', 'trade'],
   // `assertNotSecurityLocked` (password change, sign-in methods, password and second-factor resets, adding recovery keys
   // and setting their plan) and svc-bank's `bank.security_locked` (adding a withdrawal address, starting a send to one).
   // Removing an address and revoking a recovery key read no lock, so they are not listed.

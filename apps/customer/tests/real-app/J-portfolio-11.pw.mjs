@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, dayStart, utcDay } from './clock.mjs';
 import { confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
 import { api, fromUnits, ORIGIN, tool, toUnits } from './stack.mjs';
 
@@ -29,7 +30,6 @@ async function openCentre(page) {
 }
 
 /** A UTC day as the date fields hold it. */
-const utcDay = (at) => at.toISOString().slice(0, 10);
 
 /** The last month that is over, as "YYYY-MM" in UTC. */
 function lastFullMonth(now = new Date()) {
@@ -118,7 +118,9 @@ test(`${J} #1 opens the statement and export centre: account statement, trades, 
   await expect(page).toHaveURL((url) => url.pathname === '/bank/statements');
   await expect(centre(page)).toBeVisible();
   const kinds = centre(page).getByRole('radiogroup', { name: 'What to export' });
-  expect(await kinds.locator('label strong').allInnerTexts()).toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
+  await expect
+    .poll(async () => await kinds.locator('label strong').allInnerTexts())
+    .toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
   await expect(kinds.getByRole('radio', { name: /Account statement/ })).toBeChecked();
   for (const name of [/Ledger/, /Trades/, /Balances/]) await expect(kinds.getByRole('radio', { name })).toBeEnabled();
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();
@@ -160,7 +162,7 @@ test(`${J} #3 exports 30 days of transactions as CSV: newest first in UTC, equal
     .check();
   // The last 30 UTC days, today included, are the dates offered.
   const now = new Date();
-  const fromDay = utcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29)));
+  const fromDay = utcDay(dayStart(now) - 29 * DAY);
   const toDay = utcDay(now);
   await expect(centre(page).getByLabel('From (UTC)', { exact: true })).toHaveValue(fromDay);
   await expect(centre(page).getByLabel('To (UTC)', { exact: true })).toHaveValue(toDay);

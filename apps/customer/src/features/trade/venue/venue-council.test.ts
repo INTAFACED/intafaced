@@ -3,7 +3,7 @@ import { preparedStep, type KeptSignature, type PreparedAnswer } from '../venue-
 import { keepsDraft, type ActionResult } from './VenueKit';
 import { builderApprovalLine, carriesBuilderFee } from './VenueReview';
 import { venueCopy } from './venue-copy';
-import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotDesk';
+import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
 import { futuresVenueCopy } from '../../../screens/trade/futures/venue-copy';
 
 // The council's round on the venue desks: an answer that is not definite is read back and never re-sent; a definite

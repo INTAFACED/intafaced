@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { Button, EmptyState, Loading, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import '../protocol.css';
 import { CLAIM_ESCROW_CALLS, linkAmount } from './ClaimLinksPanel';
@@ -129,11 +129,11 @@ export function ClaimPage({ id }: { id: string }) {
         <dl className="protocol-facts">
           <div>
             <dt>{t('claimAmount')}</dt>
-            <dd className="numeric">{amount}</dd>
+            <dd className="lt-num">{amount}</dd>
           </div>
           <div>
             <dt>{t('claimFrom')}</dt>
-            <dd className="numeric">{data.sender}</dd>
+            <dd className="lt-num">{data.sender}</dd>
           </div>
           <div>
             <dt>{t('claimExpires')}</dt>
@@ -158,7 +158,7 @@ export function ClaimPage({ id }: { id: string }) {
           </p>
         ) : !connected ? (
           <>
-            <p className="muted">{t('claimConnect')}</p>
+            <p className="lt-muted">{t('claimConnect')}</p>
             {wallet.wallets.length === 0 ? (
               <EmptyState title={tw('connectNone')} />
             ) : (
@@ -176,7 +176,7 @@ export function ClaimPage({ id }: { id: string }) {
           </>
         ) : (
           <>
-            <p className="muted">
+            <p className="lt-muted">
               {t('claimStep', { amount: value ?? '', token: name.join(' '), address: shortAddress(wallet.address!) })}
             </p>
             <Button disabled={outcome.kind === 'busy' || !escrow} onClick={() => void claim()}>

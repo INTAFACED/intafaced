@@ -31,7 +31,8 @@ export interface PreparedActionStore {
   /** Record the first signature; a later call keeps the first. Returns the stored row. */
   signOnce(userId: string, businessKey: string, signature: VenueSignature, at: Date): Promise<StoredVenueAction>;
   /**
-   * Record the venue's latest answer, except that a definite outcome is never replaced by a not-definite one. Returns the
+   * Record the venue's latest answer, except that a definite outcome is never replaced by a not-definite one, and a definite
+   * accept is never replaced at all. Returns the
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
@@ -86,6 +87,14 @@ export interface PreparedActionStore {
    * signature, and an action never signed, name no account. Sorted by owner, then sub-account (main account first).
    */
   ownerSignedAccounts(userId: string, venueId: string): Promise<OwnerSignedAccount[]>;
+
+  /**
+   * The signed action of this person that placed the order under `venueClientOrderId` (a `place_order`, an order of a
+   * `place_orders`, or a `replace_order`'s replacement), or null when none of theirs did: the operator's read of a
+   * customer's routed order finds the customer's own venue account through it (J-cex-spot-18 #1). Another person's order
+   * under the same id is never theirs. Where two of theirs share an id, the first prepared wins.
+   */
+  placedOrder(userId: string, venueClientOrderId: string): Promise<StoredVenueAction | null>;
 }
 
 export interface OwnerSignedAccount {
@@ -162,6 +171,10 @@ function builderFeeRates(row: StoredVenueAction): readonly [string, Amount][] {
     .filter((o) => o.accepted && o.feeBps !== null)
     .map((o) => [o.venueClientOrderId, o.feeBps!] as [string, Amount]);
 }
+
+/** Whether a signed action placed the order under `venueClientOrderId`. */
+const placesOrder = (row: StoredVenueAction, venueClientOrderId: string) =>
+  !!row.signature && ordersOf(row).some((o) => o.venueClientOrderId === venueClientOrderId);
 
 /** One venue address, whatever its letter case: a hex address names the same account in upper or lower case. */
 const sameAddress = (a: string | null, b: string | null) => (a === null || b === null ? a === b : a.toLowerCase() === b.toLowerCase());
@@ -255,7 +268,8 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const id = this.id(userId, businessKey);
     const row = this.rows.get(id);
     if (!row) throw new Error(`no prepared venue action under ${businessKey}`);
-    if (row.lastOutcome?.definite && !outcome.definite) return row.lastOutcome;
+    // A definite answer is never replaced by a not-definite one, and a definite accept by nothing: the order is live.
+    if (row.lastOutcome?.definite && (!outcome.definite || row.lastOutcome.accepted)) return row.lastOutcome;
     const next = { ...row, lastOutcome: wire(outcome) };
     this.rows.set(id, next);
     return next.lastOutcome;
@@ -309,6 +323,14 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
 
   async ownerSignedAccounts(userId: string, venueId: string) {
     return signedAccountsOf(this.rows.values(), userId, venueId);
+  }
+
+  async placedOrder(userId: string, venueClientOrderId: string) {
+    const id = venueClientOrderId.toLowerCase();
+    const rows = [...this.rows.values()]
+      .filter((r) => r.userId === userId && placesOrder(r, id))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.businessKey.localeCompare(b.businessKey));
+    return rows[0] ?? null;
   }
 
   async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
@@ -409,7 +431,8 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     await this.sql`
       UPDATE trade.user_venue_actions SET last_outcome = ${this.sql.json(json)}::jsonb, submitted_at = ${at}
       WHERE user_id = ${userId} AND business_key = ${businessKey}
-        AND (${outcome.definite} OR last_outcome IS NULL OR last_outcome->>'definite' IS DISTINCT FROM 'true')`;
+        AND (last_outcome IS NULL OR last_outcome->>'definite' IS DISTINCT FROM 'true'
+          OR (${outcome.definite} AND last_outcome->>'accepted' IS DISTINCT FROM 'true'))`;
     const stored = await this.find(userId, businessKey);
     if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
     return stored.lastOutcome;
@@ -468,6 +491,17 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND venue_id = ${venueId} AND signature IS NOT NULL`;
     return signedAccountsOf(rows.map(fromRow), userId, venueId);
+  }
+
+  async placedOrder(userId: string, venueClientOrderId: string) {
+    const id = venueClientOrderId.toLowerCase();
+    // Orders signed together carry no one client id of their own: each of their orders is matched in ordersOf.
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND signature IS NOT NULL
+        AND ((kind = 'place_order' AND prepared->>'venueClientOrderId' = ${id}) OR kind IN ('place_orders', 'replace_order'))
+      ORDER BY created_at, business_key`;
+    return rows.map(fromRow).find((r) => placesOrder(r, id)) ?? null;
   }
 
   async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {

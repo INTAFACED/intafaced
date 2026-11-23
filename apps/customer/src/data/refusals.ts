@@ -111,6 +111,18 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'This market is in its opening window',
     body: 'A newly listed market takes limit orders only until its opening window ends. Place a limit order instead. Nothing was held.',
   },
+  higherRiskZone: {
+    title: 'This market is in the higher-risk zone',
+    body: 'A market in the higher-risk zone takes limit orders only. Place a limit order instead. Nothing was held.',
+  },
+  zoneSettingUnset: {
+    title: 'This market takes no orders while its cap is not set',
+    body: 'It is in the higher-risk zone and its order cap is not set, so no order is taken. Nothing was held.',
+  },
+  zoneCapExceeded: {
+    title: 'That order is over the zone cap',
+    body: 'An order in the higher-risk zone may be worth at most the cap shown on the market. Lower the amount or the price. Nothing was held.',
+  },
   optionUnsupported: { title: "That option isn't offered", body: "This order option isn't offered on spot orders. Nothing was held." },
   requestExpired: {
     title: 'That request expired',
@@ -151,6 +163,12 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Trading is on hold on your account',
     body: "New orders can't be placed, and this one wasn't. You can still cancel orders and move money. Contact support to find out why.",
     action: { label: 'See your account status', href: '/uc/account' },
+  },
+  // The person's own freeze: what was refused, why, where their funds are and where the lift is (J-wallet-13 #2).
+  frozenByYou: {
+    title: 'You froze this account',
+    body: 'INTAFACED takes no action for you while your account is frozen, so this was not done. Your funds stay in your own wallet and venue account, which only your wallet controls.',
+    action: { label: 'Reactivate in Security', href: '/uc/safe' },
   },
   platformPaused: {
     title: 'Money movement is paused for everyone',

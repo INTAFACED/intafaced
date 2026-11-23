@@ -98,7 +98,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       });
     });
 
-    it("the owner's freeze: frozen by you, blocks only a new API key, and lifts after the published wait", async () => {
+    it("the owner's freeze: frozen by you, blocks a new API key and every trade INTAFACED places, and lifts after the published wait", async () => {
       const userId = await person();
       const done = await auth.selfFreeze({
         userId,
@@ -113,13 +113,16 @@ if (!(await postgresAvailable(TEST_URL))) {
           kind: 'self_freeze',
           reasonCode: 'compromise',
           since: done.since.toISOString(),
-          blocks: ['create_api_key'],
+          blocks: ['create_api_key', 'trade'],
           lift: { by: 'owner_after_wait', availableAt: new Date(done.since.getTime() + 3600_000).toISOString() },
           capability: null,
           owner: null,
         },
       ]);
-      expect(status.cannot).toEqual([{ action: 'create_api_key', kind: 'self_freeze' }]);
+      expect(status.cannot).toEqual([
+        { action: 'trade', kind: 'self_freeze' },
+        { action: 'create_api_key', kind: 'self_freeze' },
+      ]);
       expect(status.canStill).toContain('sign_in');
       // With no wait published, the lift time is unknown and the page says a lift refuses.
       const unpublished = accountStatusSchema.parse(await new AccountStatusDesk(db.sql, undefined, REASONS, LEVELS).read(userId, 'staff'));

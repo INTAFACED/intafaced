@@ -40,8 +40,8 @@
  * Every run prints each changed test file's assertion count change, so a locator-only rewrite can show it kept them.
  *
  * main-bisect's automatic revert (a `revert/auto-<sha10>` branch the factory App opened, one commit that says it reverts
- * that commit, which main holds, and a diff that undoes exactly what that commit did: exact-revert.mjs) is not judged by
- * 1-5: it returns the tests to main's from before that commit, which main's runs proved (autoRevert below; intafaced
+ * that commit, which main holds, and a diff that undoes exactly what that commit did: exact-revert.mjs autoRevert) is not
+ * judged by 1-5: it returns the tests to main's from before that commit, which main's runs proved (intafaced
  * #8138 and #8149 were refused here for deleting the tests their culprits had added). 6 still applies to it.
  *
  * Rules come from MAIN: CI runs the copy of this file on origin/main, never the
@@ -50,12 +50,14 @@
  *
  *   node tooling/ci/test-diff-guard.mjs                 uses origin/main, PR_BODY env
  */
-import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH, REVERTS_COMMIT, exactReverse, revertTreeMatches } from './exact-revert.mjs';
+import { runJobs } from './run-jobs.mjs';
+import { autoRevertOf } from './exact-revert.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
+import { githubFetch } from './github-fetch.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -97,6 +99,9 @@ const STRONG_MATCHER =
 // `threshold` is a common business word, so it counts only in browser tests and their configs.
 const TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio)\s*:\s*([\d.]+)/g;
 const BROWSER_TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio|threshold)\s*:\s*([\d.]+)/g;
+/** What an undeclared finding tells the builder: the CI step reads the live description, but only on a run. */
+export const UNDECLARED_HINT =
+  'If a change is intended, say why in the PR description on a line starting "Test-change:", then re-run the Doctrine gates job: an edit to the description starts no CI run.';
 export const DECLARED = /^\s*Test-change:\s*\S.{7,}$/m;
 const BASELINE_DECLARED = /^\s*Baseline-change:\s*(\S+)\s+[—–:-]+\s*(\S.{7,})$/gm;
 
@@ -230,7 +235,7 @@ export async function earlierFailures({ repo, headRepo = repo, branch, headSha }
   const out = [];
   for (const run of runs) {
     if (run.head_sha === headSha || run.head_repository?.full_name !== headRepo) continue;
-    const jobs = (await api(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)).jobs ?? [];
+    const jobs = (await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs`, api)) ?? [];
     for (const job of jobs) {
       if (!/^Tests \(/.test(job.name) || job.conclusion !== 'failure') continue;
       const { packages, files } = failedInLog(await text(`/repos/${repo}/actions/jobs/${job.id}/logs`));
@@ -240,14 +245,30 @@ export async function earlierFailures({ repo, headRepo = repo, branch, headSha }
   return out;
 }
 
-/** A REST reader on GITHUB_TOKEN; a refusal or a limit throws with the exact status, never retried. */
-function restReader(token) {
+/** How long the reader waits before each retry of a GitHub server error (5xx): two more tries, then it throws. */
+export const SERVER_ERROR_WAITS_MS = [2_000, 6_000];
+
+/**
+ * A REST reader on GITHUB_TOKEN. A refusal or a limit (any 4xx, 403 and 429 included) throws with the exact status, never
+ * retried. A server error (5xx: GitHub's own 502 Bad Gateway on a long PR's earlier runs) is tried again after each wait in
+ * `waits`, then throws with its status, so one passing outage on one of dozens of reads does not fail the guard.
+ */
+export function restReader(
+  token,
+  { fetchImpl = githubFetch, waits = SERVER_ERROR_WAITS_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
   const get = async (path) => {
-    const res = await fetch(`https://api.github.com${path}`, {
-      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
-    });
-    if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
-    return res;
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(`https://api.github.com${path}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+      });
+      if (res.ok) return res;
+      if (res.status >= 500 && attempt < waits.length) {
+        await sleep(waits[attempt]);
+        continue;
+      }
+      throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
+    }
   };
   return { api: async (p) => (await get(p)).json(), text: async (p) => (await get(p)).text() };
 }
@@ -281,27 +302,6 @@ export function assertionDeltas(changes) {
     .filter((c) => TEST_FILE.test(c.path) && c.status === 'M')
     .map((c) => ({ path: c.path, removed: count(c.removed), added: count(c.added) }))
     .filter((d) => d.removed || d.added);
-}
-
-/**
- * The commit this pull request reverts, when it is main-bisect's automatic revert by every proof above; else null.
- * `pr`: { ref, author, authorType, commits, headRepo, repo, headSha }; `read(args)`: git's output, throwing on a failure.
- */
-export function autoRevert(pr, base, read) {
-  const branch = AUTO_REVERT_BRANCH.exec(String(pr?.ref ?? ''));
-  if (!branch || pr.author !== AUTO_REVERT_AUTHOR || pr.authorType !== 'Bot' || String(pr.commits) !== '1') return null;
-  if (!pr.repo || pr.headRepo !== pr.repo || !/^[0-9a-f]{40}$/.test(String(pr.headSha ?? ''))) return null;
-  try {
-    const culprit = REVERTS_COMMIT.exec(read(['log', '-1', '--format=%B', pr.headSha]))?.[1];
-    if (!culprit || !culprit.startsWith(branch[1])) return null;
-    if (read(['rev-list', '--parents', '-n', '1', culprit]).trim().split(' ').length !== 2) return null;
-    read(['merge-base', '--is-ancestor', culprit, base]);
-    const diff = read(['diff', '--no-renames', `${base}...${pr.headSha}`]);
-    const was = read(['diff', '--no-renames', `${culprit}^`, culprit]);
-    return exactReverse(diff, was) || revertTreeMatches(read, { culprit, head: pr.headSha }) ? culprit : null;
-  } catch {
-    return null;
-  }
 }
 
 function git(args) {
@@ -360,19 +360,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repo: process.env.GITHUB_REPOSITORY,
   });
   if (judgeRuns) console.log("journey step files (J-*.pw.mjs) changed here are the test judge's (its verdict is required by the seal)");
-  const reverted = autoRevert(
-    {
-      ref: process.env.PR_HEAD_REF,
-      author: process.env.PR_AUTHOR,
-      authorType: process.env.PR_AUTHOR_TYPE,
-      commits: process.env.PR_COMMITS,
-      headRepo: process.env.PR_HEAD_REPO,
-      repo: process.env.GITHUB_REPOSITORY,
-      headSha: process.env.PR_HEAD_SHA,
-    },
-    base,
-    git,
-  );
+  const reverted = autoRevertOf(process.env, base, git);
   if (reverted)
     console.log(
       `main-bisect's automatic revert of ${reverted.slice(0, 10)}: its diff undoes exactly that commit, which main holds, so checks 1-5 don't judge it (its tests return to main's from before it)`,
@@ -444,7 +432,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   console.error(`\n${head} — ${problems.length} finding(s)\n`);
   for (const p of problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
   if (!declared) {
-    console.error('  If a change is intended, say why in the PR description on a line starting "Test-change:".');
+    console.error(`  ${UNDECLARED_HINT}`);
     failed = true;
   }
   process.exit(failed ? 1 : 0);

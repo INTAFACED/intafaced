@@ -1,6 +1,7 @@
+// volt-room: /bank/business/cards
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   BUSINESS_CARD_API_PATHS,
@@ -10,7 +11,6 @@ import {
   businessCardSchema,
   businessExpensePolicySchema,
   businessExpensesOverviewSchema,
-  businessReceiptsZipSchema,
   businessReimbursementSchema,
   type BusinessCard,
   type BusinessCardPurchase,
@@ -20,8 +20,9 @@ import { businessTeamMemberSchema, businessTeamOverviewSchema } from '@intafaced
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
+import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP } from '@intafaced/contracts/bank-business-cards-procedures';
 
 /**
  * A business gives its team cards and handles their expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02), on the
@@ -228,7 +229,7 @@ export function BusinessCardsRoom() {
               </li>
             ))}
           </ul>
-          <a className="text-link" href="/developers/business-cards">
+          <a className="lt-link" href="/developers/business-cards">
             {t('apiDocs')}
           </a>
         </div>
@@ -270,7 +271,7 @@ function Parts({
 
   async function download() {
     change.setFailed(null);
-    const out = await api.query('bank', 'businessCards.receiptsZip', { accountId }, businessReceiptsZipSchema);
+    const out = await api.call(BANK_BUSINESS_CARDS_RECEIPTS_ZIP, { accountId });
     if (!out.ok) {
       change.setFailed(out);
       return;
@@ -349,6 +350,7 @@ function Parts({
                 {r.status === 'open' ? (
                   <>
                     <Button
+                      tone="primary"
                       type="button"
                       disabled={change.busy}
                       onClick={() =>
@@ -363,6 +365,7 @@ function Parts({
                       {t('approveRequest')}
                     </Button>
                     <Button
+                      tone="primary"
                       type="button"
                       disabled={change.busy}
                       onClick={() =>
@@ -390,7 +393,7 @@ function Parts({
         </p>
         {admin ? <PolicyForm accountId={accountId} change={change} t={t} /> : null}
         {exporter ? (
-          <Button type="button" disabled={change.busy} onClick={() => void download()}>
+          <Button tone="primary" type="button" disabled={change.busy} onClick={() => void download()}>
             {t('download')}
           </Button>
         ) : null}
@@ -441,7 +444,7 @@ function IssueForm({
         );
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('member')}</span>
         <select value={who} onChange={(e) => setWho(e.target.value)} required>
           <option value="" />
@@ -452,11 +455,11 @@ function IssueForm({
           ))}
         </select>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('limit')}</span>
         <input inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} required />
       </label>
-      <Button type="submit" variant="primary" disabled={change.busy || !who || !limit.trim()}>
+      <Button type="submit" tone="primary" disabled={change.busy || !who || !limit.trim()}>
         {t('issue')}
       </Button>
     </form>
@@ -492,15 +495,15 @@ function SpendForm({ cards, change, t }: { cards: BusinessCard[]; change: Change
           ))}
         </select>
       ) : null}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('merchant')}</span>
         <input value={merchant} onChange={(e) => setMerchant(e.target.value)} required />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('amount')}</span>
         <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
       </label>
-      <Button type="submit" variant="primary" disabled={change.busy || !merchant.trim() || !amount.trim()}>
+      <Button type="submit" tone="primary" disabled={change.busy || !merchant.trim() || !amount.trim()}>
         {t('spend')}
       </Button>
     </form>
@@ -550,11 +553,11 @@ function PurchaseRow({ p, tail, mine, change, t }: { p: BusinessCardPurchase; ta
             );
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('receiptFile')}</span>
             <input type="file" accept={BUSINESS_RECEIPT_TYPES.join(',')} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
-          <Button type="submit" disabled={change.busy || !file}>
+          <Button tone="primary" type="submit" disabled={change.busy || !file}>
             {t('attach')}
           </Button>
         </form>
@@ -575,11 +578,11 @@ function PolicyForm({ accountId, change, t }: { accountId: string; change: Chang
         );
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('receiptOver')}</span>
         <input inputMode="decimal" value={over} onChange={(e) => setOver(e.target.value)} required />
       </label>
-      <Button type="submit" disabled={change.busy || !over.trim()}>
+      <Button tone="primary" type="submit" disabled={change.busy || !over.trim()}>
         {t('setPolicy')}
       </Button>
     </form>
@@ -614,19 +617,19 @@ function ClaimForm({ accountId, change, t }: { accountId: string; change: Change
         });
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('amount')}</span>
         <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('claimFor')}</span>
         <input value={description} onChange={(e) => setDescription(e.target.value)} required />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('receiptFile')}</span>
         <input type="file" accept={BUSINESS_RECEIPT_TYPES.join(',')} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </label>
-      <Button type="submit" variant="primary" disabled={change.busy || !file || !amount.trim() || !description.trim()}>
+      <Button type="submit" tone="primary" disabled={change.busy || !file || !amount.trim() || !description.trim()}>
         {t('submitClaim')}
       </Button>
     </form>
@@ -674,7 +677,7 @@ function ClaimRow({
       {approver && c.memberUserId !== me && (c.status === 'submitted' || c.status === 'paying') ? (
         <Button
           type="button"
-          variant="primary"
+          tone="primary"
           disabled={change.busy}
           onClick={() => void change.run('businessCards.approveAndPay', { claimId: c.id }, businessReimbursementSchema, () => t('paid'))}
         >

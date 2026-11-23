@@ -1,0 +1,3452 @@
+{
+  "cases": [
+    {
+      "name": "policy",
+      "path": "scanner.policy",
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "boardId": "D26-P0-11",
+          "productionDefaultPublished": false,
+          "sealedRecipeId": "abs_change_x_log_volume",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)",
+          "inventsRankings": false,
+          "inventsLiveTickers": false,
+          "liveTickersClassX": true,
+          "fixtureRankOnlyWithoutLivePlane": true
+        }
+      }
+    },
+    {
+      "name": "stage2Guardrail",
+      "path": "scanner.stage2Guardrail",
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "agentId": "scanner",
+          "version": 1,
+          "tools": [
+            { "name": "trade.ticker", "module": "trade", "mode": "read", "requiresApproval": false },
+            { "name": "trade.markets.list", "module": "trade", "mode": "read", "requiresApproval": false },
+            { "name": "trade.book.top", "module": "trade", "mode": "read", "requiresApproval": false }
+          ],
+          "limits": {
+            "maxActionsPerSession": 80,
+            "maxOutputTokensPerCall": 4096,
+            "maxSpendPerSession": "1",
+            "allowedModules": ["trade", "agents"],
+            "allowedTasks": ["scanner.rank"]
+          }
+        }
+      }
+    },
+    {
+      "name": "tierGate: no law",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "tierGate: unpublished",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":false}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "tierGate: empty matrix",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{}}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "tierGate: granted",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "userTier": "basic",
+          "maxSignals": 2,
+          "allowedTools": ["trade.ticker", "trade.markets.list", "trade.book.top"]
+        }
+      }
+    },
+    {
+      "name": "tierGate: another tier",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "full",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_not_granted", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "tierGate: no tier",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "tierGate: a padded tier",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": " basic ",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "tierGate: depth 0",
+      "path": "scanner.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":0,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": { "data": { "status": "refuse", "reason": "depth_invalid", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "rankFixtures: law omitted",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: law null",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": null
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: law unpublished",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": { "published": false }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: inputs empty",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": { "published": true, "p0_11": "sealed", "allowedInputs": [], "rankingRecipeId": "abs_change_x_log_volume" }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "inputs_empty",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: required input missing",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "spread"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "required_inputs_missing",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: no limit",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "rank_limit_unset", "userMessageKey": "agents.scanner.rank_limit_unset" } }
+    },
+    {
+      "name": "rankFixtures: dark plane",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "marketPlane": "dark"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.scanner.unavailable", "reason": "market_plane_dark" } }
+    },
+    {
+      "name": "rankFixtures: the board",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 20,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "marketPlane": "live"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "big-usdt", "score": "460470.966897", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "btc-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "BTC-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "eth-usdt", "score": "345.437739", "reasons": ["change_down", "has_volume"] },
+            { "marketId": "sol-usdt", "score": "216.395966", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "odd-usdt", "score": "30.237594", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "spc-usdt", "score": "7.690286", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "ada-usdt", "score": "0.000000", "reasons": ["change_flat"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 14,
+          "skippedStale": 3,
+          "skippedIncomplete": 3
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: the board, a page of 2",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 2,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "big-usdt", "score": "460470.966897", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "btc-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 14,
+          "skippedStale": 3,
+          "skippedIncomplete": 3
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: an allowlist",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "marketAllowlist": ["sol-usdt", "old-usdt", "nope"]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [{ "marketId": "sol-usdt", "score": "216.395966", "reasons": ["change_up", "has_volume"] }],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 14,
+          "skippedStale": 1,
+          "skippedIncomplete": 12
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: an empty allowlist",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "marketAllowlist": []
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "big-usdt", "score": "460470.966897", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "btc-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "BTC-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "eth-usdt", "score": "345.437739", "reasons": ["change_down", "has_volume"] },
+            { "marketId": "sol-usdt", "score": "216.395966", "reasons": ["change_up", "has_volume"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 14,
+          "skippedStale": 3,
+          "skippedIncomplete": 3
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: an allowlist matching nothing",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "marketAllowlist": ["nope"]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.scanner.empty" } }
+    },
+    {
+      "name": "rankFixtures: nothing",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.scanner.empty" } }
+    },
+    {
+      "name": "rankFixtures: only stale",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.scanner.unavailable", "reason": "stale" } }
+    },
+    {
+      "name": "rankFixtures: stale and incomplete",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "limit": 5,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "unavailable", "userMessageKey": "agents.scanner.unavailable", "reason": "no_quotes" } }
+    },
+    {
+      "name": "rankFixtures: the clock, no now",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "btc-usdt",
+            "last": "1",
+            "volume24h": "1",
+            "change24hBps": 1,
+            "asOf": "2026-11-18T23:59:59.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "limit": 5,
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [{ "marketId": "btc-usdt", "score": "0.693147", "reasons": ["change_up", "has_volume"] }],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 1,
+          "skippedStale": 0,
+          "skippedIncomplete": 0
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: ties: volume, then the id",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          { "marketId": "b-x", "last": "1", "volume24h": "10", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "marketId": "a-x", "last": "1", "volume24h": "10", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "marketId": "A-x", "last": "1", "volume24h": "10", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "marketId": "c-x", "last": "1", "volume24h": "20", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "marketId": "a_x", "last": "1", "volume24h": "10", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          { "marketId": "a1", "last": "1", "volume24h": "10", "change24hBps": 10, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "limit": 10,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "c-x", "score": "30.445224", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "a_x", "score": "23.978953", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "a-x", "score": "23.978953", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "A-x", "score": "23.978953", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "a1", "score": "23.978953", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "b-x", "score": "23.978953", "reasons": ["change_up", "has_volume"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 6,
+          "skippedStale": 0,
+          "skippedIncomplete": 0
+        }
+      }
+    },
+    {
+      "name": "rankFixtures: fractional volumes",
+      "path": "scanner.rankFixtures",
+      "input": {
+        "fixtures": [
+          {
+            "marketId": "m1",
+            "last": "0.000000000000000001",
+            "volume24h": "0.000000000000000001",
+            "change24hBps": 1,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "m2", "last": "3", "volume24h": "0.5", "change24hBps": 3, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 },
+          {
+            "marketId": "m3",
+            "last": "3",
+            "volume24h": "123456.789",
+            "change24hBps": -7,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "m4", "last": "3", "volume24h": "7", "change24hBps": 0, "asOf": "2026-11-18T23:59:30.000Z", "maxAgeMs": 120000 }
+        ],
+        "limit": 10,
+        "now": "2026-11-19T00:00:00.000Z",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "m3", "score": "82.065582", "reasons": ["change_down", "has_volume"] },
+            { "marketId": "m2", "score": "1.216395", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "m4", "score": "0.000000", "reasons": ["change_flat", "has_volume"] },
+            { "marketId": "m1", "score": "0.000000", "reasons": ["change_up", "has_volume"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 4,
+          "skippedStale": 0,
+          "skippedIncomplete": 0
+        }
+      }
+    },
+    {
+      "name": "a money write",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "ledger.post", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "ledger.post", "reason": "money_write", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "a live write",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.order", "plane": "dark" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.order", "reason": "money_write", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "dark",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "dark",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.ticker",
+          "reason": "market_plane_dark",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "no law",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "tier_law_blank", "userMessageKey": "agents.scanner.tier_closed" }
+      }
+    },
+    {
+      "name": "not granted",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "other",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "undeclared",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.funding", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.funding",
+          "reason": "tool_not_declared",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "not in tier",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":3,\"tools\":[\"trade.markets.list\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "tool_not_in_tier", "userMessageKey": "agents.scanner.tier_closed" }
+      }
+    },
+    {
+      "name": "ticker: padded name",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": " trade.ticker ",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.ticker",
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z"
+        }
+      }
+    },
+    {
+      "name": "ticker: ok",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.ticker",
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z"
+        }
+      }
+    },
+    {
+      "name": "ticker: missing",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.ticker", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "missing_fixture", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: null",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.ticker", "plane": "live", "ticker": null },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "missing_fixture", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: blank id",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "  ",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "missing_fixture", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: incomplete",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": null,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.ticker",
+          "reason": "incomplete_ticker",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "ticker: exponent",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "1e5",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "invalid_decimal", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: negative",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "-1",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "invalid_decimal", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: 19 places",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "1.1234567890123456789",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "invalid_decimal", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: 18 places",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "1.123456789012345678",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.ticker",
+          "marketId": "btc-usdt",
+          "last": "1.123456789012345678",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T23:59:30.000Z"
+        }
+      }
+    },
+    {
+      "name": "ticker: stale",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-18T00:00:00.000Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "stale", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: future",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "2026-11-19T00:00:00.001Z",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "stale", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "ticker: unparsed time",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.ticker",
+        "plane": "live",
+        "ticker": {
+          "marketId": "btc-usdt",
+          "last": "100",
+          "volume24h": "1000",
+          "change24hBps": 50,
+          "asOf": "yesterday",
+          "maxAgeMs": 120000
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.ticker", "reason": "stale", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "markets: ok",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.markets.list",
+        "plane": "live",
+        "markets": [
+          { "marketId": "btc-usdt", "symbol": "BTC/USDT", "status": "open" },
+          { "marketId": "x", "symbol": "X", "status": "halted" }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.markets.list",
+          "markets": [
+            { "marketId": "btc-usdt", "symbol": "BTC/USDT", "status": "open" },
+            { "marketId": "x", "symbol": "X", "status": "halted" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "markets: none",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.markets.list", "plane": "live", "markets": [] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.markets.list",
+          "reason": "empty_markets",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "markets: absent",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.markets.list", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.markets.list",
+          "reason": "empty_markets",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "markets: blank symbol",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.markets.list",
+        "plane": "live",
+        "markets": [{ "marketId": "btc-usdt", "symbol": " ", "status": "open" }]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.markets.list",
+          "reason": "missing_fixture",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "book: ok",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.book.top",
+        "plane": "live",
+        "bookTop": { "marketId": "btc-usdt", "bid": "99.5", "ask": "100.5", "asOf": "2026-11-18T23:59:59.000Z", "maxAgeMs": 5000 }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.book.top",
+          "marketId": "btc-usdt",
+          "bid": "99.5",
+          "ask": "100.5",
+          "asOf": "2026-11-18T23:59:59.000Z"
+        }
+      }
+    },
+    {
+      "name": "book: incomplete",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.book.top",
+        "plane": "live",
+        "bookTop": { "marketId": "btc-usdt", "bid": null, "ask": "1", "asOf": "2026-11-19T00:00:00.000Z", "maxAgeMs": 5000 }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.book.top",
+          "reason": "incomplete_book",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "book: invalid",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.book.top",
+        "plane": "live",
+        "bookTop": { "marketId": "btc-usdt", "bid": "1", "ask": ".5", "asOf": "2026-11-19T00:00:00.000Z", "maxAgeMs": 5000 }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.book.top",
+          "reason": "invalid_decimal",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "book: stale",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "now": "2026-11-19T00:00:00.000Z",
+        "tool": "trade.book.top",
+        "plane": "live",
+        "bookTop": { "marketId": "btc-usdt", "bid": "1", "ask": "2", "asOf": "2026-11-18T23:00:00.000Z", "maxAgeMs": 5000 }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": { "status": "refuse", "tool": "trade.book.top", "reason": "stale", "userMessageKey": "agents.scanner.unavailable" }
+      }
+    },
+    {
+      "name": "book: missing",
+      "path": "scanner.invokeDataTool",
+      "input": { "now": "2026-11-19T00:00:00.000Z", "tool": "trade.book.top", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "tool": "trade.book.top",
+          "reason": "missing_fixture",
+          "userMessageKey": "agents.scanner.unavailable"
+        }
+      }
+    },
+    {
+      "name": "book: clock",
+      "path": "scanner.invokeDataTool",
+      "input": {
+        "tool": "trade.book.top",
+        "plane": "live",
+        "bookTop": { "marketId": "btc-usdt", "bid": "1", "ask": "2", "asOf": "2026-11-18T23:59:59.000Z", "maxAgeMs": 5000 }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":2,\"tools\":[\"trade.ticker\",\"trade.markets.list\",\"trade.book.top\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "tool": "trade.book.top",
+          "marketId": "btc-usdt",
+          "bid": "1",
+          "ask": "2",
+          "asOf": "2026-11-18T23:59:59.000Z"
+        }
+      }
+    },
+    {
+      "name": "rankLive: law blank",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)"
+        }
+      }
+    },
+    {
+      "name": "rankLive: dark",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "dark",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": { "data": { "status": "refuse", "reason": "market_plane_dark", "userMessageKey": "agents.scanner.unavailable" } }
+    },
+    {
+      "name": "rankLive: no tier law",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "rankLive: no ticker tool",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":3,\"tools\":[\"trade.markets.list\"]}}}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_not_granted", "userMessageKey": "agents.scanner.tier_closed" } }
+    },
+    {
+      "name": "rankLive: the board",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [
+            { "marketId": "big-usdt", "score": "460470.966897", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "btc-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "BTC-usdt", "score": "345.437739", "reasons": ["change_up", "has_volume"] },
+            { "marketId": "eth-usdt", "score": "345.437739", "reasons": ["change_down", "has_volume"] },
+            { "marketId": "sol-usdt", "score": "216.395966", "reasons": ["change_up", "has_volume"] }
+          ],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 8,
+          "skippedStale": 0,
+          "skippedIncomplete": 0,
+          "maxSignals": 5,
+          "userTier": "basic",
+          "tickersAccepted": 8,
+          "tickersRefused": 6
+        }
+      }
+    },
+    {
+      "name": "rankLive: the board, an allowlist",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "eth-usdt",
+            "last": "10",
+            "volume24h": "1000",
+            "change24hBps": -50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "sol-usdt",
+            "last": "1",
+            "volume24h": "50000",
+            "change24hBps": 20,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "BTC-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ada-usdt",
+            "last": "0",
+            "volume24h": "0",
+            "change24hBps": 0,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "dot-usdt",
+            "last": "-1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "xrp-usdt",
+            "last": "1",
+            "volume24h": "-5",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          },
+          {
+            "marketId": "fut-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-19T00:00:01.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "big-usdt",
+            "last": "12345678901234567890.123456789012345678",
+            "volume24h": "99999999999999999999.999999999999999999",
+            "change24hBps": 9999,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "odd-usdt",
+            "last": "1",
+            "volume24h": "1.5",
+            "change24hBps": 33,
+            "asOf": "Nov 18 2026 23:59:00 GMT",
+            "maxAgeMs": 120000
+          },
+          { "marketId": "spc-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "2026-11-18 23:59:00", "maxAgeMs": 120000 },
+          { "marketId": "bad-usdt", "last": "1", "volume24h": "2", "change24hBps": 7, "asOf": "not a date", "maxAgeMs": 120000 }
+        ],
+        "now": "2026-11-19T00:00:00.000Z",
+        "marketAllowlist": ["eth-usdt"]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "signals": [{ "marketId": "eth-usdt", "score": "345.437739", "reasons": ["change_down", "has_volume"] }],
+          "rankedAt": "2026-11-19T00:00:00.000Z",
+          "considered": 8,
+          "skippedStale": 0,
+          "skippedIncomplete": 7,
+          "maxSignals": 5,
+          "userTier": "basic",
+          "tickersAccepted": 8,
+          "tickersRefused": 6
+        }
+      }
+    },
+    {
+      "name": "rankLive: every ticker refused",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "ltc-usdt",
+            "last": null,
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          },
+          {
+            "marketId": "old-usdt",
+            "last": "1",
+            "volume24h": "10",
+            "change24hBps": 5,
+            "asOf": "2026-11-18T23:00:00.000Z",
+            "maxAgeMs": 60000
+          }
+        ],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": { "data": { "status": "refuse", "reason": "no_live_tickers", "userMessageKey": "agents.scanner.unavailable" } }
+    },
+    {
+      "name": "rankLive: no tickers",
+      "path": "scanner.rankLive",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [],
+        "now": "2026-11-19T00:00:00.000Z"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": { "data": { "status": "empty", "userMessageKey": "agents.scanner.empty" } }
+    },
+    {
+      "name": "runSession: law blank",
+      "path": "scanner.runSession",
+      "input": { "plane": "live", "tickers": [] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: law unpublished",
+      "path": "scanner.runSession",
+      "input": { "plane": "live", "tickers": [], "signalInputsLaw": { "published": false } },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "signal_inputs_law_blank",
+          "userMessageKey": "agents.scanner.signal_inputs_closed",
+          "residual": "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: dark",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "dark",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "market_plane_dark",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: no tier law",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_law_blank",
+          "userMessageKey": "agents.scanner.tier_closed",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: another tier",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"full\":{\"maxSignals\":3,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.scanner.tier_closed",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: depth 0",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":0,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "depth_invalid",
+          "userMessageKey": "agents.scanner.tier_closed",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: no ticker tool",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":3,\"tools\":[\"trade.markets.list\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.scanner.tier_closed",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live, no port",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: an unknown plane",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "fixtures",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": []
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"code\": \"invalid_value\",\n    \"values\": [\n      \"live\",\n      \"dark\"\n    ],\n    \"path\": [\n      \"plane\"\n    ],\n    \"message\": \"Invalid option: expected one of \\\"live\\\"|\\\"dark\\\"\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: no page size",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": []
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": { "status": 200, "body": {} },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tickers_limit_unset",
+          "userMessageKey": "agents.scanner.tickers_limit_unset",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: trade down",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": { "throws": true },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: trade 503",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": { "status": 503, "body": {} },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: an array",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": { "status": 200, "body": [] },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: no row with a last price",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [
+          {
+            "marketId": "btc-usdt",
+            "last": "100",
+            "volume24h": "1000",
+            "change24hBps": 50,
+            "asOf": "2026-11-18T23:59:30.000Z",
+            "maxAgeMs": 120000
+          }
+        ],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "BTC/USDT": { "symbol": "BTC/USDT", "timestamp": 1, "last": " ", "quoteVolume": "1", "baseVolume": null, "percentage": "1" },
+          "ETH/USDT": { "symbol": "SOL/USDT", "timestamp": 1, "last": "1", "quoteVolume": null, "baseVolume": null, "percentage": null },
+          "X/Y": { "symbol": "X/Y", "last": "1" }
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession, live port: an invalid time",
+      "path": "scanner.runSession",
+      "input": {
+        "plane": "live",
+        "signalInputsLaw": {
+          "published": true,
+          "p0_11": "sealed",
+          "allowedInputs": ["last", "volume24h", "change24hBps"],
+          "rankingRecipeId": "abs_change_x_log_volume"
+        },
+        "tickers": [],
+        "tickersLimit": 5
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "BTC/USDT": {
+            "symbol": "BTC/USDT",
+            "timestamp": 9000000000000000,
+            "last": "1",
+            "quoteVolume": "1",
+            "baseVolume": null,
+            "percentage": "1"
+          }
+        }
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_tickers",
+          "userMessageKey": "agents.scanner.unavailable",
+          "tickersRefusedByTool": 0,
+          "tickersRefusedByGuardrail": 0,
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: a key may not run",
+      "path": "scanner.runSession",
+      "input": { "plane": "live", "tickers": [] },
+      "tier": "basic",
+      "scopes": ["agents:read"],
+      "laws": "{\"scanner\":{\"published\":true,\"matrix\":{\"basic\":{\"maxSignals\":5,\"tools\":[\"trade.ticker\"]}}}}",
+      "answer": { "error": { "code": "FORBIDDEN", "message": "Scope \"agents:execute\" is required" } }
+    }
+  ]
+}

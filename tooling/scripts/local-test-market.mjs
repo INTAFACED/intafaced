@@ -69,7 +69,7 @@ import {
   stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
-import { slotEnv, stackUrl } from './local-test-facts.mjs';
+import { MAKER_RECORD, slotEnv, stackRecords, stackUrl, writeStackRecord } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -92,7 +92,6 @@ export function stackPaths(home = os.homedir()) {
     secrets: path.join(stateDir, 'secrets.json'),
     accounts: path.join(stateDir, 'market-accounts.json'),
     runDir: path.join(stateDir, 'run'),
-    pidFile: path.join(stateDir, 'run', 'market.json'),
     walkFile: path.join(stateDir, 'run', 'market-walk.json'),
     shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     holdFile: path.join(stateDir, 'run', 'market-hold.json'),
@@ -906,10 +905,33 @@ export async function ensureFunds(client, who, assets, divisor, { fund = fundThr
 
 // ── The loop ────────────────────────────────────────────────────────────────
 
+/** Seconds between two cycles when no `--interval` is given. */
+export const DEFAULT_INTERVAL_SECONDS = 8;
+/**
+ * The environment variable a long-lived stack sets to quote less often: `start` records it as `--interval`, so `ensure`
+ * starts the same cadence again. The beta link sets it (tooling/beta/beta-host.mjs): there, nobody waits on a cycle, and
+ * at 8 s the maker's orders kept the stack's services busy around the clock (project-state #3857). Journeys leave it unset.
+ */
+export const MARKET_INTERVAL_ENV = 'LOCAL_STACK_MARKET_INTERVAL';
+
+/** `start`'s arguments as recorded: `--interval` from MARKET_INTERVAL_ENV when the command line names none (exported for tests). */
+export function startArgs(rest, env = process.env) {
+  const seconds = env[MARKET_INTERVAL_ENV];
+  return seconds && !rest.includes('--interval') ? [...rest, '--interval', seconds] : rest;
+}
+
+/** How long the maker's log may stay quiet before `status` reads it STALE: two minutes past its own sleep between cycles. */
+export function staleAfterMs(args = []) {
+  const i = args.indexOf('--interval');
+  const seconds = i >= 0 ? Number(args[i + 1]) : DEFAULT_INTERVAL_SECONDS;
+  return STALE_AFTER_MS + 1000 * Math.max(0, (Number.isFinite(seconds) ? seconds : DEFAULT_INTERVAL_SECONDS) - DEFAULT_INTERVAL_SECONDS);
+}
+
 function parseArgs(argv) {
   const opts = {
     seed: '1013',
-    seconds: 8,
+    // `still` and `hold` wait a few cycles for the running maker: on a stack that set it, those cycles are this long.
+    seconds: process.env[MARKET_INTERVAL_ENV] ? Number(process.env[MARKET_INTERVAL_ENV]) : DEFAULT_INTERVAL_SECONDS,
     levels: 3,
     symbols: null,
     foreground: false,
@@ -937,7 +959,8 @@ function parseArgs(argv) {
         2,
       );
   }
-  if (!Number.isInteger(opts.seconds) || opts.seconds < 2) die('--interval must be a whole number of seconds, at least 2', 2);
+  if (!Number.isInteger(opts.seconds) || opts.seconds < 2)
+    die(`--interval (or ${MARKET_INTERVAL_ENV}) must be a whole number of seconds, at least 2`, 2);
   if (!Number.isInteger(opts.levels) || opts.levels < 1 || opts.levels > 10) die('--levels must be 1..10', 2);
   if (!Number.isInteger(opts.bars) || opts.bars < 1 || opts.bars > 2000) die('--bars must be 1..2000', 2);
   if (!Number.isInteger(opts.stepMinutes) || opts.stepMinutes < 1 || opts.stepMinutes > 1440) die('--step-minutes must be 1..1440', 2);
@@ -1755,14 +1778,12 @@ async function openFuturesQuoteIds(maker, m) {
 // ── Process control ─────────────────────────────────────────────────────────
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
+/** The maker's record in the stack's one process record (local-test-facts.mjs `stackRecords`, under `MAKER_RECORD`). */
 function readRecord(p) {
-  try {
-    const rec = JSON.parse(fs.readFileSync(p.pidFile, 'utf8'));
-    return Number.isInteger(rec?.pid) ? rec : null;
-  } catch {
-    return null;
-  }
+  const rec = stackRecords(p.stateDir)[MAKER_RECORD];
+  return Number.isInteger(rec?.pid) ? rec : null;
 }
+const forgetRecord = (p) => writeStackRecord(p.stateDir, MAKER_RECORD, null);
 function runningPid(p) {
   const rec = readRecord(p);
   if (!rec) return null;
@@ -1841,7 +1862,7 @@ export function makerUnquoted({ home = os.homedir() } = {}) {
 /**
  * What `status` and `local:stack status` show. The pid file is the record of "it should be running": start writes
  * it, only an explicit `stop` removes it. So a record whose process is gone means it died on its own.
- *   state: 'ok' | 'stale' (alive, but no log line for 2+ minutes) | 'down' (should run, does not) | 'off' (never started or stopped)
+ *   state: 'ok' | 'stale' (alive, but no log line for 2 minutes past its interval) | 'down' (should run, does not) | 'off' (never started or stopped)
  */
 export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
   const p = stackPaths(home);
@@ -1857,7 +1878,7 @@ export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
   const pid = runningPid(p);
   if (!pid)
     return { state: 'down', pid: rec.pid, ageMs, text: `DOWN (was running, ${ago}; pnpm local:market ensure restarts it; why: ${p.log})` };
-  if (ageMs === null || ageMs > STALE_AFTER_MS) return { state: 'stale', pid, ageMs, text: `STALE (${ago}; log ${p.log})` };
+  if (ageMs === null || ageMs > staleAfterMs(rec.args)) return { state: 'stale', pid, ageMs, text: `STALE (${ago}; log ${p.log})` };
   return { state: 'ok', pid, ageMs, text: `ok (${ago})` };
 }
 function fmtAge(ms) {
@@ -1907,7 +1928,7 @@ async function startBackground(p, args, { wait }) {
     child.unref();
     fs.closeSync(fd);
     const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), kernelStart, args, argv }), { mode: 0o600 });
+    writeStackRecord(p.stateDir, MAKER_RECORD, { pid: child.pid, startedAt: nowIso(), kernelStart, args, argv });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();
@@ -1964,13 +1985,13 @@ async function main() {
     const pid = runningPid(p);
     if (!pid) {
       const had = readRecord(p);
-      fs.rmSync(p.pidFile, { force: true });
+      forgetRecord(p);
       return console.log(had ? 'test market was already down; forgot it, so ensure will not restart it' : 'test market is not running');
     }
     process.kill(pid, 'SIGTERM');
     if (!(await waitForExit(() => Boolean(runningPid(p)))))
       die(`pid ${pid} is still cancelling orders after ${STOP_CAP_MS / 1000} s; it has not stopped (check ${p.log})`);
-    fs.rmSync(p.pidFile, { force: true });
+    forgetRecord(p);
     return console.log('test market stopped, resting test orders cancelled');
   }
   if (cmd === 'status') {
@@ -2081,7 +2102,7 @@ async function main() {
       `unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift | hold | release | still | live`,
       2,
     );
-  await startBackground(p, rest, { wait: true });
+  await startBackground(p, startArgs(rest), { wait: true });
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();

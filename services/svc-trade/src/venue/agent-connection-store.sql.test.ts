@@ -116,6 +116,26 @@ describe('SqlAgentConnectionStore on Postgres (trade.user_venue_agent_connection
     expect(await store.latest('22222222-2222-4222-8222-2222222222ff')).toBeNull();
   });
 
+  it('#8887: connects of one key racing in one millisecond all return the one stored connection, never 23505', async () => {
+    const store = new SqlAgentConnectionStore(db!.sql);
+    // Equal created_at, as two connects in one millisecond carry (agent-orders.ts, this.deps.now()): both the active key
+    // and the primary key (key_id, created_at) clash, and Postgres may find the clash on either.
+    const at = new Date('2026-11-19T12:00:00.123Z');
+    for (let round = 0; round < 40; round++) {
+      const keyId = `33333333-3333-4333-8333-${String(round).padStart(12, '0')}`;
+      const results = await Promise.all(
+        Array.from({ length: 8 }, (_, i) =>
+          store.connectOnce({ keyId, userId: USER, accountId: i % 2 ? ACCOUNT_B : ACCOUNT_A, createdAt: at, endedAt: null }),
+        ),
+      );
+      const stored = await store.active(keyId);
+      expect(stored).not.toBeNull();
+      for (const r of results) expect(r).toEqual(stored);
+      const rows = await db!.sql`SELECT 1 FROM trade.user_venue_agent_connections WHERE key_id = ${keyId}`;
+      expect(rows).toHaveLength(1);
+    }
+  });
+
   it("refuses a connection to an account that isn't stored", async () => {
     const store = new SqlAgentConnectionStore(db!.sql);
     await expect(

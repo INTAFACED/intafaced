@@ -2,7 +2,7 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { readTravelRuleRequest } from '@/lib/deposit-travel-rule/model';
 import { actOnTravelRule } from '@/lib/deposit-travel-rule/server';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { refusalResponse, stepResponse } from '@/lib/desk/step-route';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
