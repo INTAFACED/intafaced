@@ -9,6 +9,7 @@ import { Panel as DepthPanel } from '../account-details/parts';
 import { accountHomeCopy } from '../account-home-copy';
 import { funds, useBankRead } from '../components';
 import { currencyWrites, type AccountCurrency, type AccountTerms } from '../contracts';
+import { RefusalCode } from '../../../shared/RefusalCode';
 
 function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
@@ -36,7 +37,7 @@ function Refused({ title, body, code }: { title: string; body: string; code?: st
     <div data-testid="failure" className="lt-refusal" data-refusal="refused" role="status">
       <h3 className="lt-refusal-title">{title}</h3>
       <p className="lt-refusal-body">{body}</p>
-      {code && <small className="lt-ref">{t('reference', { code })}</small>}
+      {code && <RefusalCode className="lt-ref" code={code} line={(code) => t('reference', { code })} />}
     </div>
   );
 }
@@ -120,7 +121,11 @@ function TermsFacts({ terms }: { terms: AccountTerms }) {
           // A published overdraft the bank cannot book yet (J-bank-02 #8): the fee, then the blocker by name.
           <>
             {funds(terms.overdraftFee, terms.currency)} · {t('overdraftOff')}{' '}
-            <small className="lt-ref">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
+            <RefusalCode
+              className="lt-ref"
+              code={terms.overdraftBlocker ?? 'bank.overdraft_switched_off'}
+              line={(code) => t('reference', { code })}
+            />
           </>
         )}
       </Fact>
@@ -236,7 +241,8 @@ function CurrenciesPanel() {
         )}
         {addable === null ? (
           <p className="lt-hint">
-            {t('addUnset')} {addableBlocker && <small className="lt-ref">{t('reference', { code: addableBlocker })}</small>}
+            {t('addUnset')}{' '}
+            {addableBlocker && <RefusalCode className="lt-ref" code={addableBlocker} line={(code) => t('reference', { code })} />}
           </p>
         ) : addable.length === 0 ? (
           <p className="lt-hint">{t('addNone')}</p>

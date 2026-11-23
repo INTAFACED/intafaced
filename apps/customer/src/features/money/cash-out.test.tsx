@@ -74,25 +74,30 @@ describe('cash out to a linked bank account', () => {
     expect(html).toContain(
       'This account is unverified. Only a banking partner can verify it, and rail.bank is switched off in this build.',
     );
-    expect(html).toContain('Reference: bank.linked_account_unverified');
+    // A Bank refusal no step names ends in plain words: its code is kept on data-code, not printed.
+    expect(html).toContain('data-code="bank.linked_account_unverified"');
+    expect(html).not.toContain('Reference: bank.');
     expect(html).not.toContain('WEST');
   });
 
-  it('names each reason in the customer’s words, and an unknown one plainly with its code', () => {
+  it('names each reason in the customer’s words, and an unknown one plainly, its code kept off the page', () => {
     const words = (code: string, end: string | null = null) =>
       renderToStaticMarkup(<BlockerWords code={code} rail="rail.bank" coolingOffEndsAt={end} />);
     expect(words('bank.offramp_cooling_unset')).toContain('no cooling-off period');
     expect(words('bank.offramp_cooling_active', '2026-10-24T03:00:00.000Z')).toMatch(/from .+, when its cooling-off ends/);
     expect(words('bank.fiat_ramp_socket')).toContain('No banking partner pays out to bank accounts: rail.bank is switched off');
     expect(words('bank.something_new')).toContain(
-      'This cash-out cannot go ahead. <small class="lt-muted">Reference: bank.something_new</small>',
+      'This cash-out cannot go ahead. <small class="lt-muted" data-code="bank.something_new"></small>',
     );
+    // A rail notice keeps its code in the page.
+    expect(words('rail.bank')).toContain('Reference: rail.bank');
   });
 
   it('lists each kept request as not sent, with its amount, rail and reason', () => {
     const html = renderToStaticMarkup(<RequestRows rows={[request()]} />);
     expect(html).toContain('Not sent');
-    expect(html).toContain('rail.bank · Reference: bank.linked_account_unverified');
+    expect(html).toContain('rail.bank');
+    expect(html).not.toContain('Reference: bank.linked_account_unverified');
     expect(renderToStaticMarkup(<RequestRows rows={[]} />)).toContain('You have not asked to cash out.');
   });
 
