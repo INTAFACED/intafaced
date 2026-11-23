@@ -1,0 +1,120 @@
+# promtool unit tests for prometheus-alerts.yaml: each alert fires on the failure it names and stays quiet when healthy.
+# Run: promtool test rules tooling/infra/prometheus-alerts.test.yaml (backup/pg-backup.test.mjs runs it in Docker).
+rule_files:
+  - prometheus-alerts.yaml
+evaluation_interval: 1m
+tests:
+  - name: a service that stops answering is down after 2 minutes; one that answers is not
+    interval: 1m
+    input_series:
+      - series: 'up{job="svc-ledger", instance="svc-ledger:4001"}'
+        values: '1 1 1 0 0 0 0'
+      - series: 'up{job="svc-edge", instance="svc-edge:4000"}'
+        values: '1 1 1 1 1 1 1'
+      - series: 'up{job="prometheus", instance="localhost:9090"}'
+        values: '0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels: { severity: page, job: svc-ledger, instance: 'svc-ledger:4001' }
+            exp_annotations:
+              summary: 'svc-ledger is down'
+              description: 'svc-ledger:4001 has answered no scrape for 2 minutes.'
+
+  - name: a service that never comes up is a failed boot; one that was up within 15 minutes is not
+    interval: 1m
+    input_series:
+      - series: 'up{job="svc-matching", instance="svc-matching:4005"}'
+        values: '0x20'
+      - series: 'up{job="svc-ledger", instance="svc-ledger:4001"}'
+        values: '1 0x19'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BootCheckFailed
+        exp_alerts:
+          - exp_labels: { severity: page, job: svc-matching, instance: 'svc-matching:4005' }
+            exp_annotations:
+              summary: 'svc-matching has not come up in 15 minutes'
+              description: 'svc-matching:4005 answered no scrape in 15 minutes: it is failing its boot checks. `docker compose logs svc-matching` names the check.'
+
+  - name: a disk under 10% free for 5 minutes alerts; tmpfs never does
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", fstype="ext4", instance="node-exporter:9100", job="node-exporter"}'
+        values: '50 50 5 5 5 5 5 5 5'
+      - series: 'node_filesystem_size_bytes{mountpoint="/", fstype="ext4", instance="node-exporter:9100", job="node-exporter"}'
+        values: '100x8'
+      - series: 'node_filesystem_avail_bytes{mountpoint="/run", fstype="tmpfs", instance="node-exporter:9100", job="node-exporter"}'
+        values: '1x8'
+      - series: 'node_filesystem_size_bytes{mountpoint="/run", fstype="tmpfs", instance="node-exporter:9100", job="node-exporter"}'
+        values: '100x8'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DiskAlmostFull
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: DiskAlmostFull
+        exp_alerts:
+          - exp_labels:
+              {
+                severity: page,
+                mountpoint: /,
+                fstype: ext4,
+                instance: 'node-exporter:9100',
+                job: node-exporter,
+              }
+            exp_annotations:
+              summary: 'Disk / is over 90% full'
+              description: '/ has 5% free. Postgres stops at full.'
+
+  - name: a failed backup alerts at once; a backup older than 26 hours alerts; a fresh one does not
+    interval: 1h
+    input_series:
+      - series: 'intafaced_backup_last_attempt_success{job="node-exporter", instance="node-exporter:9100"}'
+        values: '1 1 0'
+      # The last success was written at t=0 and never again.
+      - series: 'intafaced_backup_last_success_timestamp_seconds{job="node-exporter", instance="node-exporter:9100"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: BackupFailed
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: BackupFailed
+        exp_alerts:
+          - exp_labels: { severity: page, job: node-exporter, instance: 'node-exporter:9100' }
+            exp_annotations:
+              summary: 'The last database backup failed'
+              description: '`docker compose logs pg-backup` names the step.'
+      - eval_time: 25h
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupStale
+        exp_alerts:
+          - exp_labels: { severity: page, job: node-exporter, instance: 'node-exporter:9100' }
+            exp_annotations:
+              summary: 'No complete database backup in 26 hours'
+              description: 'The last complete backup is 1d 3h 0m 0s old.'
+
+  - name: a host whose backups never complete alerts after 26 hours
+    # Scraped every minute, as Prometheus does: an hourly sample would go stale between samples and reset the `for`.
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter", instance="node-exporter:9100"}'
+        values: '1x1700'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupNeverRan
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupNeverRan
+        exp_alerts:
+          - exp_labels: { severity: page, job: node-exporter, instance: 'node-exporter:9100' }
+            exp_annotations:
+              summary: 'No database backup has ever completed on this host'
+              description: 'node-exporter has run for 26 hours and has read no backup result.'
