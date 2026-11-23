@@ -5,6 +5,7 @@ import { AcademyRoom } from './Academy';
 import { academyRoute, academySectionRedirect } from './academy-lms';
 import { AcademyLearningRoom } from './academy-catalogue/AcademyLearningRoom';
 import { AcademyRoomsRoom } from './academy-catalogue/AcademyRoomsRoom';
+import { AcademyCertificatesRoom } from './AcademyCertificatesRoom';
 import { AcademyVideosRoom } from './academy-catalogue/AcademyVideosRoom';
 import { AcademyProgrammesRoom } from './academy-catalogue/AcademyProgrammesRoom';
 import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';
@@ -128,6 +129,8 @@ function MoreRooms({ path }: { path: string }) {
         initialPath={url.searchParams.get('path') ?? undefined}
       />
     );
+  } else if (academy?.kind === 'tab' && academy.tab === 'Certificates') {
+    volt = <AcademyCertificatesRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
   } else if (academy?.kind === 'tab' && academy.tab === 'Rooms') {
     volt = <AcademyRoomsRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
   } else if (academy?.kind === 'tab' && academy.tab === 'Videos') {
