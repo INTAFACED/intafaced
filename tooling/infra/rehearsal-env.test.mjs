@@ -29,8 +29,9 @@ test('production posture is set', () => {
 });
 
 test('every database password compose reads is fresh and its role rotated', () => {
-  const names = [...new Set([...compose.matchAll(/\$\{(SVC_[A-Z_]+_DB_PASSWORD):-/g)].map((m) => m[1]))];
+  const names = [...new Set([...compose.matchAll(/\$\{(SVC_[A-Z0-9_]+_DB_PASSWORD):-/g)].map((m) => m[1]))];
   assert.ok(names.includes('SVC_OPS_DB_PASSWORD'), 'svc-ops connects with a rotatable password');
+  assert.ok(names.includes('SVC_P2P_DB_PASSWORD'), 'a role name with a digit is rotated too');
   assert.deepEqual(roles.map((r) => r.name).sort(), names.sort());
   for (const { role, name } of roles) {
     assert.equal(role, `svc_${name.slice(4, -12).toLowerCase()}`);
@@ -58,5 +59,5 @@ test('every variable compose requires has a value, and a stand-in only where the
 });
 
 test('no service connects with a password compose cannot rotate', () => {
-  assert.deepEqual(compose.match(/postgres:\/\/(svc_[a-z_]+):\1@/g) ?? [], []);
+  assert.deepEqual(compose.match(/postgres:\/\/(svc_[a-z0-9_]+):\1@/g) ?? [], []);
 });

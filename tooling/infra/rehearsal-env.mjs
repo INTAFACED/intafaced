@@ -70,7 +70,7 @@ export const TEST_NETWORK = {
 };
 
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
-const DB_PASSWORD = /\$\{(SVC_([A-Z_]+)_DB_PASSWORD):-/g;
+const DB_PASSWORD = /\$\{(SVC_([A-Z0-9_]+)_DB_PASSWORD):-/g;
 
 /**
  * @param {{ example: string, compose: string, random?: () => string, extra?: Record<string, string | undefined> }} input
