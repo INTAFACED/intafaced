@@ -45,7 +45,13 @@ export interface VenueStatementJob {
   readonly from: string;
   readonly to: string;
   readonly status: StatementStatus;
-  readonly rows: { readonly orders: number; readonly trades: number; readonly movements: number } | null;
+  readonly rows: {
+    readonly orders: number;
+    readonly trades: number;
+    readonly movements: number;
+    /** Liquidation parts the file lists (J-derivatives-26 #7); null for a job built before liquidations were listed. */
+    readonly liquidations: number | null;
+  } | null;
   readonly sha256: string | null;
   readonly error: string | null;
   readonly createdAt: string;
@@ -93,6 +99,14 @@ export async function composeVenueStatement(src: VenueStatementSource, range: { 
     .sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime());
   const arrivals = venue.arrivals ? (await venue.arrivals(account)).value.filter((x) => inRange(x.arrivedAt, range)) : null;
   if (arrivals === null) throw new Incomplete(`${name} reports no credits into the account`);
+  // Each part of each liquidation the venue reports on the account, in range (J-derivatives-26 #7). A venue with no
+  // liquidation read liquidates nothing we can list, and the file says so by having no liquidation row.
+  const liquidationParts = venue.liquidations
+    ? (await venue.liquidations(account, range.from)).value
+        .flatMap((l) => l.parts.map((part) => ({ l, part })))
+        .filter(({ part }) => inRange(part.liquidatedAt, range))
+        .sort((a, b) => a.part.liquidatedAt.getTime() - b.part.liquidatedAt.getTime())
+    : [];
   const withdrawals = [];
   for (const nonce of src.withdrawalNonces) {
     const w = (await venue.withdrawal(account, nonce)).value;
@@ -100,7 +114,12 @@ export async function composeVenueStatement(src: VenueStatementSource, range: { 
     if (!w.requestedAt) throw new Incomplete(`${name} does not report when withdrawal ${nonce} was taken`);
     if (inRange(w.requestedAt, range)) withdrawals.push({ ...w, requestedAt: w.requestedAt });
   }
-  if (orders.length > STATEMENT_ROWS_MAX || fills.length > STATEMENT_ROWS_MAX || arrivals.length + withdrawals.length > STATEMENT_ROWS_MAX)
+  if (
+    orders.length > STATEMENT_ROWS_MAX ||
+    fills.length > STATEMENT_ROWS_MAX ||
+    liquidationParts.length > STATEMENT_ROWS_MAX ||
+    arrivals.length + withdrawals.length > STATEMENT_ROWS_MAX
+  )
     throw new TooLarge();
 
   const out = [VENUE_STATEMENT_COLUMNS.join(',')];
@@ -138,6 +157,24 @@ export async function composeVenueStatement(src: VenueStatementSource, range: { 
       order_id: f.venueClientOrderId ?? '',
     });
   }
+  // A liquidation part: the venue's part id, the position side it closed, its size and price, and the venue's fee, with
+  // the venue's liquidation id as its reference (J-derivatives-26 #7).
+  for (const { l, part } of liquidationParts) {
+    row({
+      record: 'liquidation',
+      id: part.partId,
+      time: part.liquidatedAt.toISOString(),
+      source: name,
+      market: l.symbol,
+      side: l.side,
+      status: l.state,
+      price: money(part.price),
+      amount: money(part.size),
+      fee: money(part.fee),
+      fee_asset: part.feeAsset,
+      source_ref: l.liquidationId,
+    });
+  }
   const movements = [
     ...arrivals.map((x) => ({
       at: x.arrivedAt,
@@ -167,7 +204,13 @@ export async function composeVenueStatement(src: VenueStatementSource, range: { 
     })),
   ].sort((a, b) => a.at.getTime() - b.at.getTime());
   for (const m of movements) row({ ...m.cells, time: m.at.toISOString(), source: name });
-  return { csv: `${out.join('\n')}\n`, orders: orders.length, trades: fills.length, movements: movements.length };
+  return {
+    csv: `${out.join('\n')}\n`,
+    orders: orders.length,
+    trades: fills.length,
+    movements: movements.length,
+    liquidations: liquidationParts.length,
+  };
 }
 
 type JobRow = {
@@ -183,6 +226,7 @@ type JobRow = {
   order_rows: number | null;
   trade_rows: number | null;
   movement_rows: number | null;
+  liquidation_rows: number | null;
   error_code: string | null;
   created_at: Date;
   finished_at: Date | null;
@@ -291,6 +335,7 @@ export class VenueStatements {
       UPDATE trade.venue_statement_exports
          SET status = 'finished', file = ${built.csv}, sha256 = ${sha256},
              order_rows = ${built.orders}, trade_rows = ${built.trades}, movement_rows = ${built.movements},
+             liquidation_rows = ${built.liquidations},
              finished_at = ${this.now()}
        WHERE id = ${job.id} AND status = 'pending'
     `;
@@ -308,7 +353,12 @@ function present(row: JobRow): VenueStatementJob {
     status: row.status,
     rows:
       row.status === 'finished' && row.order_rows !== null && row.trade_rows !== null && row.movement_rows !== null
-        ? { orders: row.order_rows, trades: row.trade_rows, movements: row.movement_rows }
+        ? {
+            orders: row.order_rows,
+            trades: row.trade_rows,
+            movements: row.movement_rows,
+            liquidations: row.liquidation_rows,
+          }
         : null,
     sha256: row.sha256,
     error: row.error_code,

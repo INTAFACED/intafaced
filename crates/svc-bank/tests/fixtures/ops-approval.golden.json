@@ -1,0 +1,155 @@
+{
+  "consume": {
+    "targetService": "svc-bank",
+    "targetId": "the action type",
+    "expectedVersion": "1"
+  },
+  "hashes": [
+    {
+      "actionType": "bank.ops.x",
+      "fields": {
+        "fee": "0",
+        "assetId": "USDT"
+      },
+      "payloadHash": "sha256:a7c6d133442fd632294e038f0312425094d9e1a38681e8c01dcee954a6ba1b1b"
+    },
+    {
+      "actionType": "bank.ops.x",
+      "fields": {
+        "reason": "LOCAL TEST: x",
+        "address": "0xabc",
+        "network": "*"
+      },
+      "payloadHash": "sha256:c0bff660710b88936581a3d2041d22f1f1c403c22b1b427c550b386f8258bf5b"
+    },
+    {
+      "actionType": "bank.ops.x",
+      "fields": {},
+      "payloadHash": "sha256:dd3e6f92c01bbc75f2ff28fb043b729f25fbb199aad374ff8294b295126e5aaa"
+    },
+    {
+      "actionType": "bank.ops.setCardStatus",
+      "fields": {
+        "cardId": "9f8e7d6c-1111-4222-8333-444455556666",
+        "status": "frozen"
+      },
+      "payloadHash": "sha256:e17c562428d916cd14244d809c40e2004f469ab9d6c167c7eab0bd0d35c655e1"
+    },
+    {
+      "actionType": "bank.ops.setCardStatus",
+      "fields": {
+        "cardId": "9f8e7d6c-1111-4222-8333-444455556666",
+        "status": "active"
+      },
+      "payloadHash": "sha256:0a86ae2896eb70d42d249f220833b4300ec2c688a26f9861db6962c9a609ef2b"
+    },
+    {
+      "actionType": "bank.ops.requestCardProgrammeFunding",
+      "fields": {
+        "kind": "fund",
+        "amount": "1000",
+        "threshold": ""
+      },
+      "payloadHash": "sha256:5256ab780fee52b4e59f3e6304d5b4a285dd01208c62f9f099e68873dfd923c0"
+    },
+    {
+      "actionType": "bank.ops.requestCardProgrammeFunding",
+      "fields": {
+        "kind": "auto_reload",
+        "amount": "1000",
+        "threshold": "500"
+      },
+      "payloadHash": "sha256:f4fd45a05ebc858eb5a7ce19bd78bb2a479573981639df1bbabaee6a90c34c12"
+    }
+  ],
+  "transferTerms": [
+    {
+      "input": {
+        "assetId": "USDT",
+        "perTransferLimit": "1000",
+        "dailyLimit": "5000",
+        "fee": "0"
+      },
+      "actionType": "bank.ops.publishTransferTerms",
+      "fields": {
+        "assetId": "USDT",
+        "perTransferLimit": "1000",
+        "dailyLimit": "5000",
+        "fee": "0"
+      },
+      "payloadHash": "sha256:a4a245f0e78c8ee408c45d6ada7d697095752ac29b8300bf58ff6a42399aac63"
+    },
+    {
+      "input": {
+        "assetId": "USDC",
+        "perTransferLimit": "1000",
+        "dailyLimit": "5000",
+        "fee": "0"
+      },
+      "actionType": "bank.ops.publishTransferTerms",
+      "fields": {
+        "assetId": "USDC",
+        "perTransferLimit": "1000",
+        "dailyLimit": "5000",
+        "fee": "0"
+      },
+      "payloadHash": "sha256:99f7895e4d7c631f5bbb36e88fb21fc7269ea6ab70aca1436de69bab93f94c46"
+    }
+  ],
+  "fraudList": [
+    {
+      "input": {
+        "network": "*",
+        "address": "0x7E5700000000000000000000000000000000FA1D",
+        "listed": true,
+        "expectedRevision": 0,
+        "reason": " LOCAL TEST: x "
+      },
+      "actionType": "bank.ops.setDestinationFraudListing",
+      "fields": {
+        "network": "*",
+        "address": "0x7e5700000000000000000000000000000000fa1d",
+        "listed": "true",
+        "revision": "1",
+        "reason": "LOCAL TEST: x"
+      },
+      "payloadHash": "sha256:93a70656c706bfc3a781eff963a6688de3e605181b0de896e312794b82f7bd6a"
+    },
+    {
+      "input": {
+        "network": "Base",
+        "address": "bc1Qx",
+        "listed": false,
+        "expectedRevision": 2,
+        "reason": "LOCAL TEST: y"
+      },
+      "actionType": "bank.ops.setDestinationFraudListing",
+      "fields": {
+        "network": "base",
+        "address": "bc1Qx",
+        "listed": "false",
+        "revision": "3",
+        "reason": "LOCAL TEST: y"
+      },
+      "payloadHash": "sha256:9df83dd78972d916916872649e33202631784d4190790279b2a9723a008d8e7d"
+    },
+    {
+      "input": {
+        "network": "*",
+        "address": "0x7e5700000000000000000000000000000000fa1d",
+        "listed": true,
+        "expectedRevision": 0,
+        "reason": "LOCAL TEST: J-wallet-05 #2 fraud-listed address"
+      },
+      "actionType": "bank.ops.setDestinationFraudListing",
+      "fields": {
+        "network": "*",
+        "address": "0x7e5700000000000000000000000000000000fa1d",
+        "listed": "true",
+        "revision": "1",
+        "reason": "LOCAL TEST: J-wallet-05 #2 fraud-listed address"
+      },
+      "payloadHash": "sha256:1891ab52ce1ba4bc37464f77d9c3c13fe3eafe9a265f6fc1560edf5f045d7cee"
+    }
+  ]
+}

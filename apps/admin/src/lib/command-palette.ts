@@ -62,6 +62,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/trade-ops/markets', label: 'Trade: markets', keywords: ['symbol', 'listing'] },
   { href: '/trade-ops/orders', label: 'Trade: orders', keywords: ['order', 'bust'] },
   { href: '/trade-ops/positions', label: 'Trade: positions' },
+  { href: '/trade-ops/accounts', label: 'Trade: accounts', keywords: ['venue', 'margin', 'ratio', 'partner', 'spending'] },
   { href: '/trade-ops/liquidations', label: 'Trade: liquidations' },
   { href: '/trade-ops/risk-limits', label: 'Trade: risk limits', keywords: ['caps', 'bands'] },
   { href: '/trade-ops/kill-switch', label: 'Trade: kill switch', keywords: ['halt'] },
