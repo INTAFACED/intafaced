@@ -1036,9 +1036,10 @@
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
-  /* Room for a tab's focus ring inside the scrolling box, which would clip it, without moving the row. */
-  padding: 0.25rem;
-  margin: -0.25rem;
+  /* Room above and below for a tab's focus ring inside the scrolling box, which would clip it, without moving the row.
+     Not at the sides: a row at the screen's edge would then reach past it. */
+  padding-block: 0.25rem;
+  margin-block: -0.25rem;
   animation: lt-tabs-more linear both;
   animation-timeline: scroll(self inline);
 }
