@@ -28,6 +28,7 @@ import {
   recordOf,
   verdictText,
   vitestRuns,
+  WAIT_MIN,
 } from './base-failures.mjs';
 import { REPORT_VERSION, errorLine, reportOf } from './test-results-reporter.mjs';
 import { plan } from '../vitest/run-all.mjs';
@@ -306,6 +307,12 @@ test('main is read only when it can change the verdict', () => {
     moneyDirs,
   });
   assert.equal(needsMain(money.held), false);
+  // a known record of main is final: passed it, failed it for another reason, or changed the package since
+  const known = (failures, changed = new Set()) =>
+    compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main: { ...mainState(mainWith(failures)), changed }, moneyDirs });
+  assert.equal(needsMain(known([]).held), false);
+  assert.equal(needsMain(known([[pkg, dir, file, name, 'TypeError: other']]).held), false);
+  assert.equal(needsMain(known([REGISTRY], new Set([dir])).held), false);
 });
 
 test('the test script reader counts vitest runs and refuses what it cannot read', () => {
@@ -666,73 +673,88 @@ test('(ancestor d) a protected test is never excused by a record before the base
   assert.equal(needsMain(v.held), false, 'nothing to wait for');
 });
 
-test('the wait: none when the record found already excuses everything; while a newer run of main could still excuse, until it ends', async () => {
+test('the wait: never once main has a known record; only while main has none near the base and its run is going, at most WAIT_MIN', async (t) => {
+  assert.equal(WAIT_MIN, 10);
   const pr = prRecord(pkg, dir, [[file, name, reason]]);
-  const ancestor = (failures, pending) => ({
-    state: { ...mainState(mainWith(failures, { sha: 'a'.repeat(40) })), sha: 'a'.repeat(40), behind: 2, pending, changed: new Set() },
+  const ancestor = (failures, pending, changed = new Set()) => ({
+    state: { ...mainState(mainWith(failures, { sha: 'a'.repeat(40) })), sha: 'a'.repeat(40), behind: 2, pending, changed },
     run: { id: 5 },
   });
-  const going = { sha: 'c'.repeat(40), run: { id: 6 }, why: "main's run 6 on c… is in_progress" };
+  const going = { sha: BASE, run: { id: 6 }, why: `main's run 6 on ${BASE} is in_progress` };
   let reads = 0;
   let sleeps = 0;
-  const settled = await judge({
-    repo: 'o/r',
-    base: BASE,
-    pr,
-    moneyDirs,
-    read: async () => (reads++, ancestor([REGISTRY], going)),
-    sleep: async () => sleeps++,
-  });
+  // a clock each sleep moves on, so a wrong wait ends at its deadline at once instead of in real minutes
+  let now = Date.UTC(2026, 10, 23);
+  const realNow = Date.now;
+  Date.now = () => now;
+  t.after(() => (Date.now = realNow));
+  const once = (answer, extra = {}) => {
+    reads = 0;
+    sleeps = 0;
+    return judge({
+      repo: 'o/r',
+      base: BASE,
+      pr,
+      moneyDirs,
+      read: async () => (reads++, typeof answer === 'function' ? answer() : answer),
+      sleep: async (ms) => ((now += ms), sleeps++),
+      ...extra,
+    });
+  };
+  // a known record that excuses everything: no wait
+  const settled = await once(ancestor([REGISTRY], going));
   assert.equal(settled.verdict.pass, true);
   assert.deepEqual([reads, sleeps], [1, 0]);
   assert.deepEqual(settled.record, { sha: 'a'.repeat(40), behind: 2 });
   assert.match(settled.runUrl, /actions\/runs\/5$/);
-  // held by the record found while a newer run is going: wait, and read again when it ends
-  reads = 0;
-  sleeps = 0;
-  const answers = [
-    ancestor([], going),
-    ancestor([], going),
-    { state: { ...ancestor([REGISTRY], null).state, sha: 'c'.repeat(40), behind: 1 }, run: { id: 6 } },
-  ];
-  const waited = await judge({ repo: 'o/r', base: BASE, pr, moneyDirs, read: async () => answers[reads++], sleep: async () => sleeps++ });
+  // a known record that passed the test, while the base's own run is still going: red at once, no wait
+  const passed = await once(ancestor([], going));
+  assert.equal(passed.verdict.pass, false);
+  assert.equal(passed.verdict.held[0].why, 'main did not fail it: only this pull request does');
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // a known record that failed it for another reason: red at once
+  const other = await once(ancestor([[pkg, dir, file, name, 'TypeError: something else']], going));
+  assert.equal(other.verdict.pass, false);
+  assert.match(other.verdict.held[0].why, /^main failed it for another reason/);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // a known record main changed the package after: held, red at once
+  const stale = await once(ancestor([REGISTRY], going, new Set([dir])));
+  assert.equal(stale.verdict.pass, false);
+  assert.match(stale.verdict.held[0].why, /^main changed /);
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  // no record near the base while the base's own run is going: wait, and read again when it ends
+  const unknown = { state: { known: false, pending: going, why: 'none of … has a finished record' }, run: null };
+  const answers = [unknown, unknown, { state: { ...ancestor([REGISTRY], null).state, sha: BASE, behind: 0 }, run: { id: 6 } }];
+  let i = 0;
+  const waited = await once(() => answers[i++]);
   assert.equal(waited.verdict.pass, true);
   assert.deepEqual([reads, sleeps], [3, 2]);
-  assert.equal(waited.record.sha, 'c'.repeat(40));
-  // nothing going: no wait; a read that fails excuses nothing
-  reads = 0;
-  const none = await judge({
-    repo: 'o/r',
-    base: BASE,
-    pr,
-    moneyDirs,
-    read: async () => (reads++, ancestor([], null)),
-    sleep: async () => sleeps++,
-  });
+  assert.deepEqual(waited.record, { sha: BASE, behind: 0 });
+  // the base's run ends with main passing the test: red, and the wait ends there
+  i = 0;
+  answers[2] = { state: { ...ancestor([], null).state, sha: BASE, behind: 0 }, run: { id: 6 } };
+  const ended = await once(() => answers[i++]);
+  assert.equal(ended.verdict.pass, false);
+  assert.deepEqual([reads, sleeps], [3, 2]);
+  // still unknown and still going: waits at most WAIT_MIN (one-minute polls), then red
+  const start = now;
+  const capped = await once(unknown);
+  assert.equal(capped.verdict.pass, false);
+  assert.match(capped.verdict.held[0].why, /^main's result is unknown/);
+  assert.equal(sleeps, WAIT_MIN, `slept ${sleeps} minute(s)`);
+  assert.ok(now - start <= WAIT_MIN * 60_000);
+  // unknown, nothing going: no wait; a read that fails excuses nothing
+  const none = await once({ state: { known: false, pending: null, why: 'no run' }, run: null });
   assert.equal(none.verdict.pass, false);
-  assert.equal(reads, 1);
-  const broken = await judge({
-    repo: 'o/r',
-    base: BASE,
-    pr,
-    moneyDirs,
-    read: async () => {
-      throw new Error('GitHub 502');
-    },
-    sleep: async () => sleeps++,
+  assert.deepEqual([reads, sleeps], [1, 0]);
+  const broken = await once(() => {
+    throw new Error('GitHub 502');
   });
   assert.equal(broken.verdict.pass, false);
   assert.match(broken.verdict.held[0].why, /GitHub 502/);
+  assert.deepEqual([reads, sleeps], [1, 0]);
   // and past the deadline it stops waiting
-  const late = await judge({
-    repo: 'o/r',
-    base: BASE,
-    pr,
-    moneyDirs,
-    waitMin: 0.001,
-    read: async () => ancestor([], going),
-    sleep: async () => assert.fail('slept past the deadline'),
-  });
+  const late = await once(unknown, { waitMin: 0.001, sleep: async () => assert.fail('slept past the deadline') });
   assert.equal(late.verdict.pass, false);
 });
 
