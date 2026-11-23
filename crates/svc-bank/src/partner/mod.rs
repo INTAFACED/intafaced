@@ -765,6 +765,22 @@ impl State {
         })
     }
 
+    /// `openCurrency`: opens the person's main account in one currency, once however often asked (an account it already
+    /// holds is the same account: adding 0 changes no figure), and answers its figure. Refused while the partner is down.
+    pub fn open_currency(
+        &mut self,
+        user_id: &str,
+        asset_id: &str,
+        now: Instant,
+    ) -> Result<Balance, Refusal> {
+        if self.down(user_id) {
+            return Err(partner_down());
+        }
+        let account = AccountRef::main(user_id, asset_id);
+        self.book.add(&account, Amount::ZERO)?;
+        Ok(self.report(&account, now))
+    }
+
     /// `openOrders`.
     pub fn open_orders(&self, user_id: &str) -> Vec<OpenOrder> {
         self.board

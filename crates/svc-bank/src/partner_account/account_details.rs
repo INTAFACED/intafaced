@@ -197,7 +197,7 @@ fn known(w: &Wiring, currency: &str) -> Result<String, Refusal> {
 }
 
 /// The TEST partner's details for one person (`testPartnerAccountDetails`): one set per currency, every value TEST.
-fn test_set(user_id: &str, currency: &str) -> DetailSet {
+pub(crate) fn test_set(user_id: &str, currency: &str) -> DetailSet {
     DetailSet {
         id: format!("test-partner:{user_id}:{currency}"),
         account_number: Some(format!(
