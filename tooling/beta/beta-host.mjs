@@ -75,20 +75,24 @@ export function betaPaths(home = os.homedir()) {
   };
 }
 
-/** Seconds between the beta's TEST market cycles: its book stays quoted and its price moves, without an 8 s churn. */
-const BETA_MARKET_INTERVAL_SECONDS = 300;
+/**
+ * Seconds between the beta's TEST market cycles, and between its lake captures: its book stays quoted and its price
+ * moves, without the journeys' 8 s and 2 s churn.
+ */
+const BETA_CADENCE_SECONDS = 300;
 
 /**
- * The environment every stack command of the beta runs with: its slot and its state folder, and the two settings of a
+ * The environment every stack command of the beta runs with: its slot and its state folder, and the settings of a
  * stack no journey runs on (project-state #3857: idle, the beta used about 1.6 cores): its services record no code
- * reach, and its TEST market re-quotes every BETA_MARKET_INTERVAL_SECONDS instead of every 8 s.
+ * reach, and its TEST market re-quotes and its lake captures every BETA_CADENCE_SECONDS.
  */
 export const stackEnv = (paths, env = process.env) => ({
   ...env,
   LOCAL_STACK_SLOT: String(BETA_SLOT),
   LOCAL_STACK_STATE: paths.state,
   LOCAL_STACK_CODE_REACH: 'off',
-  LOCAL_STACK_MARKET_INTERVAL: String(BETA_MARKET_INTERVAL_SECONDS),
+  LOCAL_STACK_MARKET_INTERVAL: String(BETA_CADENCE_SECONDS),
+  LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
 });
 
 // ── The TEST funds check ────────────────────────────────────────────────────

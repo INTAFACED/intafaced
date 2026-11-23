@@ -41,10 +41,11 @@ test('every stack command of the beta runs on its own slot and state folder', ()
   assert.equal(paths.screening, '/home/x/.intafaced/beta/state/screening.local.json');
 });
 
-test('the beta, which no journey runs on, records no code reach and quotes its TEST market every five minutes', () => {
+test('the beta, which no journey runs on, records no code reach and quotes its TEST market and captures its lake every five minutes', () => {
   const env = stackEnv(betaPaths('/home/x'), {});
   assert.equal(env[STACK_CODE_REACH_ENV], 'off');
   assert.equal(env[MARKET_INTERVAL_ENV], '300');
+  assert.equal(env.LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS, '300');
   assert.deepEqual(nodeServiceReach('/home/x/code', 'bank', { A: '1' }, env), { flags: [], env: { A: '1' } });
   assert.deepEqual(startArgs([], env), ['--interval', '300']);
   assert.ok(staleAfterMs(startArgs([], env)) > 300_000, 'a quiet log between two beta cycles is not STALE');
