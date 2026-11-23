@@ -44,7 +44,16 @@ export async function changeIncident(
   action: IncidentAction,
   input: Record<string, unknown>,
 ): Promise<{ status: number; reply: { ok: true; detail: IncidentDetail } | ({ ok: false } & RefusalView) }> {
-  const result = await founderCall(ctx, 'ops', `incidents.${action}`, 'POST', input, parse(incidentDetailSchema));
+  const read = parse(incidentDetailSchema);
+  const result = await (action === 'declare'
+    ? founderCall(ctx, 'ops', 'incidents.declare', 'POST', input, read)
+    : action === 'note'
+      ? founderCall(ctx, 'ops', 'incidents.note', 'POST', input, read)
+      : action === 'invite'
+        ? founderCall(ctx, 'ops', 'incidents.invite', 'POST', input, read)
+        : action === 'task'
+          ? founderCall(ctx, 'ops', 'incidents.task', 'POST', input, read)
+          : founderCall(ctx, 'ops', 'incidents.resolve', 'POST', input, read));
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, detail: result.data } };
   return writeRefusalOf(result);
 }
