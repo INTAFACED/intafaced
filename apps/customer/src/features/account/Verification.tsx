@@ -271,6 +271,8 @@ export function Verification() {
           ]);
           // The attempt limit refused it: read the standing again, so the countdown and the held form show.
           if (lockout) setLockRefusals((n) => n + 1);
+          // Read the records again, so "Your requests" and the case history list the request just sent.
+          reload();
         }
         // Every unqualified failure remains unknown. No current list match releases it.
         sync(intent.owner);
@@ -323,7 +325,8 @@ export function Verification() {
         <h3>
           <Copy k={row.tier} /> · <span lang="zxx">{row.jurisdiction}</span>
         </h3>
-        <p className="lt-ref" lang="zxx">
+        {/* The record's id stays for screen readers and support, not on screen. */}
+        <p className="lt-sr" lang="zxx">
           {row.id}
         </p>
         <dl className="lt-kv">
