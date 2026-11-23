@@ -2478,6 +2478,23 @@ test("the report adds a wrapper's sender the rule counts and drops the callers i
   assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
 });
 
+// The rule counts each caller that hands a helper the call's name by a string (project-state#3841): at a wrapper's or a
+// tool's caller that is a site the codemod already finds; at the helper's other callers it is one the codemod sees inside
+// the helper's one sender, named `helperCallers` so the totals still meet the rule.
+test("the report matches each finding at a helper's caller to the site there, and names the rest helperCallers", async () => {
+  const { helperFindings, wrapperSenders } = await import('./report.mjs');
+  const caller = (line) => ({ file: 'Room.tsx', line, shape: 'wrapper', node: { type: 'CallExpression' }, wrapper: { key: 'w' } });
+  const sites = [{ file: 'Room.tsx', line: 1, shape: 'query', node: { type: 'CallExpression' } }, caller(5), caller(6)];
+  const found = new Map([
+    ['Room.tsx:5', 1],
+    ['Room.tsx:9', 2],
+  ]);
+  const { counted, helperCallers } = helperFindings(sites, found);
+  assert.deepEqual([...counted], [sites[1]]);
+  assert.equal(helperCallers, 2);
+  assert.equal(wrapperSenders(sites, counted), 1 + 1 - 2, 'the sender and one counted caller, over two sites');
+});
+
 test('the shared schema file reads a declaration it already holds where it stands, and imports one from another contracts file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-schemas-'));
   const file = join(dir, 'trade-call-schemas.ts');
