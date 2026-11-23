@@ -1533,6 +1533,8 @@ import {
   PAY_KYB_DOCUMENTS_REVIEW,
 } from './pay-kyb-procedures.js';
 
+import { PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME } from './pay-merchant-analytics-procedures.js';
+
 import {
   PAY_MERCHANT_CATALOG_PRODUCTS_GET,
   PAY_MERCHANT_CATALOG_IMAGES_RULES,
@@ -1600,6 +1602,12 @@ import {
   PAY_MERCHANT_ONBOARDING_DRAFT,
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
+  PAY_MERCHANT_MY_ACCESS,
+  PAY_MERCHANT_BUSINESS_PROFILE_GET,
+  PAY_MERCHANT_TERMS_ACCEPT,
+  PAY_MERCHANT_ONBOARDING_PROGRESS,
+  PAY_MERCHANT_CATEGORY_GET,
+  PAY_MERCHANT_CATEGORY_CHOOSE,
 } from './pay-merchant-procedures.js';
 
 import {
@@ -3819,6 +3827,8 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_DOCUMENTS_REVIEW,
 ];
 
+const part_pay_merchant_analytics_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME];
+
 const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CATALOG_PRODUCTS_GET,
   PAY_MERCHANT_CATALOG_IMAGES_RULES,
@@ -3886,6 +3896,12 @@ const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_ONBOARDING_DRAFT,
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
+  PAY_MERCHANT_MY_ACCESS,
+  PAY_MERCHANT_BUSINESS_PROFILE_GET,
+  PAY_MERCHANT_TERMS_ACCEPT,
+  PAY_MERCHANT_ONBOARDING_PROGRESS,
+  PAY_MERCHANT_CATEGORY_GET,
+  PAY_MERCHANT_CATEGORY_CHOOSE,
 ];
 
 const part_pay_merchant_receiving_wallet_procedures: readonly ProcedureRecord[] = [
@@ -4720,6 +4736,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
+  ...part_pay_merchant_analytics_procedures,
   ...part_pay_merchant_catalog_procedures,
   ...part_pay_merchant_checkout_procedures,
   ...part_pay_merchant_control_procedures,
