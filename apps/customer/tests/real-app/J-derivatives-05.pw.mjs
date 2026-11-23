@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { pictureFromTop, signIn, signUp, verify } from './desk.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
 import { doorCalls, ledgerUntouched, ledgerView } from './venue-door.mjs';
@@ -222,6 +222,7 @@ test(`${J} #1 opens /trade/positions: positions on every connected venue with pr
 
 test(`${J} #2 opens a position's details: entry, break-even adjusted by fees to the last digit, mark, margin ratio and the P&L formula used`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -273,6 +274,8 @@ test(`${J} #2 opens a position's details: entry, break-even adjusted by fees to 
           : `(entry ${p.entryPrice} − mark ${p.markPrice}) × size ${p.size} = ${p.unrealisedPnl}`,
       );
     }).toPass({ timeout: 30_000 });
+    // The step's picture: the first position's details, open, from the top (a later call takes none).
+    await pictureFromTop(page, stepPicture);
     await detail.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(detail).toHaveCount(0);
   }
@@ -496,6 +499,7 @@ test(`${J} #6 opens sub-account positions as the main wallet: each venue sub-acc
 
 test(`${J} #7 moves a position between main and sub-account: moved where the venue moves positions, both accounts showing the change; refused in words where it can't; moving margin is a signed venue transfer shown on both accounts`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -534,45 +538,56 @@ test(`${J} #7 moves a position between main and sub-account: moved where the ven
   expect(await held()).toEqual(mainBefore);
   expect(await held(s.subAccount)).toEqual(subBefore);
 
-  // The margin: one signed venue transfer of 100 USDC from the main account into the sub-account, shown on both.
-  const mainFree = (await usdcOn(v.a, s.owner)).free;
-  const subFree = (await usdcOn(v.a, s.owner, s.subAccount)).free;
+  // The margin, both ways: 100 USDC from the main account into the sub-account, then 40 back out, each one signed venue
+  // transfer, read on the venue by its nonce and shown on both accounts.
   const moveMargin = subs.getByTestId('positions-move-margin');
-  await moveMargin.getByRole('combobox', { name: 'Sub-account', exact: true }).selectOption(s.subAccount);
-  await moveMargin.getByRole('combobox', { name: 'Direction', exact: true }).selectOption('into_sub_account');
-  await moveMargin.getByRole('textbox', { name: 'USDC to move', exact: true }).fill('100');
-  const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
-  await moveMargin.getByRole('button', { name: 'Move margin', exact: true }).click();
-  await continueInWallet(page);
-  await expect(subs).toContainText('The venue accepted it.', { timeout: 20_000 });
-  expect(signatures(wallet)).toBe(asked + 1);
-  const sent = door.of('prepare').map((c) => c.body.intent);
-  expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({
-    kind: 'sub_account_transfer',
-    subAccount: s.subAccount,
-    direction: 'into_sub_account',
-    asset: 'USDC',
-    amount: '100',
-  });
-  // The venue's own record of that one transfer, by the nonce the signed action carries.
-  const { prepared: signed } = await (await prepared).json();
-  expect(signed?.nonce, JSON.stringify(signed).slice(0, 300)).toBeTruthy();
-  const transfer = await record(v.a, s.owner, '/transfer', { nonce: signed.nonce });
-  expect(transfer).toMatchObject({ subAccount: s.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
-  expect(same(transfer.amount, '100')).toBe(true);
-  const mainAfter = (await usdcOn(v.a, s.owner)).free;
-  const subAfter = (await usdcOn(v.a, s.owner, s.subAccount)).free;
-  expect(same(mainAfter, fromUnits(toUnits(mainFree) - toUnits('100')))).toBe(true);
-  expect(same(subAfter, fromUnits(toUnits(subFree) + toUnits('100')))).toBe(true);
-  // Both accounts on the page show the venue's figures after the move.
   const shows = (locator, figure) => async () => same((await locator.innerText()).trim(), figure);
-  await expect.poll(shows(subs.locator('[data-value="main-free"]'), mainAfter), { timeout: 30_000 }).toBe(true);
-  await expect.poll(shows(card.locator('[data-value="sub-free"]'), subAfter), { timeout: 30_000 }).toBe(true);
-
-  // Sent once: one prepare, one submit, one signature; the positions on both accounts stay where they were.
-  expect(door.of('submit')).toHaveLength(1);
-  expect(await held()).toEqual(mainBefore);
-  expect(await held(s.subAccount)).toEqual(subBefore);
+  const moves = [
+    { direction: 'into_sub_account', amount: '100', sign: -1n },
+    { direction: 'out_of_sub_account', amount: '40', sign: 1n },
+  ];
+  for (const [i, m] of moves.entries()) {
+    const mainFree = (await usdcOn(v.a, s.owner)).free;
+    const subFree = (await usdcOn(v.a, s.owner, s.subAccount)).free;
+    await moveMargin.getByRole('combobox', { name: 'Sub-account', exact: true }).selectOption(s.subAccount);
+    await moveMargin.getByRole('combobox', { name: 'Direction', exact: true }).selectOption(m.direction);
+    await moveMargin.getByRole('textbox', { name: 'USDC to move', exact: true }).fill(m.amount);
+    const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+    const submitted = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/submit' && r.request().method() === 'POST');
+    await moveMargin.getByRole('button', { name: 'Move margin', exact: true }).click();
+    await continueInWallet(page);
+    expect((await submitted).status()).toBe(200);
+    await expect(subs.getByText('The venue accepted it.', { exact: true })).toBeVisible({ timeout: 20_000 });
+    // Sent once: one prepare, one submit, one signature for this move.
+    expect(signatures(wallet)).toBe(asked + i + 1);
+    expect(door.of('prepare')).toHaveLength(i + 1);
+    expect(door.of('submit')).toHaveLength(i + 1);
+    expect(door.of('prepare')[i].body.intent).toMatchObject({
+      kind: 'sub_account_transfer',
+      subAccount: s.subAccount,
+      direction: m.direction,
+      asset: 'USDC',
+      amount: m.amount,
+    });
+    // The venue's own record of that one transfer, by the nonce the signed action carries.
+    const { prepared: signed } = await (await prepared).json();
+    expect(signed?.nonce, JSON.stringify(signed).slice(0, 300)).toBeTruthy();
+    const transfer = await record(v.a, s.owner, '/transfer', { nonce: signed.nonce });
+    expect(transfer).toMatchObject({ subAccount: s.subAccount, direction: m.direction, asset: 'USDC', status: 'done' });
+    expect(same(transfer.amount, m.amount)).toBe(true);
+    // Both accounts on the venue moved by exactly the amount, and the page shows each account's figure as the venue does.
+    const mainAfter = (await usdcOn(v.a, s.owner)).free;
+    const subAfter = (await usdcOn(v.a, s.owner, s.subAccount)).free;
+    expect(same(mainAfter, fromUnits(toUnits(mainFree) + m.sign * toUnits(m.amount)))).toBe(true);
+    expect(same(subAfter, fromUnits(toUnits(subFree) - m.sign * toUnits(m.amount)))).toBe(true);
+    await expect.poll(shows(subs.locator('[data-value="main-free"]'), mainAfter), { timeout: 30_000 }).toBe(true);
+    await expect.poll(shows(card.locator('[data-value="sub-free"]'), subAfter), { timeout: 30_000 }).toBe(true);
+    // A margin move moves no position: both accounts' positions stay where they were.
+    expect(await held()).toEqual(mainBefore);
+    expect(await held(s.subAccount)).toEqual(subBefore);
+  }
+  // The step's picture: the refused position move and the last margin move, both accounts' figures on screen.
+  await expect(movePosition.getByTestId('positions-move-position-refused')).toBeVisible();
+  await pictureFromTop(page, stepPicture);
   await ledgerUntouched(s);
 });
