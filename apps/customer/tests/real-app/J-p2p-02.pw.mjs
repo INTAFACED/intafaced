@@ -1,10 +1,11 @@
 // World: freeze, gates
-import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, STACK_PORTS, stackUrl, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
-import { draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
+import { draftNotice, openNotices, publicNoticeCode, publishNotice, publishedNotices } from './notices.mjs';
 import { METHOD, browserHoldsPasskey, p2p, readyTaker, refusalCode, restorePasskey, testInstrument, testPasskey } from './p2p.mjs';
 
 // J-p2p-02, in the running app (docs/roadmap/journeys.json): I sell crypto, confirm the money arrived outside, and
@@ -45,10 +46,94 @@ async function paidOrder(state) {
   return trade.id;
 }
 
+// svc-p2p's "the buyer marked it paid" event on the stack's bus, and svc-notify's consumer of it (svc-notify events.ts).
+const PAID_EVENT = { stream: 'LOCAL_TEST_P2P', consumer: 'notify-p2p-trade-fiat-sent' };
+
+// The order's "buyer marked it paid" event handed to the stack's bus again, as svc-p2p's publisher does when it retries
+// (its sweep, after a crash between the publish and the stamp that says the notice left). First the stored event, byte
+// for byte, under the publisher's own key, which the bus is to drop as a duplicate; then the same payload twice under new
+// envelope keys, which pass the bus, so svc-notify's consumer is what must hold. Returns the event's own key, producer and
+// payload, and whether the bus dropped the same-key copy.
+function publishPaidAgain(tradeId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, TRADE_ID: tradeId } = process.env;
+    const def = EVENT_CATALOG.p2pTradeFiatSent;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName(def.service, prefix);
+    const { state } = await jsm.streams.info(stream);
+    let stored;
+    for (let seq = state.last_seq; seq >= state.first_seq && !stored; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject === def.subject && decodeEnvelope(m.data).payload.tradeId === tradeId) stored = m;
+    }
+    if (!stored) {
+      await nc.close();
+      throw new Error('no ' + def.subject + ' for order ' + tradeId + ' in ' + stream);
+    }
+    const first = decodeEnvelope(stored.data);
+    const ack = await nc.jetstream().publish(def.subject, stored.data, { msgID: first.idempotencyKey });
+    await nc.close();
+    const bus = await JetStreamEventBus.connect({ servers, producer: first.producer, streamPrefix: prefix });
+    for (const n of [1, 2]) {
+      await bus.publish('p2pTradeFiatSent', first.payload, { idempotencyKey: first.idempotencyKey + ':again:' + n + ':' + Date.now() });
+    }
+    await bus.close();
+    console.log(JSON.stringify({ key: first.idempotencyKey, producer: first.producer, payload: first.payload, sameKeyDropped: ack.duplicate === true }));`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    // Run from packages/events, where the bus client and its NATS driver resolve.
+    cwd: new URL('../../../../packages/events/', import.meta.url),
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', TRADE_ID: tradeId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`handing the paid event to the bus again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+// svc-notify's consumer of the paid event, as the stack's bus counts it: events handed to it so far, and events it still owes.
+async function paidNoticeConsumer() {
+  const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
+  const consumer = info.account_details
+    ?.flatMap((a) => a.stream_detail ?? [])
+    .filter((st) => st.name === PAID_EVENT.stream)
+    .flatMap((st) => st.consumer_detail ?? [])
+    .find((c) => c.name === PAID_EVENT.consumer);
+  if (!consumer) throw new Error(`the stack's bus has no ${PAID_EVENT.consumer} consumer on ${PAID_EVENT.stream}`);
+  return { handed: consumer.delivered.consumer_seq, owed: consumer.num_pending + consumer.num_ack_pending };
+}
+
+// How many completed orders the merchant programme asks of an applicant (svc-p2p merchant-programme.ts).
+const MERCHANT_ORDERS = 10;
+
+// The founders' decision on a merchant application (svc-p2p `merchants.decide`), made as the two of them make it: founder
+// A proposes it at identity, founder B approves it, and A decides with that approval. `founders` is the journey's
+// founders fixture (journey.mjs), whose approver sessions sign in once for this file. Returns the merchant's record.
+async function decideMerchant(founders, userId, to, reason) {
+  const { gates, ctx, sessions } = await founders.ops();
+  const actionType = 'p2p.merchants_decide';
+  // svc-p2p's approval payload hash (p2pActionPayloadHash): the action and its fields, in the router's order.
+  const payloadHash = `sha256:${createHash('sha256').update(JSON.stringify({ actionType, userId, to, reason })).digest('hex')}`;
+  const ids = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-p2p',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('p2p', 'merchants.decide', { userId, to, reason, ...ids }, await sessions.a.complianceToken());
+  const record = res.json?.result?.data;
+  if (res.status !== 200 || !record) throw new Error(`merchants.decide refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return record;
+}
+
 test('J-p2p-02 #1 the buyer marks the order paid and the seller gets one inbox row for it, still one after the next sweep', async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   // The seller: verified, TEST 50 USDT, a TEST bank account, a sell ad, and a TEST passkey to confirm releases.
   const seller = await signUp(page, 'p2p02s');
   await verify(page, seller);
@@ -95,42 +180,113 @@ test('J-p2p-02 #1 the buyer marks the order paid and the seller gets one inbox r
     return res.body.result.data.items.filter((n) => n.kind === 'p2p.trade.fiat_sent' && n.params?.tradeId === trade.id);
   };
   await expect.poll(async () => (await notices()).length, { timeout: 30_000 }).toBe(1);
-  await signIn(page, seller);
-  await page.goto('/notifications');
-  await expect(page.getByText('The buyer marked the order paid').first()).toBeVisible();
+
+  // A publisher retry: the same event reaches the bus again, first as svc-p2p sends it (its own key for this order, which
+  // the bus drops), then twice more past the bus's own duplicate check. svc-notify takes every copy it is handed and owes
+  // none, and the seller still has the one row.
+  const before = await paidNoticeConsumer();
+  expect(publishPaidAgain(trade.id)).toEqual({
+    key: `p2p.trade_fiat.sent:${trade.id}`,
+    producer: 'svc-p2p',
+    payload: { tradeId: trade.id, buyerId: buyerSession.userId, sellerId: sellerSession.userId, markedAt: expect.any(String) },
+    sameKeyDropped: true,
+  });
+  await expect(async () => {
+    const now = await paidNoticeConsumer();
+    expect(now.handed).toBeGreaterThanOrEqual(before.handed + 2);
+    expect(now.owed).toBe(0);
+  }).toPass({ timeout: 30_000 });
+  expect(await notices()).toHaveLength(1);
   // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
   await page.waitForTimeout(35_000);
   expect(await notices()).toHaveLength(1);
+
+  // The seller's inbox shows that one row, and no second one for the copies.
+  await signIn(page, seller);
+  await page.goto('/notifications');
+  await expect(page.getByTestId('nf-card').getByTestId('nf-row').filter({ hasText: 'The buyer marked the order paid' })).toHaveCount(1);
 });
 
-test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async () => {
+test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async ({ page, founders }) => {
+  test.setTimeout(480_000);
   const state = journey();
   // The founders' notice desk names who a notice is for; "P2P merchants" is one audience, and this seller is not one.
   const s = await api(state.seller);
   const audiences = await s.get('/api/notify/trpc/notify.noticeAudiences');
   expect(audiences.status, 'notify has no notice audiences (P-trade-orders-23 merchant notices)').toBe(200);
   expect(audiences.body.result.data).toContainEqual({ id: 'p2p-merchants', available: true });
+
+  // Another trader earns the merchant programme's standing the way anyone does: verified, a sell ad, and ten orders on it
+  // that the journey's buyer takes and marks paid and the trader releases. Then the trader applies.
+  const trader = await signUp(page, 'p2p02m');
+  await verify(page, trader);
+  expect(fund(trader.email, 'USDT', '20').tx).toBeTruthy();
+  const traderSession = await api(trader);
+  const t = p2p(traderSession, await testPasskey(traderSession));
+  await testInstrument(t, trader);
+  const ad = await t.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: '1',
+    maxAmount: '2',
+    totalAmount: String(MERCHANT_ORDERS),
+    methods: [METHOD],
+    idempotencyKey: `${J}:merchant-ad:${trader.handle}`,
+  });
+  const buyerPasskey = await restorePasskey(state.buyerPasskey);
+  const b = await readyTaker(await api(state.buyer), state.buyer, buyerPasskey);
+  try {
+    for (let n = 0; n < MERCHANT_ORDERS; n += 1) {
+      const order = await b.mutate('trades.take', { offerId: ad.id, tradeId: randomUUID(), amount: '1', method: METHOD });
+      await b.mutate('trades.markFiatSent', { tradeId: order.id });
+      expect((await t.mutate('trades.confirmReceived', { tradeId: order.id })).status).toBe('released');
+    }
+  } finally {
+    // A passkey's counter only goes up: keep how far it went, so the buyer's next confirmation is not read as a replay.
+    run.write({ buyerPasskey: buyerPasskey.saved() });
+  }
+  expect(await t.mutate('merchants.submitApplication', {})).toMatchObject({
+    userId: traderSession.userId,
+    status: 'applied',
+    appliedTradesTotal: MERCHANT_ORDERS,
+    appliedCompletionRate: 1,
+  });
+
   // Two founders publish an announcement for P2P merchants, open for a few minutes.
   const key = `j-p2p-02-merchants-${state.tradeId}`;
   const title = `LOCAL TEST notice for P2P merchants ${state.tradeId.slice(0, 8)}`;
-  const draft = await draftNotice({
-    kind: 'announcement',
-    title,
-    body: 'LOCAL TEST for P2P merchants only.',
-    minutes: 5,
-    key,
-    audience: 'p2p-merchants',
-  });
+  const body = 'LOCAL TEST for P2P merchants only.';
+  const draft = await draftNotice({ kind: 'announcement', title, body, minutes: 5, key, audience: 'p2p-merchants' });
   const published = await publishNotice(draft, key);
   expect(published).toMatchObject({ status: 'published', audience: 'p2p-merchants' });
-  // Not on the public board, not as the current announcement, and not to a trader who is not a merchant.
+  /** The member notices `session`'s account is handed, signed in: the ones with this notice's id. */
+  const handed = async (session) => {
+    const res = await session.get(`/api/notify/trpc/notify.memberNotices?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(res.status, 'notify has no signed-in read of member notices').toBe(200);
+    return res.body.result.data.filter((n) => n.id === published.id);
+  };
+  // Not on the public board, not as the current announcement, not to a signed-out reader who asks for it by id.
   expect((await publishedNotices()).map((n) => n.id)).not.toContain(published.id);
   expect((await openNotices()).announcement?.id).not.toBe(published.id);
-  const mine = await s.get(`/api/notify/trpc/notify.memberNotices?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
-  expect(mine.status, 'notify has no signed-in read of member notices').toBe(200);
-  expect(mine.body.result.data.map((n) => n.id)).not.toContain(published.id);
-  // A merchant reading it signed in is proven in svc-notify's tests against svc-p2p's merchant answer; this stack has
-  // no approved P2P merchant (10 earned trades and a two-founder decision), so the room's merchant view is the next slice.
+  expect(await publicNoticeCode(published.id)).toBe('notify.notice_not_found');
+  // Not to a trader who is not a merchant (this journey's seller), and not to one who has only applied.
+  expect(await handed(s)).toEqual([]);
+  expect(await handed(traderSession)).toEqual([]);
+
+  // The two founders approve the application: the trader is a P2P merchant now, and the seller still is not.
+  const reason = 'LOCAL TEST approval: ten completed orders';
+  expect(await decideMerchant(founders, traderSession.userId, 'approved', reason)).toMatchObject({
+    userId: traderSession.userId,
+    status: 'approved',
+  });
+  expect((await p2p(s).query('reputation.get', { userId: traderSession.userId })).merchant).toBe(true);
+  expect((await t.query('reputation.get', { userId: s.userId })).merchant).toBe(false);
+  // The merchant is handed the notice, signed in, with the founders' words; the trader who is not one still gets nothing.
+  expect(await handed(traderSession)).toEqual([expect.objectContaining({ id: published.id, title, body, audience: 'p2p-merchants' })]);
+  expect(await handed(s)).toEqual([]);
 });
 
 test('J-p2p-02 #2 the seller opens the order: the buyer by handle, the exact quantity and amount, and the release deadline', async ({
