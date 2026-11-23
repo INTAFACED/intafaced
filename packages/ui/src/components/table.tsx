@@ -126,6 +126,12 @@ function widthStyle(width: number | string | undefined): React.CSSProperties | u
   return width === undefined ? undefined : { width };
 }
 
+/** The column's name in words, which a phone shows beside each of its values (theme/table-phone.css). */
+function columnName<Row>(column: TableColumn<Row>): string | undefined {
+  if (typeof column.header === 'string' && column.header !== '') return column.header;
+  return column.headerLabel;
+}
+
 function sortTypeOf<Row>(column: TableColumn<Row>): SortType {
   return column.sortType ?? (column.numeric ? 'decimal' : 'text');
 }
@@ -188,6 +194,7 @@ function RowView<Row>({ row, index, body }: { row: Row; index: number; body: Bod
           <td
             key={column.id}
             data-align={align}
+            data-label={columnName(column)}
             className={cn(
               cellPadding[density],
               cellText[density],
