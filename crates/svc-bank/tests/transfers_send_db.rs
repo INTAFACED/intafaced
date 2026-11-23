@@ -419,6 +419,8 @@ struct Owner {
     remind: Option<&'static str>,
     /// Notices wired to the recorder; none is `NoBus`.
     bus: bool,
+    /// The TEST partner's stated send fee; none is its own `SEND_FEE`.
+    partner_send_fee: Option<&'static str>,
 }
 
 /// `personal-pay.db.test.ts`'s bank: the TEST reminder rule, two in any 24 hours.
@@ -427,6 +429,7 @@ fn pay_owner() -> Owner {
         review: None,
         remind: Some(r#"{"cap":2,"windowSeconds":86400}"#),
         bus: true,
+        partner_send_fee: None,
     }
 }
 
@@ -436,6 +439,7 @@ fn review_owner() -> Owner {
         review: Some(r#"{"USDT":"50"}"#),
         remind: None,
         bus: true,
+        partner_send_fee: None,
     }
 }
 
@@ -448,9 +452,13 @@ struct Bank {
     owner: Owner,
 }
 
-fn partner_wiring() -> PartnerWiring {
+fn partner_wiring(o: &Owner) -> PartnerWiring {
+    let partner = TestPartner::new().unwrap();
     PartnerWiring {
-        partner: Some(TestPartner::new().unwrap()),
+        partner: Some(match o.partner_send_fee {
+            Some(fee) => partner.with_send_fee(amt(fee)),
+            None => partner,
+        }),
         freeze: Box::new(Open),
         custody_layer: "off".to_owned(),
         cash_legs: None,
@@ -519,7 +527,7 @@ fn door_for(db: &TestDb, b: &Book, identity: &Identity, bus: &Recorder, o: &Owne
         store: db.store(),
     })
     .unwrap()
-    .with_partner(partner_wiring())
+    .with_partner(partner_wiring(o))
     .with_spaces(spaces_wiring(b))
     .with_transfers(transfers_wiring(identity, bus, o))
 }
@@ -577,7 +585,7 @@ impl Bank {
         now: Option<Instant>,
         f: impl FnOnce(&transfers::Deps<'_>) -> T,
     ) -> T {
-        let partner = partner_wiring();
+        let partner = partner_wiring(o);
         let spaces = spaces_wiring(&self.ledger);
         let w = transfers_wiring(&self.identity, &self.bus, o);
         let store = self.store();
@@ -1053,6 +1061,28 @@ fn the_recovery_pass_announces_owed_sends_older_than_the_grace_keeps_failures_ow
 }
 
 #[test]
+fn a_posted_send_records_its_own_fee_and_the_network_fee_its_book_stated() {
+    let Some(b) = bank_with(pay_owner()) else {
+        return;
+    };
+    let from = b.ready(true);
+    b.svc(|d| service_send(d, ADA, "send-fees-own-book", &from, BOB, "4", None))
+        .unwrap();
+    // Our published fee (free here) and, on our own book, which crosses no network, a network fee of "0": recorded with
+    // the send, so the activity row shows what this payment cost, not today's terms.
+    assert_eq!(
+        b.rows(
+            "SELECT fee::text, network_fee::text FROM bank.personal_transfers \
+              WHERE transfer_id = 'send-fees-own-book'"
+        ),
+        [[
+            Some("0.000000000000000000".to_owned()),
+            Some("0.000000000000000000".to_owned())
+        ]]
+    );
+}
+
+#[test]
 fn with_no_notices_wired_a_send_still_posts_and_its_notice_stays_owed() {
     let Some(b) = bank_with(pay_owner()) else {
         return;
@@ -1121,7 +1151,11 @@ fn refuses_a_send_when_no_limits_are_published_nothing_reserved_nothing_posted()
 #[test]
 fn a_quote_names_the_network_fee_the_partner_holding_the_money_reports_and_null_when_it_says_none()
 {
-    let Some(b) = bank_with(pay_owner()) else {
+    // A TEST partner that states a send fee our own book never gives, so the quote shows whose figure it answered.
+    let Some(b) = bank_with(Owner {
+        partner_send_fee: Some("0.5"),
+        ..pay_owner()
+    }) else {
         return;
     };
     b.sql(
@@ -1141,12 +1175,11 @@ fn a_quote_names_the_network_fee_the_partner_holding_the_money_reports_and_null_
     let set = |input: &str| call(&b, ADA, RW, "testPartner.set", input).ok();
     set(r#"{"custody":"off"}"#);
     let held = quote(&b);
-    // The partner's own stated send fee, as a figure: the TEST partner takes nothing for a send between its account
-    // holders and says so ("0"), which is not the null of a fee it does not give.
-    assert_eq!(svc_bank::partner::SEND_FEE, "0");
+    // The partner's own stated send fee, as its figure: not our own book's "0", and not the null of a fee it does not
+    // give.
     assert_eq!(
         held.get("networkFee"),
-        Some(&Json::str(svc_bank::partner::SEND_FEE)),
+        Some(&Json::str("0.5")),
         "{}",
         held.compact()
     );

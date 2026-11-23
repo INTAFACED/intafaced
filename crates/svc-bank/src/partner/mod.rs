@@ -463,6 +463,8 @@ pub struct State {
     pub purchases: PurchaseDesk,
     pub debits: DirectDebitDesk,
     pub compliance: Compliance,
+    /// The send fee this partner states (`SEND_FEE`, or a test's own TEST figure through `with_send_fee`).
+    send_fee: Amount,
 }
 
 /// The TEST partner bank and ramp (`testPartner()`), on a dev or test stack only.
@@ -510,6 +512,7 @@ impl State {
             purchases: PurchaseDesk::default(),
             debits: DirectDebitDesk::default(),
             compliance: Compliance::default(),
+            send_fee: fixed(SEND_FEE),
         }
     }
 
@@ -806,7 +809,7 @@ impl State {
             send_fee: self
                 .board
                 .read(user_id, |s| s.fee == "known")
-                .then(|| fixed(SEND_FEE)),
+                .then_some(self.send_fee),
             as_of: now,
             label: LABEL,
         })
@@ -1081,6 +1084,14 @@ impl TestPartner {
         Ok(TestPartner {
             state: Mutex::new(State::new(boot)),
         })
+    }
+
+    /// The same partner stating another TEST send fee, for a test that must tell the partner's stated figure apart from
+    /// our own book's "0".
+    #[must_use]
+    pub fn with_send_fee(self, fee: Amount) -> TestPartner {
+        self.lock().send_fee = fee;
+        self
     }
 
     /// `testPartnerFor`: `off` is no partner; `test` is the partner only in an explicit dev or test process.

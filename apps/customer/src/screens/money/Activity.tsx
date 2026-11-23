@@ -365,6 +365,21 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
     ].filter((part): part is string => part !== null);
     sub = parts.length > 0 ? parts.join(' · ') : null;
   }
+  // A payment between two people carries the fees the bank recorded when it was made: ours, and the network's.
+  const fees = item.fees
+    ? [
+        item.fees.fee === null
+          ? t('Fee not recorded')
+          : ZERO.test(item.fees.fee)
+            ? t('No fee')
+            : t('Fee {amount} {asset}', { amount: fmtAmount(item.fees.fee), asset: item.asset }),
+        item.fees.networkFee === null
+          ? t('Network fee not known')
+          : ZERO.test(item.fees.networkFee)
+            ? t('No network fee')
+            : t('Network fee {amount} {asset}', { amount: fmtAmount(item.fees.networkFee), asset: item.asset }),
+      ].join(' · ')
+    : null;
   return (
     <tr
       data-testid="money-act"
@@ -385,6 +400,11 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
             {sub ? (
               <span data-testid="money-act__sub" className="money-act__sub">
                 {sub}
+              </span>
+            ) : null}
+            {fees ? (
+              <span data-testid="money-act__fees" className="money-act__sub">
+                {fees}
               </span>
             ) : null}
           </span>
@@ -416,6 +436,9 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
     </tr>
   );
 }
+
+/** A decimal string that is zero ("0", "0.00"), read without turning money into a number. */
+const ZERO = /^0+(\.0+)?$/;
 
 function SkeletonRows({ count, label }: { count: number; label: string }) {
   return (

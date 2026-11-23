@@ -663,6 +663,16 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
 
     sweep_stale(d, i.actor_user_id)?;
 
+    // The network fee the moving book states for this send, recorded with it: "0" on our own book, which crosses no
+    // network; the partner's stated send fee for money it holds; none when the partner gives none ("not known").
+    let network_fee = match &partner {
+        Some(p) if partner_fee_known(d, i.actor_user_id) => {
+            p.limits(i.actor_user_id, &from.asset_id, now)?.send_fee
+        }
+        Some(_) => None,
+        None => Some(Amount::ZERO),
+    };
+
     let reserved = in_tx(d.store, |tx| {
         lock_sender(tx, i.actor_user_id, &from.asset_id)?;
         if let Some(existing) = by_id(tx, i.transfer_id)? {
@@ -685,16 +695,16 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
                 },
             )?;
         }
-        terms::assert_within_terms(tx, i.actor_user_id, &from.asset_id, i.amount, now)?;
+        let fee = terms::assert_within_terms(tx, i.actor_user_id, &from.asset_id, i.amount, now)?;
         let (from_handle, to_handle) = snapshot_handles(d, i.actor_user_id, to_user_id);
         let rows = tx
             .query(
                 &format!(
                     "INSERT INTO bank.personal_transfers ( \
                        transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, reference, \
-                       from_handle, to_handle, request_id, status, created_at \
+                       from_handle, to_handle, request_id, status, created_at, fee, network_fee \
                      ) VALUES ($1, $2, $3::text::uuid, $4, $5, $6::text::numeric, $7, $8, $9, $10, $11::text::uuid, \
-                       'reserved', {}) \
+                       'reserved', {}, $13::text::numeric, $14::text::numeric) \
                      RETURNING {COLS}",
                     at("$12")
                 ),
@@ -711,6 +721,8 @@ pub fn send(d: &Deps<'_>, i: &SendInput<'_>) -> Result<Sent, Box<SendFailed>> {
                     &to_handle,
                     &request_id,
                     &now.0,
+                    &format_amount(fee),
+                    &network_fee.map(format_amount),
                 ],
             )
             .map_err(|e| pg(&e))?;

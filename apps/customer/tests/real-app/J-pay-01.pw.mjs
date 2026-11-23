@@ -780,6 +780,16 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
   const { reference, before, second } = run.read();
   if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
   const moved = toUnits(AMOUNT) + toUnits(second);
+  // The payment's fees as the row words them, from the sender's own quote: our fee, then the network's.
+  const quote = await terms(sender);
+  const fees = [
+    quote.fee === 'No fee' ? 'No fee' : quote.fee.replace('Fee: ', 'Fee '),
+    quote.networkFee === null
+      ? 'Network fee not known'
+      : toUnits(quote.networkFee) === 0n
+        ? 'No network fee'
+        : `Network fee ${shown(quote.networkFee)} USDT`,
+  ].join(' · ');
   for (const side of [
     { who: sender, signIn: () => signInA(page), expected: toUnits(before.sender) - moved, direction: 'out' },
     { who: recipient, signIn: () => signIn(page, recipient), expected: toUnits(before.recipient) + moved, direction: 'in' },
@@ -810,8 +820,10 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
     await expect(row.getByTestId('money-act__status')).toHaveText('Completed');
     await expect(row.getByTestId('money-act__time').locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
     await expect(row).toContainText(`${side.direction === 'out' ? '−' : '+'}${AMOUNT} USDT`);
-    // Its fees: the partner records a fee as its own line, and there is none in this account; the ledger posted no fee
-    // of ours either (the published fee is free), so the person's ledger holds nothing.
+    // Its fees, as the bank recorded them with the payment: our published fee and the network fee the partner stated,
+    // the same figures the sender's quote gives for this send. The partner records a fee it takes as its own line, and
+    // there is none in this account; the ledger posted no fee of ours either, so the person's ledger holds nothing.
+    await expect(row.getByTestId('money-act__fees')).toHaveText(fees);
     await expect(list.locator('[data-testid="money-act"][data-kind="fee"]')).toHaveCount(0);
     expect(await ledgerUsdt(side.who)).toBe('0');
     await signOutBrowser(page.context());
