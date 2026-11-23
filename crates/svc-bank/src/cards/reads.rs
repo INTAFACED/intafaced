@@ -8,8 +8,8 @@
 //! never 0.
 //!
 //! The TEST partner card's book ([`CardHoldBook`]) lives in this process, as the TypeScript's `testPartnerCardHolds`
-//! does, kept once in the slice's wiring (`Wiring::holds`). Its holds are made by slice `card-ops`' hold instruction;
-//! until that is ported nothing writes one, so a call reads the TEST figures plus the TEST partner's credits.
+//! does, kept once in the slice's wiring (`Wiring::holds`). Its holds are made by slice `card-ops`' hold instruction
+//! (`moves::partner_book`), and its reads run an uncaptured hold out at its time.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -180,11 +180,11 @@ pub struct Hold {
 }
 
 impl Hold {
-    fn open(&self) -> Amount {
+    pub(crate) fn open(&self) -> Amount {
         self.amount - self.captured - self.released
     }
 
-    fn report(&self) -> HoldReport {
+    pub(crate) fn report(&self) -> HoldReport {
         let status = if self.expired {
             "expired"
         } else if self.captured > 0 {
@@ -216,9 +216,11 @@ impl Hold {
 pub struct CardHoldBook {
     pub books: BTreeMap<String, Book>,
     pub holds: BTreeMap<String, Hold>,
+    /// Each instruction's first answer under its key, with the body it answered (`once`): slice `card-ops`' writes.
+    pub answers: BTreeMap<String, (String, super::moves::partner_book::Kept)>,
 }
 
-fn book_id(user_id: &str, asset_id: &str) -> String {
+pub(crate) fn book_id(user_id: &str, asset_id: &str) -> String {
     format!("{user_id}|{asset_id}")
 }
 
@@ -247,7 +249,7 @@ impl CardHoldBook {
 
     /// `runOut`: the partner gives an uncaptured hold back when its hold time runs out, or when the person's TEST
     /// switch says so.
-    fn run_out(&mut self, key: &str, now: Instant, switch_expired: bool) {
+    pub(crate) fn run_out(&mut self, key: &str, now: Instant, switch_expired: bool) {
         let Some(h) = self.holds.get_mut(key) else {
             return;
         };
@@ -284,13 +286,13 @@ pub struct TestCardHolds<'a> {
 }
 
 impl TestCardHolds<'_> {
-    fn switch_expired(&self, user_id: &str) -> bool {
+    pub(crate) fn switch_expired(&self, user_id: &str) -> bool {
         self.partner
             .is_some_and(|p| p.switches(user_id).card_hold == "expired")
     }
 
     /// `testCardCredited` plus `payInCredited`: what else the TEST partner credited this cardholder in this asset.
-    fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
+    pub(crate) fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
         let mut sum: Amount = 0;
         if let Some(book) = self.issuer.sim_book() {
             for (_, c) in &book.credits {
@@ -311,7 +313,7 @@ impl TestCardHolds<'_> {
         sum
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, CardHoldBook> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, CardHoldBook> {
         self.book
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

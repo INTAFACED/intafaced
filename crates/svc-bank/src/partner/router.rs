@@ -309,6 +309,7 @@ pub fn answer(w: &Wiring, store: &Store, ctx: &Ctx<'_>) -> Option<Result<Option<
                 ("closedAt", Json::str(closed.closed_at.unwrap_or(now).iso())),
             ]))
         }
+        // With the TEST partner on, the door hands the refund to the card moves (`door::card_moves`) before this slice.
         "testPartner.cardRefund" => {
             on(w)?;
             Err(Refusal::Trpc(not_ported(Slice::CardOps)))

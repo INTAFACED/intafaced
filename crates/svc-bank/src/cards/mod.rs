@@ -21,6 +21,7 @@
 pub mod core;
 pub mod disputes;
 pub mod issuer;
+pub mod moves;
 pub mod orders;
 pub mod reads;
 pub mod router;
@@ -121,6 +122,9 @@ impl Wiring {
 pub struct Deps<'a> {
     pub t: &'a crate::transfers::Deps<'a>,
     pub w: &'a Wiring,
+    /// The conversion rate source: the loan book's port (svc-trade's ticker in the binary), as the TypeScript wires both
+    /// from one `tickerPriceSource`. Slice `card-ops`' authorisation quotes a converted card's spend from it.
+    pub rates: &'a dyn crate::loans::prices::PriceSource,
 }
 
 impl Deps<'_> {
