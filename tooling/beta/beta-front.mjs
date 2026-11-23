@@ -131,7 +131,7 @@ function refuse(res, status, body) {
 // ── While the beta updates ──────────────────────────────────────────────────
 
 /** The status file beta-host.mjs writes after each step of a round. */
-export const STATUS_FILE = path.join(os.homedir(), '.intafaced', 'beta', 'status.json');
+const STATUS_FILE = path.join(os.homedir(), '.intafaced', 'beta', 'status.json');
 const STATE_PATH = '/__beta/state';
 const WATCH_PATH = '/__beta/watch.js';
 
@@ -158,7 +158,7 @@ const HOLD_COPY = {
 };
 
 /** The page shown while held: Volt's dark look (packages/ui tokens.css), no script, reloading itself every 20 seconds. */
-export function holdPage(kind) {
+function holdPage(kind) {
   const { title, body } = HOLD_COPY[kind] ?? HOLD_COPY.closed;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="20"><meta name="color-scheme" content="dark"><title>${title} · INTAFACED</title>
@@ -171,10 +171,10 @@ p{color:#a2a2ac;margin:0}.dot{display:inline-block;width:.5rem;height:.5rem;bord
 }
 
 /** The script added to the app's page: an open tab reloads onto the updating page when the beta starts updating. */
-export const WATCH_SCRIPT = `(()=>{const t=setInterval(async()=>{try{const r=await fetch('${STATE_PATH}',{cache:'no-store'});if((await r.json()).hold){clearInterval(t);location.reload()}}catch{}},15000)})();\n`;
+const WATCH_SCRIPT = `(()=>{const t=setInterval(async()=>{try{const r=await fetch('${STATE_PATH}',{cache:'no-store'});if((await r.json()).hold){clearInterval(t);location.reload()}}catch{}},15000)})();\n`;
 
 /** The app's HTML with the watch script added in its head; anything else unchanged (null). */
-export function withWatch(html) {
+function withWatch(html) {
   const at = html.indexOf('</head>');
   return at < 0 ? null : `${html.slice(0, at)}<script src="${WATCH_PATH}" defer></script>${html.slice(at)}`;
 }

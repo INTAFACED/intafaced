@@ -397,7 +397,7 @@ function ensureCheckout(paths) {
 }
 
 /** What a round reaches outside itself: git, commands, the TEST funds check, the readied probe, the clock. A test replaces them. */
-export const roundIo = {
+const roundIo = {
   git,
   run,
   check: checkStack,
