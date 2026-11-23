@@ -2087,6 +2087,7 @@ import {
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 } from './support-safety-procedures.js';
 
 import { SUPPORT_TICKET_CHARTS_LOOKUP } from './support-ticket-charts-lookup-procedures.js';
@@ -4438,6 +4439,7 @@ const part_support_safety_procedures: readonly ProcedureRecord[] = [
   SUPPORT_SAFETY_MULE_POLICY,
   SUPPORT_SAFETY_COMPLAIN,
   SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+  SUPPORT_SAFETY_REPORT_SCAM,
 ];
 
 const part_support_ticket_charts_lookup_procedures: readonly ProcedureRecord[] = [SUPPORT_TICKET_CHARTS_LOOKUP];
