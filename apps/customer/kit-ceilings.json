@@ -224,10 +224,9 @@
   },
   "garden/no-raw-type-class": {
     "apps/customer/src/features/pay/ui-kit.tsx": 6,
-    "apps/customer/src/screens/coin/PriceCard.tsx": 2,
-    "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 12,
-    "apps/customer/src/screens/trade/execution/AlgoForm.tsx": 6,
-    "apps/customer/src/screens/trade/execution/AlgoList.tsx": 6,
+    "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 10,
+    "apps/customer/src/screens/trade/execution/AlgoForm.tsx": 5,
+    "apps/customer/src/screens/trade/execution/AlgoList.tsx": 4,
     "apps/customer/src/screens/trade/execution/AlgoTab.tsx": 1,
     "apps/customer/src/screens/trade/execution/BlotterTab.tsx": 1,
     "apps/customer/src/screens/trade/execution/IcebergTab.tsx": 6,

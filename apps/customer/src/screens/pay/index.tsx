@@ -1,7 +1,12 @@
 // volt-room: /pay
+// volt-room: /pay/send
+// volt-room: /pay/receive
+// volt-room: /pay/request
+// volt-room: /pay/bills
+// volt-room: /pay/global
 import { useMemo } from 'react';
 import { ToastProvider } from '@intafaced/ui/lit';
-import { OverviewTemplate, TabList } from '@intafaced/ui/lit/templates';
+import { FlowTemplate, OverviewTemplate, TabList } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../app/screen-types';
 import { isHiddenPath, navigate, parseRequestSearch, PersonalRoom, personalRoomFor, useSession } from './deps';
 import { payCopy } from './copy';
@@ -143,17 +148,37 @@ function PayTabs({ path, search }: ScreenProps) {
       </nav>
     </section>
   );
+  const mode = layoutMode === 'pro' ? 'pro' : 'simple';
+  // Pay's own address is the door's overview; each tab's address is that one task, on the flow template, with the same
+  // card leading it, what waits for the person above it and recent payments beside it.
+  const own = path.split('?')[0]!.replace(/\/+$/, '') === '/pay';
   return (
     <div data-testid="if-pay">
-      <OverviewTemplate
-        title={t('Pay')}
-        description={tagline}
-        state={{ kind: 'ready' }}
-        mode={layoutMode === 'pro' ? 'pro' : 'simple'}
-        hero={card}
-        needsYou={session ? <WaitingForYou /> : undefined}
-        watching={session ? <RecentPanel /> : undefined}
-      />
+      {own ? (
+        <OverviewTemplate
+          title={t('Pay')}
+          description={tagline}
+          state={{ kind: 'ready' }}
+          mode={mode}
+          hero={card}
+          needsYou={session ? <WaitingForYou /> : undefined}
+          watching={session ? <RecentPanel /> : undefined}
+        />
+      ) : (
+        <FlowTemplate
+          title={t('Pay')}
+          description={tagline}
+          state={{ kind: 'ready' }}
+          mode={mode}
+          step={
+            <div className="lt-stack">
+              {session ? <WaitingForYou /> : null}
+              {card}
+            </div>
+          }
+          summary={session ? <RecentPanel /> : undefined}
+        />
+      )}
     </div>
   );
 }
