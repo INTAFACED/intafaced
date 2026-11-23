@@ -204,6 +204,9 @@ fn every_schema_answers_as_zod_does() {
     {
         want.insert(d.name());
     }
+    for name in inputs::HANDLER_SCHEMAS {
+        want.insert(name.to_owned());
+    }
     assert_eq!(
         paths, want,
         "every call and schema-checked door has its cases"

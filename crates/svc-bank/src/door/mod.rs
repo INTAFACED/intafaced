@@ -251,6 +251,8 @@ pub struct BankDoor {
     activity: crate::activity::Wiring,
     /// Slice `global`'s ports and owner values (`global::Wiring`); every port unset until handed in.
     global: crate::global::Wiring,
+    /// Slice `card-programme`'s sanctions list, simulator switch, export secret and rates (`card_programme::Wiring`).
+    card_programme: crate::card_programme::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -305,6 +307,7 @@ impl BankDoor {
             bills: crate::bills::Wiring::none(),
             activity: crate::activity::Wiring::none(),
             global: crate::global::Wiring::none(),
+            card_programme: crate::card_programme::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -390,6 +393,12 @@ impl BankDoor {
     /// Slice `global`'s wiring, built by the binary from the environment.
     pub fn with_global(mut self, wiring: crate::global::Wiring) -> BankDoor {
         self.global = wiring;
+        self
+    }
+
+    /// Slice `card-programme`'s wiring, built by the binary from the environment.
+    pub fn with_card_programme(mut self, wiring: crate::card_programme::Wiring) -> BankDoor {
+        self.card_programme = wiring;
         self
     }
 
@@ -649,6 +658,11 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
+            Slice::CardProgramme => self
+                .cards_deps(ctx.now, |c| {
+                    crate::card_programme::router::answer(c, &self.card_programme, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::CardProgramme))),
             Slice::Loans => {
                 let user = ctx
                     .principal

@@ -30,6 +30,8 @@ mod bills_direct_debits_db;
 mod bills_pay_db;
 #[path = "bills_rail_sends_db.rs"]
 mod bills_rail_sends_db;
+#[path = "card_programme_db.rs"]
+mod card_programme_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
