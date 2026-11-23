@@ -21,6 +21,7 @@ import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';
 import type { MessageCipher } from '../../travel-rule/cipher.js';
 import { fieldSchema, heldDepositViewSchema } from '@intafaced/contracts/pay-call-schemas';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../../record-refusal.js';
@@ -142,7 +143,7 @@ function heldView(r: RecordRow): HeldDepositView {
   return {
     depositId: r.deposit_id,
     userId: r.user_id,
-    assetId: r.asset_id,
+    assetId: asAssetId(r.asset_id),
     networkId: r.network_id,
     txHash: r.tx_hash,
     amount: decimal(r.amount),
