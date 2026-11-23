@@ -28,7 +28,8 @@ use sha2::{Digest, Sha256};
 use super::formats::{self, BookLine, BookStatement};
 use crate::activity::analytics::partner_moves_between;
 use crate::business_spend::cards::service::card_capture_key;
-use crate::business_team::service::{Seat, partner_account, seat};
+use crate::business_spend::{Seat, seat};
+use crate::business_team::service::partner_account;
 use crate::errors::Refusal;
 use crate::partner::custody::Held;
 use crate::partner::{

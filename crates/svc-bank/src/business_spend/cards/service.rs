@@ -26,7 +26,8 @@ use service_kit::money::{Amount, format_amount, js_trim, parse_amount};
 use service_kit::time::{Instant, civil_from_days};
 use sha2::{Digest, Sha256};
 
-use crate::business_team::service::{handles_of, partner_account, seat};
+use crate::business_spend::seat;
+use crate::business_team::service::{handles_of, partner_account};
 use crate::errors::Refusal;
 use crate::partner::custody::{Held, assert_posting_enabled};
 use crate::partner::{AccountRef, MERCHANT, MoveRequest, refuse};

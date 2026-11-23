@@ -26,9 +26,8 @@ use service_kit::money::{Amount, format_amount, is_js_whitespace, js_trim, parse
 use service_kit::time::Instant;
 use sha2::{Digest, Sha256};
 
-use crate::business_team::service::{
-    Seat, TeamRule, handles_of, partner_account, pick_rule, rule_list, seat,
-};
+use crate::business_spend::{Seat, rule_list, seat};
+use crate::business_team::service::{TeamRule, handles_of, partner_account, pick_rule};
 use crate::errors::Refusal;
 use crate::partner::custody::{Held, assert_posting_enabled};
 use crate::partner::{MoveRequest, payouts_account, refuse};
@@ -1381,7 +1380,7 @@ pub fn submit(d: &Deps<'_>, bill_id: &str, user_id: &str) -> Result<Json, Refusa
         let plain: Vec<_> = rules.iter().map(|r| r.rule.clone()).collect();
         let rule = pick_rule(&plain, amt, vendor, "domestic").and_then(|i| rules.get(i));
         let needed = rule.map_or(0, |r| r.rule.approvals).max(1);
-        let pool = crate::business_team::service::approver_pool(d, &row.account_id, user_id)?.len();
+        let pool = crate::business_spend::approver_pool(d, &row.account_id, user_id)?.len();
         if i64::try_from(pool).unwrap_or(i64::MAX) < needed {
             return Err(refuse(
                 "bank.business_approvers_short",
