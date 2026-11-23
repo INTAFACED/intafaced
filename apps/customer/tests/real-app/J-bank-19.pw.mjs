@@ -721,7 +721,7 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
   const ownerTotal = await ownerRow.getAttribute('data-partner');
   // The owner's partner total grew by exactly what left the business's account at the partner, in one more line.
   expect(units(ownerTotal) - units(ownerBefore.partnerTotal)).toBe(units(partnerBefore) - units(partnerAfter));
-  expect(Number(await ownerRow.getAttribute('data-lines'))).toBe(ownerBefore.partnerLines + 1);
+  await expect.poll(async () => Number(await ownerRow.getAttribute('data-lines'))).toBe(ownerBefore.partnerLines + 1);
   await expect(dep).toHaveAttribute('data-spent', ownerTotal);
   const spend = ok(await own.query('businessTeam.spend', { accountId: w.accountId }));
   expect(spend).toMatchObject({ scope: 'team', partnerLabel: PARTNER_BANK });
