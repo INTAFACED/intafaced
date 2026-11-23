@@ -764,6 +764,11 @@
   object-fit: contain;
 }
 
+/* A live camera preview of the person (a selfie): shown as a mirror, as a person expects to see themself. */
+.lt-media[data-mirror] {
+  transform: scaleX(-1);
+}
+
 /* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
    and scrolls inside its own box. A compared line carries data-op; its + or − mark says the change, the tone repeats it. */
 .lt-code {
@@ -1876,22 +1881,32 @@ button.lt-tab {
   min-inline-size: 0;
 }
 
-/* A panel holding several sections: each its own block, with a section's gap and a line between them, never one run of
-   text where the next heading is the only break. */
+/* A step of several parts, each under its own heading (a room's checks, forms and records in one column): the parts sit
+   a section apart with a line between them, so they read as one aligned column, never cards inside a card. On a list it
+   also drops the markers. */
 .lt-sections {
   display: flex;
   flex-direction: column;
   gap: var(--lit-gap-section);
   min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
+
 .lt-sections > * + * {
   border-block-start: 1px solid var(--lit-line);
   padding-block-start: var(--lit-gap-section);
 }
-.lt-sections > section {
+
+/* A plain list of short rows (what a level unlocks): no markers, the kit's item gap. */
+.lt-list {
   display: flex;
   flex-direction: column;
-  gap: var(--lit-gap-item);
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
