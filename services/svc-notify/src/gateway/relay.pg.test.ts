@@ -42,11 +42,11 @@ async function upstream(handle?: (res: ServerResponse) => void | Promise<void>) 
   const fetchImpl: typeof fetch = (_url, init) => fetch(url, init);
   return { messages, authorization, fetchImpl, url };
 }
-async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000) {
+async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000, channelTimeoutMs = 2000) {
   const app = buildMailboxRelay({ sql: db.sql, credential, sendUrl: 'https://mailbox.fixture/send', sendToken, timeoutMs, fetchImpl });
   const url = await app.listen({ port: 0, host: '127.0.0.1' });
   resources.push(() => app.close());
-  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: 2000 }) };
+  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: channelTimeoutMs }) };
 }
 function envelope() {
   return {
@@ -107,8 +107,17 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
     try {
       const archive = join(dir, 'before-enqueue.dump');
       await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
-      const wire = await upstream();
-      const gateway = await relay(independent, wire.fetchImpl);
+      // This case proves restore and replay, not deadlines (the deadline cases below do), so its budgets sit well
+      // above a loaded runner's stalls: with the relay's 1 s default, a cold first send that takes over a second
+      // ends 'unresolved'. Each mailbox answer here moves the monotonic clock the relay and the guest service read
+      // 1.1 s on, past that 1 s budget, so a budget that tight fails this case on every run, not only on a slow runner.
+      vi.useFakeTimers({ toFake: ['performance'] });
+      const wire = await upstream((res) => {
+        vi.advanceTimersByTime(1100);
+        res.writeHead(204).end();
+      });
+      const gateway = await relay(independent, wire.fetchImpl, 5000, 6000);
+      const budget = { timeoutMs: 8000, leaseMs: 12_000 };
       const input = {
         businessKey: `acknowledgement:${randomUUID()}`,
         contactId: randomUUID(),
@@ -116,10 +125,10 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         recipientEmail: 'local-proof@example.invalid',
         message: { kind: 'enquiry_acknowledgement' as const },
       };
-      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const original = await new GuestNotificationService(first.sql, gateway.email, budget).send(input);
       expect(original.status).toBe('accepted');
       await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
-      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const recovered = await new GuestNotificationService(restored.sql, gateway.email, budget).send(input);
       expect(recovered.notificationId).not.toBe(original.notificationId);
       expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
       expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
@@ -132,9 +141,10 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       });
       expect(wire.authorization).toEqual([`Bearer ${sendToken}`]);
     } finally {
+      vi.useRealTimers();
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
   it('serializes simultaneous attempts, rejects changed delivery, and stores only opaque receipts', async () => {
     const entered = gate(),
       release = gate();
@@ -143,7 +153,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       await release.promise;
       res.writeHead(204).end();
     });
-    const gateway = await relay(independent, wire.fetchImpl);
+    const gateway = await relay(independent, wire.fetchImpl, 5000, 6000);
     const key = `synthetic-claim:${randomUUID()}`,
       body = envelope();
     const firstAttempt = request(gateway.url, key, body);
@@ -192,7 +202,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       await release.promise;
       res.writeHead(204).end();
     });
-    const gateway = await relay(independent, wire.fetchImpl);
+    const gateway = await relay(independent, wire.fetchImpl, 5000, 6000);
     const key = `synthetic-lost:${randomUUID()}`,
       body = envelope(),
       abort = new AbortController();
@@ -219,7 +229,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       });
       // The budget covers the receipt claim as well as the send. 150 ms let a slow claim on a busy runner spend it all, so the
       // relay (correctly) never sent and the mailbox saw nothing; 1 s leaves room and still expires for the hanging reply.
-      const gateway = await relay(independent, wire.fetchImpl);
+      const gateway = await relay(independent, wire.fetchImpl, 5000, 6000);
       const key = `synthetic-unknown:${randomUUID()}`,
         body = envelope();
       const unknown = await request(gateway.url, key, body);
@@ -278,7 +288,7 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
     const wire = await upstream((res) => {
       res.writeHead(status).end(sensitive);
     });
-    const gateway = await relay(independent, wire.fetchImpl);
+    const gateway = await relay(independent, wire.fetchImpl, 5000, 6000);
     const key = `synthetic-refused:${randomUUID()}`,
       body = envelope();
     const refused = await request(gateway.url, key, body);
