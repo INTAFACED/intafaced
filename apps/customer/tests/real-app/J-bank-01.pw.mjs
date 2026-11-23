@@ -589,8 +589,12 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
   // A business has no account of its own: no company terms, currencies or details, and no personal money shown as its own.
   const home = page.getByTestId('account-home');
   await expect(home.getByText('No company account')).toHaveCount(2);
-  await expect(home).toContainText('bank.company_account_unwired');
-  await expect(page.getByTestId('account-details-company')).toContainText('bank.company_account_unwired');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(home.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(home).not.toContainText('bank.company_account_unwired');
+  const details = page.getByTestId('account-details-company');
+  await expect(details.locator('[data-code="bank.company_account_unwired"]').first()).toBeAttached();
+  await expect(details).not.toContainText('bank.company_account_unwired');
   await expect(page.getByTestId('currency-USDT')).toHaveCount(0);
   await expect(page.getByTestId('account-terms')).toHaveCount(0);
 

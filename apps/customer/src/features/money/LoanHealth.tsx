@@ -18,6 +18,7 @@ import {
   BANK_LOANS_RELEASE_EXCESS,
   BANK_LOANS_CLOSE,
 } from '@intafaced/contracts/bank-loans-3-procedures';
+import { withCode } from '../../shared/reference';
 
 type Loan = z.infer<typeof loanSchema>;
 type Product = ProcedureOutput<typeof BANK_LOANS_PRODUCTS>[number];
@@ -74,7 +75,9 @@ async function readReleasable(
   if (!read.ok)
     return {
       rows: [],
-      blocked: read.code?.includes('.') ? loanCopy.t('releasableRefused', { code: read.code }) : loanCopy.t('releasableFailed'),
+      blocked: read.code?.includes('.')
+        ? withCode(loanCopy.t('releasableRefused'), read.code, (code) => loanCopy.t('releasableReference', { code }))
+        : loanCopy.t('releasableFailed'),
     };
   const most = parseAmount(read.data.releasable);
   const shown = amount(read.data.releasable, assetId);
