@@ -92,10 +92,9 @@ export function plan({ changed, present, formatExts, registries, has }) {
       });
   // The test checks build with turbo and run vitest: without this worktree's install the lint ratchet refuses first.
   const tests = has('node_modules/.bin/turbo');
-  // Volt count and recorded calls read apps/customer/src; the render record also the routes file its sweep draws. A
-  // journey test file changes none of them, so a push of journey tests alone builds nothing (project-state#3912).
-  const customer = tests && under(changed, /^apps\/customer\/(?!tests\/)/);
-  const routes = tests && changed.includes('apps/customer/tests/real-app/routes.mjs');
+  // Volt count, recorded calls and the render record read apps/customer/src (the render sweep also a helper beside the
+  // journeys), never a journey file: a push of journey files alone builds nothing (project-state#3912).
+  const customer = tests && under(changed, /^apps\/customer\/(?!tests\/real-app\/[^/]+\.pw\.mjs$)/);
   const ui = tests && under(changed, /^packages\/ui\//);
   const contracts = tests && under(changed, /^packages\/contracts\/src\//);
   const vitest = (id, pkg, file, fix, extra = []) => ({
@@ -150,7 +149,7 @@ export function plan({ changed, present, formatExts, registries, has }) {
         "point each read named above at a query its service's router has, or add the query",
       ),
     );
-  if ((customer || ui || routes) && has('apps/customer/src/app/render-record/render.compare.tsx'))
+  if ((customer || ui) && has('apps/customer/src/app/render-record/render.compare.tsx'))
     checks.push({
       id: 'render record',
       build: '@intafaced/customer',
