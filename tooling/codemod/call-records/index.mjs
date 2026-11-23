@@ -632,7 +632,7 @@ function tables(changes, planned, done) {
 }
 
 /** A portal list caller's row schema (its answer is a page of it), or undefined. */
-const listItemOf = (s) => (toolShape(s) ? toolItem(s) : undefined);
+export const listItemOf = (s) => (toolShape(s) ? toolItem(s) : undefined);
 /** A record's answer as written: its schema, or for a portal list, the page of the row schema its callers parsed. */
 const outputText = (r, schema) => (r.chain.outputPage ? pageOf(schema) : schema);
 /** The page a list answers with, as the portal's tool parsed it (`page` in apps/customer/src/features/pay/portal/schemas.ts). */
