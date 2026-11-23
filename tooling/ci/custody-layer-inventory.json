@@ -85,6 +85,7 @@
   "sites": {
     "crates/svc-agents/src/metering/meter.rs": ["feeCharge"],
     "crates/svc-bank/src/earn/service.rs": ["earnDeposit", "earnInterest", "earnPoolFund", "earnWithdraw"],
+    "crates/svc-bank/src/global/send.rs": ["bankTransfer"],
     "crates/svc-bank/src/loans/service.rs": ["loanCollateralLock", "loanCollateralRelease", "loanDraw", "loanRepay", "loanReserveFund"],
     "crates/svc-bank/src/ramps/offramp.rs": ["withdrawHold", "withdrawSettle"],
     "crates/svc-bank/src/ramps/onramp/service.rs": ["deposit"],
