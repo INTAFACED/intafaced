@@ -109,3 +109,14 @@ describe("the beta's moves in code", () => {
     expect(found, 'move with navigate() or leaveTo() (src/app/location.ts), so the beta can turn a hidden room aside').toEqual([]);
   });
 });
+
+describe('the wallet section tabs, which move in code', () => {
+  it('in the beta, list no section whose room it hides, and with the switch off list every section', async () => {
+    const { WALLET_SECTIONS, walletSections } = await import('../features/protocol/routes');
+    const shown = walletSections(list);
+    for (const id of shown) expect(betaHides(WALLET_SECTIONS[id], list), `${id} (${WALLET_SECTIONS[id]})`).toBe(false);
+    for (const id of Object.keys(WALLET_SECTIONS) as (keyof typeof WALLET_SECTIONS)[])
+      if (!shown.includes(id)) expect(betaHides(WALLET_SECTIONS[id], list), id).toBe(true);
+    expect(walletSections(undefined)).toEqual(Object.keys(WALLET_SECTIONS));
+  });
+});
