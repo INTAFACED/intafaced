@@ -454,17 +454,20 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
         {o.referencePrice ? `${canonical(o.referencePrice)} (${t('Reference note')})` : live ? t('reference_none') : ''}
       </td>
       <td data-cell="status" data-label={t('col_status')}>
-        {t(`status_${o.status}`)}
-        {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
-        {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
-        {o.failure ? <span className="lt-note-bad"> · {t('Failure', { failure: o.failure })}</span> : null}
-        {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
-        {o.expireAt ? (
-          <span data-expire-at={o.expireAt}>
-            {' · '}
-            {t(o.status === 'expired' ? 'Expired at' : 'Expires at', { at: new Date(o.expireAt).toLocaleString() })}
-          </span>
-        ) : null}
+        {/* One block, so its words wrap together when the list stacks in the narrow ticket column. */}
+        <span>
+          {t(`status_${o.status}`)}
+          {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
+          {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
+          {o.failure ? <span className="lt-note-bad"> · {t('Failure', { failure: o.failure })}</span> : null}
+          {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
+          {o.expireAt ? (
+            <span data-expire-at={o.expireAt}>
+              {' · '}
+              {t(o.status === 'expired' ? 'Expired at' : 'Expires at', { at: new Date(o.expireAt).toLocaleString() })}
+            </span>
+          ) : null}
+        </span>
       </td>
       <td data-cell="where" data-label={t('col_where')}>
         {o.label}
@@ -479,28 +482,30 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
         </ul>
       </td>
       <td data-cell="actions" data-label={t('col_actions')}>
-        {modifiable && !editing ? (
-          <Button size="sm" tone="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
-            {t('Modify')}
-          </Button>
-        ) : null}
-        {editing ? (
-          <span className="lt-stack-tight lt-tight">
-            <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
-            {o.kind === 'stop_limit' || o.limitPrice !== null ? (
-              <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />
-            ) : null}
-            <Button tone="primary" size="sm" onClick={() => void save()}>
-              {t('Save')}
+        <span className="lt-actions">
+          {modifiable && !editing ? (
+            <Button size="sm" tone="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
+              {t('Modify')}
             </Button>
-          </span>
-        ) : null}
-        {live || resting ? (
-          <Button size="sm" tone="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
-            {t('Cancel')}
-          </Button>
-        ) : null}
-        <RefusalAlert refusal={refusal} />
+          ) : null}
+          {editing ? (
+            <span className="lt-stack-tight lt-tight">
+              <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
+              {o.kind === 'stop_limit' || o.limitPrice !== null ? (
+                <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />
+              ) : null}
+              <Button tone="primary" size="sm" onClick={() => void save()}>
+                {t('Save')}
+              </Button>
+            </span>
+          ) : null}
+          {live || resting ? (
+            <Button size="sm" tone="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
+              {t('Cancel')}
+            </Button>
+          ) : null}
+          <RefusalAlert refusal={refusal} />
+        </span>
       </td>
     </tr>
   );
