@@ -11,6 +11,7 @@ import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAct
 import { validatedMutation, validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
 import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET, PAY_SUBMERCHANT_CREATE } from '@intafaced/contracts/pay-submerchant-procedures';
+import { areaSchema } from '@intafaced/contracts/pay-call-schemas';
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
@@ -306,7 +307,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                         z.object({
                           granteeMerchantId: s.id,
                           subjectMerchantId: s.id,
-                          area: z.string().min(1),
+                          area: areaSchema,
                           reason: z.string().trim().min(3).max(500),
                         }),
                         s.permissionEventSchema,
@@ -320,7 +321,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                         z.object({
                           granteeMerchantId: s.id,
                           subjectMerchantId: s.id,
-                          area: z.string().min(1),
+                          area: areaSchema,
                           reason: z.string().trim().min(3).max(500),
                         }),
                         s.permissionEventSchema,

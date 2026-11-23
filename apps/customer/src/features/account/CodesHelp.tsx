@@ -2,14 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { Button } from '@intafaced/ui/lit';
 import { codesHelpCopy as copy } from './codes-help-copy';
-import {
-  DRIFT_LIMIT_SECONDS,
-  SERVER_TIME_PROCEDURE,
-  clockDriftSeconds,
-  clockVerdict,
-  serverTimeSchema,
-  type ClockVerdict,
-} from './codes-help';
+import { DRIFT_LIMIT_SECONDS, clockDriftSeconds, clockVerdict, serverTimeSchema, type ClockVerdict } from './codes-help';
 
 type Check = { kind: 'checking' } | { kind: 'failed' } | { kind: 'done'; verdict: ClockVerdict };
 
@@ -33,7 +26,7 @@ export function CodesHelp({ onReplace, onClose }: { onReplace: () => void; onClo
     const mine = ++latest.current;
     setCheck({ kind: 'checking' });
     const sentAt = Date.now();
-    const answer = await apiRef.current.query('identity', SERVER_TIME_PROCEDURE, undefined, serverTimeSchema);
+    const answer = await apiRef.current.query('identity', 'serverTime', undefined, serverTimeSchema);
     const receivedAt = Date.now();
     if (!mounted.current || mine !== latest.current) return;
     if (!answer.ok) return setCheck({ kind: 'failed' });

@@ -47,7 +47,7 @@ export async function scratch(config: AdminSessionConfig, ctx: FounderCallContex
   await founderEdgeCall(config, 'ops', 'outreach.getContactProvenance', 'GET', input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_TASKS, input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_MESSAGES, input, token);
-  await founderEdgeCall(config, 'ops', 'outreach.documentProviderStatus', 'GET', input, token);
+  await founderEdgeCall(config, 'ops', 'outreach.documentProviderStatus', 'GET', undefined, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_UPSERT_CAMPAIGN, input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_UPSERT_SOURCE_MAPPING, input, token);
   await founderEdgeCall(config, 'ops', 'outreach.mergeContacts', 'POST', input, token);
