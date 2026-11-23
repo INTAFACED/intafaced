@@ -84,9 +84,13 @@ export const TEST_PARTNER_UNLISTED_DECLINE = 'test_partner.unlisted_reason';
  */
 export const TEST_PARTNER_STALE_AFTER_MS = 60_000;
 
-/** The TEST partner's send limit and fee (J-bank-16 #6). Made up for test stacks; not an owner decision or a partner's price. */
+/**
+ * The TEST partner's send limit and fee (J-bank-16 #6). Made up for test stacks; not an owner decision or a partner's
+ * price. The fee is what its move for a send to another person takes, which is nothing, as a move between a person's own
+ * accounts takes nothing (`quoteMove`): a stated fee its move did not take would be a figure nobody pays (J-pay-01 #3).
+ */
 export const TEST_PARTNER_DAILY_SEND = '1000';
-export const TEST_PARTNER_SEND_FEE = '0.5';
+export const TEST_PARTNER_SEND_FEE = '0';
 
 /** The stand-in merchant a TEST payment at the partner goes to (`testPartner.spend`). It is on no person's list of balances. */
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';

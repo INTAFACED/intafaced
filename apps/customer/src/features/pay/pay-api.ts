@@ -547,15 +547,18 @@ export function createPersonalPayApi(
     if (denied) return denied;
     const result = await api.call(BANK_SPACES_LIST, { limit: 200 }, { signal });
     if (!result.ok) return result;
-    // A space the partner bank holds has no ledger account, so Pay cannot draw on it: it is not offered as a source.
-    const payable = result.data.flatMap((space) => (space.ledgerAccount ? [{ ...space, ledgerAccount: space.ledgerAccount }] : []));
+    // A space is paid from on the book that holds it: the ledger's account for it, or the partner bank's account when
+    // the partner holds the money (`heldAt`; the bank's send is then the partner's one move, J-pay-01). A space with
+    // neither is not offered, and a ledger account that is not this space's own refuses the whole read.
+    const payable = result.data.filter((space) => space.ledgerAccount !== null || space.heldAt !== null);
     if (
       payable.some(
         (space) =>
-          space.ledgerAccount.assetId !== space.assetId ||
-          (space.kind === 'primary'
-            ? space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== userId
-            : space.ledgerAccount.ownerType !== 'subaccount' || space.ledgerAccount.ownerId !== space.id),
+          space.ledgerAccount !== null &&
+          (space.ledgerAccount.assetId !== space.assetId ||
+            (space.kind === 'primary'
+              ? space.ledgerAccount.ownerType !== 'user' || space.ledgerAccount.ownerId !== userId
+              : space.ledgerAccount.ownerType !== 'subaccount' || space.ledgerAccount.ownerId !== space.id)),
       )
     )
       return payRefusal('theSourceAccountProjectionDoesNotMatch', { code: 'pay.source_projection_invalid', reason: 'invalid_response' });
