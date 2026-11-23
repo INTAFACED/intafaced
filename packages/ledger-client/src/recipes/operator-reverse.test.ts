@@ -76,8 +76,9 @@ describe('operatorReverse', () => {
     for (const ordinal of ['0', '-1', '1.5', '01', '', ' 1', '1e3', '12345678901234567890']) {
       expect(() => operatorReverse(input({ ordinal })), ordinal).toThrow(InvalidEntryError);
     }
-    // oxlint-disable-next-line garden/no-double-cast -- a number where the wire says string, passed wrong on purpose
-    expect(() => operatorReverse(input({ ordinal: 1 as unknown as string }))).toThrow(InvalidEntryError);
+    // A number where the wire says string, as an untyped caller could send it.
+    const numeric: OperatorReverseInput = JSON.parse(JSON.stringify({ ...input(), ordinal: 1 }));
+    expect(() => operatorReverse(numeric)).toThrow(InvalidEntryError);
     expect(operatorReverse(input({ ordinal: '1234567890123456789' })).idempotencyKey).toMatch(/:1234567890123456789$/);
   });
 
