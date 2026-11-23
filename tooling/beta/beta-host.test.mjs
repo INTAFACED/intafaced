@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  ANVIL_IMAGE,
   BETA_LINK,
   BETA_SLOT,
   MAILBOX_PORT,
   UPDATE_EVERY_MS,
+  anvilLauncher,
   betaPaths,
   decide,
+  ensureAnvil,
   environEntries,
   fundsCheck,
+  HOSTED_TEST_NETWORK_HOSTS,
+  hostedAllowList,
   mailboxPage,
   mailboxRows,
   outsideAddresses,
@@ -116,6 +124,56 @@ test('fundsCheck fails closed: no process, no readable process, no page, or a pa
   assert.match(noBanner.lines[0], /lacks the TEST banner/);
 });
 
+test('hosted allow list (#10208): the test networks and the beta host pass; a planted mainnet or bank host fails', () => {
+  const allow = hostedAllowList('Beta.Example-Host.com');
+  assert.deepEqual([...allow].sort(), [...HOSTED_TEST_NETWORK_HOSTS, 'beta.example-host.com'].sort());
+  const records = { trade: { pid: 31 } };
+  const hosted = {
+    TRADE_USER_VENUE_URL: 'https://api.hyperliquid-testnet.xyz',
+    PAY_CRYPTO_RPC_URL: 'https://sepolia.base.org',
+    PUBLIC_URL: 'https://beta.example-host.com/app',
+    EDGE_URL: 'http://127.0.0.1:17500',
+  };
+  const pass = fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE, allow });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.match(
+    pass.lines.join('\n'),
+    /1 of 1 running processes: every address in their environments is this machine, a reserved name or the hosted allow list/,
+  );
+
+  // Without the allow list, the same hosted environment is three findings: the loopback check is unchanged.
+  assert.equal(fundsCheck({ records, readEnviron: () => environ(hosted), page: PAGE }).ok, false);
+
+  for (const [key, url, host] of [
+    ['TRADE_USER_VENUE_URL', 'https://api.hyperliquid.xyz', 'api.hyperliquid.xyz'],
+    ['PAY_CRYPTO_RPC_URL', 'https://mainnet.base.org', 'mainnet.base.org'],
+    ['BANK_RAIL_URL', 'https://api.bank-live.com/v1', 'api.bank-live.com'],
+    ['PAY_CRYPTO_RPC_URL', 'https://sepolia.base.org.attacker.net', 'sepolia.base.org.attacker.net'],
+    ['TRADE_USER_VENUE_URL', 'wss://ws.api.hyperliquid-testnet.xyz', 'ws.api.hyperliquid-testnet.xyz'],
+  ]) {
+    const r = fundsCheck({ records, readEnviron: () => environ({ ...hosted, [key]: url }), page: PAGE, allow });
+    assert.equal(r.ok, false, `${url} must fail`);
+    assert.ok(
+      r.lines.includes(`FAIL trade (pid 31): ${key} names ${url.split(':')[0]}://${host}, off this machine and the hosted allow list`),
+      r.lines.join('\n'),
+    );
+  }
+});
+
+test('hosted allow list (#10208): the beta host is one plain DNS name, else it throws and nothing runs open', () => {
+  for (const bad of [
+    undefined,
+    '',
+    'localhost',
+    '*.example.com',
+    'https://beta.example.com',
+    'beta.example.com:443',
+    'beta.example.com/x',
+    'a b.com',
+  ])
+    assert.throws(() => hostedAllowList(bad), /one plain DNS name/, String(bad));
+});
+
 test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {
   assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
   assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
@@ -204,4 +262,66 @@ test('reserved names never reach a service, so they pass; a real host that only 
     ['PAY_MERCHANT_TERMS_URL', 'https://terms.example/t'],
   ]);
   assert.deepEqual(found, []);
+});
+
+test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-anvil-'));
+  const paths = betaPaths(dir);
+  fs.mkdirSync(paths.root, { recursive: true });
+  const calls = [];
+  const sh = (ok) => (cmd, args) => (calls.push([cmd, ...args].join(' ')), { status: ok(args) ? 0 : 1 });
+
+  // The image is missing: it is pulled, then the launcher is written and the stack is given it.
+  assert.deepEqual(
+    ensureAnvil(
+      paths,
+      sh((a) => a[0] === 'pull'),
+    ).fresh,
+    true,
+    'a new launcher',
+  );
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).line,
+    /on the box/,
+  );
+  assert.deepEqual(calls, [
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+    `docker pull --quiet ${ANVIL_IMAGE}`,
+    `docker image inspect --format {{.Id}} ${ANVIL_IMAGE}`,
+  ]);
+  assert.equal(
+    ensureAnvil(
+      paths,
+      sh(() => true),
+    ).fresh,
+    false,
+    'the same launcher is not new',
+  );
+  assert.equal(fs.readFileSync(paths.anvil, 'utf8'), anvilLauncher());
+  assert.match(
+    anvilLauncher(),
+    /^#!\/bin\/sh\nexec docker run --rm --init --network host ghcr\.io\/foundry-rs\/foundry:v1\.5\.1 "anvil \$\*"\n$/,
+  );
+  assert.equal(fs.statSync(paths.anvil).mode & 0o777, 0o755);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, paths.anvil);
+  assert.equal(stackEnv(paths, { LOCAL_STACK_ANVIL_BIN: '/opt/anvil' }).LOCAL_STACK_ANVIL_BIN, '/opt/anvil', 'a chosen anvil wins');
+
+  // The image is the one CI's journeys run their chain with.
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes(`docker run --rm --init --network host ${ANVIL_IMAGE} "anvil $*"`));
+
+  // No docker, or a failed pull: no launcher, and the stack starts as before, with no TEST chain.
+  calls.length = 0;
+  assert.match(
+    ensureAnvil(
+      paths,
+      sh(() => false),
+    ).line,
+    /no TEST chain/,
+  );
+  assert.equal(fs.existsSync(paths.anvil), false);
+  assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
 });

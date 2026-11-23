@@ -149,10 +149,15 @@
 <button type="button" aria-pressed="false">I want to buy</button>
 <button type="button" aria-pressed="false">I want to sell</button>
 </div>
-<details>
+<details class="lit-fold">
 <summary>
+<span data-part="title">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.filters">Filters</span>
+</span>
+<span data-part="mark" aria-hidden="true">
+</span>
 </summary>
+<div data-part="body">
 <form data-testid="pay-filters">
 <div class="lit-field-control">
 <label for="_r_3_">Asset</label>
@@ -198,6 +203,7 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
+</div>
 </details>
 <div lang="und">
 <div class="lt-refusal" data-refusal="refused" role="status">
@@ -214,10 +220,15 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.refreshMarket">Refresh offers</span>
 </button>
-<details>
+<details class="lit-fold">
 <summary>
+<span data-part="title">
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.known">Open a specific offer</span>
+</span>
+<span data-part="mark" aria-hidden="true">
+</span>
 </summary>
+<div data-part="body">
 <form class="lt-stack">
 <div class="lit-field-control">
 <label for="_r_5_">Offer ID</label>
@@ -227,6 +238,7 @@
 <span lang="en" dir="ltr" data-i18n="pay.p2p.offer.inspect">Inspect current offer</span>
 </button>
 </form>
+</div>
 </details>
 </section>
 </div>

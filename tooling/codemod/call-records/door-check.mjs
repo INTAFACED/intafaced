@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { callsOf } from './door.mjs';
+import { doorRefines } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
@@ -42,6 +43,10 @@ const REFINES = {
 // A refine's source as tsc emits it may differ from tsx's only in spacing: compare without whitespace.
 const squash = (s) => s.replace(/\s+/g, '');
 const REFINE_BY = new Map(Object.entries(REFINES).map(([src, id]) => [squash(src), id]));
+/** A door's own names for its refines (its recorder's table, door-refine.mjs), read beside the ones named above. */
+export const knowRefines = (names) => {
+  for (const [src, id] of names) REFINE_BY.set(src, id);
+};
 
 const LENGTH_WHEN = 'val.length !== undefined';
 
@@ -172,6 +177,7 @@ function args(argv) {
 async function main() {
   const opts = args(process.argv.slice(2));
   const crate = join(REPO, opts.door);
+  knowRefines(doorRefines(opts.door));
   const { nodes, inputs } = JSON.parse(readFileSync(join(crate, 'src/door/schemas.json'), 'utf8'));
   const rows = new Map();
   const row = (path, module) => {

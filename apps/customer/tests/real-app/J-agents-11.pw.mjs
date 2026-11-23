@@ -270,7 +270,7 @@ test(`${J} #1 opens Team and grants creator, runner, approver, log reader and sp
   await page.reload();
   await expect(members(page).getByRole('row').locator('td code')).toHaveCount(ids.length);
   await expect(members(page).getByRole('row').filter({ hasText: NOT_A_MEMBER })).toHaveCount(0);
-  expect((await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
+  await expect.poll(async () => (await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
   await expect(rowOf(members(page), 'one').getByTestId('effective-roles')).toHaveText(ROLES.join(', '));
 });
 

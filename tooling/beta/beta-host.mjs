@@ -16,7 +16,9 @@
  *                                             write status.json: `updating` from before the checkout moves until then,
  *                                             so the front shows its updating page, never a half-built app (#10299)
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
- *                                             stack's state folder); exit 1 on any finding
+ *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
+ *                                             also passes the exact hosted allow list: the test networks' hosts and the
+ *                                             beta's own, nothing else (hostedAllowList)
  *   node tooling/beta/beta-host.mjs status    what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
@@ -82,6 +84,8 @@ export function betaPaths(home = os.homedir()) {
     frontUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-front.service'),
     /** The hash of the beta-front.mjs the front service was last started on. */
     front: path.join(root, 'front.json'),
+    /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
+    anvil: path.join(root, 'anvil'),
   };
 }
 
@@ -97,8 +101,9 @@ const BETA_CADENCE_SECONDS = 300;
  * reach, and its TEST market re-quotes and its lake captures every BETA_CADENCE_SECONDS. Its database keeps crash
  * durability, so a box restart keeps the testers' accounts (#10352).
  */
-export const stackEnv = (paths, env = process.env) => ({
+export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(paths.anvil)) => ({
   ...env,
+  ...(hasAnvil && !env.LOCAL_STACK_ANVIL_BIN ? { LOCAL_STACK_ANVIL_BIN: paths.anvil } : {}),
   LOCAL_STACK_SLOT: String(BETA_SLOT),
   LOCAL_STACK_STATE: paths.state,
   LOCAL_STACK_CODE_REACH: 'off',
@@ -107,19 +112,75 @@ export const stackEnv = (paths, env = process.env) => ({
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
 });
 
+/**
+ * The TEST chain's anvil on the beta: the same pinned foundry image and `docker run` launcher the journeys use
+ * (.github/workflows/real-app-journeys.yml, "Get an anvil launcher"). The box has no anvil of its own, and without one the
+ * stack starts no TEST chain: svc-indexer is not started and svc-protocol keeps no node, so /dex, /chain, /protocol and
+ * /dex/pools only ever said "didn't answer" or "Checking network…" (#10305). Host network, so anvil binds the loopback
+ * port the stack names; the stack's stop signals the client, which passes it to the container (--init, --rm).
+ */
+export const ANVIL_IMAGE = 'ghcr.io/foundry-rs/foundry:v1.5.1';
+export const anvilLauncher = (image = ANVIL_IMAGE) => `#!/bin/sh\nexec docker run --rm --init --network host ${image} "anvil $*"\n`;
+
+/**
+ * Puts the launcher in place once its image is on the box (pulled when missing), and returns the round.log line and
+ * whether the launcher is new (`fresh`): a stack already running with no chain has started svc-protocol, svc-indexer's
+ * absence and every other service's chain settings without one, so the round restarts it once onto the chain. With no
+ * docker or a failed pull the launcher is removed, so the stack starts as before, with no TEST chain, rather than failing
+ * its launch on a chain that cannot start.
+ */
+export function ensureAnvil(paths, sh = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', timeout: 15 * 60_000 })) {
+  const have = sh('docker', ['image', 'inspect', '--format', '{{.Id}}', ANVIL_IMAGE]).status === 0;
+  const pulled = have || sh('docker', ['pull', '--quiet', ANVIL_IMAGE]).status === 0;
+  if (!pulled) {
+    fs.rmSync(paths.anvil, { force: true });
+    return { line: `anvil: no ${ANVIL_IMAGE} (docker missing or the pull failed); the stack starts with no TEST chain`, fresh: false };
+  }
+  const fresh = !fs.existsSync(paths.anvil);
+  const text = anvilLauncher();
+  if (fresh || fs.readFileSync(paths.anvil, 'utf8') !== text) fs.writeFileSync(paths.anvil, text);
+  fs.chmodSync(paths.anvil, 0o755);
+  return { line: `anvil: ${ANVIL_IMAGE} ${have ? 'on the box' : 'pulled'}; the stack runs its TEST chain with ${paths.anvil}`, fresh };
+}
+
 // ── The TEST funds check ────────────────────────────────────────────────────
+
+const NO_HOSTS = new Set();
+
+/**
+ * The public test networks' hosts a hosted beta may reach (#10208), each exactly: the Hyperliquid test network's API
+ * (packages/venue-hyperliquid HL_TESTNET_API_URL) and the Base Sepolia RPC. A host is allowed only by an exact match,
+ * never a suffix, so `sepolia.base.org.attacker.net` is a finding. Adding a test network here is the only way to open
+ * one; a mainnet, a bank or a card rail never goes on it.
+ */
+export const HOSTED_TEST_NETWORK_HOSTS = Object.freeze(['api.hyperliquid-testnet.xyz', 'sepolia.base.org']);
+
+/**
+ * The exact allow list for a hosted beta: the test networks' hosts and the beta's own host, nothing else. `betaHost`
+ * must be one plain DNS name (no scheme, port, path or wildcard); anything else throws, so the check never runs open.
+ */
+export function hostedAllowList(betaHost) {
+  const host = String(betaHost ?? '')
+    .trim()
+    .toLowerCase();
+  const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  if (!new RegExp(`^${label}(?:\\.${label})+$`).test(host))
+    throw new Error(`beta: the hosted beta's host must be one plain DNS name like beta.example.com, not "${betaHost ?? ''}"`);
+  return new Set([...HOSTED_TEST_NETWORK_HOSTS, host]);
+}
 
 /**
  * Every address in one process environment that names a host other than this machine, as `{ key, scheme, host }`. A
- * value is read for every `scheme://[user@]host` in it (a list of URLs counts each one). The value itself is never
- * returned: environments hold the stack's secrets.
+ * value is read for every `scheme://[user@]host` in it (a list of URLs counts each one). `allow` (a hosted beta's
+ * `hostedAllowList`) adds hosts that pass by exact match; without it only this machine and reserved names pass. The
+ * value itself is never returned: environments hold the stack's secrets.
  */
-export function outsideAddresses(entries) {
+export function outsideAddresses(entries, allow = NO_HOSTS) {
   const out = [];
   for (const [key, value] of entries) {
     for (const m of String(value).matchAll(/\b([a-z][a-z0-9+.-]*):\/\/(?:[^/\s@"',;]*@)?(\[[^\]]+\]|[^/\s:,;"'?#]+)/gi)) {
       const host = m[2].toLowerCase();
-      if (!LOOPBACK.has(host) && !reservedHost(host)) out.push({ key, scheme: m[1].toLowerCase(), host });
+      if (!LOOPBACK.has(host) && !reservedHost(host) && !allow.has(host)) out.push({ key, scheme: m[1].toLowerCase(), host });
     }
   }
   return out;
@@ -140,7 +201,7 @@ export const environEntries = (text) =>
  * `readEnviron(pid)` gives a process's environ text or null; `page` is the Customer page's HTML or null. Returns
  * `{ ok, lines }`, one line per finding or pass, naming keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, page }) {
+export function fundsCheck({ records, readEnviron, page, allow = NO_HOSTS }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -151,12 +212,14 @@ export function fundsCheck({ records, readEnviron, page }) {
     const text = readEnviron(r.pid);
     if (text == null) continue; // a process that has ended holds no route
     read++;
-    const outside = outsideAddresses(environEntries(text));
+    const outside = outsideAddresses(environEntries(text), allow);
     if (outside.length === 0) clean++;
-    for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, off this machine`);
+    const off = allow.size ? 'off this machine and the hosted allow list' : 'off this machine';
+    for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, ${off}`);
   }
   if (named.length && read === 0) findings.push('no running process could be read');
-  if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is this machine or a reserved name`);
+  const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
+  if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is ${where}`);
   if (page == null) findings.push('the Customer page did not answer');
   else if (!page.includes(BANNER_MARK)) findings.push(`the Customer page lacks the TEST banner ("${BANNER_MARK}")`);
   else passes.push(`the Customer page carries the TEST banner ("${BANNER_MARK}")`);
@@ -190,9 +253,9 @@ function getText(url) {
   });
 }
 
-async function checkStack(state, link) {
+async function checkStack(state, link, allow = NO_HOSTS) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, page: await getText(link) });
+  return fundsCheck({ records, readEnviron, page: await getText(link), allow });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
@@ -411,12 +474,13 @@ const roundIo = {
   run,
   check: checkStack,
   readied: readiedNow,
+  anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, sleep, now } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -437,6 +501,8 @@ export async function round(paths = betaPaths(), io = {}) {
       reason: `no TEST screening file at ${paths.screening}: Edge would refuse every call, so nothing is built (docs/runbooks/beta-link.md)`,
       sha: head,
     });
+  const chain = anvil(paths);
+  log(paths, chain.line);
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
@@ -445,7 +511,7 @@ export async function round(paths = betaPaths(), io = {}) {
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const warm = !chain.fresh && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
   if (!warm)
     writeStatus(paths, {
       state: 'updating',
@@ -461,6 +527,10 @@ export async function round(paths = betaPaths(), io = {}) {
     if (co.status !== 0) return finish(paths, { state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head });
     if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0)
       return finish(paths, { state: 'down', reason: 'pnpm install failed (round.log)', sha, updatedAt, mainAt });
+  }
+  if (chain.fresh) {
+    log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
+    await stopStack(paths, run);
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
@@ -677,7 +747,9 @@ async function main(argv) {
     const state = i >= 0 ? path.resolve(rest[i + 1]) : paths.state;
     const marker = readJson(path.join(state, 'LOCAL-TEST-STACK.json'), {});
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
-    const c = await checkStack(state, link);
+    const h = rest.indexOf('--hosted');
+    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : NO_HOSTS;
+    const c = await checkStack(state, link, allow);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);
   }
@@ -704,7 +776,9 @@ async function main(argv) {
     console.log(`installed ${paths.unit}; status: node tooling/beta/beta-host.mjs status`);
     return;
   }
-  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install | invited-test [--watch]');
+  console.error(
+    'usage: beta-host.mjs serve | round | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+  );
   process.exit(2);
 }
 
