@@ -657,8 +657,8 @@
   .money-filter + .money-card--activity {
     margin-top: var(--if-space-3);
   }
-  /* The corners clip the rows' backgrounds by shape, not by overflow: the trade tables inside scroll sideways on their own
-     (the kit's lt-table-scroll), and an overflow clip around them would cut what that scroll shows. */
+  /* The corners clip the rows' backgrounds by shape, not by overflow: the trade tab inside scrolls sideways on its own,
+     and an overflow clip around it would cut what that scroll shows. */
   .money-card--activity {
     margin-top: var(--if-space-4);
     padding-bottom: 0;
@@ -676,10 +676,11 @@
     color: var(--if-warn);
     font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
-  /* No scroller of its own: the kit's table scrolls inside it (`lt-table-scroll`), and a second one around it would cut what that one shows. */
+  /* The trade tables are bare kit tables with no scroller of their own: this tab scrolls them sideways. */
   .money-trade-tab {
     min-inline-size: 0;
     padding-bottom: var(--if-space-2);
+    overflow-x: auto;
   }
   .money-trade-tab .lt-table th:first-child,
   .money-trade-tab .lt-table td:first-child {
