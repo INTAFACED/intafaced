@@ -6,7 +6,7 @@ import { homeCopy } from './copy';
 import { Button } from '@intafaced/ui/lit';
 import { fmtAmount } from './deps';
 import { Amount, Ghost, StateBlock, StatusTag } from './volt-parts';
-import { HOME_CONFIG_UNWIRED, needsYouShown, ratioPercent, type NeedsYouShown, type WorkList as List } from './work-list';
+import { HOME_CONFIG_UNWIRED, needsYouShown, ratioPercent, rowsShown, type NeedsYouShown, type WorkList as List } from './work-list';
 import { useWorkList } from './work-list-data';
 import { usePreferences } from '../../shared/preferences';
 
@@ -111,7 +111,7 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
     <>
       {list.items.length > 0 ? (
         <ul data-testid="home-work__rows" className="lt-rows">
-          {list.items.map((item) => (
+          {rowsShown(list.items).map((item) => (
             <Row key={item.id} item={item} hidden={hidden} />
           ))}
         </ul>
@@ -155,7 +155,14 @@ function Row({ item, hidden }: { item: WorkItem; hidden: boolean }) {
   const severity = SEVERITY[item.severity];
   return (
     <li>
-      <a data-testid="home-work__row" className="lt-row-link" href={item.link} data-kind={item.kind} data-severity={item.severity}>
+      <a
+        data-testid="home-work__row"
+        className="lt-row-link"
+        data-span="row"
+        href={item.link}
+        data-kind={item.kind}
+        data-severity={item.severity}
+      >
         <span className="lt-lines">
           <span>
             <Copy k={known ?? KIND_TITLE[item.kind]} />

@@ -61,7 +61,7 @@ use svc_matching::journal::{decode_all, encode};
 
 // ═══ harness ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::ONE;
 
 /// Calendar: buying the spread sells the near leg and buys the far leg. Spread = far - near. Near is the anchor.
 const CAL: &str = "BTC-CAL-MAR-JUN";
@@ -329,7 +329,7 @@ fn place(engine: &mut MatchingEngine, spread_id: &str, s: &Spec) -> SubmitResult
     submit_spread(engine, spread_id, &s.input())
 }
 
-fn sign(side: Side) -> Amount {
+fn sign(side: Side) -> i128 {
     match side {
         Side::Buy => 1,
         Side::Sell => -1,
@@ -340,14 +340,14 @@ fn sign(side: Side) -> Amount {
 fn expect_whole_spread(fill: &Fill, instrument: &SpreadInstrument) {
     let legs = fill.legs.as_ref().expect("a spread fill carries its legs");
     assert_eq!(legs.len(), instrument.legs.len());
-    let mut spread: Amount = 0;
+    let mut spread = Amount::ZERO;
     for (leg, printed) in instrument.legs.iter().zip(legs) {
         assert_eq!(printed.symbol, leg.symbol);
         assert_eq!(
-            printed.qty.checked_mul(SCALE).unwrap(),
-            fill.qty.checked_mul(leg.ratio).unwrap()
+            printed.qty.scaled().checked_mul(SCALE.scaled()).unwrap(),
+            fill.qty.scaled().checked_mul(leg.ratio.scaled()).unwrap()
         );
-        assert!(printed.price > 0);
+        assert!(printed.price > Amount::ZERO);
         let taker_side = if fill.taker_side == Side::Buy {
             leg.side
         } else {

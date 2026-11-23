@@ -440,7 +440,7 @@ fn tx_by_key(d: &Deps<'_>, key: &str) -> Result<Option<LedgerTx>, Refusal> {
 /// `canonical`: a positive decimal amount, as text and as the ledger's number.
 fn canonical(raw: &str) -> Result<(String, Amount), Refusal> {
     let a = parse_amount(raw).map_err(|_| invalid())?;
-    if a <= 0 {
+    if a <= Amount::ZERO {
         return Err(invalid());
     }
     Ok((format_amount(a), a))
@@ -484,7 +484,7 @@ fn provider_decimal(raw: &str, allow_zero: bool) -> Result<String, Refusal> {
         return Err(unusable());
     }
     let a = parse_amount(raw).map_err(|_| unusable())?;
-    if a < 0 || (!allow_zero && a == 0) {
+    if a < Amount::ZERO || (!allow_zero && a == Amount::ZERO) {
         return Err(unusable());
     }
     Ok(raw.to_owned())
@@ -571,7 +571,7 @@ fn usable_corridor(row: &Corridor) -> Result<Corridor, Refusal> {
     }
     let bound = |v: &Option<String>| -> Result<Option<String>, Refusal> {
         let Some(v) = v else { return Ok(None) };
-        if !rules::is_decimal(v) || parse_amount(v).map_err(|_| unusable())? <= 0 {
+        if !rules::is_decimal(v) || parse_amount(v).map_err(|_| unusable())? <= Amount::ZERO {
             return Err(unusable());
         }
         Ok(Some(v.clone()))
@@ -1855,7 +1855,7 @@ pub fn refund_return(d: &Deps<'_>, send_id: &str, operator: &str) -> Result<Json
     if fee.is_empty() || !rules::is_decimal(fee) {
         return Err(refuse("bank.refund_fee_unset"));
     }
-    if parse_amount(fee).map_err(Refusal::Other)? != 0 {
+    if parse_amount(fee).map_err(Refusal::Other)? != Amount::ZERO {
         return Err(refuse("bank.refund_fee_unsupported"));
     }
     let rail = rail_id(d, "bank.global_payout_unusable")?;

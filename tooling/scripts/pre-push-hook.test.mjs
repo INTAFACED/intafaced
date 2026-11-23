@@ -563,3 +563,26 @@ test('a push to main is refused though it brings nothing new (main moved back to
     p.done();
   }
 });
+
+// The CI-running notice, planted: it prints the shas the hook hands it, then exits as told (its own tests hold the real
+// one's reads of gh: tooling/scripts/pre-push-ci-running.test.mjs).
+const notice = (code) => ({
+  'tooling/scripts/pre-push-ci-running.mjs': `console.log('notice for ' + process.argv.slice(2).join(' ')); process.exit(${code});\n`,
+});
+
+test('the CI-running notice gets the head each push replaces and prints at the end; it never refuses (project-state#3754)', () => {
+  for (const code of [0, 1]) {
+    const p = plant({ change: notice(code) });
+    try {
+      assert.equal(p.push().code, 0);
+      const before = git(p.work, 'rev-parse', 'HEAD').trim();
+      writeFileSync(join(p.work, 'src', 'a.ts'), 'export const a = 2;\n');
+      git(p.work, 'commit', '-qam', 'again');
+      const r = p.push();
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, new RegExp(`^notice for ${before}$`, 'm'), 'its line names the replaced head');
+    } finally {
+      p.done();
+    }
+  }
+});

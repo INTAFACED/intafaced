@@ -38,6 +38,7 @@ import type { MarketData } from '../trade/markets/deps';
 import { createTradeApi } from '../../features/trade/trade-api';
 import { useSession } from '../../features/session/session';
 import { normalizePair } from '../../app/navigation';
+import { balanceRefusal } from './balance-refusal';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
@@ -251,7 +252,7 @@ function Summary({
     );
 
   if (portfolio.status === 'error' || portfolio.status === 'refused') {
-    const refused = portfolio.status === 'refused' ? refusalCopy(portfolio.code) : null;
+    const refused = portfolio.status === 'refused' ? balanceRefusal(portfolio.code) : null;
     return (
       <section data-testid="hp-summary" className="lt-stack" aria-label={tp('Home summary')}>
         {portfolio.status === 'error' ? (

@@ -267,7 +267,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
               {offered.length === 0 ? (
                 <NoPayable waitingN={waitingN} />
               ) : (
-                <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => e.preventDefault()} noValidate>
+                <form data-testid="form-stack" className="lt-stack" onSubmit={(e) => e.preventDefault()} noValidate>
                   <PaySection title={t('pnStep1')} description={t('pnStep1Body')}>
                     <SelectField
                       label={t('pnSettlement')}

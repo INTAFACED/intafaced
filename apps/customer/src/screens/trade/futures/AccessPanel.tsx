@@ -37,7 +37,7 @@ function GateLine({ gated, symbol }: { gated: Loadable<GatedList>; symbol: strin
   const contract = gated.data.contracts.find((c) => c.symbol === symbol);
   if (!contract) return <p className={note}>{t('Access not listed')}</p>;
   return (
-    <div className="flex flex-col gap-1" data-testid="futures-gate">
+    <div className="lt-stack" data-testid="futures-gate">
       <div className="flex items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-medium">{t('Access')}</h3>
         <Badge tone={contract.open ? 'lime' : 'warn'}>{contract.open ? t('Access open') : t('Access blocked')}</Badge>

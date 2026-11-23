@@ -1351,3 +1351,27 @@ fn the_test_merchant_refund_refuses_off_the_test_stack() {
     let a = refund(&k, &uuid(), "door-2", "1");
     assert_eq!(a.code(), "bank.test_partner_off");
 }
+
+#[test]
+fn currencies_remove_refuses_while_the_card_partner_holds_an_open_authorisation_in_that_asset() {
+    let Some(k) = held() else { return };
+    k.db.client()
+        .execute(
+            "INSERT INTO bank.spaces (user_id, asset_id, kind, name) VALUES ($1, 'USDC', 'primary', 'USDC')",
+            &[&HOLDER],
+        )
+        .unwrap();
+    let c = usdc(&k);
+    let a = authorize(&k, &c, "jb01-card-hold-1", "40").ok();
+    assert_eq!(text(&a, "decision"), "approved");
+    assert_eq!(figures(&k, &c), pair("60", "40"));
+
+    let removed = call(
+        &k,
+        HOLDER,
+        CUSTOMER,
+        "currencies.remove",
+        &Json::obj([("assetId", Json::str("USDC"))]),
+    );
+    assert_eq!(removed.code(), "bank.currency_in_use");
+}

@@ -4,7 +4,8 @@
 //!
 //! A signed service call only (svc-edge's signature is not one), its body bound; then the door's switch (403), the
 //! body (400, zod's issues as `<path>: <message>`), the subject (400), and the record (404 when none it may age).
-//! Subjects: an open shared pot invite, an open business invite, and a pay-yourself rule's next run.
+//! Subjects: an open shared pot invite, an open business invite, a pay-yourself rule's next run, and an active
+//! scheduled transfer's start, end and next run.
 
 use service_kit::json::{self, Json};
 use service_kit::s2s_verify::BodyBind;
@@ -20,7 +21,12 @@ pub const ENV: &str = "TEST_AGE_DOOR";
 /// The longest a record is aged at once (`TEST_AGE_MAX_MS`): a day.
 pub const MAX_MS: i64 = 86_400_000;
 /// The subjects, in the order `index.ts` names them.
-pub const SUBJECTS: [&str; 3] = ["shared-pot-invite", "business-invite", "pay-yourself-rule"];
+pub const SUBJECTS: [&str; 4] = [
+    "shared-pot-invite",
+    "business-invite",
+    "pay-yourself-rule",
+    "scheduled-transfer",
+];
 
 /// `testAgeDoorOpen`: unset or `off` is closed; `on` only in an explicit dev or test process.
 pub fn open(
@@ -111,6 +117,14 @@ fn age(
                   RETURNING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), \
                             to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')",
                 &["createdAt", "expiresAt"],
+            ),
+            "scheduled-transfer" => (
+                "UPDATE bank.scheduled_transfers \
+                    SET starts_at = starts_at - make_interval(secs => $2::text::double precision), ends_at = ends_at - make_interval(secs => $2::text::double precision), next_run_at = next_run_at - make_interval(secs => $2::text::double precision) \
+                  WHERE id = $1::text::uuid AND status = 'active' \
+                  RETURNING to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), \
+                            to_char(next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')",
+                &["startsAt", "nextRunAt"],
             ),
             _ => (
                 "UPDATE bank.pay_yourself_rules SET next_run_at = next_run_at - make_interval(secs => $2::text::double precision) \

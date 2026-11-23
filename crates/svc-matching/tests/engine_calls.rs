@@ -647,7 +647,7 @@ mod close_position {
         assert_eq!(f(result.fills[0].qty), "2");
         assert_eq!(f(result.fills[0].price), "100");
         assert_eq!(result.fills[0].taker_side, Side::Sell);
-        assert_eq!(book(&engine).net_position("desk"), 0);
+        assert_eq!(book(&engine).net_position("desk"), Amount::ZERO);
         assert_eq!(position_of(&state(&engine), "desk"), None);
     }
 
@@ -677,7 +677,7 @@ mod close_position {
         assert_eq!(f(result.fills[0].qty), "2");
         assert_eq!(f(result.fills[0].price), "100");
         assert_eq!(result.fills[0].taker_side, Side::Buy);
-        assert_eq!(book(&engine).net_position("desk"), 0);
+        assert_eq!(book(&engine).net_position("desk"), Amount::ZERO);
     }
 
     #[test]
@@ -750,7 +750,7 @@ mod close_position {
         let live = engine.serialize();
         let recovered = reboot(&engine);
         assert_eq!(recovered.serialize(), live);
-        assert_eq!(book(&recovered).net_position("desk"), 0);
+        assert_eq!(book(&recovered).net_position("desk"), Amount::ZERO);
     }
 
     /// `flattenCloseOrder` is not its own function in Rust: `close_position` builds the order inline and journals it
@@ -1971,7 +1971,7 @@ mod core_tif {
             result.rejected.as_ref().map(|r| r.code.as_str()),
             Some(TIF_MISSING)
         );
-        assert_eq!(book(&engine).net_position("desk"), 0);
+        assert_eq!(book(&engine).net_position("desk"), Amount::ZERO);
     }
 }
 

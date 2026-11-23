@@ -103,7 +103,7 @@ pub fn parse_min_credit(raw: Option<&str>) -> Option<Amount> {
 
 /// `legShare`: one leg's share of a credit, rounded down at the ledger's scale.
 pub fn leg_share(credit: Amount, share_bp: i64) -> Amount {
-    credit * Amount::from(share_bp) / Amount::from(FULL_BP)
+    credit * i128::from(share_bp) / i128::from(FULL_BP)
 }
 
 /// `sorterTransferId`: the ledger key's transfer id for one credit under one sorter.
@@ -679,7 +679,7 @@ impl Sorter<'_> {
             }
             for (position, leg) in sorter.legs.iter().enumerate() {
                 let share = leg_share(credit.amount, leg.share_bp);
-                if share <= 0 {
+                if share <= Amount::ZERO {
                     continue;
                 }
                 let position = i16::try_from(position).unwrap_or(i16::MAX);

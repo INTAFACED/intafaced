@@ -558,3 +558,27 @@ fn sends_only_a_body_the_door_accepts() {
     assert_eq!(s.open_items("Not A Rail"), OpenItemsRead::Unavailable);
     assert!(fetch.calls().is_empty());
 }
+
+/// Two items near the top of `numeric(38,18)` on one asset add past `i128::MAX`, and so do the declared sums: an
+/// overflow is never read as a match, so the page is unavailable rather than accepted on two clamped figures (#10114).
+#[test]
+fn rejects_open_items_whose_sum_disagrees_past_i128_saturation() {
+    let sums_json = concat!(
+        r#"[{"networkId":"ethereum","assetId":"USDT","held":"99999999999999999999","#,
+        r#""heldCount":1,"reversalUnfunded":"0","reversalUnfundedCount":0,"#,
+        r#""net":"99999999999999999999"},"#,
+        r#"{"networkId":"base","assetId":"USDT","held":"80000000000000000000","#,
+        r#""heldCount":1,"reversalUnfunded":"0","reversalUnfundedCount":0,"#,
+        r#""net":"80000000000000000000"}]"#,
+    );
+    let body = page(
+        &[
+            item("a", "99999999999999999999"),
+            item_with("b", "99999999999999999999", &[("networkId", "\"base\"")]),
+        ],
+        2,
+        sums_json,
+    );
+    let fetch = Fake::new(move |_| json_answer(&body, 200));
+    assert_eq!(open_read(&fetch), OpenItemsRead::Unavailable);
+}
