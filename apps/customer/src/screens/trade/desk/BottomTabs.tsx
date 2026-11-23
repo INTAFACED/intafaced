@@ -92,7 +92,6 @@ export const BottomTabs = memo(function BottomTabs({
       <div data-testid="dk-bottom-head" className="lt-panel-head">
         <Tabs
           id="dk-bottom"
-          className="lt-grow"
           label={t('Orders and trades')}
           items={[
             { value: 'open', label: t('Open orders') },
