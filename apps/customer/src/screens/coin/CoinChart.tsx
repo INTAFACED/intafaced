@@ -115,6 +115,8 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
+      // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
+      if (!c.panel) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         handleScroll: false,
