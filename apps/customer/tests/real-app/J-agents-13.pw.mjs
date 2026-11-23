@@ -207,7 +207,7 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
   // Left out means left out of every count: the actions are the live log's rows alone, the dry run adds none.
   expect(log.some((row) => row.kind === 'tool_call' && row.tool === 'support.kb.search')).toBe(false);
   // Displayed spend equals the sum of the sealed windows.
-  expect(sum([await figure('spend').innerText()])).toBe(sealedTotal);
+  await expect.poll(async () => sum([await figure('spend').innerText()])).toBe(sealedTotal);
 
   // Outcomes by day: one row per day that holds stored rows, each the sum of that day's rows.
   const byDay = tableIn(dashboard(page), 'Outcomes by day');
@@ -222,7 +222,7 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
     await expect(row.getByTestId('day-refused')).toHaveText(String(of('refused')));
     await expect(row.getByTestId('day-failed')).toHaveText(String(of('failed')));
   }
-  expect(sum(await byDay.getByTestId('day-spend').allInnerTexts())).toBe(sealedTotal);
+  await expect.poll(async () => sum(await byDay.getByTestId('day-spend').allInnerTexts())).toBe(sealedTotal);
 
   // With the filter including them, the test runs are counted, and nothing else changes: they are never billed.
   await include.check();
@@ -231,8 +231,10 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
   await expect(figure('test-runs')).toHaveText(String(tests));
   await expect(figure('sessions')).toHaveText(String(sessions.length));
   await expect(figure('actions')).toHaveText(String(log.length));
-  expect(sum([await figure('spend').innerText()])).toBe(sealedTotal);
-  expect((await byDay.getByTestId('day-test-runs').allInnerTexts()).reduce((n, cell) => n + Number(cell), 0)).toBe(tests);
+  await expect.poll(async () => sum([await figure('spend').innerText()])).toBe(sealedTotal);
+  await expect
+    .poll(async () => (await byDay.getByTestId('day-test-runs').allInnerTexts()).reduce((n, cell) => n + Number(cell), 0))
+    .toBe(tests);
   // The day's test runs are exactly the stored test and dry runs of that day.
   for (const day of days)
     await expect(
@@ -284,9 +286,9 @@ test(`${J} #2 opens one run's trace: tool calls, timing, cost and the plan as ti
   await expect(call.getByRole('cell').nth(1)).toHaveText(stored.task);
   await expect(call.getByTestId('trace-took')).toHaveText(/^\d+ ms$/);
   await expect(call).toContainText(`${stored.inputTokens} in, ${stored.outputTokens} out`);
-  expect(sum([await call.getByTestId('trace-cost').innerText()])).toBe(toUnits(stored.cost));
+  await expect.poll(async () => sum([await call.getByTestId('trace-cost').innerText()])).toBe(toUnits(stored.cost));
   expect(toUnits(stored.cost)).toBe(toUnits(cost));
-  expect(sum([await selected.getByTestId('trace-run-cost').innerText()])).toBe(toUnits(cost));
+  await expect.poll(async () => sum([await selected.getByTestId('trace-run-cost').innerText()])).toBe(toUnits(cost));
 });
 
 test(`${J} #3 opens Activity and filters to refused: only refused rows, the refusal code as words, no prompt text`, async ({ page }) => {
@@ -366,7 +368,7 @@ test(`${J} #5 opens usage by agent, user and task: totals match the sum of the w
   await expect(windows.locator('tbody tr')).toHaveCount(sealed.length);
   for (const window of sealed) {
     const row = windows.locator('tbody tr').filter({ hasText: window.windowId });
-    expect(sum([await row.getByTestId('window-cost').innerText()])).toBe(toUnits(window.amount));
+    await expect.poll(async () => sum([await row.getByTestId('window-cost').innerText()])).toBe(toUnits(window.amount));
   }
   const windowSum = sum(await windows.getByTestId('window-cost').allInnerTexts());
   expect(windowSum).toBe(total);

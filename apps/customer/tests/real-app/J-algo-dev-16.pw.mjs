@@ -174,7 +174,7 @@ test(`${J} #2 opens the data lake room: normalised ticks, books and fills with c
   for (const kind of ['tick', 'book', 'fill']) {
     const dataset = symbol.locator(`[data-testid="quant-lake-dataset"][data-kind="${kind}"]`);
     await expect(dataset, `${kind} is listed`).toBeVisible();
-    expect(Number(await dataset.getAttribute('data-rows')), `${kind} rows`).toBeGreaterThan(0);
+    await expect.poll(async () => Number(await dataset.getAttribute('data-rows')), `${kind} rows`).toBeGreaterThan(0);
     await expect(dataset.getByTestId('quant-lake-row').first(), `${kind} shows its newest normalised row`).toBeVisible();
   }
   const ticks = symbol.locator('[data-testid="quant-lake-dataset"][data-kind="tick"]');
@@ -183,7 +183,7 @@ test(`${J} #2 opens the data lake room: normalised ticks, books and fills with c
     'bids',
   );
   // The pause is a gap: shown as a gap between two covered ranges, never filled.
-  expect(Number(await ticks.getAttribute('data-ranges'))).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () => Number(await ticks.getAttribute('data-ranges'))).toBeGreaterThanOrEqual(2);
   const gaps = await ticks
     .getByTestId('quant-lake-gap')
     .evaluateAll((els) => els.map((el) => [Date.parse(el.getAttribute('data-from')), Date.parse(el.getAttribute('data-to'))]));
@@ -294,7 +294,7 @@ test(`${J} #3 runs Monte Carlo resampling on a completed backtest: drawdown and 
 
   const first = await monteCarlo(room, 7);
   await expect(first.result).toHaveAttribute('data-runs', /^[1-9]\d*$/);
-  expect(Number(await first.result.getAttribute('data-trips'))).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () => Number(await first.result.getAttribute('data-trips'))).toBeGreaterThanOrEqual(2);
   await expect(first.result.getByTestId('quant-montecarlo-label')).toHaveText(
     'Simulated resampling of a historical simulation — not a forecast',
   );

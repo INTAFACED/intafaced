@@ -759,8 +759,10 @@ test(`${J} #7 exports a report and assigns staff roles: a signed export with its
   const text = await page.getByTestId('cp-export-file').textContent();
   const asOf = (await page.getByTestId('cp-export-asof').textContent()).trim();
   // Signed over its own text: the SHA-256 shown is the text's, with an HMAC signature beside it.
-  expect((await page.getByTestId('cp-export-sha').textContent()).trim()).toBe(createHash('sha256').update(text).digest('hex'));
-  expect((await page.getByTestId('cp-export-signature').textContent()).trim()).toMatch(/^[0-9a-f]{64}$/);
+  await expect
+    .poll(async () => (await page.getByTestId('cp-export-sha').textContent()).trim())
+    .toBe(createHash('sha256').update(text).digest('hex'));
+  await expect.poll(async () => (await page.getByTestId('cp-export-signature').textContent()).trim()).toMatch(/^[0-9a-f]{64}$/);
   // Its freshness time is in the file, and its totals equal the screen's (read just before; nothing decided between).
   expect(text).toContain(`As of (UTC): ${asOf}`);
   expect(Date.parse(asOf)).toBeGreaterThan(Date.now() - 10 * 60_000);

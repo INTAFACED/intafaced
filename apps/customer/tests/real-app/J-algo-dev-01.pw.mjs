@@ -607,8 +607,8 @@ test(`${J} #7 opens the Metrics tab: net, drawdown, run-up, profit factor and tr
     if (peak - point > fall) fall = peak - point;
     if (point - trough > rise) rise = point - trough;
   }
-  expect(toUnits(await figure('maxDrawdown').getAttribute('data-value'))).toBe(fall);
-  expect(toUnits(await figure('maxRunUp').getAttribute('data-value'))).toBe(rise);
+  await expect.poll(async () => toUnits(await figure('maxDrawdown').getAttribute('data-value'))).toBe(fall);
+  await expect.poll(async () => toUnits(await figure('maxRunUp').getAttribute('data-value'))).toBe(rise);
   for (const key of ['maxDrawdownPercent', 'maxRunUpPercent']) await expect(figure(key)).toHaveAttribute('data-value', /^\d/);
   // Sharpe and Sortino need the owner's risk-free rate, which is blank: they say so, and nothing reads 0.
   for (const key of ['sharpe', 'sortino']) {
@@ -806,7 +806,9 @@ test(`${J} #9 opens run history, renames a run, compares two side by side and fi
   const costly = await runBacktest(page, window, '100');
   const costlyId = await costly.getAttribute('data-run-id');
   expect(costlyId).not.toBe(backtest.runId);
-  expect(toUnits(await costly.getByTestId('quant-bar-total-net').getAttribute('data-value'))).toBeLessThan(toUnits(backtest.net));
+  await expect
+    .poll(async () => toUnits(await costly.getByTestId('quant-bar-total-net').getAttribute('data-value')))
+    .toBeLessThan(toUnits(backtest.net));
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toHaveAttribute('data-run-id', costlyId);
 
