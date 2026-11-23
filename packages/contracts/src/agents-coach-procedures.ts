@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
-import { type CoachRefusalCode, COACH_REFUSAL_CODES } from './agents-call-schemas.js';
+import { COACH_REFUSAL_CODES } from './agents-call-schemas.js';
 import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -90,7 +90,7 @@ export const AGENTS_COACH_RUN_SESSION = defineProcedure({
     z.object({ status: z.literal('not_covered'), citations: z.array(z.never()).length(0) }),
     z.object({
       status: z.literal('refused'),
-      code: z.enum(COACH_REFUSAL_CODES as [CoachRefusalCode, ...CoachRefusalCode[]]),
+      code: z.enum(COACH_REFUSAL_CODES),
     }),
   ]),
   // By hand: the wire replay's recorded request ({ requestId: 'x' }) fails the request id's own pattern, so the door never
