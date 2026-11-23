@@ -24,7 +24,12 @@ import {
   type ActionSpec,
   useBankRecord,
 } from './components';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import {
+  BANK_AUTO_INVEST_LIST,
+  BANK_AUTO_INVEST_PAUSE,
+  BANK_AUTO_INVEST_RESUME,
+  BANK_AUTO_INVEST_CANCEL,
+} from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_AUTO_INVEST_CREATE_DCA } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 type Rule = z.infer<typeof ruleSchema>;
@@ -57,7 +62,7 @@ export function useAutoInvestRules() {
     facts.push([t('nextRun'), date(rule.nextRunAt)]);
     return {
       title: t(action === 'pause' ? 'pauseTitle' : action === 'resume' ? 'resumeTitle' : 'cancelTitle'),
-      procedure: `autoInvest.${action}`,
+      record: action === 'pause' ? BANK_AUTO_INVEST_PAUSE : action === 'resume' ? BANK_AUTO_INVEST_RESUME : BANK_AUTO_INVEST_CANCEL,
       facts,
       notes: [t(action === 'pause' ? 'pauseNote' : action === 'resume' ? 'pausedNote' : 'cancelNote')],
       input: () => ({ ruleId: rule.id }),

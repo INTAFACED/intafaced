@@ -5415,6 +5415,100 @@
         }
       ]
     },
+    "ops.protocolListing.markets.delist": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "protocolListing.markets.delist",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "approvalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["symbol", "reasonCode", "reason", "approvalId", "operationId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["protocol.pool.hide", "protocol.pool.restore", "protocol.market.delist", "protocol.market.restore"]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["visible", "hidden", "applying"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["applied", "noop"]
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["action", "targetId", "state", "outcome", "note", "idempotencyKey"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "symbol": "USDC",
+            "reasonCode": "USDC",
+            "reason": "USDC",
+            "approvalId": "USDC",
+            "operationId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "ops.protocolListing.markets.list": {
       "service": "svc-ops",
       "module": "ops",
@@ -5499,6 +5593,193 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "ops.protocolListing.markets.restore": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "protocolListing.markets.restore",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "approvalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["symbol", "approvalId", "operationId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["protocol.pool.hide", "protocol.pool.restore", "protocol.market.delist", "protocol.market.restore"]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["visible", "hidden", "applying"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["applied", "noop"]
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["action", "targetId", "state", "outcome", "note", "idempotencyKey"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "symbol": "USDC",
+            "approvalId": "USDC",
+            "operationId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "ops.protocolListing.pools.hide": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "protocolListing.pools.hide",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "action_approval.identity_unwired": "PRECONDITION_FAILED",
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "action_approval.not_founders": "PRECONDITION_FAILED",
+        "ops.protocol_listing_storage_unconfigured": "PRECONDITION_FAILED",
+        "protocol.ops_reason_code_unknown": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "poolAddress": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "approvalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["chainId", "poolAddress", "reasonCode", "reason", "approvalId", "operationId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["protocol.pool.hide", "protocol.pool.restore", "protocol.market.delist", "protocol.market.restore"]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["visible", "hidden", "applying"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["applied", "noop"]
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["action", "targetId", "state", "outcome", "note", "idempotencyKey"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 1,
+            "poolAddress": "0x1111111111111111111111111111111111111111",
+            "reasonCode": "USDC",
+            "reason": "USDC",
+            "approvalId": "USDC",
+            "operationId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -5592,6 +5873,93 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "ops.protocolListing.pools.restore": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "protocolListing.pools.restore",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "core-ops",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "poolAddress": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "approvalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["chainId", "poolAddress", "approvalId", "operationId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["protocol.pool.hide", "protocol.pool.restore", "protocol.market.delist", "protocol.market.restore"]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["visible", "hidden", "applying"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["applied", "noop"]
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["action", "targetId", "state", "outcome", "note", "idempotencyKey"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 1,
+            "poolAddress": "0x1111111111111111111111111111111111111111",
+            "approvalId": "USDC",
+            "operationId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },

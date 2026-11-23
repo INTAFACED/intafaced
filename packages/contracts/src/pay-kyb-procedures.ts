@@ -8,6 +8,7 @@ import {
   kybDocumentChecklistViewSchema,
   kybDocumentsUploadInputSchema,
   kybDocumentsUploadResultSchema,
+  kybDocumentReviewInputSchema,
 } from './kyb-documents.js';
 import {
   kybRequestFileBytesSchema,
@@ -211,5 +212,54 @@ export const PAY_KYB_REQUESTS_LIST = defineProcedure({
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
+ * with the reason given here. One reviewer is enough: a verdict unlocks nothing, `kyb.decide` stays two-person.
+ */
+export const PAY_KYB_DOCUMENTS_REVIEW = defineProcedure({
+  ...base,
+  name: 'pay.kyb.documents.review',
+  kind: 'mutation',
+  path: 'kyb.documents.review',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'pay' },
+  refusals: {},
+  input: kybDocumentReviewInputSchema,
+  checks: {
+    kyb_document_review_input_holds: { at: 'input', says: 'a rejection needs a reason, and an acceptance takes none' },
+    reason_holds: { at: 'input.reason', says: 'a reason is 3 to 1000 characters' },
+  },
+  output: kybDocumentsUploadResultSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        applicationId: '11111111-1111-4111-8111-111111111111',
+        documentId: '11111111-1111-4111-8111-111111111111',
+        verdict: 'accepted',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'kyb_document_review_input_holds',
+      input: {
+        applicationId: '11111111-1111-4111-8111-111111111111',
+        documentId: '11111111-1111-4111-8111-111111111111',
+        verdict: 'rejected',
+      },
+    },
+    {
+      verdict: 'refuse',
+      by: 'reason_holds',
+      input: {
+        applicationId: '11111111-1111-4111-8111-111111111111',
+        documentId: '11111111-1111-4111-8111-111111111111',
+        verdict: 'accepted',
+        reason: '',
+      },
+    },
   ],
 });

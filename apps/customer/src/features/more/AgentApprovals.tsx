@@ -1,18 +1,11 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import type { Failed } from './AgentGuardrails';
 import { agentApprovalsCopy } from './agent-approvals-copy';
-import {
-  ownAgentApprovalApprovedSchema,
-  ownAgentApprovalEditedSchema,
-  ownAgentApprovalRequestSchema,
-  ownAgentInboxRowSchema,
-  type OwnAgentInboxRow,
-} from '@intafaced/contracts/agents-own';
+import { ownAgentApprovalEditedSchema, type OwnAgentInboxRow } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_INBOX, AGENTS_OWN_APPROVAL_APPROVE, AGENTS_OWN_APPROVAL_REJECT } from '@intafaced/contracts/agents-own-procedures';
 
-const inboxSchema = z.array(ownAgentInboxRowSchema);
 /** Rows shown at once; one more is asked for, so the page can say when older requests are left out. */
 export const SHOWN = 100;
 
@@ -28,7 +21,7 @@ export type Done = { readonly words: string; readonly result?: unknown };
 export function useApprovalsInbox() {
   const api = useApi();
   const { t } = agentApprovalsCopy.useCopy();
-  const inbox = useResource((signal) => api.query('agents', 'own.inbox', { limit: SHOWN + 1 }, inboxSchema, { signal }), 'own-inbox');
+  const inbox = useResource((signal) => api.call(AGENTS_OWN_INBOX, { limit: SHOWN + 1 }, { signal }), 'own-inbox');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
@@ -56,12 +49,12 @@ export function useApprovalsInbox() {
   }
   const approve = (row: OwnAgentInboxRow) =>
     decide(
-      () => api.mutate('agents', 'own.approval.approve', { requestId: row.id }, ownAgentApprovalApprovedSchema),
+      () => api.call(AGENTS_OWN_APPROVAL_APPROVE, { requestId: row.id }),
       (data) => ({ words: t(data.repeated ? 'approvedAgain' : 'approved'), result: data.request.result }),
     );
   const reject = (row: OwnAgentInboxRow) =>
     decide(
-      () => api.mutate('agents', 'own.approval.reject', { requestId: row.id }, ownAgentApprovalRequestSchema),
+      () => api.call(AGENTS_OWN_APPROVAL_REJECT, { requestId: row.id }),
       () => ({ words: t('rejected') }),
     );
   const edit = (row: OwnAgentInboxRow, input: Record<string, string>) =>

@@ -51,3 +51,55 @@ export const BANK_AUTO_INVEST_LIST = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Hold a rule without cancelling. Runner only considers `active` rules.
+ */
+export const BANK_AUTO_INVEST_PAUSE = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.pause',
+  kind: 'mutation',
+  path: 'autoInvest.pause',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: autoInvestRuleOutput,
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Resume a paused rule. Next runDue pass applies normal due rules — no
+ * multi-fire invent of missed windows.
+ */
+export const BANK_AUTO_INVEST_RESUME = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.resume',
+  kind: 'mutation',
+  path: 'autoInvest.resume',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: autoInvestRuleOutput,
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_AUTO_INVEST_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.cancel',
+  kind: 'mutation',
+  path: 'autoInvest.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: z.object({ ok: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

@@ -216,7 +216,7 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const boxes = block('chart-box').querySelectorAll('.lt-chart-box');
     expect(boxes, 'the chart box, drawn and holding a state').toHaveLength(2);
     expect(
-      boxes[0]!.querySelector('[role="img"][aria-label] > [data-testid="kit-chart-host"]'),
+      boxes[0]!.querySelector('[role="figure"][aria-label] > [data-testid="kit-chart-host"]'),
       'the named picture and its drawing element',
     ).not.toBeNull();
     expect(

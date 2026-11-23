@@ -7,7 +7,6 @@ import { walletCopy } from './copy';
 import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ConnectPanel } from './ConnectPanel';
 import { WalletHomeRoom } from './WalletHomeRoom';
-import { TrackerPanel } from './TrackerPanel';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
@@ -40,8 +39,6 @@ export function WalletRoom({ section: initial }: { section: Section }) {
       <ScanPanel />
     ) : section === 'claimLinks' ? (
       <ClaimLinksPanel />
-    ) : section === 'tracker' ? (
-      <TrackerPanel />
     ) : null;
 
   // The overview is drawn on its own monitor template (features/protocol/wallet/WalletHomeRoom.tsx).

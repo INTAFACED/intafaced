@@ -266,7 +266,7 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
     assert_eq!(status, 500);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the bills slice is not ported"}"#
+        r#"{"error":"svc-bank in Rust: the business-spend slice is not ported"}"#
     );
     d.end();
 }

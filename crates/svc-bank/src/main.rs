@@ -23,6 +23,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
 use svc_bank::automations;
+use svc_bank::bills;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -548,6 +549,52 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `bills`' wiring from the environment, one part each.
+fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let mut w = bills::Wiring::none();
+    // `composeRailSendsArea`: `payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS`, the owner's window, blank refuses.
+    w.rail_sends = bills::rail_sends::Wiring {
+        cooling_hours: env.str("BANK_PAYEE_COOLING_HOURS").map(str::to_owned),
+    };
+    // `directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, raw APP_ENV and NODE_ENV)` and the run's switch.
+    w.direct_debits = bills::direct_debits::Wiring {
+        scheme: bills::direct_debits::scheme::scheme_for(
+            env.str("BANK_DD_SCHEME").unwrap_or("none"),
+            env.str("BANK_DD_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+        )?,
+        collections_enabled: env.flag("BANK_DD_COLLECTIONS_ENABLED").unwrap_or(true),
+    };
+    Ok(w)
+}
+
+/// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
+/// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
+fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let own = |k: &str| env.str(k).map(str::to_owned);
+    Ok(svc_bank::global::Wiring {
+        ports: svc_bank::global::sim::ports_for(
+            env.str("BANK_GLOBAL_PARTNER").unwrap_or("none"),
+            env.str("BANK_GLOBAL_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+            system_now,
+        )?,
+        settings: svc_bank::global::Settings {
+            send_field_rules: own("BANK_SEND_FIELD_RULES_JSON"),
+            payee_controls: own("BANK_PAYEE_CONTROLS_JSON"),
+            exchange_allowance: own("BANK_EXCHANGE_ALLOWANCE_JSON"),
+            proof_limits: own("BANK_PROOF_LIMITS_JSON"),
+            hold_cancel_hours: own("BANK_GLOBAL_HOLD_CANCEL_HOURS"),
+            refund_fee: own("BANK_GLOBAL_REFUND_FEE"),
+            receipt_secret: own("INTERNAL_SERVICE_SECRET"),
+        },
+    })
+}
+
 /// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
 fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
     let Some(url) = env.str("IDENTITY_URL") else {
@@ -734,7 +781,9 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_loans(loans_wiring(env)?)
     .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
-    .with_automations(automations_wiring(env)?);
+    .with_global(global_wiring(env)?)
+    .with_automations(automations_wiring(env)?)
+    .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(

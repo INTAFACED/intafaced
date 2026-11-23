@@ -1,10 +1,15 @@
 import 'server-only';
 import { routeChangeSchema, routeDeskSchema, type RouteDesk } from '@intafaced/contracts/agents-routes';
-import { founderCall, parseWith, type FounderCallContext, founderRecordRead } from '@/lib/desk';
+import { parseWith, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import { refusalOf } from '@/lib/agents-log';
 import { handlesFor } from '@/lib/agents-fleet';
 import type { RoutesAction } from './model';
-import { AGENTS_ROUTES_DESK, AGENTS_ROUTES_PROPOSE } from '@intafaced/contracts/agents-routes-procedures';
+import {
+  AGENTS_ROUTES_CONFIRM,
+  AGENTS_ROUTES_DESK,
+  AGENTS_ROUTES_PROPOSE,
+  AGENTS_ROUTES_WITHDRAW,
+} from '@intafaced/contracts/agents-routes-procedures';
 
 /**
  * The routing table desk's hops (J-agents-20), always as the signed-in founder through svc-edge: svc-agents reads the
@@ -42,7 +47,8 @@ export async function runRoutes(ctx: FounderCallContext, action: RoutesAction): 
     }
     case 'withdraw':
     case 'confirm': {
-      const result = await founderCall(ctx, 'agents', `routes.${action.action}`, 'POST', { changeId: action.changeId }, parseChange);
+      const record = action.action === 'withdraw' ? AGENTS_ROUTES_WITHDRAW : AGENTS_ROUTES_CONFIRM;
+      const result = await founderRecordRead(ctx, record, { changeId: action.changeId }, parseChange);
       return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
     }
   }

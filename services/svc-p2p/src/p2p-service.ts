@@ -1908,10 +1908,11 @@ export class P2pService {
 
   /**
    * P-trade-orders-05: the buyer's cancels counted over the last `windowHours` (their own cancels and payment windows
-   * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
+   * they let run out), on the database clock, newest first, at most `limit` of them (all of them when `limit` is null),
+   * each with when it stops counting.
    * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number | null, windowHours: number): Promise<{ until: Date }[]> {
     return z
       .object({ until: z.date() })
       .array()
@@ -1941,14 +1942,15 @@ export class P2pService {
     if (!cancels || cancels.limit === null || cancels.windowHours === null) {
       throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
     }
-    const recent = await this.recentBuyerCancels(this.sql, buyerId, cancels.limit, cancels.windowHours);
-    const oldest = recent[recent.length - 1]?.until ?? null;
+    // Every cancel in the window counts, even past the threshold; buying returns when the newest `limit` of them
+    // have left the window, so the pause ends with the `limit`-th newest.
+    const recent = await this.recentBuyerCancels(this.sql, buyerId, null, cancels.windowHours);
     return {
       used: recent.length,
       cap: cancels.limit,
       windowHours: cancels.windowHours,
-      nextDropAt: oldest,
-      restrictedUntil: recent.length >= cancels.limit ? oldest : null,
+      nextDropAt: recent[recent.length - 1]?.until ?? null,
+      restrictedUntil: recent.length >= cancels.limit ? (recent[cancels.limit - 1]?.until ?? null) : null,
     };
   }
 
