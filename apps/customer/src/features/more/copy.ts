@@ -347,6 +347,10 @@ const messages = {
   'blueprint.birth.date.optional': 'Birth date (optional)',
   'blueprint.birth.time.optional': 'Birth time (optional)',
   'blueprint.birth.place.optional': 'Birth place (optional)',
+  'blueprint.birth.day': 'Day',
+  'blueprint.birth.month': 'Month',
+  'blueprint.birth.year': 'Year',
+  'blueprint.birth.not.given': 'Not given',
   'campaigns.your.activity': 'Your campaign activity',
   'campaigns.activity.unavailable': 'Campaign activity unavailable',
   'campaigns.participation.unavailable':
@@ -1304,6 +1308,10 @@ const es = {
   'blueprint.birth.date.optional': 'Fecha de nacimiento (opcional)',
   'blueprint.birth.time.optional': 'Hora de nacimiento (opcional)',
   'blueprint.birth.place.optional': 'Lugar de nacimiento (opcional)',
+  'blueprint.birth.day': 'Día',
+  'blueprint.birth.month': 'Mes',
+  'blueprint.birth.year': 'Año',
+  'blueprint.birth.not.given': 'Sin indicar',
   'campaigns.your.activity': 'Tu actividad de campañas',
   'campaigns.activity.unavailable': 'Actividad de campañas no disponible',
   'campaigns.participation.unavailable':
@@ -2287,6 +2295,10 @@ const fr = {
   'blueprint.birth.date.optional': 'Date de naissance (facultatif)',
   'blueprint.birth.time.optional': 'Heure de naissance (facultatif)',
   'blueprint.birth.place.optional': 'Lieu de naissance (facultatif)',
+  'blueprint.birth.day': 'Jour',
+  'blueprint.birth.month': 'Mois',
+  'blueprint.birth.year': 'Année',
+  'blueprint.birth.not.given': 'Non indiqué',
   'campaigns.your.activity': 'Ton activité de campagnes',
   'campaigns.activity.unavailable': 'Activité de campagnes indisponible',
   'campaigns.participation.unavailable':

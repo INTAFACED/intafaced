@@ -568,7 +568,7 @@ function BotsHub({ path }: { path: string }) {
                 minWidth={940}
               />
             ) : null}
-            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
+            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one below with its reference.')}</InfoNote>
             {moreMine ? (
               <div className="lt-actions">
                 {mineLimit < BOT_LIST_MAX ? (
@@ -587,7 +587,7 @@ function BotsHub({ path }: { path: string }) {
                 openById();
               }}
             >
-              <Field label={t('Open a bot by ID')}>
+              <Field label={t('Open a bot that isn’t listed')}>
                 <Input kind="text" value={byId} onValueChange={setById} autoComplete="off" />
               </Field>
               <Button type="submit" variant="secondary" disabled={!byId.trim()}>
