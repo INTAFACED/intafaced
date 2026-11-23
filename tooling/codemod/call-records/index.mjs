@@ -39,7 +39,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
+import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -162,6 +162,10 @@ function plan(opts) {
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    // A portal tool's caller keeps its checking schema the same way, in the tool's checked form (tool-forms.mjs).
+    // Only a zod check it writes itself (`.refine()`): a schema built by its own function is that function's to move.
+    else if (checks.length && checked && checkedTool(s) && checks.every((c) => /^\.(refine|superRefine|check)\(\)/.test(c)))
+      s.checked = text(load(s.file), checked);
     else if (checks.length) {
       hand.push({
         site: s,
