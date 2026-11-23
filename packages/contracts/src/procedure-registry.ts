@@ -107,6 +107,7 @@ import {
   ACADEMY_ADMIN_UNTAG_LEARNER,
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
+  ACADEMY_ADMIN_COURSE_GRADEBOOK,
 } from './academy-admin-records.js';
 
 import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
@@ -120,6 +121,8 @@ import { ACADEMY_APPLY_RESIDENCY } from './academy-apply-residency-procedures.js
 import { ACADEMY_APPOINT_AMBASSADOR } from './academy-appoint-ambassador-procedures.js';
 
 import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from './academy-assessment-procedures.js';
+
+import { ACADEMY_ASSIGNMENT } from './academy-assignment-procedures.js';
 
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
 
@@ -191,6 +194,8 @@ import {
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
 
+import { ACADEMY_MARK_FEEDBACK_READ } from './academy-mark-feedback-read-procedures.js';
+
 import { ACADEMY_MY_ACCESS_GRANTS } from './academy-my-access-grants-procedures.js';
 
 import { ACADEMY_MY_CERTS } from './academy-my-certs-procedures.js';
@@ -253,7 +258,11 @@ import { ACADEMY_STANDINGS } from './academy-standings-procedures.js';
 
 import { ACADEMY_STREAM_CREDENTIAL } from './academy-stream-credential-procedures.js';
 
+import { ACADEMY_SUBMIT_ASSIGNMENT } from './academy-submit-assignment-procedures.js';
+
 import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-complete-procedures.js';
+
+import { ACADEMY_UNFREEZE_AMBASSADOR } from './academy-unfreeze-ambassador-procedures.js';
 
 import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
 
@@ -2353,6 +2362,7 @@ const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_UNTAG_LEARNER,
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
+  ACADEMY_ADMIN_COURSE_GRADEBOOK,
 ];
 
 const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
@@ -2366,6 +2376,8 @@ const part_academy_apply_residency_procedures: readonly ProcedureRecord[] = [ACA
 const part_academy_appoint_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_APPOINT_AMBASSADOR];
 
 const part_academy_assessment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS];
+
+const part_academy_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSIGNMENT];
 
 const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
 
@@ -2437,6 +2449,8 @@ const part_academy_learner_procedures: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 ];
 
+const part_academy_mark_feedback_read_procedures: readonly ProcedureRecord[] = [ACADEMY_MARK_FEEDBACK_READ];
+
 const part_academy_my_access_grants_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ACCESS_GRANTS];
 
 const part_academy_my_certs_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_CERTS];
@@ -2499,7 +2513,11 @@ const part_academy_standings_procedures: readonly ProcedureRecord[] = [ACADEMY_S
 
 const part_academy_stream_credential_procedures: readonly ProcedureRecord[] = [ACADEMY_STREAM_CREDENTIAL];
 
+const part_academy_submit_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_SUBMIT_ASSIGNMENT];
+
 const part_academy_undo_curriculum_complete_procedures: readonly ProcedureRecord[] = [ACADEMY_UNDO_CURRICULUM_COMPLETE];
+
+const part_academy_unfreeze_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_UNFREEZE_AMBASSADOR];
 
 const part_academy_unpin_lesson_procedures: readonly ProcedureRecord[] = [ACADEMY_UNPIN_LESSON];
 
@@ -4596,6 +4614,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_apply_residency_procedures,
   ...part_academy_appoint_ambassador_procedures,
   ...part_academy_assessment_procedures,
+  ...part_academy_assignment_procedures,
   ...part_academy_authored_course_procedures,
   ...part_academy_cert_paths_procedures,
   ...part_academy_cert_verify_procedures,
@@ -4611,6 +4630,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_health_procedures,
   ...part_academy_item_video_procedures,
   ...part_academy_learner_procedures,
+  ...part_academy_mark_feedback_read_procedures,
   ...part_academy_my_access_grants_procedures,
   ...part_academy_my_certs_procedures,
   ...part_academy_my_completions_procedures,
@@ -4642,7 +4662,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_send_course_message_procedures,
   ...part_academy_standings_procedures,
   ...part_academy_stream_credential_procedures,
+  ...part_academy_submit_assignment_procedures,
   ...part_academy_undo_curriculum_complete_procedures,
+  ...part_academy_unfreeze_ambassador_procedures,
   ...part_academy_unpin_lesson_procedures,
   ...part_academy_upload_assignment_file_procedures,
   ...part_academy_video_playback_procedures,
