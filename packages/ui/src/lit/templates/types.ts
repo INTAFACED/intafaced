@@ -142,6 +142,8 @@ export interface RoomProps {
   description?: string;
   /** At most one room action in the title row. */
   roomAction?: React.ReactNode;
+  /** The room's own bar, a `RoomBar`: drawn first, above the title, and staying under the app's top bar as the page scrolls. */
+  bar?: React.ReactNode;
   state: RoomState;
   mode?: Mode;
   /** Legal moments this room carries (the rules that apply to its moments). */

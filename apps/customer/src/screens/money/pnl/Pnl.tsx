@@ -289,7 +289,7 @@ function TransfersCard({
           label={t('Include transfers')}
           checked={on}
           disabled={save === null || busy}
-          onChange={(include: boolean) => void save?.({ procedure: 'setIncludeTransfers', input: { include } })}
+          onChange={(include: boolean) => void save?.({ choice: 'includeTransfers', input: { include } })}
         />{' '}
         {t('Include transfers')}
       </label>
@@ -579,7 +579,7 @@ function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBoo
       disabled={busy}
       onChange={(value) =>
         void save({
-          procedure: 'pickSaleLot',
+          choice: 'saleLot',
           input: { saleTxId: sale.txId, assetId: sale.assetId, lotId: value === '' ? null : value },
         })
       }
@@ -612,7 +612,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
             options={LOT_METHODS.map((m) => ({ value: m, label: t(METHOD_COPY[m]) }))}
             value={choices.accountMethod ?? book.method}
             disabled={busy}
-            onChange={(value) => void save({ procedure: 'setLotMethod', input: { assetId: null, method: value as LotMethod } })}
+            onChange={(value) => void save({ choice: 'lotMethod', input: { assetId: null, method: value as LotMethod } })}
           />
           <p data-testid="money-note" className="lt-hint">
             {t('Choices rule')}
@@ -623,7 +623,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
             aria-label={t('Method for one day')}
             onSubmit={(event) => {
               event.preventDefault();
-              void save({ procedure: 'setDayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
+              void save({ choice: 'dayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
             }}
           >
             <span data-testid="money-note" className="lt-hint">
@@ -656,7 +656,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
                   <Button
                     tone="quiet"
                     disabled={busy}
-                    onClick={() => void save({ procedure: 'setDayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
+                    onClick={() => void save({ choice: 'dayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
                   >
                     {t('Remove')}
                   </Button>
@@ -767,7 +767,7 @@ function LotRows({
             disabled={busy}
             onChange={(value) =>
               void save({
-                procedure: 'setLotMethod',
+                choice: 'lotMethod',
                 input: { assetId: asset, method: value === '' ? null : (value as LotMethod) },
               })
             }
@@ -1045,7 +1045,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
                 tone="secondary"
                 disabled={saver.busy}
                 onClick={() =>
-                  void saver.save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
+                  void saver.save({ choice: 'lotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
                     if (saved) navigate('/money/pnl', true);
                   })
                 }

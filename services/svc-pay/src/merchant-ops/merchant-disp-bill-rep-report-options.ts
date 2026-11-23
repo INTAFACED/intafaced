@@ -99,13 +99,15 @@ function nextDay(day: string): string {
 
 /**
  * Turn local days in a zone into the generator's `from`/`to` (half-open, UTC).
- * Refuses an unknown zone, a reversed period, a period that starts in the
- * future, and a request that also names raw `from`/`to` (one meaning only).
+ * Refuses an unknown zone, an impossible day, a reversed period, a period that
+ * starts in the future, and a request that also names raw `from`/`to` (one meaning only).
  */
 export function zonedFilters(filters: ExportFilters, period: ZonedPeriod, now: Date): ExportFilters {
   if (filters.from !== undefined || filters.to !== undefined) throw badPeriod();
   const zone = assertTimeZone(period.timeZone);
   const from = zonedMidnight(period.fromDay, zone);
+  // Validate the end day as written before advancing it: `Date.UTC` would roll 02-30 into March.
+  zonedMidnight(period.toDay, zone);
   const to = zonedMidnight(nextDay(period.toDay), zone);
   if (from.getTime() >= to.getTime()) throw badPeriod();
   if (from.getTime() > now.getTime()) throw new MerchantOpsError('pay.export_period_future', 'bad_request');

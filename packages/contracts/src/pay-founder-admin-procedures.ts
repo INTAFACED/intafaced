@@ -55,6 +55,7 @@ import {
 } from './business-category.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
 import { payPageSchema } from './pay-merchant-reads.js';
+import { heldDepositViewSchema } from './pay-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `founderAdmin.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -725,6 +726,21 @@ export const PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES = defineProcedure({
   ],
 });
 
+export const PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.custody.tasks.cancel',
+  kind: 'mutation',
+  path: 'founderAdmin.custody.tasks.cancel',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: taskIdInputSchema,
+  output: taskViewSchema,
+  samples: [
+    { verdict: 'accept', input: { taskId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 /** The answer of `founderAdmin.ops.notes.add` and `.retract`, and each item of `.list`: one `OperatorNoteView`. */
 export const operatorNoteSchema = z
   .object({
@@ -814,6 +830,21 @@ export const PAY_FOUNDER_ADMIN_OPS_NOTES_LIST = defineProcedure({
   output: payPageSchema(operatorNoteSchema),
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.depositTravelRule.list',
+  kind: 'query',
+  path: 'founderAdmin.depositTravelRule.list',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: z.object({ userId: userIdSchema, limit: z.number().int().min(1).max(200).default(50) }).strict(),
+  output: z.array(heldDepositViewSchema),
+  samples: [
+    { verdict: 'accept', input: { userId: 'USDC' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

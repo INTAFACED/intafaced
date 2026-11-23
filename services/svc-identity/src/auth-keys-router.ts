@@ -1,16 +1,13 @@
-import { z } from 'zod';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { founderProcedure, type Founders } from './founder-procedure.js';
 import { AuthKeyError, type AuthKeyRing } from './auth/auth-key-ring.js';
-import { stateOut } from '@intafaced/contracts/identity-call-schemas';
-import { IDENTITY_AUTH_KEYS_STATE } from '@intafaced/contracts/identity-auth-keys-procedures';
+import {
+  IDENTITY_AUTH_KEYS_STATE,
+  IDENTITY_AUTH_KEYS_ROTATE,
+  IDENTITY_AUTH_KEYS_REMOVE_OLD,
+} from '@intafaced/contracts/identity-auth-keys-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from './record-refusal.js';
-
-const approval = {
-  approvalId: z.string().min(1).max(128),
-  operationId: z.string().min(1).max(128),
-};
 
 /**
  * Founder-ops signing-key rotation (/identity-ops/keys). Only a live founder on an interactive
@@ -32,14 +29,16 @@ export function createAuthKeysRouter(ring: AuthKeyRing, founders: Founders) {
   return router({
     authKeys: router({
       state: mountRecord(IDENTITY_AUTH_KEYS_STATE, () => ring.state(), { refusalOf: codedRefusal, founder }),
-      rotate: founder
-        .input(z.object({ keyId: z.string().min(1).max(32), ...approval }).strict())
-        .output(stateOut)
-        .mutation(({ ctx, input }) => ring.rotate({ ...input, actorId: ctx.principal.userId }).catch(map)),
-      removeOld: founder
-        .input(z.object(approval).strict())
-        .output(stateOut)
-        .mutation(({ ctx, input }) => ring.removeOld({ ...input, actorId: ctx.principal.userId }).catch(map)),
+      rotate: mountRecord(
+        IDENTITY_AUTH_KEYS_ROTATE,
+        ({ ctx, input }) => ring.rotate({ ...input, actorId: ctx.principal.userId }).catch(map),
+        { refusalOf: codedRefusal, founder },
+      ),
+      removeOld: mountRecord(
+        IDENTITY_AUTH_KEYS_REMOVE_OLD,
+        ({ ctx, input }) => ring.removeOld({ ...input, actorId: ctx.principal.userId }).catch(map),
+        { refusalOf: codedRefusal, founder },
+      ),
     }),
   });
 }

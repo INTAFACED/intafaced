@@ -46,8 +46,19 @@ export function QrCode({
   return (
     <figure className="lt-qr" data-size={size} data-value={value} {...marks}>
       <svg viewBox={`0 0 ${drawn.size} ${drawn.size}`} role="img" aria-label={label} shapeRendering="crispEdges">
-        <rect className="lt-qr-ground" width={drawn.size} height={drawn.size} />
-        <path className="lt-qr-modules" d={drawn.d} />
+        {/* The fills are on the drawing as well as in templates.css, so the code still scans once it leaves the page
+            (copied, saved, printed, or read by a scanner from the SVG alone). */}
+        <rect
+          className="lt-qr-ground"
+          width={drawn.size}
+          height={drawn.size}
+          fill="white" // look-drift-allow: a scanner needs the fixed light ground in the drawing itself, outside the page's CSS
+        />
+        <path
+          className="lt-qr-modules"
+          d={drawn.d}
+          fill="black" // look-drift-allow: a scanner needs the fixed dark modules in the drawing itself, outside the page's CSS
+        />
       </svg>
       {showValue ? (
         <figcaption className="lt-qr-value" dir="ltr">

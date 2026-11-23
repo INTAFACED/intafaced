@@ -161,6 +161,14 @@ describe('components', () => {
     expect(out).toContain('aria-describedby="terms a-hint"');
   });
 
+  it('Field draws a mark before and a control after its text inside one box, and is unchanged without them', () => {
+    const out = html(<Field label="To" id="to" before="@" after={<button type="button">Paste</button>} error="No one has that handle" />);
+    expect(out).toBe(
+      '<div class="lit-field-control"><label for="to">To</label><div data-part="box"><span data-part="before" aria-hidden="true">@</span><input id="to" aria-invalid="true" aria-describedby="to-error"/><button type="button">Paste</button></div><span id="to-error" data-part="error" role="alert">No one has that handle</span></div>',
+    );
+    expect(html(<Field label="To" id="to" />)).toBe('<div class="lit-field-control"><label for="to">To</label><input id="to"/></div>');
+  });
+
   it('Select is a labelled native select whose change hands back the value', () => {
     const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
     // Named by its words alone, not by its words and the chosen option (J-developer-08 #3 finds "Status" exactly).

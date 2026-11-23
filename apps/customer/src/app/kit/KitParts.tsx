@@ -34,14 +34,21 @@ import {
   TooltipTrigger,
 } from '@intafaced/ui';
 import {
+  AmountField,
   AssetIcon,
+  Button as VoltButton,
   CardStack,
   CardStackLoading,
   Fold,
   HeroFigure,
   InfoTip,
+  Payee,
   Rail,
+  StatusNote,
+  ToastProvider,
   ToggleChips,
+  Field as VoltField,
+  useToast as useVoltToast,
   typeRoles,
   type DoorLink,
   type FigurePart,
@@ -54,6 +61,7 @@ import {
   sortRows,
   Stepper,
   Table,
+  TabList,
   type Candle as KitCandle,
   type Column,
   type SortState,
@@ -602,6 +610,86 @@ export function MoneyParts() {
           front={{ label: 'Cash', value: hidden ? '••••' : '$9,218.50', href: '/kit' }}
         />
         <CardStackLoading />
+      </div>
+    </div>
+  );
+}
+
+/** The parts the Pay room takes from the kit (issue 9563): the money box, the handle box, the person found, where a send
+ * stands, and a confirmation toast. TEST figures and names. */
+export function PayParts() {
+  return (
+    <ToastProvider closeLabel="Dismiss">
+      <PayPartsBody />
+    </ToastProvider>
+  );
+}
+
+function PayPartsBody() {
+  const [amount, setAmount] = useState('');
+  const [handle, setHandle] = useState('mika');
+  const [tab, setTab] = useState<'send' | 'receive' | 'request'>('send');
+  const toast = useVoltToast();
+  return (
+    <div className="vk-grid" data-kit="pay-parts">
+      <TabList
+        label="Send or receive"
+        items={[
+          { value: 'send', label: 'Send' },
+          { value: 'receive', label: 'Receive' },
+          { value: 'request', label: 'Request' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+      <AmountField
+        label="Amount to send"
+        hideLabel
+        size="hero"
+        precision={2}
+        value={amount}
+        onChange={setAmount}
+        unit={
+          <>
+            <AssetIcon asset="USDT" size="sm" />
+            USDT
+          </>
+        }
+        available="Available 9,218.50 USDT · TEST"
+        max={{ label: 'Max', onSelect: () => setAmount('9218.50') }}
+        data-testid="kit-amount"
+      />
+      <AmountField
+        label="Amount with a refusal"
+        precision={2}
+        value="99999"
+        onChange={() => undefined}
+        unit="USDT"
+        error="More than your 9,218.50 USDT balance. TEST."
+      />
+      <VoltField
+        label="To"
+        value={handle}
+        onChange={(e) => setHandle(e.target.value)}
+        before="@"
+        after={<VoltButton tone="quiet">Paste</VoltButton>}
+        hint="Ask for their handle"
+      />
+      <div className="vk-row">
+        <Payee face="Mika Tan" name="Mika Tan" handle="@mika" badge="Member since Nov 2026" confirmed data-testid="kit-payee" />
+        <Payee face="@ana" handle="@ana" />
+      </div>
+      <StatusNote title="Still confirming" actions={<VoltButton>View activity</VoltButton>}>
+        TEST. We are waiting for the bank to confirm this send. Nothing more will be sent.
+      </StatusNote>
+      <StatusNote tone="warn">TEST. Held for review. We will tell you when it moves.</StatusNote>
+      <StatusNote tone="error" actions={<VoltButton tone="quiet">Try again</VoltButton>}>
+        TEST. Recent payments could not load.
+      </StatusNote>
+      <div className="vk-row">
+        <VoltButton data-kit="show-volt-toast" onClick={() => toast.add({ title: 'Link copied', description: 'TEST.', timeout: 0 })}>
+          Show a confirmation
+        </VoltButton>
       </div>
     </div>
   );

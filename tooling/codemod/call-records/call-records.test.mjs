@@ -28,7 +28,7 @@ import { applyEdits, forget, freeNames, load, resolveRelative, text } from './as
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
-import { armsOf, callsOf } from './door.mjs';
+import { accessText, armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
 import { samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
@@ -61,9 +61,8 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   holdCallersOnly([join(root, 'apps/customer/src/a.ts'), join(root, 'packages/contracts/src/agents-own-procedures.ts')], root);
 });
 
-test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
-  // The codemod, copied into a small repo: a service whose crate sits beside it, a helper its router declares, and two callers.
-  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+/** The codemod, copied into a small repo: svc-agents with its crate beside it, a helper two router files declare, and three callers. */
+function agentsRepo(root) {
   const here = new URL('.', import.meta.url).pathname;
   const files = {
     'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
@@ -113,6 +112,12 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   git('init', '-q');
   git('add', '.');
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  return git;
+}
+
+test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
   const index = join(root, 'tooling/codemod/call-records/index.mjs');
   const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
   // Without the mode the service is still refused, by name, exit 3.
@@ -153,6 +158,53 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   assert.doesNotMatch(record, /const idInput/, 'the record imports the copy already in the shared file, never declares it again');
   assert.match(record, /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/agents-call-schemas\.js["']/);
   assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
+});
+
+test("--door: the router read from the commit before its deletion keeps one copy of a shared helper, and access is the door's", () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
+  // The switch: the door serves the calls (svc-agents' calls.rs, nested Scoped), and services/svc-agents is deleted.
+  const row = (path) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n            scope: "agents:read",\n            person: true,\n            module: true,\n        }),\n        pre: Pre::None,\n        post: Post {\n            key: false,\n            sub_account: false,\n            lacks_identity_write: false,\n        },\n        slice: Slice::Runtime,\n        has_input: true,\n    },`;
+  mkdirSync(join(root, 'crates/svc-agents/src/door'), { recursive: true });
+  writeFileSync(
+    join(root, 'crates/svc-agents/src/door/calls.rs'),
+    `pub const CALLS: [Call; 2] = [\n${row('own.get')}\n${row('own.schedules.list')}\n];\n`,
+  );
+  git('rm', '-rq', 'services/svc-agents');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'switch');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync(
+    'node',
+    [
+      index,
+      '--module',
+      'agents',
+      '--service',
+      'svc-agents',
+      '--door',
+      'crates/svc-agents',
+      '--from-rev',
+      'HEAD^',
+      '--write',
+      '--json',
+      join(root, '.git/summary.json'),
+    ],
+    { cwd: root, encoding: 'utf8', stdio: 'pipe' },
+  );
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(
+    summary.records.sort(),
+    ['AGENTS_OWN_GET', 'AGENTS_OWN_SCHEDULES_LIST'],
+    'two router files with one idInput as written clash with nothing',
+  );
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.equal(shared.match(/export const idInput = /g)?.length, 1, 'the copy already there is the one');
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.doesNotMatch(record, /const idInput/, 'the record imports the copy already in the shared file, never declares it again');
+  assert.match(record, /access: \{\s*caller: ["']scope["'],\s*scope: ["']agents:read["'],\s*module: ["']agents["'],\s*person: true,?\s*\}/);
+  assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '', 'the router read from the old commit is gone again');
 });
 
 test('a helper the shared file names another way lands beside its record once: an earlier copy there with the same text is the one', () => {
@@ -848,6 +900,10 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf('crates/svc-agents serves coach.runSession to its own middleware Pre::CoachRun, which a record cannot name'),
+    'door access a record cannot name (Pre::CoachRun, Settle, ...)',
+  );
+  assert.equal(
     reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
     'one input sent to each of a closed set of calls',
   );
@@ -1097,13 +1153,38 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
     [
       "export const a = (api: any, ok: boolean, id: string) => api.mutate('bank', ok ? 'holds.accept' : 'holds.deny', { id }, s);",
       "export const b = (api: any, reg: boolean, body: object) => api.mutate('identity', reg ? 'auth.register' : 'auth.login', body, s);",
+      // An input that is a `? :` on the very test that picks the call: each value sends its own branch. On another test it stays.
+      "export const c = (api: any, rotate: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', rotate ? { keyId: 'k', ...ids } : ids, s);",
+      "export const d = (api: any, rotate: boolean, other: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', other ? { keyId: 'k' } : ids, s);",
       '',
     ].join('\n'),
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
   const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+  assert.deepEqual(found, [
+    'holds.accept 0 moves',
+    'holds.deny 1 moves',
+    'auth.register 0 stays',
+    'auth.login 1 stays',
+    'keys.rotate 0 moves',
+    'keys.removeOld 1 moves',
+    'keys.rotate 0 stays',
+    'keys.removeOld 1 stays',
+  ]);
+
+  // Written back as one call, each value sending its own branch of the input.
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const file = join(repo, 'apps/customer/src/holds.ts');
+  const keys = findSites(repo).filter((s) => s.path?.startsWith('keys.') && !s.problem);
+  const changes = new Changes();
+  for (const s of keys) rewriteSite(changes, s, s.path.toUpperCase().replace('.', '_'), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(out, /=> \(rotate \? api\.call\(KEYS_ROTATE, \{ keyId: 'k', \.\.\.ids \}\) : api\.call\(KEYS_REMOVEOLD, ids\)\);$/m);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
@@ -1565,7 +1646,7 @@ test('portable: an answer refinement with a message is named in the record, once
   );
 });
 
-test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine is left, named", async () => {
+test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine with no written message is left, named", async () => {
   const { plan } = await import('./portable.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
   writeFileSync(
@@ -1599,12 +1680,71 @@ test("portable: an input refinement with a message is named in the record's chec
     },
     [record],
   );
-  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'a .superRefine names no rule in words' }]);
+  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'its .superRefine raises no issue the codemod can read' }]);
   assert.deepEqual(
     [...edits.get(record).edits.values()].map((e) => e.text),
     [
       ', checks: { review_input_holds: { at: "input", says: "a rejection needs a reason" }, reason_holds: { at: "input.reason", says: "a reason is 3 or more characters" } }',
       ", { verdict: 'refuse', input: 42, by: 'review_input_holds' }, { verdict: 'refuse', input: 42, by: 'reason_holds' }",
+    ],
+  );
+});
+
+test('portable: a .superRefine is named in the words of each issue it raises, its function inline, local or imported; one issue with no written words leaves it', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'rules.ts'),
+    [
+      'export function windowRules(v: { from: number; to: number }, ctx: any) {',
+      "  if (v.to < v.from) ctx.addIssue({ code: 'custom', message: 'a window ends after it starts', path: ['to'] });",
+      "  if (v.to - v.from > 90) ctx.addIssue({ code: 'custom', message: 'a window is at most 90 days' });",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'window.ts'),
+    [
+      "import { z } from 'zod';",
+      "import { windowRules } from './rules.js';",
+      'export const windowSchema = z.object({ from: z.number(), to: z.number() }).superRefine(windowRules);',
+      "export const tagSchema = z.object({ tag: z.string().superRefine((t, ctx) => { if (t === 'x') ctx.addIssue({ code: 'custom', message: 'a tag is never x' }); }) });",
+      "export const loudSchema = z.object({ n: z.string().superRefine((t, ctx) => { ctx.addIssue({ code: 'custom', message: `bad ${t}` }); }) });",
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'window-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }]";
+  writeFileSync(
+    record,
+    [
+      "import { windowSchema, tagSchema, loudSchema } from './window.js';",
+      `export const W = defineProcedure({ name: 'x.window', input: windowSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const T = defineProcedure({ name: 'x.tag', input: tagSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const L = defineProcedure({ name: 'x.loud', input: loudSchema, output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      window: `x.window.input cannot be exported without losing meaning: input ${refine}`,
+      tag: `x.tag.input cannot be exported without losing meaning: input.tag ${refine}`,
+      loud: `x.loud.input cannot be exported without losing meaning: input.n ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, [
+    { record: 'x.loud', at: 'input.n', why: 'its .superRefine raises an issue with no message written as a string' },
+  ]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', checks: { window_holds: { at: "input", says: "a window ends after it starts; a window is at most 90 days" } }',
+      ", { verdict: 'refuse', input: 42, by: 'window_holds' }",
+      ', checks: { tag_holds: { at: "input.tag", says: "a tag is never x" } }',
+      ", { verdict: 'refuse', input: 42, by: 'tag_holds' }",
     ],
   );
 });
@@ -1683,7 +1823,7 @@ test("a door's match arms: a pattern over lines, each arm to the next, a literal
   );
 });
 
-test("a door's calls.rs rows read as kind, scope (null when public) and guarded; a row it can't read stops it", () => {
+test("a door's calls.rs rows read as kind, the record's access (or why none) and guarded; a row it can't read stops it", () => {
   const dir = mkdtempSync(join(tmpdir(), 'door-'));
   mkdirSync(join(dir, 'src/door'), { recursive: true });
   const row = (path, kind, access, guarded) =>
@@ -1692,12 +1832,52 @@ test("a door's calls.rs rows read as kind, scope (null when public) and guarded;
     join(dir, 'src/door/calls.rs'),
     [row('a', 'Query', 'Public', 'false'), row('b', 'Mutation', 'Scope("x:write")', 'true')].join('\n'),
   );
-  assert.deepEqual(Object.fromEntries(callsOf(dir)), {
-    a: { kind: 'query', scope: null, guarded: false },
-    b: { kind: 'mutation', scope: 'x:write', guarded: true },
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'x')), {
+    a: { kind: 'query', access: { caller: 'public' }, guarded: false },
+    b: { kind: 'mutation', access: { caller: 'scope', scope: 'x:write', module: 'x' }, guarded: true },
   });
-  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, access: Access::Operator, guarded: true, }');
-  assert.throws(() => callsOf(dir), /can't read/);
+  // svc-agents' rows: a nested Scoped and Post, a Pre, no guarded flag. Before, the reader threw on the first of them.
+  const scoped = (path, scope, person, module, pre, access) =>
+    `    Call {
+        path: "${path}",
+        kind: Kind::Query,
+        access: ${access ?? `Access::Scope(Scoped {\n            scope: "${scope}",\n            person: ${person},\n            module: ${module},\n        })`},
+        pre: ${pre},
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Runtime,
+        has_input: true,
+    },`;
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      scoped('own.inbox', 'agents:read', true, true, 'Pre::None'),
+      scoped('own.tool.try', 'agents:execute', false, true, 'Pre::PersonOnly("agents.execute_person_only")'),
+      scoped('region.free', 'agents:read', false, false, 'Pre::None'),
+      scoped('coach.runSession', 'agents:read', false, true, 'Pre::CoachRun'),
+      scoped('settle', '', false, false, 'Pre::None', 'Access::Settle'),
+    ].join('\n'),
+  );
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'agents')), {
+    'own.inbox': { kind: 'query', access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true }, guarded: null },
+    'own.tool.try': {
+      kind: 'query',
+      access: { caller: 'scope', scope: 'agents:execute', module: 'agents', ownSession: 'agents.execute_person_only' },
+      guarded: null,
+    },
+    'region.free': { kind: 'query', access: { caller: 'scope', scope: 'agents:read' }, guarded: null },
+    'coach.runSession': { kind: 'query', access: null, why: 'its own middleware Pre::CoachRun, which a record cannot name', guarded: null },
+    settle: { kind: 'query', access: null, why: "access Access::Settle, which this reader does not map to a record's", guarded: null },
+  });
+  assert.equal(
+    accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
+    "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
+  );
+  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
+  assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
 
 test("a record's input is held to the door's tree: the same zod parts match, one changed bound does not", async () => {

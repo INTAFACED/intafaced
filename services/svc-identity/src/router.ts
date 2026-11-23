@@ -32,7 +32,6 @@ import { router, publicProcedure, protectedProcedure, scopedProcedure, servicePr
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
-import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
   callFounderControl,
   identityFreezeInputSchema,
@@ -182,6 +181,8 @@ import {
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -1471,26 +1472,9 @@ export function createIdentityRouter(
     }),
 
     auth: router({
-      register: publicProcedure
-        .input(
-          z.object({
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().email(),
-            password: z.string().min(12).max(200),
-            region: z.string().length(2).optional(),
-            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
-            deviceKey: z.string().min(16).max(128).optional(),
-            /**
-             * Optional referrer at signup. Same law as `affiliates.attribute`
-             * (self/cycle/depth/unknown refuse loud). Blank = no edge.
-             * Account is created first; a failed attribute still leaves the user
-             * (they can fix referrer via attribute later if product allows once).
-             */
-            referrerId: z.string().guid().optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      register: mountRecord(
+        IDENTITY_AUTH_REGISTER,
+        async ({ input, ctx }) => {
           assertRegistrationOpen();
           if (options.directRegister !== true) {
             throw new TRPCError({
@@ -1513,7 +1497,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
@@ -1661,19 +1647,9 @@ export function createIdentityRouter(
         kycProfileRefusal,
       ),
 
-      login: publicProcedure
-        .input(
-          z.object({
-            identifier: z.string().min(1),
-            password: z.string().min(1),
-            totpCode: z.string().optional(),
-            deviceKey: z.string().min(16).max(128).optional(),
-            /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
-            challenge: signInChallengeProofSchema.optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      login: mountRecord(
+        IDENTITY_AUTH_LOGIN,
+        async ({ input, ctx }) => {
           const address = requestIpAls.getStore();
           let admission: SignInAdmission | undefined;
           let wrongPassword = false;
@@ -1693,7 +1669,9 @@ export function createIdentityRouter(
               console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
             });
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge

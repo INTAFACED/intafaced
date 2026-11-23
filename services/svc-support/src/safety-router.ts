@@ -4,9 +4,7 @@ import {
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
-  supportBereavementInputSchema,
   supportScamReportInputSchema,
-  supportComplaintInputSchema,
   supportSafetyAcknowledgementSchema,
 } from '@intafaced/contracts/support-safety';
 import { router, scopedProcedure } from '@intafaced/contracts/trpc';
@@ -14,7 +12,12 @@ import type { SafetyCases } from './safety-cases.js';
 import { SupportError } from './support-service.js';
 import { mapError } from './router.js';
 import { userCopy } from './user-copy.js';
-import { SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY } from '@intafaced/contracts/support-safety-procedures';
+import {
+  SUPPORT_SAFETY_MINE,
+  SUPPORT_SAFETY_MULE_POLICY,
+  SUPPORT_SAFETY_COMPLAIN,
+  SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+} from '@intafaced/contracts/support-safety-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { supportRefusal } from './record-refusal.js';
 
@@ -25,27 +28,29 @@ import { supportRefusal } from './record-refusal.js';
  */
 export function safetyRouter(safety: SafetyCases) {
   return router({
-    complain: scopedProcedure('support:write')
-      .input(supportComplaintInputSchema)
-      .output(supportSafetyAcknowledgementSchema)
-      .mutation(async ({ ctx, input }) => {
+    complain: mountRecord(
+      SUPPORT_SAFETY_COMPLAIN,
+      async ({ ctx, input }) => {
         try {
           return await safety.complain(ctx.principal!.userId, input);
         } catch (err) {
           mapSafety(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
-    reportBereavement: scopedProcedure('support:write')
-      .input(supportBereavementInputSchema)
-      .output(supportSafetyAcknowledgementSchema)
-      .mutation(async ({ ctx, input }) => {
+    reportBereavement: mountRecord(
+      SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+      async ({ ctx, input }) => {
         try {
           return await safety.reportBereavement(ctx.principal!.userId, input);
         } catch (err) {
           mapSafety(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** A scam report with its amount and the transfer it went out on (BK-safe-02, J-bank-18 #3), acknowledged once. */
     reportScam: scopedProcedure('support:write')

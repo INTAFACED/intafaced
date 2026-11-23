@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, STACK_PORTS, api as stackApi, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { venueBalance, venueRecord } from './venue.mjs';
+import { ageRecord } from './test-age.mjs';
 
 // J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. The person's bank
 // money is held at the TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded
@@ -232,19 +233,24 @@ test(`${J} #1 schedules a one-off for tomorrow: on its date the partner is instr
   expect(await sentFor(once.id)).toEqual([]);
   expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(start).balance));
 
-  // On its date: a one-off whose date has come (made the same way, through the person's own API, dated a minute ago).
-  // The partner makes the move and its answer is lost once (the TEST switch), so the runner must send the same key
-  // again: the partner answers with the move it made, and the money moves once.
-  const due = randomUUID();
-  const made = await api.mutate('transfers.schedule', {
-    scheduleId: due,
-    fromSpaceId: main(start).id,
-    toSpaceId: named(start, TRIP).id,
-    amount: '7',
-    cadence: 'once',
-    startsAt: new Date(Date.now() - 60_000).toISOString(),
-  });
-  expect(made.ok).toBe(true);
+  // On its date: a second one-off scheduled in the app for tomorrow, then its date comes (the TEST age door moves its
+  // start and next run back by the day, as the wait would have). The first stays tomorrow's, for the calendar and the
+  // reminder. The partner makes the move and its answer is lost once (the TEST switch), so the runner must send the same
+  // key again: the partner answers with the move it made, and the money moves once.
+  const second = await scheduleInApp(page, { cadence: 'One-off', amount: '7', startsAt: tomorrow });
+  await second.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(second.getByText('Confirmed by the service', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const scheduled = (await schedules(who)).find((s) => s.cadence === 'once' && s.amount === '7');
+  expect(scheduled).toMatchObject({ status: 'active', endsAt: null, revision: 1 });
+  const due = scheduled.id;
+  await page.goto('/bank/transfers');
+  await expect(row(page, due)).toContainText('once · active');
+  expect(await executions(who, due)).toEqual([]);
+  expect(await sentFor(due)).toEqual([]);
+  const DAY = 86_400_000;
+  for (let left = Date.parse(scheduled.nextRunAt) - Date.now() + 1_000; left > 0; left -= DAY)
+    await ageRecord('bank', 'scheduled-transfer', due, Math.min(left, DAY));
+  expect(Date.parse((await schedules(who)).find((s) => s.id === due).nextRunAt)).toBeLessThanOrEqual(Date.now());
   expect(await api.mutate('testPartner.set', { nextReply: 'lost' })).toMatchObject({ ok: true });
   const passes = await runDue();
   expect(passes.failures.some((f) => f.scheduleId === due && f.code === 'bank.partner_reply_lost')).toBe(true);

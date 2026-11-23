@@ -526,16 +526,14 @@ export class RecurringBuys {
     const pending = slots.find((s) => s.outcome === 'pending');
     if (pending) return this.runSlot(rule, actor, pending);
     if (rule.nextRunAt === null || rule.nextRunAt.getTime() > at.getTime()) return;
-    // The slot is moved on first, only from the time this pass read, so one due slot is written once.
+    // The slot is written and the next time moved on together, only from the time this pass read: one due slot is
+    // written once, and a failed write leaves it due.
     const next = new Date(rule.nextRunAt.getTime() + PERIOD_MS[rule.frequency]);
-    if (!(await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: rule.nextRunAt, to: next, at }))) return;
-    const slot = await this.deps.store.insertSlot({
-      ruleId: rule.ruleId,
-      slot: slots.length,
-      amount: rule.amount,
-      outcome: 'pending',
-      at,
-    });
+    const slot = await this.deps.store.scheduleSlot(
+      { ruleId: rule.ruleId, from: rule.nextRunAt, to: next, at },
+      { ruleId: rule.ruleId, slot: slots.length, amount: rule.amount, outcome: 'pending', at },
+    );
+    if (!slot) return;
     await this.runSlot(await this.stored(rule.ruleId), actor, slot);
   }
 

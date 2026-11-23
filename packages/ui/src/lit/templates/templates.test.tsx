@@ -682,4 +682,15 @@ describe('a dialog', () => {
     expect(out).toContain('aria-label="Close dialog"');
     expect(out).toContain('TEST body');
   });
+
+  it('announces a confirmation before a step that cannot be undone as an alert dialog', () => {
+    const out = html(
+      <Dialog title="Send 1 USDT?" closeLabel="Close dialog" onClose={() => undefined} alert data-testid="send-review">
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(
+      /^<dialog class="lt-dialog" role="alertdialog" aria-modal="true" data-testid="send-review" aria-labelledby="[^"]+">/,
+    );
+  });
 });

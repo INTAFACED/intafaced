@@ -42,6 +42,26 @@
   min-block-size: var(--lit-legal-band-min-h);
 }
 
+/* ---- a room's own bar: first in the room, staying under the top bar's measured bottom edge (and the band's, when on) ---- */
+
+.lt-room-bar {
+  position: sticky;
+  inset-block-start: var(--a11y-obscured-top, var(--lit-topbar-h));
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  background: var(--lit-page);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-room[data-band] > .lt-room-bar {
+  inset-block-start: var(--a11y-obscured-top, calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h)));
+}
+
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
@@ -1765,7 +1785,9 @@ button.lt-tab:focus-visible {
 }
 
 /* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
-   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. */
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. It clips to its
+   box with square corners: a library draws its axis labels into the corners, and a rounded clip (Volt's control radius
+   is a pill) cuts them. */
 .lt-chart-box {
   position: relative;
   display: grid;
@@ -1778,7 +1800,6 @@ button.lt-tab:focus-visible {
   position: relative;
   min-inline-size: 0;
   color: var(--lit-accent);
-  border-radius: var(--lit-radius-control);
   overflow: hidden;
 }
 
