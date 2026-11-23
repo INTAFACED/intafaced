@@ -170,8 +170,8 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
 
   return (
     <>
-      <TradeSubNav active="convert" />
       <div data-testid="if-convert" className="if-convert">
+        <TradeSubNav />
         <div className="cvt-grid">
           <header data-testid="cvt-hero" className="cvt-hero">
             <h1>

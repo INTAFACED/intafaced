@@ -56,7 +56,7 @@ export default function Screen(_props: ScreenProps) {
   );
 
   return (
-    <RoomFrame mode="Options" title={t('Options')} description={t('Options description')} meta={chips}>
+    <RoomFrame title={t('Options')} description={t('Options description')} meta={chips}>
       <div className="lt-stack">
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Request done')} />
         {note ? (

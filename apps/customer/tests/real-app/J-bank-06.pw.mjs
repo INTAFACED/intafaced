@@ -699,17 +699,20 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   // Where the dates come from: loans publish none and bills have no partner, each named; the rest are counted.
   const sources = page.getByTestId('cal-sources');
   await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-  await expect(sources.getByTestId('cal-source-loans')).toContainText('bank.loan_schedule_unset');
+  await expect(sources.getByTestId('cal-source-loans')).toHaveAttribute('data-code', 'bank.loan_schedule_unset');
+  // A code is the row's attribute, never words a customer reads.
+  await expect(sources).not.toContainText('bank.');
   await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
   await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
   await expect(sources.getByTestId('cal-source-direct_debits')).toHaveAttribute('data-state', 'ok');
 
-  // The list: each run with its status, and a failed one with its reason in words and by code.
+  // The list: each run with its status, and a failed one with its reason in words, its code on the row.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const failedRow = page.getByTestId(`cal-row-${short}:0`);
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
-  await expect(failedRow).toContainText('bank.partner_insufficient_funds');
+  await expect(failedRow.locator('[data-status="failed"]')).toHaveAttribute('data-code', 'bank.partner_insufficient_funds');
+  await expect(failedRow).not.toContainText('bank.partner_insufficient_funds');
   await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
 
   // Filter by kind: direct debits off leaves the standing orders showing.
@@ -928,7 +931,7 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
       expect(broken.sources.find((s) => s.source === source)).toEqual(whole.sources.find((s) => s.source === source));
     expect(broken.items.find((i) => i.key === `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done' });
 
-    // In the app: the failing kind is named in words and by code, and the standing orders still show on their days.
+    // In the app: the failing kind is named in words, its code on the row, and the standing orders still show on their days.
     await signIn(page, who);
     await page.goto('/bank/calendar');
     await calendarMonth(page, ranMonth);
@@ -936,7 +939,8 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
     const failing = sources.getByTestId('cal-source-direct_debits');
     await expect(failing).toHaveAttribute('data-state', 'unavailable');
     await expect(failing).toContainText('Direct debits could not be read just now. Everything else is shown.');
-    await expect(failing).toContainText('bank.calendar_source_unavailable');
+    await expect(failing).toHaveAttribute('data-code', 'bank.calendar_source_unavailable');
+    await expect(sources).not.toContainText('bank.');
     await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
     await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
     await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');

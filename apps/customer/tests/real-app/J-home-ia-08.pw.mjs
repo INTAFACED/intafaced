@@ -74,7 +74,7 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   const web3Bar = page.getByRole('navigation', { name: 'Web3 sections on phone' });
   const exchangeBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
   await expect(web3Bar).toBeVisible();
-  expect(await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
+  await expect.poll(async () => await web3Bar.getByRole('link').allInnerTexts()).toEqual(['Swap', 'Pools', 'Wallet', 'Explorer', 'All']);
   await expect(web3Bar.getByRole('link', { name: 'Pools' })).toHaveAttribute('aria-current', 'page');
   await expect(exchangeBar).toHaveCount(0);
   await page.goto('/money');
