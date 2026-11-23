@@ -7,7 +7,7 @@ import {
   type AnnouncementKind,
   type AnnouncementWriteOutput,
 } from '@intafaced/contracts/ops-console-announcements';
-import { founderCall, type FounderCallContext, type FounderCallResult, opsReadOf, explainRefusal, founderRecordRead } from '@/lib/desk';
+import { type FounderCallContext, type FounderCallResult, opsReadOf, explainRefusal, founderRecordRead } from '@/lib/desk';
 import {
   readActiveAnnouncement,
   readAnnouncementsList,
@@ -19,6 +19,7 @@ import {
   OPS_ANNOUNCEMENTS_ACTIVE,
   OPS_ANNOUNCEMENTS_LIST,
   OPS_ANNOUNCEMENTS_CHANGE,
+  OPS_ANNOUNCEMENTS_SAVE,
 } from '@intafaced/contracts/ops-announcements-procedures';
 
 /** The banner read sits in front of every page, so a hung svc-ops costs a page this much at most (as maintenance mode). */
@@ -90,7 +91,7 @@ function reply(result: FounderCallResult<AnnouncementWriteOutput>, done: (out: A
 
 export async function saveAnnouncement(ctx: FounderCallContext, basis: string | null, content: AnnouncementContent, publish: boolean) {
   const key = announcementKey(ctx.session.userId, basis, content, publish);
-  return reply(await founderCall(ctx, 'ops', 'announcements.save', 'POST', { key, ...content, publish }, parseWrite), (out) =>
+  return reply(await founderRecordRead(ctx, OPS_ANNOUNCEMENTS_SAVE, { key, ...content, publish }, parseWrite), (out) =>
     out.outcome === 'replayed'
       ? 'this announcement was already saved'
       : out.announcement.status === 'published'

@@ -1,22 +1,16 @@
 import { TRPCError } from '@trpc/server';
-import {
-  ANNOUNCEMENT_NOT_FOUND,
-  BANNER_CONFLICT,
-  announcementSaveInputSchema,
-  announcementWriteOutputSchema,
-} from '@intafaced/contracts/ops-console-announcements';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { ANNOUNCEMENT_NOT_FOUND, BANNER_CONFLICT } from '@intafaced/contracts/ops-console-announcements';
+import { router } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import type { AnnouncementDesk } from './desk.js';
 import {
   OPS_ANNOUNCEMENTS_ACTIVE,
   OPS_ANNOUNCEMENTS_LIST,
   OPS_ANNOUNCEMENTS_CHANGE,
+  OPS_ANNOUNCEMENTS_SAVE,
 } from '@intafaced/contracts/ops-announcements-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../refusal.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
@@ -60,16 +54,17 @@ export function createAnnouncementsRouter(desk: AnnouncementDesk) {
       },
       opsRefusal,
     ),
-    save: scopedProcedure('admin:write', guards)
-      .input(announcementSaveInputSchema)
-      .output(announcementWriteOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    save: mountRecord(
+      OPS_ANNOUNCEMENTS_SAVE,
+      async ({ ctx, input }) => {
         try {
           return await desk.save(ctx.principal.userId, input);
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
     change: mountRecord(
       OPS_ANNOUNCEMENTS_CHANGE,
       async ({ ctx, input }) => {

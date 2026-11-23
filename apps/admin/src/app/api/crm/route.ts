@@ -22,7 +22,7 @@ import {
   founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
-import { OPS_OUTREACH_OWNERS } from '@intafaced/contracts/ops-outreach-procedures';
+import { OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_OPPORTUNITIES } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,7 +154,7 @@ export async function GET(request: Request) {
       if ('limit' in raw) raw.limit = Number(raw.limit);
       const parsed = crmListInputSchema.safeParse(raw);
       if (!parsed.success) throw new AdminSessionError('admin.crm_input', 400);
-      data = await founderEdgeCall(config, 'ops', 'outreach.listOpportunities', 'GET', parsed.data, session.accessToken);
+      data = await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_OPPORTUNITIES, parsed.data, session.accessToken);
       const page = crmOpportunityPageSchema.safeParse(data);
       if (!page.success) throw new AdminSessionError('admin.upstream_invalid', 502);
       data = page.data;

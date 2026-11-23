@@ -4,6 +4,7 @@ import {
   announcementChangeInputSchema,
   announcementsListOutputSchema,
   announcementWriteOutputSchema,
+  announcementSaveInputSchema,
 } from './ops-console-announcements.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -46,6 +47,33 @@ export const OPS_ANNOUNCEMENTS_CHANGE = defineProcedure({
   output: announcementWriteOutputSchema,
   samples: [
     { verdict: 'accept', input: { id: '11111111-1111-4111-8111-111111111111', op: 'publish' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_ANNOUNCEMENTS_SAVE = defineProcedure({
+  ...base,
+  name: 'ops.announcements.save',
+  kind: 'mutation',
+  path: 'announcements.save',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: announcementSaveInputSchema,
+  output: announcementWriteOutputSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        key: 'announcement:0000000000000000',
+        kind: 'information',
+        title: 'USDC',
+        body: 'USDC',
+        action: { type: 'none' },
+        startsAt: '2026-01-01T00:00:00.000Z',
+        endsAt: '2026-01-01T00:00:00.000Z',
+        publish: true,
+      },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });
