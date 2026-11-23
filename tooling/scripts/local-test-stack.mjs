@@ -40,6 +40,9 @@
  *                                         start on that build
  *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
+ *   pnpm local:stack --no-admin           everything but the founder console and its TEST TLS front: neither built nor
+ *                                         started (its Next build peaks near 1.6 GB); `journey` passes it when no file
+ *                                         it runs reaches the console (journey-local.mjs consoleNeeded)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
  *   node tooling/scripts/local-test-stack.mjs second-worker <service> start|stop   a second process of one running service,
  *                                         same settings, its own port (a journey that two workers do a thing once)
@@ -200,6 +203,8 @@ const P = {
   cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
+  // `off` after a `start --no-admin`: the console and its TLS front were left out on purpose, so their rows read off.
+  adminWanted: path.join(STATE, 'admin-wanted'),
 };
 
 // Every port, shifted by LOCAL_STACK_SLOT, lives in local-test-facts.mjs.
@@ -276,6 +281,7 @@ const portTaken = (port, what, seen) =>
       'stop it, or start again without LOCAL_STACK_SLOT: a start takes a free slot',
   );
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : null);
 function writePrivate(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, text, { mode: 0o600 });
@@ -2467,10 +2473,15 @@ async function healthTable({ gateMarket = false } = {}) {
     apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
-  rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   const teamCert = path.join(P.tls, 'team-tls.crt');
   const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
-  rows.push(['team-tls (TEST)', PORTS['team-tls'], procs['team-tls']?.pid ?? '-', teamTlsOk ? 'ok' : 'DOWN']);
+  rows.push(
+    ...consoleRows({
+      adminWanted: readText(P.adminWanted) !== 'off',
+      admin: { port: PORTS.admin, pid: procs.admin?.pid, status: admin.status },
+      teamTls: { port: PORTS['team-tls'], pid: procs['team-tls']?.pid, ok: teamTlsOk },
+    }),
+  );
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -2517,6 +2528,30 @@ export async function adapterHealthRow(name, { procs, wanted, alive = ownedAlive
   if (!procs[name] || (!wanted[name] && !alive(procs[name]))) return [`${name} (TEST)`, PORTS[name], '-', 'off (not started)'];
   const adapter = await get(`${urlOf(name)}/health`, 2500);
   return [`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`];
+}
+
+/**
+ * Whether this start builds and starts the founder console. `--no-admin` leaves it out; a start that names it (`--only
+ * admin` or `team-tls`) or names nothing brings it in; any other `--only` start (a journey restarting one service mid-run)
+ * keeps what the running stack was started with (`recorded`, the admin-wanted file), so it never builds the console mid-run.
+ */
+export function adminWantedBy(flags, only, recorded) {
+  if (flags.includes('--no-admin')) return false;
+  if (!only || only.includes('admin') || only.includes('team-tls')) return true;
+  return recorded !== 'off';
+}
+
+/**
+ * The console's two rows: the founder console and its TEST TLS front. After a `start --no-admin` (`adminWanted` false)
+ * one that does not answer reads "off", which doesn't fail; one that answers still reads ok.
+ */
+export function consoleRows({ adminWanted, admin, teamTls }) {
+  const off = 'off (--no-admin; bring it up: pnpm local:stack restart admin)';
+  const adminUp = admin.status === 200;
+  return [
+    ['admin', admin.port, admin.pid ?? '-', adminUp ? 'ok' : adminWanted ? `DOWN (${admin.status})` : off],
+    ['team-tls (TEST)', teamTls.port, teamTls.pid ?? '-', teamTls.ok ? 'ok' : adminWanted ? 'DOWN' : off],
+  ];
 }
 
 /** The health table passes when every row but the market maker's reads ok, absent or off (and, gated, the maker is live). */
@@ -2866,7 +2901,9 @@ async function cmdStart(flags) {
   }
   adoptEnvCustomerDist();
   ensureNatsBinary();
-  ensureBuilt(flags.includes('--rebuild'));
+  const admin = adminWantedBy(flags, only, readText(P.adminWanted));
+  writePrivate(P.adminWanted, `${admin ? 'on' : 'off'}\n`);
+  ensureBuilt(flags.includes('--rebuild'), { admin });
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
@@ -2941,8 +2978,8 @@ async function cmdStart(flags) {
   if (!only || only.includes('invitation')) await startInvitation();
   if (!only || only.includes('apex')) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
-  if (!only || only.includes('admin')) await startAdmin(secrets);
-  if (!only || only.includes('admin') || only.includes('team-tls')) await startTeamTls();
+  if (admin && (!only || only.includes('admin'))) await startAdmin(secrets);
+  if (admin && (!only || only.includes('admin') || only.includes('team-tls'))) await startTeamTls();
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -3051,6 +3088,8 @@ async function cmdStop(names = []) {
   } else {
     say('  postgres: not running');
   }
+  // The stack is down, so a `--no-admin` it was started with ends here: the next start brings the console up again.
+  fs.rmSync(P.adminWanted, { force: true });
   say('  Data is kept in the state directory. Start again with: pnpm local:stack');
   if (bad) process.exit(1);
   releaseSlot();
@@ -3121,7 +3160,10 @@ function restartNames() {
 }
 
 /** A stop and a full start, so a restart takes the start's own path. The collaborators are the script's own (a test passes its own). */
-export async function cmdRestart(names, { take = takeSlot, refuse = refuseOtherStack, stop = cmdStop, start = cmdStart } = {}) {
+export async function cmdRestart(
+  names,
+  { take = takeSlot, refuse = refuseOtherStack, stop = cmdStop, start = cmdStart, adminWanted = () => readText(P.adminWanted) } = {},
+) {
   const known = restartNames();
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
@@ -3130,7 +3172,8 @@ export async function cmdRestart(names, { take = takeSlot, refuse = refuseOtherS
   await take();
   await refuse();
   await stop(names);
-  await start([]);
+  // A stack started with --no-admin stays without its console, unless the restart names it.
+  await start(names.includes('admin') || names.includes('team-tls') || adminWanted() !== 'off' ? [] : ['--no-admin']);
 }
 
 // The Customer server proxies /ws/* to CUSTOMER_WS_URL with the /ws prefix stripped, as apps/customer/nginx.conf
