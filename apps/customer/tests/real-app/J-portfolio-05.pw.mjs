@@ -494,7 +494,7 @@ test(`${J} #3 reads a sale's fee: inside the realised result, and on its own lin
   await expect(fees).toContainText(
     'Already inside the results: a buy’s fee is part of its cost, and a sale’s fee comes off what it received.',
   );
-  expect(near(dollars(await fees.innerText()), saleFee + buyFeeUsd)).toBe(true);
+  await expect.poll(async () => near(dollars(await fees.innerText()), saleFee + buyFeeUsd)).toBe(true);
   await expect(page.locator('[data-figure="realised"]')).toHaveText(realised.view);
 });
 

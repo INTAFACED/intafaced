@@ -104,10 +104,12 @@
 <p class="lt-description">Your own accounts at other banks, to add money from and to cash out to.</p>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="Bank rooms">
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
 <a href="/bank" class="lt-tab">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
 <a href="/bank/transfers" class="lt-tab">Transfers</a>
@@ -118,6 +120,11 @@
 <a href="/bank/analytics" class="lt-tab">Analytics</a>
 <a href="/bank/business" class="lt-tab">Business</a>
 </nav>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
 <nav aria-label="Linked account sections">
 <ul>
 <li>

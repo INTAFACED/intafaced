@@ -1,5 +1,6 @@
 // volt-room: /trade/news
 // volt-room: /trade/calendar
+import { TradeSubNav } from '../../../screens/trade/TradeSubNav';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
@@ -109,6 +110,7 @@ export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] 
   );
   return (
     <ReadingTemplate
+      section={<TradeSubNav />}
       title={t('newsTitle')}
       description={t('newsLead')}
       state={{ kind: 'ready' }}
@@ -213,6 +215,7 @@ export function CalendarRoom({ events = STORED_EVENTS }: { events?: readonly Cal
   const cell = (value: string | null): ReactNode => value ?? <span className="lt-hint">{t('notPublished')}</span>;
   return (
     <ReadingTemplate
+      section={<TradeSubNav />}
       title={t('calendarTitle')}
       description={t('calendarLead')}
       state={{ kind: 'ready' }}

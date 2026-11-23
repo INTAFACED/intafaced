@@ -70,7 +70,7 @@ function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: b
   const { t } = previewCopy.useCopy();
   return (
     <>
-      <QuantRooms active={room} paper={paper} />
+      <QuantRooms paper={paper} />
       <div data-testid="quant-preview" data-room={room} className="quant-preview">
         <p className="badge" role="note">
           <strong>{t('label')}</strong>

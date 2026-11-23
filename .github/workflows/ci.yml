@@ -81,8 +81,9 @@ jobs:
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
       pull-requests: read # the journey list guard reads the pull request's current body
     # What tells main-bisect's automatic revert (exact-revert.mjs autoRevertOf): its branch, author, commit count, head and
-    # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet
-    # (in `pnpm gates`) and look drift, which judge a proven revert of X against X^ (project-state#3635). Empty on a push.
+    # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet and
+    # the kit-ceilings and volt-off-kit tests (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
+    # (project-state#3635, #3697). Empty on a push.
     env:
       PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -212,6 +213,9 @@ jobs:
       # copy is fetched fresh from the repository's URL into a ref of its own (the pull request's base commit, or main for
       # a manual run), never read from origin/main, which code the pull request ran earlier in this job could move
       # (review 7578-R1 #4); and it is always main's builder (the fallback to the PR copy is gone, review 7578-R1 #2).
+      # Never shallow (--depth): this checkout holds main's whole history, and a shallow fetch marks the commit a history
+      # boundary, so every later step lost the merge-base with main and the culprit of main-bisect's revert (look drift
+      # judged every automatic revert as an ordinary change, project-state#3697).
       - name: Touched-journeys map rebuild (builder from main)
         if: (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !cancelled()
         env:
@@ -223,17 +227,16 @@ jobs:
           map=tooling/ci/journey-reach-map.json
           # A manual run on a branch judges the branch's own change, as its pull request will: a branch that leaves the map
           # as it was where it left main is not judged on main's map (every branch run went red on it, 14 Nov). Read before
-          # the shallow fetch below, which cuts main's history and with it the merge-base. The pull request's run still
-          # judges the map from its base commit, whatever this advisory run reads.
+          # the fetch below. The pull request's run still judges the map from its base commit, whatever this advisory run reads.
           if [ "$EVENT" = workflow_dispatch ] && mb=$(git merge-base origin/main HEAD) && git diff --quiet "$mb" HEAD -- "$map"; then
             echo "the branch leaves $map as it was on main"
             exit 0
           fi
           if [ "$EVENT" = pull_request ]; then
-            git fetch --no-tags --depth=1 "$REPO_URL" "$BASE_SHA"
+            git fetch --no-tags "$REPO_URL" "$BASE_SHA"
             base="$BASE_SHA"
           else
-            git fetch --no-tags --depth=1 "$REPO_URL" +refs/heads/main:refs/reach-map/main
+            git fetch --no-tags "$REPO_URL" +refs/heads/main:refs/reach-map/main
             base=refs/reach-map/main
           fi
           if [ "$EVENT" = pull_request ] && git diff --quiet "$base" HEAD -- "$map"; then
@@ -562,8 +565,8 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for a run of main on or near its base
-    # (tooling/ci/base-failures.mjs WAIT_MIN)
+    # healthy run: 11-20 min; a pull request's red one may wait up to 10 more, only while main has no record near its
+    # base (tooling/ci/base-failures.mjs WAIT_MIN)
     timeout-minutes: 60
     permissions:
       contents: read

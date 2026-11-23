@@ -368,7 +368,7 @@ const refreshCards = (page, locale = 'en') => main(page).getByRole('button', { n
 const refreshDecisions = (page, locale = 'en') =>
   historyPanel(page, locale).getByRole('button', { name: ui[locale].refreshDecisions, exact: true }).click();
 const retry = (page) => historyPanel(page).getByRole('button', { name: 'Try again', exact: true }).click();
-const enterCards = (page) => main(page).locator('.money-bank-nav a[href="/bank/cards"]').click();
+const enterCards = (page) => main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/cards"]').click();
 async function aboveFooter(locator, minimum = 0) {
   await expect
     .poll(() =>
@@ -595,7 +595,7 @@ test('current full card identity, exact decisions and natural arrival at four wi
         await expect.poll(() => currentURL(page)).toBe('/bank/cards');
         expect(
           await main(page)
-            .locator('.money-bank-nav a')
+            .locator('[data-testid="money-bank-nav"] a')
             .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('href'))),
         ).toEqual(paths);
         await inspect(page, a, locale, width >= 768);
@@ -634,13 +634,13 @@ test('current full card identity, exact decisions and natural arrival at four wi
         expect(b.panTail).toBe(a.panTail);
         expect(b.id).not.toBe(a.id);
         expect(decisionReads(state).at(-1).input.cardId).toBe(b.id);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
         await ready(page, a, rows, locale, true);
         await snapshot(page, state, `cards-${width}-${requested}-hidden`);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].show, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
@@ -926,7 +926,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
     await invoke(page, '__beforeLoading');
     await frames(page);
     expect(decisionReads(state)).toHaveLength(before);
-    await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+    await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
     await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
     await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -1002,7 +1002,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
       await ready(page, a, state.authorizationsByCard.get(a.id));
       expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
       await snapshot(page, state, `cards-original-${unreadable ? 'unreadable' : 'unknown'}`);
-      await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+      await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
       await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
       await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
