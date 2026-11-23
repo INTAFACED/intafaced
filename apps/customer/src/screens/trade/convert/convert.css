@@ -29,13 +29,13 @@
     outline-offset: 2px;
   }
 
-  /* Two columns 50/50, vertically centred in the first screen */
+  /* The title and the card side by side, both from the top: the card keeps its own width and the title the rest, so
+     no half of the first screen stands empty with the title floating in it (#10320). */
   .cvt-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: var(--if-space-24);
-    align-items: center;
-    min-height: min(640px, calc(100vh - 160px));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 32.5rem);
+    column-gap: var(--if-space-16);
+    align-items: start;
     padding-top: var(--if-space-8);
   }
   .cvt-hero h1 {
