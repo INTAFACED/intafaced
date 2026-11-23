@@ -948,7 +948,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
   expect(recorded.quotedPrice).toBe(answer.quotedPrice);
   const price = panel.getByTestId('convert-otc-price');
   await expect(price).toBeVisible();
-  expect(shown(await price.getByTestId('convert-otc-quoted').textContent())).toBe(units(recorded.quotedPrice));
+  await expect.poll(async () => shown(await price.getByTestId('convert-otc-quoted').textContent())).toBe(units(recorded.quotedPrice));
   await expect(price.getByTestId('convert-otc-quoted')).toHaveText(/ USDT$/);
   const windowMs = Number(await publishedWindow());
   expect(windowMs).toBeGreaterThan(0);

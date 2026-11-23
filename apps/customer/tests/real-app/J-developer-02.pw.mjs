@@ -311,7 +311,7 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
   await expect(result).toContainText(/Offset\s*-?\d+ ms/);
   // The window the page judged against is the one identity publishes, and the offset it shows is inside it.
   await expect(result).toHaveAttribute('data-window-seconds', String(windowSeconds));
-  expect(Math.abs(Number(await result.getAttribute('data-offset-ms')))).toBeLessThanOrEqual(windowSeconds * 1000);
+  await expect.poll(async () => Math.abs(Number(await result.getAttribute('data-offset-ms')))).toBeLessThanOrEqual(windowSeconds * 1000);
   await expect(result).toHaveAttribute('data-clock-window', 'within');
   await expect(result).toContainText('Within the window');
 

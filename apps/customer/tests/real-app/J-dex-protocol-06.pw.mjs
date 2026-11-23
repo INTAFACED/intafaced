@@ -452,7 +452,7 @@ test(`${J} #8 turns on wallet auto-earn: a list of assets chosen by the owner; w
       .assets.map((asset) => asset.name)
       .sort();
     expect(published.length, 'the owner published a TEST list').toBeGreaterThan(0);
-    expect((await assets.getByRole('option').allInnerTexts()).map((text) => text.trim()).sort()).toEqual(published);
+    await expect.poll(async () => (await assets.getByRole('option').allInnerTexts()).map((text) => text.trim()).sort()).toEqual(published);
     await expect(page.getByRole('region', { name: 'Auto-earn' })).toContainText(/chosen by (?:the owner|INTAFACED)/i);
     const key = page.getByRole('region', { name: 'Auto-earn key' });
     await expect(key.getByRole('listitem').filter({ hasText: /^Can\b/ })).toHaveCount(1);
