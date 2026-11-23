@@ -545,14 +545,25 @@ fn in_use(asset: &str) -> Refusal {
     )
 }
 
-/// `partnerCommits`: whether the partner reports anything else held in this asset. Card holds are the card partner's
-/// (slice `cards`): until that slice keeps them, this crate has made none to read.
+/// Slice `cards`' partner figure of what is held on a person's card in one asset (`cardHolds.figures(...).held`), by
+/// person and asset; `None` when the card partner gives none.
+pub type CardHeld<'a> = dyn Fn(&str, &str) -> Result<Option<String>, Refusal> + 'a;
+
+/// `partnerCommits`: whether the partner reports anything else held in this asset: a card hold still open (slice
+/// `cards`' figure, `card_held`; a figure the card partner does not give is an asset it cannot hold in), a purchase
+/// hold not yet released, or an open order.
 fn partner_commits(
     p: &Held<'_>,
+    card_held: &CardHeld<'_>,
     user_id: &str,
     asset: &str,
     now: Instant,
 ) -> Result<bool, Refusal> {
+    if let Some(held) = card_held(user_id, asset)?
+        && parse_amount(&held).map_err(Refusal::Other)? != Amount::ZERO
+    {
+        return Ok(true);
+    }
     if let Some(holds) = p.purchase_holds(user_id, now)?
         && holds
             .holds
@@ -568,6 +579,7 @@ fn partner_commits(
 pub fn currencies_remove(
     pool: &Store,
     money: &Money<'_>,
+    card_held: &CardHeld<'_>,
     user_id: &str,
     asset: &str,
 ) -> Result<Json, Refusal> {
@@ -596,7 +608,7 @@ pub fn currencies_remove(
             return Err(in_use(&id));
         }
         if let Some(p) = &partner
-            && partner_commits(p, user_id, &id, money.now)?
+            && partner_commits(p, card_held, user_id, &id, money.now)?
         {
             return Err(in_use(&id));
         }
