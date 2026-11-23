@@ -371,7 +371,11 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
           </div>
         ) : null}
       </div>
-      <div ref={host} data-testid="pc-host" className="lt-canvas" />
+      {/* The plot's own positioned box: the order marks drawn over it (VenueChartOrders, portalled into the host's parent)
+          take their coordinates from the plot's top, not from above the legend strip. */}
+      <div className="lt-canvas">
+        <div ref={host} data-testid="pc-host" className="lt-chart-host" />
+      </div>
     </div>
   );
 }
