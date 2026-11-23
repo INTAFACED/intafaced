@@ -1,8 +1,8 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { api, journeyState, restartService, toUnits, fromUnits } from './stack.mjs';
+import { pictureFromTop, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -139,32 +139,43 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 // The legal and suitability reasons the list used to carry. None of them is a reason (owner decision 2026-10-27).
 const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
 
-test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason; a contract the venue halts is blocked naming it`, async ({
+test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason: the venue's halt, the account's verification level, the region; no agreement is a reason`, async ({
   page,
+  browser,
+  stepPicture,
 }) => {
-  test.setTimeout(180_000);
+  // Four restarts (svc-trade and Edge into the TEST region AA, and back), each waited to health.
+  test.setTimeout(600_000);
   const { account } = state();
   await desk(page);
   const { displayName } = await venueInfo();
   const me = await api(account);
-  const gatedList = async () => {
-    const { status, body } = await me.get('/api/v1/venue/gated-list');
+  /** The gated list as svc-trade answers it to one signed-in person. */
+  const gatedList = async (person = me) => {
+    const { status, body } = await person.get('/api/v1/venue/gated-list');
     expect(status, JSON.stringify(body)).toBe(200);
     return body;
   };
+  const gate = (shown, symbol) => shown.locator(`[data-testid="venue-gate"][data-symbol="${symbol}"]`);
   const panel = page.getByTestId('venue-gated-list');
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
-  const contractList = page.getByTestId('venue-contract-list');
+  // The contracts the desk offers this account while nothing blocks it: every reading below is held to this list, also
+  // where a blocked person's desk draws no contract to pick.
+  const offered = (await page.getByTestId('venue-contract-list').getByRole('button').allInnerTexts()).map((b) => b.split(' · ')[0].trim());
 
-  /** The screen matches the service, contract by contract: open or blocked, and each reason by its code, no other. */
-  async function shownAsService(body) {
-    const offered = (await contractList.getByRole('button').allInnerTexts()).map((b) => b.split(' · ')[0].trim());
+  /**
+   * One person's gated list on screen matches the service's answer to that person, contract by contract: open or
+   * blocked, and each reason by its code with the service's own words, no other. No legal step is ever a reason: no
+   * agreement, knowledge check or notice exists to block a contract (owner decision 2026-10-27, until launch prep).
+   */
+  async function shownAsService(shown, body) {
     expect(body.value.map((c) => c.symbol).sort(), 'the gated list names every contract the desk offers, and no other').toEqual(
       [...offered].sort(),
     );
+    await expect(shown.locator('[data-testid="venue-gate"]')).toHaveCount(body.value.length);
     for (const c of body.value) {
-      const row = panel.locator(`[data-testid="venue-gate"][data-symbol="${c.symbol}"]`);
+      const row = gate(shown, c.symbol);
       await expect(row, c.symbol).toHaveAttribute('data-open', c.open ? 'true' : 'false');
       await expect(row.getByTestId('venue-gate-state')).toHaveText(c.open ? 'Open for your account' : 'Blocked for your account');
       await expect(row.locator('[data-code]')).toHaveCount(c.blockers.length);
@@ -177,30 +188,99 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
   const before = await gatedList();
   expect(before.value.map((c) => c.symbol)).toEqual(expect.arrayContaining([SYMBOL, 'XAU-PERP']));
   for (const c of before.value) expect(c, c.symbol).toMatchObject({ open: true, code: null, blockers: [] });
-  await shownAsService(before);
+  await shownAsService(panel, before);
   await expect(panel.getByTestId('venue-gated-as-of')).toContainText('As of');
 
   // The venue halts one contract: that one reads blocked, naming the venue's halt; the others stay open; nothing is sent.
+  // The step's picture is taken here: one contract blocked with its reason beside the contracts that are open.
   try {
     expect((await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'halted' })).status).toBe(200);
-    const row = panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]');
-    await expect(row).toHaveAttribute('data-open', 'false', { timeout: 20_000 });
+    await expect(gate(panel, 'XAU-PERP')).toHaveAttribute('data-open', 'false', { timeout: 20_000 });
     const halted = await gatedList();
     const gold = halted.value.find((c) => c.symbol === 'XAU-PERP');
     expect(gold).toMatchObject({ open: false, code: 'trade.venue.market_halted' });
     expect(gold.blockers).toEqual([{ code: 'trade.venue.market_halted', message: `${displayName} reports XAU-PERP halted` }]);
     for (const c of halted.value.filter((x) => x.symbol !== 'XAU-PERP')) expect(c.open, c.symbol).toBe(true);
-    await shownAsService(halted);
+    await shownAsService(panel, halted);
+    await pictureFromTop(page, stepPicture);
   } finally {
     await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'trading' });
   }
-  await expect(panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]')).toHaveAttribute('data-open', 'true', {
-    timeout: 20_000,
-  });
+  await expect(gate(panel, 'XAU-PERP')).toHaveAttribute('data-open', 'true', { timeout: 20_000 });
+
+  // The verification level: a second TEST person, signed up and never verified, is below the level trading asks and
+  // below the level the venue's perpetuals ask (the stack's TEST level, basic). Every contract reads blocked for that
+  // account with both reasons, the level named, exactly as the service answers that person; the first account's list
+  // above is open, so the list is this account's own. The door refuses the same person's venue read by the same code,
+  // so their desk draws the list and its reasons and no contract to pick.
+  const belowContext = await browser.newContext();
+  try {
+    const belowPage = await belowContext.newPage();
+    const below = await signUp(belowPage, 'vfnv');
+    await belowPage.goto(DESK);
+    const belowPanel = belowPage.getByTestId('venue-gated-list');
+    await expect(gate(belowPanel, SYMBOL)).toHaveAttribute('data-open', 'false', { timeout: 30_000 });
+    const them = await api(below);
+    const unverified = await gatedList(them);
+    for (const c of unverified.value) {
+      expect(c, c.symbol).toMatchObject({ open: false, code: 'denied.kyc_required' });
+      expect(
+        c.blockers.map((b) => b.code),
+        c.symbol,
+      ).toEqual(['denied.kyc_required', 'trade.venue_eligibility_level_insufficient']);
+      expect(c.blockers[0].message).toContain('Verification tier "basic" required for trade');
+      expect(c.blockers[1].message).toBe('Perpetuals here need the basic verification level; your account is below it');
+    }
+    await shownAsService(belowPanel, unverified);
+    const refused = await them.get('/api/v1/venue/markets');
+    expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).toBe(403);
+    expect(refused.body).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'denied.kyc_required' });
+    await expect(belowPage.getByTestId('venue-contract-list')).toHaveCount(0);
+  } finally {
+    await belowContext.close();
+  }
+
+  // The region: the verified account, read from a region that is not served. The stack has no blocked country to visit
+  // from, so svc-trade is restarted holding a TEST business block for the TEST region AA (a user-assigned ISO code, no
+  // country) and Edge stamping every request from it (`LOCAL_STACK_TEST_REGION_SERVED=off`, as J-wallet-09 #1), the
+  // venue door kept on. Every contract reads blocked with the region's reason, the one reason, as the service answers.
+  const REGION_REASON = 'TEST region, not served at launch';
+  try {
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await page.goto(DESK);
+    await expect(gate(panel, SYMBOL).locator('[data-code="denied.region_blocked"]')).toHaveText(REGION_REASON, { timeout: 30_000 });
+    const fromAa = await api(account);
+    const blocked = await gatedList(fromAa);
+    for (const c of blocked.value) {
+      expect(c, c.symbol).toMatchObject({ open: false, code: 'denied.region_blocked', message: REGION_REASON });
+      expect(c.blockers, c.symbol).toEqual([{ code: 'denied.region_blocked', message: REGION_REASON }]);
+    }
+    await shownAsService(panel, blocked);
+    const refused = await fromAa.get('/api/v1/venue/markets');
+    expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).toBe(403);
+    expect(refused.body).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'denied.region_blocked' });
+    await expect(page.getByTestId('venue-contract-list')).toHaveCount(0);
+  } finally {
+    // Edge first, so no request is stamped from the TEST region once svc-trade serves it again; the venue door stays on
+    // for the steps after this one.
+    try {
+      await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
+    } finally {
+      await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_TEST_REGION_SERVED: undefined });
+    }
+  }
+  // Served again: the same account's contracts read open, as before.
+  await page.goto(DESK);
+  await expect(gate(panel, SYMBOL)).toHaveAttribute('data-open', 'true', { timeout: 30_000 });
+  const after = await gatedList(await api(account));
+  for (const c of after.value) expect(c, c.symbol).toMatchObject({ open: true, code: null, blockers: [] });
+  await shownAsService(panel, after);
 });
 
 test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({
   page,
+  stepPicture,
 }) => {
   await desk(page);
   const list = page.getByTestId('venue-contract-list');
@@ -249,6 +329,9 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
     expect(await strip.getByTestId('venue-funding-next').getAttribute('dateTime')).toBe(nextFundingAt);
     expect(new Date(nextFundingAt).getTime()).toBeGreaterThan(Date.now() - 60_000);
   }).toPass({ timeout: 20_000 });
+  // The step's picture: the desk from its top, BTC-PERP picked and its strip drawn, not the page scrolled to the last
+  // contract pressed with the app's top bar across the list.
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #5 chooses the margin mode: the modes the venue offers for the contract, the others listed as not offered by this venue; nothing changes`, async ({

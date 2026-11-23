@@ -71,6 +71,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region AA
+    // (a user-assigned ISO code, no country; packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs then
+    // stamps every request from AA, so the trade gate refuses denied.region_blocked and the venue desk's gated list
+    // names the region as the reason (J-derivatives-01 #2), as svc-protocol's and svc-bank's doors do (J-wallet-09 #1,
+    // J-bank-18 #1). The sanctions list is never touched.
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
     // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
     // integers; it does not compare orders against them. Test funds only.
