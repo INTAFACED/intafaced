@@ -135,3 +135,23 @@ scrape_configs:
   - job_name: node-exporter
     static_configs:
       - targets: ['node-exporter:9100']
+
+  # ── EVERY APP SERVICE'S HEALTH (#10250) ────────────────────────────────────
+  #
+  # Most services expose no /metrics, so the jobs above cannot see them. The blackbox exporter (compose profile `beta`,
+  # modules in blackbox.yaml) asks each service with a compose healthcheck what that healthcheck asks, and reports
+  # `probe_success`; `ServiceDown` and `BootCheckFailed` read it by the target's `service` label. The targets are
+  # probe-targets.json, written from docker-compose.apps.yml by probe-targets.mjs, never edited by hand. `up` for this
+  # job is the exporter's own, so `HealthProberDown` reads it. Without the `beta` profile the exporter is absent and
+  # that alert names it on the Alerts page, as `ServiceDown` names node-exporter.
+  - job_name: app-health
+    metrics_path: /probe
+    file_sd_configs:
+      - files: ['probe-targets.json']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

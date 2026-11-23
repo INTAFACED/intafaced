@@ -62,6 +62,44 @@ const messages = {
   scopesLoading: 'Reading the permissions a key may hold',
   accessRead: 'reads',
   accessWrite: 'acts',
+  /** A permission in plain words, "<area>: <action>"; the raw scope follows it in small type, for the API reference. */
+  scopeWords: '{area}: {action}',
+  scopeArea_identity: 'Your profile and security',
+  scopeArea_ledger: 'Your balances and history',
+  scopeArea_trade: 'Trading',
+  scopeArea_copy: 'Copy trading',
+  scopeArea_pay: 'Payments',
+  scopeArea_token: 'Token',
+  scopeArea_blueprint: 'Blueprint',
+  scopeArea_bank: 'Bank',
+  scopeArea_launch: 'Launchpad',
+  scopeArea_market: 'Market',
+  scopeArea_academy: 'Academy',
+  scopeArea_agents: 'Agents',
+  scopeArea_notify: 'Notifications',
+  scopeArea_support: 'Support',
+  scopeArea_tax: 'Tax',
+  scopeArea_campaigns: 'Rewards and campaigns',
+  scopeArea_ops: 'Operations',
+  scopeArea_protocol: 'Protocol',
+  scopeArea_quant: 'Strategies and backtests',
+  scopeArea_admin: 'Admin',
+  scopeAction_read: 'see',
+  scopeAction_write: 'make changes',
+  scopeAction_withdraw: 'withdraw',
+  scopeAction_lead: 'lead copy trades',
+  scopeAction_follow: 'follow leaders',
+  scopeAction_refund: 'refund payments',
+  scopeAction_payout: 'pay out',
+  scopeAction_onboard: 'sign up as a merchant',
+  scopeAction_stake: 'stake',
+  scopeAction_card: 'manage cards',
+  scopeAction_execute: 'run agents',
+  scopeAction_run: 'run backtests',
+  scopeAction_ops: 'run operations',
+  scopeAction_lookup: 'look up customers',
+  scopeAction_treasury: 'move treasury funds',
+  scopeAction_compliance: 'compliance reviews',
   blockedTitle: 'Never on a key',
   blocked_interactive_only: 'Only while you are signed in on a device, never by a key.',
   blocked_step_up_only: 'Only for a merchant key, after a second confirmation.',
@@ -390,3 +428,19 @@ export type ApiKeysCopyKey = keyof typeof messages;
 export type ApiKeysPlainKey = {
   [K in ApiKeysCopyKey]: (typeof messages)[K] extends `${string}{${string}` ? never : K;
 }[ApiKeysCopyKey];
+
+type ScopeWordKey = Extract<ApiKeysPlainKey, `scopeArea_${string}` | `scopeAction_${string}`>;
+const isScopeWordKey = (key: string): key is ScopeWordKey =>
+  (key.startsWith('scopeArea_') || key.startsWith('scopeAction_')) && Object.prototype.hasOwnProperty.call(messages, key);
+
+/**
+ * A permission named in plain words ("Trading: make changes") in place of its raw scope (`trade:write`), so a first-time
+ * trader can choose a key's permissions. A scope this app has no words for yet is shown as it is, never hidden.
+ */
+export function scopeWords(t: (typeof apiKeysCopy)['t'], scope: string): string {
+  const [area, action, ...rest] = scope.split(':');
+  const areaKey = `scopeArea_${area}`,
+    actionKey = `scopeAction_${action}`;
+  if (rest.length > 0 || !isScopeWordKey(areaKey) || !isScopeWordKey(actionKey)) return scope;
+  return t('scopeWords', { area: t(areaKey), action: t(actionKey) });
+}

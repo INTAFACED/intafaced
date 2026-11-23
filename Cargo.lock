@@ -1394,6 +1394,7 @@ dependencies = [
  "sha2 0.10.9",
  "signal-hook",
  "svc-agents",
+ "svc-bank",
  "tiny_http",
  "url",
 ]

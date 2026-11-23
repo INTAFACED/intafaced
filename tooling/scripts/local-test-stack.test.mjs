@@ -76,6 +76,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   const servicePorts = defs.map((d) => d.env.HTTP_PORT);
   for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
   assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
+  // svc-fix binds its FIX sockets and ingest listener to HTTP_HOST: loopback, never the home network (#10244).
+  assert.equal(fixEnv.HTTP_HOST, '127.0.0.1', 'svc-fix listens on loopback only');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
     for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
@@ -1177,7 +1179,14 @@ console.log('local-test-stack: customer folder override checks passed');
     /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
-  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  {
+    const { mintLocalTestSecret } = await import('./local-test-stack.mjs');
+    const key = mintLocalTestSecret('adminSession');
+    assert.match(key, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(Buffer.from(key, 'base64url').length, 32);
+    assert.equal(Buffer.from(key, 'base64url').toString('base64url'), key);
+    assert.match(source, /s\.adminSession = mintLocalTestSecret\('adminSession'\);/);
+  }
   assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart\(\s*names,\s*\{[^}]*start = cmdStart,[^}]*\}[\s\S]*?await start\(/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
@@ -1918,7 +1927,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // and points trade at it (never one without the other), and a bad value is refused by both.
 {
   const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
-  const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const { testVenueKind, userVenueKind, userVenueSwitchOn } = await import('./local-test-venue.mjs');
   const saved = process.env.LOCAL_STACK_USER_VENUE;
   try {
     for (const [raw, on, second] of [
@@ -1929,6 +1938,9 @@ console.log('local-test-stack: customer folder override checks passed');
       [' on ', true, false],
       // J-derivatives-28: `two` is the first venue and the second TEST venue beside it.
       ['two', true, true],
+      // #10203: the Hyperliquid test network, recorded or live, as the one venue.
+      ['hl-recorded', true, false],
+      ['hl-testnet', true, false],
     ]) {
       if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
       else process.env.LOCAL_STACK_USER_VENUE = raw;
@@ -1938,7 +1950,24 @@ console.log('local-test-stack: customer folder override checks passed');
       assert.equal('TRADE_USER_VENUE_URLS' in trade, second, `trade env, second venue: ${JSON.stringify(raw)}`);
       if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
     }
-    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on or two/);
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on, two, hl-recorded or hl-testnet/);
+    assert.equal(testVenueKind(''), 'sim');
+    assert.throws(() => testVenueKind('on'), /TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet/);
+    // Which venue it is; the bank's TEST cash leg runs on the simulator only.
+    for (const [raw, kind] of [
+      ['off', null],
+      ['on', 'sim'],
+      ['two', 'sim'],
+      ['hl-recorded', 'hl-recorded'],
+      ['hl-testnet', 'hl-testnet'],
+    ]) {
+      assert.equal(userVenueKind(raw), kind, `kind: ${raw}`);
+      // The venue process reads back exactly what the stack hands it (TEST_VENUE_KIND), the simulator included.
+      if (kind !== null) assert.equal(testVenueKind(kind), kind, `TEST_VENUE_KIND: ${kind}`);
+      process.env.LOCAL_STACK_USER_VENUE = raw;
+      const bank = localTestServiceEnvs().find((d) => d.name === 'bank').env;
+      assert.equal('BANK_TEST_CASH_LEG_VENUE_URL' in bank, kind === 'sim', `bank env: ${raw}`);
+    }
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

@@ -324,10 +324,10 @@
     .acct-nav__title {
       display: none;
     }
+    /* Every section stays in sight on a phone: the row wraps rather than hiding Verification and Display past the edge. */
     .acct-nav ul {
       flex-direction: row;
-      overflow-x: auto;
-      scrollbar-width: none;
+      flex-wrap: wrap;
     }
     .acct-nav a {
       white-space: nowrap;

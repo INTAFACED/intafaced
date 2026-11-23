@@ -75,7 +75,7 @@ export function AddressTable({
                 const cooling = coolingOf(row, now);
                 return (
                   <tr key={row.destinationId}>
-                    <td>
+                    <td data-label={t('aColLabel')}>
                       <span lang={row.label ? 'und' : undefined}>{row.label ?? t('aNoLabel')}</span>
                       {row.lookalikeConfirmedAt && (
                         <>
@@ -94,25 +94,27 @@ export function AddressTable({
                         </>
                       )}
                     </td>
-                    <td>{row.kind === 'bank' ? t('aKindBank') : t('aKindCrypto')}</td>
-                    <td lang="und">
+                    <td data-label={t('aColKind')}>{row.kind === 'bank' ? t('aKindBank') : t('aKindCrypto')}</td>
+                    <td lang="und" data-label={t('aColNetwork')}>
                       {row.assetId || row.network
                         ? [row.assetId, row.network, row.tag].filter((part) => part).join(' · ')
                         : t('aNotReturned')}
                     </td>
-                    <td className="lt-num" lang="und" data-withdrawal-private>
+                    <td className="lt-num" lang="und" data-withdrawal-private data-label={t('aColAddress')}>
                       {shortenAddress(row.ref)}
                     </td>
-                    <td>{date(row.addedAt)}</td>
-                    <td>
+                    <td data-label={t('aColAdded')}>{date(row.addedAt)}</td>
+                    <td data-label={t('aColCooling')}>
                       {row.state === 'pending'
                         ? t('aCoolingAfterApproval')
                         : cooling.state === 'unset'
                           ? t('aCoolingUnset')
                           : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
-                    <td>{row.state ? t(SAVED_STATE_WORDS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
-                    <td>
+                    <td data-label={t('aColState')}>
+                      {row.state ? t(SAVED_STATE_WORDS[shownState(row.state, cooling.state)]) : t('aNotReturned')}
+                    </td>
+                    <td data-label={t('aColDetails')}>
                       {onUse && provable(row) ? (
                         <Button variant="ghost" onClick={() => onUse(row)}>
                           {t('aUse')}

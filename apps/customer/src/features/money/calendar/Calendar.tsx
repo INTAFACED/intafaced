@@ -1,6 +1,6 @@
 // volt-room: /bank/calendar
 import { useState, type ReactNode } from 'react';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, Segmented } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { currentPreferences } from '../../../shared/preferences';
 import { amount, date, useBankRead } from '../components';
@@ -212,13 +212,17 @@ export function ItemList({ items }: { items: readonly CalendarItem[] }) {
         <tbody>
           {items.map((item) => (
             <tr key={item.key} data-testid={`cal-row-${item.key}`} data-source={item.source}>
-              <td>{date(item.date)}</td>
-              <td lang={item.label ? 'und' : undefined}>{what(t, item)}</td>
-              <td className="lt-mono">{item.amount ? amount(item.amount, item.assetId) : null}</td>
-              <td>
+              <td data-label={t('colDate')}>{date(item.date)}</td>
+              <td lang={item.label ? 'und' : undefined} data-label={t('colWhat')}>
+                {what(t, item)}
+              </td>
+              <td className="lt-mono" data-label={t('colAmount')}>
+                {item.amount ? amount(item.amount, item.assetId) : null}
+              </td>
+              <td data-label={t('colStatus')}>
                 <Status item={item} />
               </td>
-              <td>
+              <td data-label={t('colOpen')}>
                 <ItemLink item={item}>{t('openItem')}</ItemLink>
               </td>
             </tr>
@@ -279,23 +283,28 @@ function MoneyCalendar({ now = new Date() }: { now?: Date }) {
   return (
     <div className="lt-stack">
       <p role="note">{t('readOnly')}</p>
+      {/* The month's name, then its two buttons, then the view switch: each on its own line, so a phone never scatters
+          them into a grid. */}
+      <strong data-testid="cal-month-name" data-month={month}>
+        {monthName(month)}
+      </strong>
       <div className="lt-actions" role="group" aria-label={monthName(month)}>
         <Button tone="secondary" onClick={() => setMonth((m) => shift(m, -1))}>
           {t('prev')}
         </Button>
-        <strong data-testid="cal-month-name" data-month={month}>
-          {monthName(month)}
-        </strong>
         <Button tone="secondary" onClick={() => setMonth((m) => shift(m, 1))}>
           {t('next')}
         </Button>
-        <Button tone="secondary" aria-pressed={view === 'month'} onClick={() => setView('month')}>
-          {t('monthView')}
-        </Button>
-        <Button tone="secondary" aria-pressed={view === 'list'} onClick={() => setView('list')}>
-          {t('listView')}
-        </Button>
       </div>
+      <Segmented
+        label={t('viewLabel')}
+        value={view}
+        onChange={setView}
+        options={[
+          { value: 'month', label: t('monthView') },
+          { value: 'list', label: t('listView') },
+        ]}
+      />
       <div className="lt-actions" role="group" aria-label={t('filterLabel')}>
         <span className="lt-hint">{t('filterLabel')}</span>
         {calendarSources
