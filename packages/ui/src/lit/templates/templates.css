@@ -86,6 +86,10 @@
   flex: 1 1 12rem;
   min-inline-size: 0;
 }
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+.lt-title-row-wrap > .lt-unbroken {
+  min-inline-size: max-content;
+}
 
 /* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
 .lt-nowrap {
