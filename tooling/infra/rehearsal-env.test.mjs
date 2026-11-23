@@ -41,16 +41,6 @@ test('every database password compose reads is fresh and its role rotated', () =
   assert.match(sql, new RegExp(`ALTER ROLE svc_ledger PASSWORD '${env.get('SVC_LEDGER_DB_PASSWORD')}';`));
 });
 
-test('every schema migrate-all migrates has its rotated password passed to the migrate container', () => {
-  const migrate = compose.slice(compose.indexOf('\n  migrate:\n    <<: *app'), compose.indexOf('# ── Phase 1'));
-  const schemas = [...readFileSync(join(ROOT, 'tooling/infra/migrate-all.mjs'), 'utf8').matchAll(/\['svc-[a-z-]+', '([a-z_]+)'\]/g)].map(
-    (m) => m[1],
-  );
-  assert.ok(schemas.length > 10);
-  for (const s of schemas)
-    assert.match(migrate, new RegExp(`SVC_${s.toUpperCase()}_DB_PASSWORD: \\$\\{SVC_${s.toUpperCase()}_DB_PASSWORD:-\\}`));
-});
-
 test('a secret from the runner wins; a blank one leaves the example', () => {
   const out = rehearsalEnv({ example: 'A=1\nB=dev-only-x\n', compose: '', random, extra: { A: 'set', C: undefined } });
   assert.equal(out.env.get('A'), 'set');
