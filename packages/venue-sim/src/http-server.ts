@@ -91,6 +91,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"; a spot maker rate
  *                                                         below zero is the venue's rebate (J-cex-spot-10 #4)
  *        /test/fee-tier-update {owner}                     the venue's next update of that owner's fee tier, from its fills
+ *        /test/dust {account}                             the venue's next dust conversion of that account: a spot coin held
+ *                                                         under one lot goes into the quote coin at the last traded price
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional,minOrderNotional?,priceBandBps?,
  *                          maxOpenOrders?}               one more TEST cash spot market, tick 0.1, lot 0.001, no ladder,
  *                                                         TEST_SPOT_RULES unless named (null: not published); refused
@@ -1405,6 +1407,8 @@ async function route(
       sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
       return { ok: true, label: 'TEST' };
     }
+    case '/test/dust':
+      return { converted: sim.convertDust(account(body)), label: 'TEST' };
     case '/test/fee-tier-update':
       return { ...sim.updateFeeTier(str(body, 'owner')), label: 'TEST' };
     case '/test/market-fees': {
