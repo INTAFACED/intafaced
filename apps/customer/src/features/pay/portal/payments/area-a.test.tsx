@@ -16,7 +16,7 @@ import { CheckoutSettingsView } from './CheckoutSettings';
 import { HomePanelsView } from './HomePanels';
 import { assetChoices } from './asset-choices';
 import { definite, neverRan } from './not-available';
-import { InvoiceCreate } from './Invoices';
+import { InvoiceCreate } from './InvoiceCreate';
 import { successRate } from './model';
 
 // Everything below is TEST DATA written for these tests.
