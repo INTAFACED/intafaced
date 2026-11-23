@@ -129,7 +129,7 @@ export async function subscribePrivatePositions(input: {
  * A change in the balance of a person's own venue account (J-cex-spot-15 #9), published by svc-trade's venue balance
  * watch. Fan-out only: the hub drops an id it has already sent the person.
  */
-export async function subscribePrivateBalances(input: {
+async function subscribePrivateBalances(input: {
   bus: EventBus;
   hub: PrivateOrderHub;
   durable: string;

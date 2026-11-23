@@ -113,7 +113,7 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  */
 export const PRIVATE_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions', 'balances'];
 /** The channels an omitted `?channel=` opens: the three it always opened, so a connection that names none streams as before. */
-export const PRIVATE_DEFAULT_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
+const PRIVATE_DEFAULT_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
 
 /**
  * Drop `access_token` from a request-target so access logs never store the credential.

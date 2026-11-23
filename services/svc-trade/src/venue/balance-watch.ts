@@ -31,7 +31,7 @@ import type { OwnerSignedAccount } from './prepared-action-store.js';
  */
 
 /** How far back each reading reads fills again, so a fill the venue reports a little late is still named. */
-export const BALANCE_WATCH_FILL_OVERLAP_MS = 10 * 60_000;
+const BALANCE_WATCH_FILL_OVERLAP_MS = 10 * 60_000;
 
 export type VenueBalanceChange = Omit<Payload<'venueBalanceChanged'>, 'userId'>;
 
@@ -86,7 +86,7 @@ export interface BalanceStep {
  * One reading of one account against its cursor. Pure. The first reading (no cursor) publishes nothing: it is where the
  * watch starts, and every record the venue already holds counts as seen.
  */
-export function balanceStep(input: {
+function balanceStep(input: {
   account: UserVenueAccount;
   cursor: BalanceWatchCursor | null;
   reading: BalanceReading;

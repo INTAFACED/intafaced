@@ -64,11 +64,11 @@ export interface PrivateBalanceUpdate {
 }
 
 /** How many change ids the hub keeps per person to ignore a repeat. A repeat older than these is sent again. */
-export const BALANCE_SEEN_PER_USER = 4096;
+const BALANCE_SEEN_PER_USER = 4096;
 /** How many people's change ids the hub keeps; the person whose ids were touched least recently is forgotten first. */
-export const BALANCE_SEEN_USERS = 10_000;
+const BALANCE_SEEN_USERS = 10_000;
 
-export function encodePrivateBalanceFrame(update: PrivateBalanceUpdate): string {
+function encodePrivateBalanceFrame(update: PrivateBalanceUpdate): string {
   return JSON.stringify({ channel: 'balances', type: 'balance', ...update });
 }
 
