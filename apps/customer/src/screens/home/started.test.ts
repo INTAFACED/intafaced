@@ -39,14 +39,32 @@ describe('Get started: each step reads real answers', () => {
     expect(alertStatus([{ kind: 'price', status: 'fired' }])).toBe('done');
   });
 
-  it('add money: holding anything or ever receiving money is done; waiting is "checking", never "done"', () => {
-    expect(depositStatus('held', 'loading')).toBe('done');
-    expect(depositStatus('none', 'found')).toBe('done');
-    expect(depositStatus('loading', 'none')).toBe('checking');
-    expect(depositStatus('none', 'loading')).toBe('checking');
-    expect(depositStatus('none', 'none')).toBe('todo');
-    expect(depositStatus('failed', 'none')).toBe('unknown');
-    expect(depositStatus('none', 'failed')).toBe('unknown');
+  // Row d115 (17 Nov 2026): the funding step follows the venue's report of the person's trading account, never our ledger.
+  const account = (...totals: string[]) => ({ balances: totals.map((total) => ({ total })) });
+
+  it('add money: a balance the venue reports in a trading account is done, in any asset and beside empty ones', () => {
+    expect(depositStatus({ state: 'read', accounts: [account('25')] })).toBe('done');
+    expect(depositStatus({ state: 'read', accounts: [account('0', '0.000000000000000001')] })).toBe('done');
+    expect(depositStatus({ state: 'read', accounts: [account(), account('0'), account('100.5')] })).toBe('done');
+  });
+
+  it('add money: no connected wallet, or every trading account read and empty, is to do', () => {
+    expect(depositStatus({ state: 'read', accounts: [] })).toBe('todo');
+    expect(depositStatus({ state: 'read', accounts: [account()] })).toBe('todo');
+    expect(depositStatus({ state: 'read', accounts: [account('0', '0.00'), account('0')] })).toBe('todo');
+    // A figure below zero or one that is no decimal is no deposit.
+    expect(depositStatus({ state: 'read', accounts: [account('-5', '', 'NaN', '1e3')] })).toBe('todo');
+  });
+
+  it('add money: a venue that gave no answer is unknown, never done and never to do; waiting is "checking"', () => {
+    expect(depositStatus({ state: 'loading' })).toBe('checking');
+    // The connected wallets could not be read: no trading account is known.
+    expect(depositStatus({ state: 'unread' })).toBe('unknown');
+    // The venue gave no answer for the one account, or for one of two where the other is empty.
+    expect(depositStatus({ state: 'read', accounts: [null] })).toBe('unknown');
+    expect(depositStatus({ state: 'read', accounts: [account('0'), null] })).toBe('unknown');
+    // A deposit the venue did report still counts when another account went unanswered.
+    expect(depositStatus({ state: 'read', accounts: [null, account('25')] })).toBe('done');
   });
 
   it('first trade: one trade line anywhere in the history is done; none is not yet; unread is never done', () => {
