@@ -361,7 +361,9 @@ test('the release review names the service refusal when it gives no figure', asy
   await signIn(page);
   await review(page, 'Release excess', 0, '0.1');
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByTestId('review-terms-blocked')).toContainText('Reference: bank.mark_missing');
+  await expect(dialog.getByTestId('review-terms-blocked')).toHaveText(
+    'The bank gave no release figure for this loan now, so nothing was sent.',
+  );
   await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
   expect(state.writes).toEqual([]);
 });

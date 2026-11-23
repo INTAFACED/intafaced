@@ -197,7 +197,8 @@ describe('LoanApply', () => {
     await mount();
     const policy = testId('loan-apply-eligibility')!.querySelector('[data-key="lending_policy"]')!;
     expect(policy.getAttribute('data-state')).toBe('unmet');
-    expect(policy.textContent).toContain('Reference: bank.loans_disabled');
+    expect(policy.getAttribute('data-code')).toBe('bank.loans_disabled');
+    expect(policy.textContent).not.toContain('bank.loans_disabled');
     await work('1000');
     expect(host.querySelector('[role="alert"][data-code="bank.loans_disabled"]')?.textContent).toContain('Lending is closed');
     expect(button('Review and open').disabled).toBe(true);

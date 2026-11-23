@@ -50,12 +50,16 @@ impl RecordHolds for BookHolds<'_> {
 
     /// `captured`: what the partner has captured for this cardholder in this asset, or `None` when it keeps no book.
     fn captured(&self, user_id: &str, asset_id: &str) -> Result<Option<String>, Refusal> {
+        let funds = self.0.funds();
         let mut book = self
             .0
             .book
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if book.book_of(self.0.terms, user_id, asset_id).is_none() {
+        if book
+            .standing(self.0.terms, &funds, user_id, asset_id)
+            .is_none()
+        {
             return Ok(None);
         }
         let sum: service_kit::money::Amount = book

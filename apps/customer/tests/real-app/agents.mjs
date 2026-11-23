@@ -1,6 +1,6 @@
 import { expect } from './journey.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { journeyState } from './stack.mjs';
+import { api, journeyState } from './stack.mjs';
 
 // Shared parts of the agents journeys (J-agents-NN) written ahead of their rooms. The Agents room is /agents (More),
 // with its sections as buttons in the "Agent sections" group; on the stack svc-agents runs with its five session agents
@@ -100,4 +100,12 @@ export async function openFounderDesk(page, route, heading, key = 'a') {
   await page.goto(`${ADMIN}${route}`);
   await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible(UNBUILT);
   return founder;
+}
+
+/** One svc-agents read through Edge as the run's person, on a sign-in of its own: the answer's data. */
+export async function agentsRead(agents, procedure, input) {
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(agents.account())).get(`/api/agents/trpc/${procedure}${query}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
 }

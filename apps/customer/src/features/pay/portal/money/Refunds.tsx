@@ -1,41 +1,47 @@
-import { useMemo, useState } from 'react';
+// volt-room: /pay/refunds
+// volt-room: /pay/refunds/:refundId
+// volt-room: portal:refunds
+// volt-room: portal:refund
 import { PaymentCell } from '../payments/PaymentCell';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { Button } from '@intafaced/ui/lit';
-import { EmptyState, Field } from '../../ui-kit';
-import { useSession } from '../../../session';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
-import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
-import { MerchantRefund } from '../../MerchantRefund';
-import { Facts, Gate, PortalFailure, PortalLoading } from '../components';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt, useUrlParam } from '../hooks';
 import { isUuid } from '../model';
-import { paymentSchema } from '../schemas';
-import { AuditPanel } from '../ui/AuditPanel';
-import { CopyReference } from '../ui/CopyReference';
 import { DateTime } from '../ui/DateTime';
-import { DetailHeader } from '../ui/DetailHeader';
-import { ExactMoneyScope } from '../ui/ExactMoneyScope';
-import { FilterRow, useListFilters } from '../ui/FilterRow';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyList, MoneyText } from '../ui/MoneyText';
-import { RelatedLinks } from '../ui/RelatedLinks';
-import { ToneChip, type StatusTone } from '../ui/StatusChip';
-import { Timeline } from '../ui/Timeline';
+import { useListFilters } from '../ui/FilterRow';
+import type { StatusTone } from '../ui/StatusChip';
 import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
-import { ExportButton, LinkButton, ListBody, localRefusal, shortDay, TestBanner, useListQuery, useTestMode } from './common';
+import {
+  AuditPanel,
+  CopyReference,
+  DetailHeader,
+  Facts,
+  FilterRow,
+  Freshness,
+  Gate,
+  KpiStrip,
+  LinkButton,
+  MoneyAction,
+  MoneyLines,
+  MoneyText,
+  RelatedLinks,
+  Section,
+  Timeline,
+  ToneChip,
+} from '../volt/parts';
+import { RecordListRoom } from '../volt/RecordListRoom';
+import { ExportButton, ListBody, TestBanner } from './kit-parts';
+import { useListQuery } from './list-query';
+import { localRefusal, shortDay } from './money-words';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
-import { MoneyAction, useMoneyReason } from '../access/MoneyAction';
-import { refundableAmount, refundRate } from './model';
+import { refundRate } from './model';
 import { type PayRefundItem as RefundItem, payRefundStatusSchema } from '@intafaced/contracts/pay-portal-reads';
-import type { z } from 'zod';
 
-type Payment = z.infer<typeof paymentSchema>;
 type Words = ReturnType<typeof mc.useCopy>['t'];
 
 export const refundHref = (id: string) => `/pay/refunds/${encodeURIComponent(id)}`;
@@ -55,8 +61,22 @@ const potWords = (t: Words, pot: NonNullable<RefundItem['ledgerEffect']>['pot'])
         ? t('rfPot_userAvailable')
         : t('rfPot_unknown');
 
+/** `/pay/refunds` on the record-list template, for the business the access resolved. */
+export function RefundsRoom({ portal }: { portal: PortalApi }) {
+  return (
+    <RecordListRoom need="payments.read">
+      {({ merchantId }) => ({ list: <Refunds portal={portal} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
+
+/** `/pay/refunds/:id` on the record-list template: one refund's own page. */
+export function RefundRoom({ portal, refundId }: { portal: PortalApi; refundId: string }) {
+  return <RecordListRoom need="payments.read">{() => ({ detail: <RefundDetail portal={portal} refundId={refundId} /> })}</RecordListRoom>;
+}
+
 /** `/pay/refunds`: every refund on the account. A refund starts from a payment, never from typing an id. */
-export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -123,7 +143,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             label: t('rfRefunded'),
             period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
-            value: snap ? <MoneyList items={snap.refunded} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
+            value: snap ? <MoneyLines items={snap.refunded} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
             note: t('rfRefundedNote'),
           },
           {
@@ -137,7 +157,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             label: t('rfCaptured'),
             period: t('mnPeriod30'),
             href: '/pay/payments?date=30d',
-            value: snap ? <MoneyList items={snap.captured} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
+            value: snap ? <MoneyLines items={snap.captured} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
           },
           {
             label: t('rfRate'),
@@ -157,7 +177,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
         hasMore={list.state.status === 'ready' && list.state.hasMore}
       />
       {isUuid(paymentFilter) && (
-        <p className="muted pp-note">
+        <p className="lt-hint">
           {t('rfForPayment')}{' '}
           <a className="lt-link" href={`/pay/payments/${encodeURIComponent(paymentFilter)}`}>
             {t('rfOpenPayment')}
@@ -226,12 +246,6 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
           { header: t('rfFrom'), cell: (r) => sourceWords(t, r.source ?? null) },
           { header: t('mnColCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
         ]}
-        card={(r) => ({
-          title: t('refundName', { when: shortDay(r.createdAt, locale) }),
-          time: <DateTime value={r.createdAt} />,
-          amount: <MoneyText value={r.amount} asset={r.assetId} test={test} />,
-          status: <RefundChip status={r.status} />,
-        })}
       />
     </div>
   );
@@ -240,7 +254,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
 // ---- detail ---------------------------------------------------------------------------------------------
 
 /** `/pay/refunds/:id`: what went back to the customer, from where, and what happened to it. */
-export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId: string }) {
+function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -268,14 +282,14 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
                 status={<RefundChip status={x.status} />}
                 subtitle={t('refundName', { when: shortDay(x.createdAt, locale) })}
                 action={
-                  <LinkButton variant="primary" href={`/pay/payments/${encodeURIComponent(x.paymentId)}`}>
+                  <LinkButton tone="primary" href={`/pay/payments/${encodeURIComponent(x.paymentId)}`}>
                     {t('rfOpenPayment')}
                   </LinkButton>
                 }
               />
               <TestBanner />
               <Freshness asOf={readAt} />
-              <PaySection title={t('rfFactsTitle')}>
+              <Section title={t('rfFactsTitle')}>
                 <Facts
                   items={[
                     [t('colAmount'), <MoneyText value={x.amount} asset={x.assetId} test={test} />],
@@ -289,10 +303,10 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
                     [t('rfReference'), <CopyReference value={x.refundId} what={t('rfReference')} />],
                   ]}
                 />
-              </PaySection>
-              <PaySection title={t('rfTimelineTitle')}>
+              </Section>
+              <Section title={t('rfTimelineTitle')}>
                 <Timeline label={t('rfTimelineTitle')} items={events} />
-              </PaySection>
+              </Section>
               <RelatedLinks
                 links={[
                   { href: `/pay/payments/${encodeURIComponent(x.paymentId)}`, label: t('rfOpenPayment') },
@@ -305,168 +319,5 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
         }}
       </Gate>
     </div>
-  );
-}
-
-// ---- new ------------------------------------------------------------------------------------------------
-
-/** `/pay/refunds/new`: choose the payment, see what can still go back, then refund it. `?payment=` starts at step two. */
-export function RefundNew({
-  portal,
-  merchantId,
-  authority,
-}: {
-  portal: PortalApi;
-  merchantId: string;
-  authority: PayBusinessAuthority | null;
-}) {
-  const { t } = mc.useCopy();
-  const [paymentId, setPaymentId] = useUrlParam('payment', '');
-  return (
-    <div className="lt-stack">
-      <a className="lt-link" href="/pay/refunds">
-        {t('backRefunds')}
-      </a>
-      <TestBanner />
-      {isUuid(paymentId) ? (
-        <RefundStep key={paymentId} portal={portal} paymentId={paymentId} authority={authority} onChange={() => setPaymentId('')} />
-      ) : (
-        <PickPayment portal={portal} merchantId={merchantId} onPick={setPaymentId} />
-      )}
-    </div>
-  );
-}
-
-function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; merchantId: string; onPick: (id: string) => void }) {
-  const { t } = mc.useCopy();
-  const locale = uiCopy.useCopy().requestedLocale;
-  const test = useTestMode();
-  const [search, setSearch] = useState('');
-  const [typed, setTyped] = useState('');
-  const found = useResource((s) => portal.refundablePayments(merchantId, search, s), `money:refundable:${merchantId}:${search}`);
-  const off = useMoneyReason('refund');
-  const refundable = (p: Payment) =>
-    ['captured', 'settled', 'refunded'].includes(p.status) && refundableAmount(p.capturedAmount, p.refundedAmount) !== '0';
-  return (
-    <PaySection title={t('rnStep1')} description={t('rnStep1Body')}>
-      <form
-        className="pp-filter-row"
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSearch(typed.trim());
-        }}
-      >
-        <Field label={t('rnSearch')} value={typed} onChange={(e) => setTyped(e.target.value)} hint={t('rnSearchHint')} />
-        <Button type="submit" tone="secondary">
-          {t('rnFind')}
-        </Button>
-      </form>
-      {off && (
-        <p className="pp-callout pp-callout--warn" role="note">
-          {off}
-        </p>
-      )}
-      {found.resource.status === 'loading' ? (
-        <PortalLoading rows={3} />
-      ) : found.resource.status === 'failed' ? (
-        <PortalFailure result={found.resource.failure} retry={found.reload} />
-      ) : found.resource.data.items.filter(refundable).length === 0 ? (
-        <EmptyState title={t('rnNoneTitle')} action={<LinkButton href="/pay/payments">{t('rnNoneAction')}</LinkButton>}>
-          {t('rnNoneBody')}
-        </EmptyState>
-      ) : (
-        <ul className="pp-approvals" aria-label={t('rnStep1')}>
-          {found.resource.data.items.filter(refundable).map((p) => (
-            <li key={p.id} className="pp-approval">
-              <div className="pp-approval-head">
-                <strong>
-                  {p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}
-                </strong>
-                <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />
-                <small className="lt-muted">
-                  {t('rnRefundable')}{' '}
-                  <MoneyText value={refundableAmount(p.capturedAmount, p.refundedAmount)} asset={p.assetId} test={test} />
-                </small>
-                <DateTime value={p.createdAt} />
-              </div>
-              <Button tone="secondary" disabled={off !== null} onClick={() => onPick(p.id)}>
-                {t('rnChoose')}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </PaySection>
-  );
-}
-
-function RefundStep({
-  portal,
-  paymentId,
-  authority,
-  onChange,
-}: {
-  portal: PortalApi;
-  paymentId: string;
-  authority: PayBusinessAuthority | null;
-  onChange: () => void;
-}) {
-  const { t } = mc.useCopy();
-  const test = useTestMode();
-  const { api, userId } = useSession();
-  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
-  const payment = useResource((s) => portal.payment(paymentId, s), `money:refund-payment:${paymentId}`);
-  return (
-    <>
-      <PaySection title={t('rnStep2')} description={t('rnStep2Body')}>
-        <Gate resource={payment.resource} retry={payment.reload} rows={3}>
-          {(p) => {
-            const left = refundableAmount(p.capturedAmount, p.refundedAmount);
-            const source = p.status === 'captured' ? t('rfSource_clearing') : t('rfSource_settled');
-            return (
-              <>
-                <Facts
-                  items={[
-                    [
-                      t('mnColPayment'),
-                      <a className="lt-link" href={`/pay/payments/${encodeURIComponent(p.id)}`}>
-                        {p.customerRef?.trim() || p.description?.trim() || t('rnOpenPayment')}
-                      </a>,
-                    ],
-                    [t('rnCaptured'), <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />],
-                    [t('rnAlready'), <MoneyText value={p.refundedAmount} asset={p.assetId} test={test} />],
-                    [t('rnRefundable'), <MoneyText value={left} asset={p.assetId} test={test} />],
-                    [t('rfFrom'), source],
-                  ]}
-                />
-                <p className="muted pp-note">{t('rnReasonNote')}</p>
-                <Button tone="quiet" onClick={onChange}>
-                  {t('rnChangePayment')}
-                </Button>
-              </>
-            );
-          }}
-        </Gate>
-      </PaySection>
-      <PaySection title={t('rnStep3')} description={t('rnStep3Body')}>
-        {authority ? (
-          <ExactMoneyScope>
-            <MerchantRefund
-              pay={pay}
-              paymentId={paymentId}
-              onRecorded={payment.reload}
-              onBack={() => {
-                window.location.href = `/pay/refunds?payment=${encodeURIComponent(paymentId)}`;
-              }}
-            />
-          </ExactMoneyScope>
-        ) : (
-          <p className="pp-callout" role="note">
-            {t('rnOwnerOnly')}
-          </p>
-        )}
-      </PaySection>
-    </>
   );
 }

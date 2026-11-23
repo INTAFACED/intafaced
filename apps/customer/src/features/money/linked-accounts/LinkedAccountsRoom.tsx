@@ -12,6 +12,8 @@ import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Failure, Loading, Panel } from '../bank-settings/parts';
 import { StepUpSheet } from '../bank-settings/StepUpSheet';
 import { linkedAccountsCopy } from '../linked-accounts-copy';
+import { RefusalCode } from '../../../shared/RefusalCode';
+import { withCode } from '../../../shared/reference';
 
 /**
  * Linked bank accounts (J-bank-02 #6): the person's own accounts at other banks, each listed with its state and whether
@@ -51,7 +53,7 @@ function UseCell({ row }: { row: LinkedAccount }) {
         : [t('useCoolingUnset'), row.blocker ?? 'bank.offramp_cooling_unset'];
   return (
     <>
-      {words} <small className="lt-hint">{t('reference', { code })}</small>
+      {words} <RefusalCode className="lt-hint" code={code} line={(code) => t('reference', { code })} />
     </>
   );
 }
@@ -195,7 +197,7 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
             if (!answer.ok) {
               // The bank's own refusals in the person's words, with the code to quote; anything else as the bank said it.
               const words = answer.code ? refusalWords[answer.code] : undefined;
-              return words ? { ...answer, message: `${t(words)} ${t('reference', { code: answer.code! })}` } : answer;
+              return words ? { ...answer, message: withCode(t(words), answer.code, (code) => t('reference', { code })) } : answer;
             }
             const name = answer.data.account.label;
             setDone(answer.data.created ? t('linked', { name }) : t('already', { name }));
