@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   NO_CASH_LEGS,
@@ -30,7 +30,7 @@ const ask = (over: Partial<CashLegAsk> = {}): CashLegAsk => ({
   ...over,
 });
 
-function world(opts: { failPayouts?: number } = {}) {
+function world(opts: { failPayouts?: number; onPay?: () => Promise<void> } = {}) {
   const partner = testPartner();
   partner.set('u1', { custody: 'off' });
   partner.fund('u1', { fundId: 'f1', assetId: 'EUR', amount: parseAmount('100') });
@@ -38,6 +38,7 @@ function world(opts: { failPayouts?: number } = {}) {
   let failures = opts.failPayouts ?? 0;
   const payout: CashLegPayout = {
     async pay({ ref, amount }) {
+      await opts.onPay?.();
       if (failures > 0) {
         failures -= 1;
         throw new Error('lost');
@@ -59,6 +60,10 @@ function world(opts: { failPayouts?: number } = {}) {
 }
 
 describe('the partner cash leg', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('offers the cash it holds for a person, with its rate and what can move', async () => {
     const { legs } = world();
     const read = await legs.offers('u1');
@@ -83,6 +88,45 @@ describe('the partner cash leg', () => {
     expect(paid).toEqual([{ ref: KEY, amount: parseAmount('21.6') }]);
     expect(await legs.leg('u1', KEY)).toEqual(c);
     expect(await legs.leg('u2', KEY)).toBeNull();
+  });
+
+  it('two carries of one key at once get the one stored leg, and the coin is asked for once, however the clock moves', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-22T14:40:42.653Z') });
+    const waiting: (() => void)[] = [];
+    const { legs, paid, eur, moves } = world({ onPay: () => new Promise<void>((answer) => waiting.push(answer)) });
+    let settled = false;
+    const both = Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]).finally(() => {
+      settled = true;
+    });
+    // Each payout asked for answers in turn, the clock a millisecond on from the one before.
+    let asked = 0;
+    while (!settled) {
+      await new Promise((tick) => setImmediate(tick));
+      const answer = waiting.shift();
+      if (!answer) continue;
+      asked += 1;
+      answer();
+      await new Promise((tick) => setImmediate(tick));
+      vi.setSystemTime(Date.now() + 1);
+    }
+    const [a, b] = await both;
+    expect(a).toEqual(b);
+    expect(await legs.leg('u1', KEY)).toEqual(a);
+    expect(asked).toBe(1);
+    expect(paid).toEqual([{ ref: KEY, amount: parseAmount('21.6') }]);
+    expect(moves()).toHaveLength(1);
+    expect(eur()).toBe(parseAmount('80'));
+  });
+
+  it('a carry that finds the first still sending finishes it once; the leg it returns is the one stored', async () => {
+    const { legs, paid, eur, moves } = world({ failPayouts: 1 });
+    const [a, b] = await Promise.allSettled([legs.carry('u1', ask()), legs.carry('u1', ask())]);
+    expect(a).toMatchObject({ status: 'rejected', reason: { code: 'bank.cash_leg_sending' } });
+    expect(b).toMatchObject({ status: 'fulfilled', value: { state: 'delivered' } });
+    expect(await legs.leg('u1', KEY)).toEqual((b as PromiseFulfilledResult<unknown>).value);
+    expect(paid).toHaveLength(1);
+    expect(moves()).toHaveLength(1);
+    expect(eur()).toBe(parseAmount('80'));
   });
 
   it('rounds the coin down to its smallest unit', async () => {
