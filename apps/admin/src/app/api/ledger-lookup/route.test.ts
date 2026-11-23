@@ -36,6 +36,8 @@ const tx = {
       balanceAfter: '25',
     },
   ],
+  reversedBy: null,
+  reverses: null,
 };
 const get = (query: string) => GET(new Request(`https://admin.example/api/ledger-lookup?${query}`));
 

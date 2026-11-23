@@ -19,11 +19,11 @@ export function ExportTab({ read, now }: { read: readonly ReadQuote[]; now: numb
     <div className="flex max-w-2xl flex-col gap-3">
       <p className="m-0 text-sm text-fg">{t('Export label')}</p>
       <p className="lt-hint">{t('Export columns', { columns: CSV_COLUMNS.join(', ') })}</p>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="lt-toolbar">
         <Button variant="secondary" size={32} disabled={read.length === 0} onClick={() => download(csvFileName(now), buildCsv(read))}>
           {t('Download CSV')}
         </Button>
-        <span className="text-sm text-fg-2">{read.length === 0 ? t('Export none') : t('Export count', { count: read.length })}</span>
+        <span className="lt-hint">{read.length === 0 ? t('Export none') : t('Export count', { count: read.length })}</span>
       </div>
     </div>
   );

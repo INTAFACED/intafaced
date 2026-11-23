@@ -26,7 +26,7 @@ export type StreamProduct = 'spot' | 'derivatives' | 'accounts';
  * Each listed channel's product, keyed `<door> <channel>`. Market data and the
  * order and fill events of the spot book are spot; the futures mark and open
  * positions are derivatives; the drop copy is every fill on the account, so it
- * is the account's. A channel missing here fails `stream-inventory.test.ts`.
+ * is the account's, and so is the venue balance stream (J-cex-spot-15 #9). A channel missing here fails `stream-inventory.test.ts`.
  */
 export const STREAM_PRODUCTS: Readonly<Record<string, StreamProduct>> = {
   'market depth': 'spot',
@@ -39,6 +39,7 @@ export const STREAM_PRODUCTS: Readonly<Record<string, StreamProduct>> = {
   'private orders': 'spot',
   'private fills': 'spot',
   'private positions': 'derivatives',
+  'private balances': 'accounts',
   'drop-copy drop_copy': 'accounts',
 };
 

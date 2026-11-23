@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "files": ["src/main.tsx", "vite.config.ts"],
+  "include": ["src/**/*.d.ts", "src/**/*.worker.ts"]
+}

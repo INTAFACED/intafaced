@@ -9,6 +9,7 @@ import { DepthPanel, DisabledActions, Fact } from './DepthParts';
 import { recoveryClaimCopy, type recoveryClaimMessages } from './recovery-claim-copy';
 import './bank-depth.css';
 import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from '@intafaced/contracts/bank-recovery-procedures';
+import { withCode } from '../../shared/reference';
 
 /**
  * `/bank/recovery` (RC-identity-08, J-identity-05 #7): the heir's claim room. It lists the accounts whose owner named
@@ -57,7 +58,7 @@ function refusal(t: Copy, answer: { code?: string; message: string }): string {
   const identity = codes.find((code) => code in identityRefusals);
   if (identity) return `${t('refused_keys')} ${t(identityRefusals[identity]!)} ${t('reference', { code: identity })}`;
   const bank = codes.find((code) => code in bankRefusals);
-  return bank ? `${t(bankRefusals[bank]!)} ${t('reference', { code: bank })}` : answer.message;
+  return bank ? withCode(t(bankRefusals[bank]!), bank, (code) => t('reference', { code })) : answer.message;
 }
 
 function from(t: Copy, row: Pick<RecoveryAccount, 'ownerType' | 'spaceName'>) {

@@ -318,8 +318,8 @@
     },
     "IDENTITY_ACTION_APPROVAL_POLICIES": {
       "service": "identity",
-      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
-      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows so both governed ledger correction types need two operators other than the requester and are applied by svc-ops (OPS-change-control-01 CR-1)."
+      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"1\",\"approverAudience\":\"founder\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows applied by svc-ops (OPS-change-control-01 CR-1). A reversal needs one founder other than the requester (OPS-ledger-desk-02, J-ops-console-05 #1-#3: a different approver); an adjustment needs two operators other than the requester."
     },
     "IDENTITY_STAFF_INVITE_TTL_SECONDS": {
       "service": "identity",

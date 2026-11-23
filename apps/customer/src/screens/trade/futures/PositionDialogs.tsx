@@ -545,7 +545,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         {orders === null && !unreadable ? <p className="lt-muted">{t('Protect loading')}</p> : null}
         {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <ul className="lt-list">
             <LegLine leg="take_profit" order={legs.take_profit} position={position} t={t} />
             <LegLine leg="stop_loss" order={legs.stop_loss} position={position} t={t} />
           </ul>
@@ -942,7 +942,7 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
           stops.length === 0 ? (
             <p className="lt-muted">{t('Stop armed none')}</p>
           ) : (
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            <ul className="lt-list">
               {stops.map((o) => {
                 const line = triggerLine(o, words);
                 return (

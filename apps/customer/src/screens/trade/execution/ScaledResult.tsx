@@ -165,7 +165,7 @@ export function ScaledResult({
 
   return (
     <section aria-label={t('Ladder result')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="lt-toolbar">
         <h3 className="m-0 text-md font-medium text-fg">{t('Ladder result')}</h3>
         {summary && run ? (
           <span role="status" className="text-sm text-fg">

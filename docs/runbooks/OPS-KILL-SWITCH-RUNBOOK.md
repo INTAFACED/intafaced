@@ -29,6 +29,7 @@ This is the operator path to **halt a module without a deploy**, and the ledger 
   - **P0 residual:** anyone who can reach `apps/admin` BFF routes can use the shared operator token. **Do not expose admin without network ACL / SSO.** Ship gate for real money.
   - Optional **BFF gate:** set `ADMIN_BFF_SHARED_SECRET` and inject header `x-intafaced-admin-bff` from reverse proxy after SSO. When unset, network ACL only.
 - Kill-switch state: optional **restart durability** via `EDGE_KILL_STATE_PATH` (default `.data/edge-kill-state.json`) so a bounce does not wipe an incident kill. **Multi-replica share is still a §13 socket** (file is per host).
+- A new host (or a new `edgestate` volume) has no state file, so the edge halts every module until an operator records all modules on: `docker compose -f docker-compose.apps.yml exec -T svc-edge sh -c 'printf %s "{\"killed\":[]}" > "$EDGE_KILL_STATE_PATH"'`, then `docker compose -f docker-compose.apps.yml restart svc-edge`. The stack rehearsal (`.github/workflows/stack-rehearsal.yml`) does exactly this.
 
 ---
 

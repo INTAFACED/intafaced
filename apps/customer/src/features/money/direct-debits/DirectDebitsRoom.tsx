@@ -12,6 +12,8 @@ import type { DirectDebitCollection, DirectDebitMandate, DirectDebitsView } from
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { DisabledActions, Panel, useRoomRefusal } from '../bank-settings/parts';
 import { directDebitsCopy } from '../direct-debits-copy';
+import { RefusalCode } from '../../../shared/RefusalCode';
+import { withCode } from '../../../shared/reference';
 
 /**
  * `/bank/direct-debits` (J-bank-06 #4, BK-xfer-11): the companies that may collect from the person's main balance, what
@@ -34,7 +36,7 @@ const refusalWords: Record<string, RefusalKey> = {
 
 function refusal(t: Copy, answer: { code?: string; message: string }): string {
   const words = answer.code ? refusalWords[answer.code] : undefined;
-  return words ? `${t(words)} ${t('reference', { code: answer.code! })}` : answer.message;
+  return words ? withCode(t(words), answer.code, (code) => t('reference', { code })) : answer.message;
 }
 
 function reasonOf(t: Copy, code: string | null): string {
@@ -134,7 +136,7 @@ function RefundCell({ row, onRefund }: { row: DirectDebitCollection; onRefund: (
     case 'unset':
       return (
         <>
-          {t('refundUnset')} <small className="lt-hint">{t('reference', { code: 'bank.dd_guarantee_unset' })}</small>
+          {t('refundUnset')} <RefusalCode className="lt-hint" code="bank.dd_guarantee_unset" line={(code) => t('reference', { code })} />
         </>
       );
     default:
@@ -180,7 +182,8 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
                   <td>
                     {row.failureCode ? (
                       <>
-                        {reasonOf(t, row.failureCode)} <small className="lt-hint">{t('reference', { code: row.failureCode })}</small>
+                        {reasonOf(t, row.failureCode)}{' '}
+                        <RefusalCode className="lt-hint" code={row.failureCode} line={(code) => t('reference', { code })} />
                       </>
                     ) : (
                       '—'
@@ -189,7 +192,8 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
                   <td>
                     {row.failureFeeBlocker ? (
                       <>
-                        {t('feeNotSet')} <small className="lt-hint">{t('reference', { code: row.failureFeeBlocker })}</small>
+                        {t('feeNotSet')}{' '}
+                        <RefusalCode className="lt-hint" code={row.failureFeeBlocker} line={(code) => t('reference', { code })} />
                       </>
                     ) : (
                       t('feeNone')
@@ -303,7 +307,7 @@ function SchemeNotice({ scheme }: { scheme: DirectDebitsView['scheme'] }) {
       {scheme.status === 'unset' ? (
         <p role="note">
           {t('schemeUnset', { rail: scheme.blocker ?? 'rail.bank' })}{' '}
-          <small className="lt-hint">{t('reference', { code: 'rail.bank' })}</small>
+          <RefusalCode className="lt-hint" code="rail.bank" line={(code) => t('reference', { code })} />
         </p>
       ) : (
         scheme.standIn && <p role="note">{t('schemeStandIn', { label: scheme.standIn })}</p>

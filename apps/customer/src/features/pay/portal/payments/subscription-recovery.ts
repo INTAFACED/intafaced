@@ -94,3 +94,17 @@ export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: s
     current,
   );
 }
+
+/** Pause or cancel one schedule (`subscription.pause`, `subscription.cancel`), held on `subscription:<id>` until settled. */
+export async function pauseOrCancelSubscription(pay: BusinessPayApi, s: { id: string }, action: 'pause' | 'cancel') {
+  return definite(
+    await pay.mutate(
+      `subscription.${action}`,
+      { subscriptionId: s.id },
+      subscriptionSchema,
+      'pay:write',
+      `subscription:${s.id}`,
+      action === 'pause' ? 'paused' : 'cancelled',
+    ),
+  );
+}

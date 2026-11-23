@@ -33,6 +33,25 @@ pub struct Response {
     pub body: String,
 }
 
+/// A door's answer with what Fastify sends beside its body: its own content type (a page's `text/html`), and headers
+/// (a redirect's `location`, a page's `content-security-policy`). A plain [`Response`] is JSON with none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reply {
+    pub response: Response,
+    pub content_type: Option<&'static str>,
+    pub headers: Vec<(&'static str, String)>,
+}
+
+impl From<Response> for Reply {
+    fn from(response: Response) -> Reply {
+        Reply {
+            response,
+            content_type: None,
+            headers: Vec::new(),
+        }
+    }
+}
+
 /// A service's door: what answers every request that is not `/health` or `/ready`.
 pub trait Door: Sync {
     /// The next Fastify request id. The server takes one for every request, whatever its route.
@@ -44,6 +63,11 @@ pub trait Door: Sync {
     fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         let _ = peer;
         self.handle_as(req, request_id)
+    }
+    /// Answers one request as `handle_from`, with the content type and headers it sends beside the body. The server
+    /// calls this; the default is `handle_from`'s JSON answer with no headers.
+    fn reply_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Reply {
+        self.handle_from(req, request_id, peer).into()
     }
     /// `GET /health` and `GET /ready` (and their HEADs), when the door answers them from its own state. `None`, the
     /// default, leaves the server's fixed answers: `{ ok, service }` and the app's `ready_body`.
@@ -87,12 +111,13 @@ impl RequestIds {
 /// Requests served at once.
 pub const WORKERS: usize = 16;
 
-/// One answer: status, content type, body.
+/// One answer: status, content type, body, and any headers beside them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
     pub status: u16,
     pub content_type: &'static str,
     pub body: String,
+    pub headers: Vec<(&'static str, String)>,
 }
 
 /// What the routes need.
@@ -132,6 +157,7 @@ impl<D: Door> App<D> {
             status,
             content_type: FASTIFY_JSON,
             body,
+            headers: Vec::new(),
         };
         if matches!(method, "GET" | "HEAD")
             && path == metrics::METRICS_PATH
@@ -147,6 +173,7 @@ impl<D: Door> App<D> {
                 status: 200,
                 content_type: metrics::PROMETHEUS_CONTENT_TYPE,
                 body: registry.render() + &extra,
+                headers: Vec::new(),
             };
         }
         if matches!(method, "GET" | "HEAD") && matches!(path, "/health" | "/ready") {
@@ -172,7 +199,7 @@ impl<D: Door> App<D> {
                 return json(200, self.ready_body.clone());
             }
         }
-        let res = self.wire.handle_from(
+        let reply = self.wire.reply_from(
             &Request {
                 method,
                 url,
@@ -182,14 +209,16 @@ impl<D: Door> App<D> {
             request_id,
             peer,
         );
+        let res = reply.response;
         Answer {
             status: res.status,
-            content_type: if path.starts_with("/trpc/") {
+            content_type: reply.content_type.unwrap_or(if path.starts_with("/trpc/") {
                 "application/json"
             } else {
                 FASTIFY_JSON
-            },
+            }),
             body: res.body,
+            headers: reply.headers,
         }
     }
 
@@ -301,6 +330,11 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
     let mut response = tiny_http::Response::from_data(content).with_status_code(status);
     if let Ok(h) = tiny_http::Header::from_bytes("content-type", out.content_type) {
         response = response.with_header(h);
+    }
+    for (name, value) in &out.headers {
+        if let Ok(h) = tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes()) {
+            response = response.with_header(h);
+        }
     }
     if method == "HEAD"
         && let Ok(h) = tiny_http::Header::from_bytes("content-length", out.body.len().to_string())
