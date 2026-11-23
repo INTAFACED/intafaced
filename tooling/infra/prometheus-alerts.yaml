@@ -6,25 +6,37 @@
 groups:
   - name: intafaced-beta
     rules:
-      # A scraped process that answers no scrape for two minutes: crashed, hung or its container stopped.
+      # A service down for two minutes: a scraped process that answers no scrape, or any app service whose health probe
+      # (prometheus.yaml's `app-health` job) fails: crashed, hung or its container stopped. A probed service is named by
+      # its `service` label, a scraped one by its job.
       - alert: ServiceDown
-        expr: up{job!="prometheus"} == 0
+        expr: up{job!~"prometheus|app-health"} == 0 or probe_success{job="app-health"} == 0
         for: 2m
         labels:
           severity: page
         annotations:
-          summary: '{{ $labels.job }} is down'
-          description: '{{ $labels.instance }} has answered no scrape for 2 minutes.'
+          summary: '{{ or $labels.service $labels.job }} is down'
+          description: '{{ $labels.instance }} has answered no scrape or health probe for 2 minutes.'
 
       # A process that fails a boot check exits before it listens, and compose restarts it, so it never answers a
-      # scrape at all. Not up at any moment in 15 minutes is a boot loop, not a blip: read the container's log.
+      # scrape or a probe at all. Not up at any moment in 15 minutes is a boot loop, not a blip: read the container's log.
       - alert: BootCheckFailed
-        expr: max_over_time(up{job!="prometheus"}[15m]) == 0
+        expr: max_over_time(up{job!~"prometheus|app-health"}[15m]) == 0 or max_over_time(probe_success{job="app-health"}[15m]) == 0
         labels:
           severity: page
         annotations:
-          summary: '{{ $labels.job }} has not come up in 15 minutes'
-          description: '{{ $labels.instance }} answered no scrape in 15 minutes: it is failing its boot checks. `docker compose logs {{ $labels.job }}` names the check.'
+          summary: '{{ or $labels.service $labels.job }} has not come up in 15 minutes'
+          description: '{{ $labels.instance }} answered no scrape or health probe in 15 minutes: it is failing its boot checks. `docker compose logs {{ or $labels.service $labels.job }}` names the check.'
+
+      # The blackbox exporter itself answers no scrape, so no app service is being checked at all.
+      - alert: HealthProberDown
+        expr: sum(up{job="app-health"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: 'The health prober is down: no app service is being checked'
+          description: '`docker compose logs blackbox-exporter` names why.'
 
       # The host's disks, from node-exporter (compose profile `beta`). Postgres stops writing when its disk is full.
       - alert: DiskAlmostFull

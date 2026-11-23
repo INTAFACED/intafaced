@@ -109,6 +109,8 @@ services:
     volumes:
       - ./tooling/infra/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ./tooling/infra/prometheus-alerts.yaml:/etc/prometheus/prometheus-alerts.yaml:ro
+      # The `app-health` job's targets, written from docker-compose.apps.yml by tooling/infra/probe-targets.mjs (#10250).
+      - ./tooling/infra/probe-targets.json:/etc/prometheus/probe-targets.json:ro
       - promdata:/prometheus
     ports:
       - '127.0.0.1:9090:9090'
@@ -274,7 +276,7 @@ services:
       - prometheus
       - tempo
 
-  # ── THE HOSTED BETA'S BACKUP AND HOST METRICS (#10211) ─────────────────────
+  # ── THE HOSTED BETA'S BACKUP, HOST METRICS AND HEALTH PROBES (#10211, #10250) ─
   #
   # Profile `beta` only: a dev machine and CI never start them. `pg-backup` runs tooling/infra/backup/pg-backup.sh
   # nightly (19:17 UTC, 03:17 in Bali): every database and the roles, the newest 14 kept in the `pgbackups` volume,
@@ -315,6 +317,18 @@ services:
     volumes:
       - /:/host:ro,rslave
       - backupmetrics:/textfile:ro
+
+  # Asks every app service with a compose healthcheck the same question from outside, for prometheus.yaml's `app-health`
+  # job (#10250): most services expose no /metrics, so without it a service down or in a boot loop raises no alert.
+  # Its modules: tooling/infra/blackbox.yaml. No published ports.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: intafaced-blackbox-exporter
+    profiles: ['beta']
+    restart: unless-stopped
+    command: ['--config.file=/etc/blackbox/blackbox.yaml']
+    volumes:
+      - ./tooling/infra/blackbox.yaml:/etc/blackbox/blackbox.yaml:ro
 
 volumes:
   pgdata:
