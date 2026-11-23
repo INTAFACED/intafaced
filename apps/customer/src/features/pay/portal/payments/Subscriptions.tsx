@@ -29,7 +29,7 @@ import type { ApiResult } from '../../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 import { definite } from './not-available';
 import { SubscriptionPriceFact, SubscriptionPricePicker, subscriptionPriceLabel } from '../catalog/SubscriptionPrice';
-import { PAY_SUBSCRIPTION_RESUME } from '@intafaced/contracts/pay-subscription-procedures';
+import { PAY_SUBSCRIPTION_CANCEL, PAY_SUBSCRIPTION_PAUSE, PAY_SUBSCRIPTION_RESUME } from '@intafaced/contracts/pay-subscription-procedures';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -656,10 +656,9 @@ function SubscriptionActions({
                       return definite(result.ok ? { ok: true as const, data: result.data.subscription } : result);
                     }
                     return definite(
-                      await pay.mutate(
-                        `subscription.${action}`,
+                      await pay.mutateRecord(
+                        action === 'pause' ? PAY_SUBSCRIPTION_PAUSE : PAY_SUBSCRIPTION_CANCEL,
                         { subscriptionId: s.id },
-                        subscriptionSchema,
                         'pay:write',
                         `subscription:${s.id}`,
                         action === 'pause' ? 'paused' : 'cancelled',

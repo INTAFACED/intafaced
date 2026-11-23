@@ -298,20 +298,35 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                   />
                 }
                 perform={() =>
-                  validatedMutation(
-                    pay,
-                    `submerchantPermission.${action}`,
-                    input,
-                    z.object({
-                      granteeMerchantId: s.id,
-                      subjectMerchantId: s.id,
-                      area: z.string().min(1),
-                      reason: z.string().trim().min(3).max(500),
-                    }),
-                    s.permissionEventSchema,
-                    'pay:write',
-                    `permission:${subject}:${grantee}:${area}`,
-                  )
+                  action === 'grant'
+                    ? validatedMutation(
+                        pay,
+                        'submerchantPermission.grant',
+                        input,
+                        z.object({
+                          granteeMerchantId: s.id,
+                          subjectMerchantId: s.id,
+                          area: z.string().min(1),
+                          reason: z.string().trim().min(3).max(500),
+                        }),
+                        s.permissionEventSchema,
+                        'pay:write',
+                        `permission:${subject}:${grantee}:${area}`,
+                      )
+                    : validatedMutation(
+                        pay,
+                        'submerchantPermission.revoke',
+                        input,
+                        z.object({
+                          granteeMerchantId: s.id,
+                          subjectMerchantId: s.id,
+                          area: z.string().min(1),
+                          reason: z.string().trim().min(3).max(500),
+                        }),
+                        s.permissionEventSchema,
+                        'pay:write',
+                        `permission:${subject}:${grantee}:${area}`,
+                      )
                 }
                 disabled={!s.id.safeParse(grantee).success || !allowedArea || reason.trim().length < 3 || Boolean(pay.access('pay:write'))}
                 onConfirmed={refresh}
