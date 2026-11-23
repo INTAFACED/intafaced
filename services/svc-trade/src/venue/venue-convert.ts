@@ -605,7 +605,8 @@ export class VenueConverts {
   /**
    * Accept a quote: its one venue order, prepared for the owner's wallet to sign under `convert:<owner>:<quoteId>`. The
    * same quote accepted again is that same action. Past the window, an action not yet signed is refused and nothing is
-   * prepared; one already signed is the conversion it was, and is answered as it stands.
+   * prepared; one already signed is the conversion it was, and is answered as it stands. Past the window a cash leg
+   * already asked for is only read back under its key, never carried: the refusal says what the partner moved.
    */
   async accept(
     door: UserVenueDoor,
@@ -618,7 +619,7 @@ export class VenueConverts {
     if (owner !== q.owner) refuse('no such quote for this venue account', 'trade.convert_quote_unknown', 404);
     const key = convertKey(q.owner, q.quoteId);
     const stored = await door.stored(principal, key);
-    if (!stored?.signature) this.assertFresh(q);
+    if (!stored?.signature) await this.assertFreshOrReadLeg(q);
     if (q.cashLeg) {
       const cashLeg = await this.carryCash(door, principal, { q, leg: q.cashLeg });
       const prepared = await door.prepare(
@@ -816,6 +817,35 @@ export class VenueConverts {
   private assertOpen(): void {
     if (!this.deps.enabled)
       refuse('Convert is paused on this platform; nothing was priced or sent. Spot is open', 'trade.convert_disabled', 409);
+  }
+
+  /**
+   * Past the window, a quote whose cash leg was asked for is refused like any other, but only after its leg is read back
+   * (read-only, under its key: the partner is never asked to carry past the window), so the refusal says what moved: the
+   * cash the partner carried and the coin left unspent in the venue account, or nothing. An unread leg is
+   * `trade.convert_cash_leg_unknown`, so Check again reads it later.
+   */
+  private async assertFreshOrReadLeg(q: ConvertQuote): Promise<void> {
+    if (!q.cashLeg?.acceptedAt || this.deps.now().getTime() <= q.freshUntil.getTime()) return this.assertFresh(q);
+    const read = await (this.deps.cashLeg ?? NO_CASH_LEG).leg(this.forwarded, cashLegKey(q.owner, q.quoteId));
+    if (read === 'unread')
+      return refuse(
+        'this price has expired and the partner did not answer for the cash leg; Check again reads it, and moves nothing new',
+        'trade.convert_cash_leg_unknown',
+        503,
+      );
+    if (read) {
+      const moved =
+        read.state === 'delivered'
+          ? `${read.paid} ${read.cash} became ${read.delivered} ${read.coin}, unspent in your venue account`
+          : `${read.paid} ${read.cash} is on its way to your venue account as ${read.delivered} ${read.coin}`;
+      return refuse(
+        `this price was fresh until ${q.freshUntil.toISOString()}; its order was not sent. The cash leg was carried: ${moved}; get a new price to convert it`,
+        'trade.convert_quote_expired',
+        409,
+      );
+    }
+    this.assertFresh(q);
   }
 
   private assertFresh(q: ConvertQuote): void {
