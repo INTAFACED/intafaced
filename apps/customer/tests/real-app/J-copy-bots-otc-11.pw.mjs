@@ -184,7 +184,7 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
   await expect(cell(ours, 5)).toContainText(feeAsset);
   const owedShown = (await cell(ours, 5).innerText()).split(' ')[0];
   expect(toUnits(owedShown)).toBe(toUnits(String(owed)));
-  await expect.poll(async () => toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
+  expect(toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
   await expect(
     table
       .locator('tbody tr')
