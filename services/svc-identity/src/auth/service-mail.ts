@@ -10,19 +10,14 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Sql, TransactionSql } from 'postgres';
-import {
-  SERVICE_MAIL_PATH,
-  serviceMailRequestSchema,
-  type ServiceBodyBindMode,
-  type ServiceMailAccepted,
-  type ServiceMailPurpose,
-  type ServiceMailRequest,
-} from '@intafaced/contracts';
+import type { ServiceBodyBindMode, ServiceMailAccepted, ServiceMailPurpose, ServiceMailRequest } from '@intafaced/contracts';
+import { SERVICE_MAIL_PATH, serviceMailRequestSchema } from '@intafaced/contracts/identity';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 
 /** The one service allowed to ask for each purpose. */
 export const SERVICE_MAIL_CALLERS: Readonly<Record<ServiceMailPurpose, string>> = {
   'withdraw-address-approval': 'svc-bank',
+  'support-chat-email': 'svc-support',
 };
 
 /** The longest a link may be shown as valid for. */

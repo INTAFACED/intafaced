@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import type { AcademyPlanner, AcademyProgressPage } from '@intafaced/contracts/academy-catalogue';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { CourseGradesView, PlannerView, ProgressPageView, localPercent, todoKey, type PlannerViewProps } from './AcademyProgressPage';
 import { TimedQuizView } from './AcademyAssessment';
 
@@ -142,7 +142,7 @@ describe('planner', () => {
     expect(out).toContain('Email reminder on.');
     expect(out).toContain('Goal saved.');
     expect(out).toContain('data-not-connected="vendor.email"');
-    expect(out).toContain('The goal reminder email needs an email delivery provider.');
+    expect(out).toContain('The goal reminder email needs an email sender.');
   });
 
   it('keeps Send reminder off until a goal has its reminder on, and Save off outside 1 to 100', () => {

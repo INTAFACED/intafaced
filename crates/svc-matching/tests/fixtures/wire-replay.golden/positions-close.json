@@ -1,0 +1,722 @@
+{
+  "blank POST /markets/BTC-USDT/positions/close valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"sequence\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"position_flat\",\"message\":\"account is flat on this book; the engine does not invent a mark\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"lifecycleProof.action: must be PLACE for this order\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close amend-proof founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"orderId: Invalid input: expected string, received undefined\",\"accountId: Invalid input: expected string, received undefined\",\"lifecycleProof: Invalid input: expected object, received undefined\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"sequence\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"position_flat\",\"message\":\"account is flat on this book; the engine does not invent a mark\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"orderId: Invalid input: expected string, received null\",\"accountId: Invalid input: expected string, received null\",\"lifecycleProof: Invalid input: expected object, received null\"]}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/BTC-USDT/positions/close all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"sequence\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"position_flat\",\"message\":\"account is flat on this book; the engine does not invent a mark\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"lifecycleProof.action: must be PLACE for this order\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close amend-proof founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"orderId: Invalid input: expected string, received undefined\",\"accountId: Invalid input: expected string, received undefined\",\"lifecycleProof: Invalid input: expected object, received undefined\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"sequence\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"position_flat\",\"message\":\"account is flat on this book; the engine does not invent a mark\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"orderId: Invalid input: expected string, received null\",\"accountId: Invalid input: expected string, received null\",\"lifecycleProof: Invalid input: expected object, received null\"]}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/BTC-USDT/positions/close all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  }
+}

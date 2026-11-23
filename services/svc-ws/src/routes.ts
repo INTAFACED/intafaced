@@ -1,3 +1,4 @@
+import type { PerIpPolicyView } from './per-ip.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { DEPTH_ENGINE_UNAVAILABLE, snapshotHasRestingDepth, toSnapshot, type DepthHub } from './depth/hub.js';
@@ -102,6 +103,14 @@ export interface RouteOptions {
   readonly pollMs?: number;
   /** The multiplexed door and its two feed hubs. Omit = not mounted; `/health` says nothing about it. */
   readonly mux?: { readonly gateway: MuxGateway; readonly tickerHub: TickerHub; readonly candleHub: CandleHub };
+  /**
+   * The keepalive rule every door runs, published on `/streams` so the developer pages read it live: the ping cadence
+   * (a socket that misses one pong is ended) and the multiplexed idle close (null while unpublished: the door is down).
+   * Omitted in tests that do not read it; `/streams` then names both null.
+   */
+  readonly timing?: { readonly heartbeatMs: number; readonly muxIdleMs: number | undefined };
+  /** The per-IP cap and storm ban (`per-ip.ts`) for `GET /policy`. Omitted in tests that do not read it. */
+  readonly perIpPolicy?: () => PerIpPolicyView;
 }
 
 function sendL2Sbe(
@@ -252,10 +261,20 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
     };
   });
 
-  app.get('/policy', async () => describeGatewayPolicy());
+  // The honesty board, and the per-IP cap and storm ban as the owner set them, `null` where blank (DV-limits-03,
+  // J-developer-09 #6). Without a guard wired, `perIp` says it is not reported rather than inventing values.
+  app.get('/policy', async () => ({
+    ...describeGatewayPolicy(),
+    perIp: options.perIpPolicy
+      ? options.perIpPolicy()
+      : { maxConnections: null, stormsBeforeBan: null, banSeconds: null, cap: 'unset', ban: 'unset' },
+  }));
 
   /** Every channel this process serves, from the lists its doors parse (`stream-inventory.ts`). */
-  app.get('/streams', async () => ({ streams: streamInventory({ muxMounted: options.mux !== undefined }) }));
+  app.get('/streams', async () => ({
+    streams: streamInventory({ muxMounted: options.mux !== undefined }),
+    timing: { heartbeatMs: options.timing?.heartbeatMs ?? null, muxIdleMs: options.timing?.muxIdleMs ?? null },
+  }));
 
   async function sendNativeL3(
     marketId: string,

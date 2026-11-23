@@ -7,6 +7,7 @@
  * Amounts below are TEST figures, not a customer balance.
  */
 import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTradeRouter, PlaceAttemptBook } from './router.js';
@@ -97,13 +98,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
   it('stores tier.insufficient for the officer and leaves available balance unchanged', async () => {
     let available = TEST_AVAILABLE;
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         available -= ONE;
         return openOrder(placeBody.clientOrderId);
       },
-    } as unknown as TradeService;
+    });
     const app = createTradeRouter(trade);
     const trader = app.createCaller(contextFor(principal(USER, 'none', ['trade:write']), 'SG'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));
@@ -131,12 +132,12 @@ describe('TRD-0308 place attempt on orders.create', () => {
 
   it('does not create a second order for the same clientOrderId', async () => {
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         return openOrder('same-client-1');
       },
-    } as unknown as TradeService;
+    });
     const caller = createTradeRouter(trade).createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
     const body = { ...placeBody, clientOrderId: 'same-client-1' };
 
@@ -151,13 +152,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
   it('forwards a later command with the same clientOrderId to placeOrder', async () => {
     const inputs: Array<{ symbol?: string }> = [];
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async (_principal: Principal, input: { symbol?: string; clientOrderId?: string }) => {
         placeCalls += 1;
         inputs.push({ symbol: input.symbol });
         return openOrder(input.clientOrderId ?? 'c-1');
       },
-    } as unknown as TradeService;
+    });
     const caller = createTradeRouter(trade).createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
 
     await caller.orders.create({ ...placeBody, symbol: 'BTC-USDT', clientOrderId: 'c-1', qty: '1' });
@@ -167,13 +168,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
     expect(inputs[1]?.symbol).toBe('ETH-USDT');
 
     let conflictCalls = 0;
-    const conflictTrade = {
+    const conflictTrade = partial<TradeService>({
       placeOrder: async () => {
         conflictCalls += 1;
         if (conflictCalls === 2) throw new TradeError('x', 'trade.client_order_id_conflict');
         return openOrder('c-conflict');
       },
-    } as unknown as TradeService;
+    });
     const conflictCaller = createTradeRouter(conflictTrade).createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
 
     await conflictCaller.orders.create({ ...placeBody, symbol: 'BTC-USDT', clientOrderId: 'c-conflict', qty: '1' });
@@ -187,12 +188,12 @@ describe('TRD-0308 place attempt on orders.create', () => {
   it('stores unknown when place times out and does not return a fill', async () => {
     let available = TEST_AVAILABLE;
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         throw Object.assign(new Error('ledger timeout'), { code: 'ETIMEDOUT' });
       },
-    } as unknown as TradeService;
+    });
     const app = createTradeRouter(trade);
     const caller = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));
@@ -220,13 +221,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
   it('still refuses a basic tier in a region whose trade rule requires full, with no hold', async () => {
     let available = TEST_AVAILABLE;
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         available -= ONE;
         return openOrder('gb-basic-1');
       },
-    } as unknown as TradeService;
+    });
     const app = createTradeRouter(trade);
     const trader = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'GB'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));
@@ -246,13 +247,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
 
   it('retries a hold_unknown through placeOrder and records the resumed order', async () => {
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         if (placeCalls === 1) throw new TradeError('x', 'trade.hold_unknown');
         return openOrder('resume-1');
       },
-    } as unknown as TradeService;
+    });
     const app = createTradeRouter(trade);
     const caller = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));
@@ -275,13 +276,13 @@ describe('TRD-0308 place attempt on orders.create', () => {
 
   it('does not freeze a transient spot_disabled refusal', async () => {
     let placeCalls = 0;
-    const trade = {
+    const trade = partial<TradeService>({
       placeOrder: async () => {
         placeCalls += 1;
         if (placeCalls === 1) throw new TradeError('x', 'trade.spot_disabled');
         return openOrder('reopen-1');
       },
-    } as unknown as TradeService;
+    });
     const app = createTradeRouter(trade);
     const caller = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'SG'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));

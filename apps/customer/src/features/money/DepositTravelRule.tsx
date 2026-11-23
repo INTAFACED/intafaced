@@ -3,7 +3,7 @@ import { PAY_DEPOSIT_WALLET_TYPES, type PayDepositWalletType, type PayTravelRule
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
 import { writeContract } from '../../shared/contract-call';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ReportedTime } from './bank-context';
 import { depositRecordsCopy } from './deposit-records-copy';
 import { depositTravelRuleDeclare, useDepositTravelRule, type DepositTravelRuleView } from './deposit-reads';
@@ -24,14 +24,14 @@ export function DepositTravelRulePanel({ depositId, onChanged }: { depositId: st
   const { resource, reload } = useDepositTravelRule(depositId);
   if (resource.status === 'loading') {
     return (
-      <p className="money-caption" role="status">
+      <p className="lt-muted" role="status">
         {t('trLoading')}
       </p>
     );
   }
   if (resource.status === 'failed') {
     return (
-      <div className="money-caption" role="status">
+      <div className="lt-muted" role="status">
         {t('trLoadFailed')}{' '}
         <Button variant="secondary" onClick={reload}>
           {t('pendingRetry')}
@@ -43,7 +43,7 @@ export function DepositTravelRulePanel({ depositId, onChanged }: { depositId: st
   return (
     <section className="bd-travel-rule" data-testid="deposit-travel-rule" data-state={view.state} aria-label={t('trTitle')}>
       <strong>{t('trTitle')}</strong>
-      <p className="money-caption">
+      <p className="lt-muted">
         {t('trLead', { amount: displayAmount(view.amount), threshold: displayAmount(view.threshold), asset: view.assetId })}
       </p>
       {view.state === 'awaiting_declaration' ? (
@@ -109,7 +109,7 @@ function DeclarationForm({ view, onDeclared }: { view: DepositTravelRuleView; on
 
   return (
     <form className="bd-filter" data-testid="deposit-travel-rule-form" onSubmit={(event) => void submit(event)} noValidate>
-      <fieldset className="field">
+      <fieldset className="lt-field">
         <legend>{t('trWalletType')}</legend>
         {PAY_DEPOSIT_WALLET_TYPES.map((type) => (
           <label key={type}>
@@ -119,7 +119,7 @@ function DeclarationForm({ view, onDeclared }: { view: DepositTravelRuleView; on
         ))}
       </fieldset>
       {view.requiredFields.map((field) => (
-        <label key={field} className="field">
+        <label key={field} className="lt-field">
           <span>{t(`field_${field}`)}</span>
           <input
             value={values[field] ?? ''}
@@ -130,7 +130,7 @@ function DeclarationForm({ view, onDeclared }: { view: DepositTravelRuleView; on
         </label>
       ))}
       {problem && (
-        <p role="alert" className="money-caption">
+        <p role="alert" className="lt-muted">
           {problem}
         </p>
       )}

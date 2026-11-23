@@ -2,8 +2,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, dayStart, utcDay } from './clock.mjs';
 import { confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
-import { api, ORIGIN, tool } from './stack.mjs';
+import { api, fromUnits, ORIGIN, tool, toUnits } from './stack.mjs';
 
 // J-portfolio-11, in the running app (docs/roadmap/journeys.json): I download statements and exports. One test per step,
 // titled "J-portfolio-11 #<n>". One TEST trader, verified and funded with TEST USDT through the real ledger, buys BTC at
@@ -29,7 +30,6 @@ async function openCentre(page) {
 }
 
 /** A UTC day as the date fields hold it. */
-const utcDay = (at) => at.toISOString().slice(0, 10);
 
 /** The last month that is over, as "YYYY-MM" in UTC. */
 function lastFullMonth(now = new Date()) {
@@ -118,7 +118,9 @@ test(`${J} #1 opens the statement and export centre: account statement, trades, 
   await expect(page).toHaveURL((url) => url.pathname === '/bank/statements');
   await expect(centre(page)).toBeVisible();
   const kinds = centre(page).getByRole('radiogroup', { name: 'What to export' });
-  expect(await kinds.locator('label strong').allInnerTexts()).toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
+  await expect
+    .poll(async () => await kinds.locator('label strong').allInnerTexts())
+    .toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
   await expect(kinds.getByRole('radio', { name: /Account statement/ })).toBeChecked();
   for (const name of [/Ledger/, /Trades/, /Balances/]) await expect(kinds.getByRole('radio', { name })).toBeEnabled();
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();
@@ -160,7 +162,7 @@ test(`${J} #3 exports 30 days of transactions as CSV: newest first in UTC, equal
     .check();
   // The last 30 UTC days, today included, are the dates offered.
   const now = new Date();
-  const fromDay = utcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29)));
+  const fromDay = utcDay(dayStart(now) - 29 * DAY);
   const toDay = utcDay(now);
   await expect(centre(page).getByLabel('From (UTC)', { exact: true })).toHaveValue(fromDay);
   await expect(centre(page).getByLabel('To (UTC)', { exact: true })).toHaveValue(toDay);
@@ -190,6 +192,21 @@ test(`${J} #3 exports 30 days of transactions as CSV: newest first in UTC, equal
     rows.some((row) => row[type] === 'trade'),
     'a trade line',
   ).toBe(true);
+  // The fee is its own figure (the journey's Money line): the buy's fee, as svc-trade charged it, is a fee row of its own in
+  // the file, in the fee's asset and for exactly the fee, out of the account.
+  const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body.filter((fill) => fill.symbol === 'BTC/USDT');
+  expect(fills).toHaveLength(1);
+  const fee = fills[0].fee;
+  expect(fee?.currency, 'the buy carries a fee').toBeTruthy();
+  expect(toUnits(String(fee.cost))).toBeGreaterThan(0n);
+  const asset = header.indexOf('Asset');
+  const feeRows = rows.filter((row) => row[type] === 'fee');
+  expect(
+    feeRows.map((row) => ({ asset: row[asset], amount: row[amount] })),
+    "one fee row, the buy's fee",
+  ).toEqual([{ asset: fee.currency, amount: `-${fromUnits(toUnits(String(fee.cost)))}` }]);
+  // The file itself states that it is not a tax form, as the page does: a downloaded file travels without the page.
+  expect(bytes.toString('utf8')).toContain('This is not a tax form.');
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();
   await expect(page.getByTestId('statement-centre-status')).toHaveText(new RegExp(`^Downloaded ${name}: ${rows.length} lines\\.`));
 });

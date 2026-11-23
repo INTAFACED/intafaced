@@ -41,7 +41,9 @@ export class AlertEvaluator {
     let resolved = 0;
     let cursor: { folder: string; group: string; name: string; id: string } | undefined;
     const count = (result: { transitions: readonly { kind: string }[] } | null): void => {
-      for (const t of result?.transitions ?? []) t.kind === 'opened' ? (opened += 1) : (resolved += 1);
+      for (const t of result?.transitions ?? [])
+        if (t.kind === 'opened') opened += 1;
+        else resolved += 1;
     };
     for (;;) {
       // Retired rules are listed too: one that was firing when it was retired is closed here.

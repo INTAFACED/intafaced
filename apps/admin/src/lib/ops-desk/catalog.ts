@@ -1,4 +1,63 @@
-import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
+import { ACADEMY_CERT_DEFINITIONS } from '@intafaced/contracts/academy-learner-procedures';
+import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
+import {
+  MARKET_COMMERCE_PROGRAMME,
+  MARKET_LIST_APPLICATIONS,
+  MARKET_LISTINGS,
+  MARKET_OPS_SALES,
+} from '@intafaced/contracts/market-procedures';
+import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
+import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
+import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
+import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
+import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
+import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
+import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
+import { ACADEMY_CURRICULUM_IMPORT_STATUS } from '@intafaced/contracts/academy-curriculum-import-status-procedures';
+import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
+import { ACADEMY_PAPER_OPS_STATUS } from '@intafaced/contracts/academy-paper-ops-status-procedures';
+import { QUANT_HEALTH } from '@intafaced/contracts/quant-health-procedures';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
+import { ACADEMY_AMBASSADORS } from '@intafaced/contracts/academy-ambassadors-procedures';
+import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
+import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures';
+import {
+  P2P_OPS_OFFERS,
+  P2P_OPS_TRADES,
+  P2P_OPS_LATE_SETTLEMENTS,
+  P2P_OPS_COUNTS,
+  P2P_OPS_DISPUTE_RATE24H,
+} from '@intafaced/contracts/p2p-ops-procedures';
+import { P2P_DISPUTES_BACKLOG, P2P_DISPUTES_LIST } from '@intafaced/contracts/p2p-disputes-procedures';
+import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
+import { BANK_GLOBAL_OPS_SUMMARY, BANK_GLOBAL_OPS_FAILED, BANK_GLOBAL_OPS_RECALLS } from '@intafaced/contracts/bank-global-records';
+import {
+  BANK_OPS_CARD_PARTNER_TERMS,
+  BANK_OPS_RAMP_HEALTH,
+  BANK_OPS_TRANSFER_HEALTH,
+  BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
+} from '@intafaced/contracts/bank-ops-procedures';
+import { BANK_HEALTH } from '@intafaced/contracts/bank-health-procedures';
+import { BANK_EARN_POOLS } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_LOANS_PRODUCTS } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_CARDS_PROGRAMME } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_RAMPS_PROGRAMME, BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from '@intafaced/contracts/bank-bills-procedures';
+import {
+  BANK_OPS_CARD_PROGRAMME_FUNDING,
+  BANK_OPS_POOL_TOTALS,
+  BANK_OPS_CARD_PROGRAMME,
+  BANK_OPS_BUSINESS_APPROVALS,
+  BANK_OPS_FAILED_TRANSFERS,
+  BANK_OPS_TRANSFER_DETAIL,
+} from '@intafaced/contracts/bank-ops-2-procedures';
+
+/** A read whose call has a record: its module and path are the record's, never typed again here. */
+export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -32,8 +91,7 @@ const bankHealth: ReadSpec = {
   id: 'bank.health',
   title: 'Service health',
   note: 'Whether svc-bank answers. Process liveness only; it says nothing about the rails behind it.',
-  module: 'bank',
-  procedure: 'health',
+  ...readOf(BANK_HEALTH),
   shape: 'record',
   columns: [bool('ok', 'Answering'), text('service', 'Service')],
   emptyText: '',
@@ -68,8 +126,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.pools',
         title: 'Earn pools offered',
         note: 'The rate and minimum deposit of each pool, as svc-bank publishes them. APR is the pool rate; no balances are read.',
-        module: 'bank',
-        procedure: 'earn.pools',
+        ...readOf(BANK_EARN_POOLS),
         input: { limit: 200 },
         shape: 'list',
         idKey: 'id',
@@ -90,9 +147,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.pool-totals',
         title: 'Money held in each pool',
         note: 'What each pool holds now (the ledger balance of every active position, added up) and how many people hold a position. Utilisation is not recorded by svc-bank, so no figure is given. If the ledger cannot be read the pool shows the reason, never zero.',
-        module: 'bank',
         plainName: 'pool balances',
-        procedure: 'ops.poolTotals',
+        ...readOf(BANK_OPS_POOL_TOTALS),
         shape: 'list',
         rowsKey: 'pools',
         idKey: 'poolId',
@@ -129,8 +185,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.loan-products',
         title: 'Loan products',
         note: 'Rate, maximum loan-to-value and the margin-call and liquidation levels of each product. These are product terms, not loans outstanding.',
-        module: 'bank',
-        procedure: 'loans.products',
+        ...readOf(BANK_LOANS_PRODUCTS),
         input: { limit: 200 },
         shape: 'list',
         idKey: 'id',
@@ -212,8 +267,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-programme',
         title: 'Card programme status',
         note: 'Whether cards are issued by a real issuer or simulated. A simulated programme must be treated as no real cards.',
-        module: 'bank',
-        procedure: 'cards.programme',
+        ...readOf(BANK_CARDS_PROGRAMME),
         shape: 'record',
         columns: [text('displayName', 'Programme'), bool('simulated', 'Simulated'), text('id', 'Programme id')],
         emptyText: '',
@@ -223,9 +277,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-counts',
         title: 'Cards issued (all time) · authorisations, last 30 days',
         note: 'How many cards exist and in what state, across all owners. "Simulated" is the issuer’s own flag: true means no real card was issued.',
-        module: 'bank',
         plainName: 'card counts',
-        procedure: 'ops.cardProgramme',
+        ...readOf(BANK_OPS_CARD_PROGRAMME),
         windowDays: 30,
         shape: 'record',
         columns: [bool('simulated', 'Simulated issuer'), int('issued', 'Issued'), int('active', 'Active'), int('frozen', 'Frozen')],
@@ -236,9 +289,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-days',
         title: 'Card authorisations by day, last 30 days',
         note: 'Approved volume per asset and declines for each UTC day, from the card authorisations svc-bank decided in the window. A day with nothing shows no volume, not a guess.',
-        module: 'bank',
         plainName: 'card authorisations',
-        procedure: 'ops.cardProgramme',
+        ...readOf(BANK_OPS_CARD_PROGRAMME),
         windowDays: 30,
         shape: 'list',
         rowsKey: 'days',
@@ -251,9 +303,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-partner-terms',
         title: 'Programme funding and loss liability',
         note: 'Who funds the programme, any reserve the card partner requires, who bears a lost chargeback or a card fraud loss, and how the partner spends a cardholder’s crypto: each as the partner reports it, or "not known". A reserve is never shown as zero for an unknown, and a loss is never assumed to be the partner’s.',
-        module: 'bank',
         plainName: 'card partner terms',
-        procedure: 'ops.cardPartnerTerms',
+        ...readOf(BANK_OPS_CARD_PARTNER_TERMS),
         shape: 'record',
         columns: [
           text('label', 'Card partner'),
@@ -282,9 +333,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-funding-offers',
         title: 'What the partner offers',
         note: 'The stablecoin the programme is funded in, and which of fund, defund and auto reload the card partner offers: each as the partner reports it, or "not known".',
-        module: 'bank',
         plainName: 'card programme funding',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'record',
         columns: [
           text('fundingAssetId', 'Funding stablecoin'),
@@ -300,9 +350,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.card-funding-reconciliation',
         title: 'Settlement reconciliation against the partner’s figures',
         note: 'Per funding asset: this app’s open authorisation holds and settled captures, beside the partner’s own figure for the same. The difference is the partner’s minus the app’s. A figure the partner has not reported is "not known", never 0, and so is its difference. An asset the partner reports that this app has no record of is "missing", a break, never 0. The conversion is one unit in the funding stablecoin from the rate source, and the app’s figure at that rate.',
-        module: 'bank',
         plainName: 'card programme reconciliation',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'list',
         rowsKey: 'rows',
         idKey: 'assetId',
@@ -326,12 +375,59 @@ const bankSections: readonly DeskSection[] = [
         forbiddenText: FORBID_BANK_OPS,
       },
       {
+        id: 'bank.card-pay-from-reconciliation',
+        title: 'Pay-from reconciliation against the partner’s reports',
+        note: 'For each asset a card payment was taken from by a person’s pay-from order: the spend (captured less refunded) and the open holds the card partner reports for those payments, beside what this app recorded from its answers and showed the person. Each line reads "matches" or "break". A payment the partner has no record of, or reports differently, is its own break row below and is not added to these lines.',
+        module: 'bank',
+        plainName: 'card pay-from reconciliation',
+        procedure: 'ops.cardPayFromReconciliation',
+        shape: 'list',
+        rowsKey: 'lines',
+        anonymousRows: true,
+        columns: [
+          text('assetId', 'Asset'),
+          text('kind', 'Line', { words: { spend: 'Spend', open_holds: 'Open holds' } }),
+          amount('app', 'This app'),
+          amount('partner', 'Card partner'),
+          text('status', 'Reconciliation', { words: { matches: 'matches', break: 'break' } }),
+        ],
+        emptyText: 'No card payment has been taken by a pay-from order yet.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
+        id: 'bank.card-pay-from-breaks',
+        title: 'Pay-from breaks',
+        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold), unreadable (the partner’s read failed, so nothing is known of it) or different. A break is named here once, never folded into a total.',
+        module: 'bank',
+        plainName: 'card pay-from breaks',
+        procedure: 'ops.cardPayFromReconciliation',
+        shape: 'list',
+        rowsKey: 'breaks',
+        idKey: 'authorizationRef',
+        columns: [
+          text('authorizationRef', 'Payment'),
+          text('assetId', 'Asset'),
+          text('reason', 'Break', {
+            words: {
+              not_reported: 'not reported by the partner',
+              unreadable: 'the partner could not be read',
+              differs: 'the partner reports it differently',
+            },
+          }),
+          amount('app.spend', 'Spend (app)'),
+          amount('app.open', 'Open hold (app)'),
+          amount('partner.spend', 'Spend (partner)', { nullable: true, parentNullable: true }),
+          amount('partner.open', 'Open hold (partner)', { nullable: true, parentNullable: true }),
+        ],
+        emptyText: 'No break: every pay-from payment reads as the partner reports it.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
         id: 'bank.card-funding-requests',
         title: 'Funding instructions sent to the partner',
         note: 'The last 20 fund, defund and auto reload instructions two founders sent, each with the partner’s reference. A record of what was asked, not a balance.',
-        module: 'bank',
         plainName: 'card programme funding instructions',
-        procedure: 'ops.cardProgrammeFunding',
+        ...readOf(BANK_OPS_CARD_PROGRAMME_FUNDING),
         shape: 'list',
         rowsKey: 'requests',
         idKey: 'clientRequestId',
@@ -369,6 +465,21 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'bank-rails',
+    title: 'Bank rails',
+    intro: 'Salary paid in by direct deposit: the payroll network’s own credits minus reversals against what the app showed, per currency.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/rails',
+        label: 'Bank rails desk',
+        why: 'The reconciliation by currency is on its own page.',
+      },
+    ],
+  },
+  {
     id: 'card-disputes',
     title: 'Card disputes',
     intro:
@@ -382,13 +493,23 @@ const bankSections: readonly DeskSection[] = [
         label: 'Card disputes',
         why: 'The dispute queue and each case are on their own pages.',
       },
+      {
+        href: '/bank-ops/cards',
+        label: 'Card programme',
+        why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
+      },
+      {
+        href: '/bank-ops/cards/fraud',
+        label: 'Card fraud risk (preview)',
+        why: 'A labelled preview over TEST rows: no fraud engine exists, so no authorisation is scored.',
+      },
     ],
   },
   {
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
-      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. It needs the treasury permission on your session; a session without it is refused in words. The support view of the same figures waits on the customer consent grant (PF-ops-01) and is not here.',
+      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. The balances need the operator read permission (admin:read) or the treasury permission; the entries behind them need the treasury permission. A session without them is refused in words.',
     reads: [],
     unavailable: [],
     disabledActions: [],
@@ -404,8 +525,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.ramp-programme',
         title: 'Ramp programme',
         note: 'Which rail the programme uses, and whether it is simulated. Simulated ramps move no real cash.',
-        module: 'bank',
-        procedure: 'ramps.programme',
+        ...readOf(BANK_RAMPS_PROGRAMME),
         shape: 'record',
         columns: [
           text('displayName', 'Programme'),
@@ -422,8 +542,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.fiat-settle',
         title: 'Fiat settlement probe',
         note: 'Asks svc-bank whether svc-pay has a rail that can settle fiat. A refusal here is the answer: no rail can.',
-        module: 'bank',
-        procedure: 'ramps.fiatSettle',
+        ...readOf(BANK_RAMPS_FIAT_SETTLE),
         shape: 'record',
         columns: [bool('canSettle', 'Can settle fiat'), text('onrampRailId', 'On-ramp rail'), text('offrampRailId', 'Off-ramp rail')],
         emptyText: '',
@@ -433,9 +552,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.ramp-health',
         title: 'Ramp rails, last 24 hours',
         note: 'For each rail: when it last succeeded and failed, what is open, and failures out of attempts in the window. An unset provider is not a healthy rail. svc-bank gives no heartbeat, so none is shown.',
-        module: 'bank',
         plainName: 'ramp health',
-        procedure: 'ops.rampHealth',
+        ...readOf(BANK_OPS_RAMP_HEALTH),
         input: { windowHours: 24 },
         shape: 'list',
         rowsKey: 'rails',
@@ -494,9 +612,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.business-approvals',
         title: 'Business transfers waiting for their own checker',
         note: 'Pending transfers across every business, oldest first by the service’s order. Read-only: the business’s own checker approves or rejects, never an operator. A maker the directory cannot name shows the reason.',
-        module: 'bank',
         plainName: 'business approvals',
-        procedure: 'ops.businessApprovals',
+        ...readOf(BANK_OPS_BUSINESS_APPROVALS),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'approvals',
@@ -592,8 +709,7 @@ function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bil
   const when = hours === 24 ? 'last 24 hours' : 'last 7 days';
   const key = hours === 24 ? '24h' : '7d';
   const base = {
-    module: 'bank',
-    procedure: 'ops.transferHealth',
+    ...readOf(BANK_OPS_TRANSFER_HEALTH),
     input: { windowHours: hours },
     shape: 'record',
     emptyText: '',
@@ -685,9 +801,8 @@ const payP2pPointer: ReadSpec = {
   id: 'pay.p2p-pointer',
   title: 'P2P transfers',
   note: 'svc-bank states that it does not count P2P trades and gives no number for them. They are counted by svc-p2p on the P2P desk.',
-  module: 'bank',
   plainName: 'the P2P pointer',
-  procedure: 'ops.transferHealth',
+  ...readOf(BANK_OPS_TRANSFER_HEALTH),
   input: { windowHours: 24 },
   shape: 'record',
   columns: [
@@ -704,9 +819,8 @@ const payFailedStanding: ReadSpec = {
   title: 'Rejected standing-order transfers, last 7 days',
   note: 'Newest first. Rejected executions only: svc-bank records no failed one-off sends, so none are listed (see below). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page; the 7-day figure under Transfer health is the count. A dash in a name column is explained in the column beside it. Open a row to read its full record.',
   cursorKey: 'nextCursor',
-  module: 'bank',
   plainName: 'the rejected standing orders',
-  procedure: 'ops.failedTransfers',
+  ...readOf(BANK_OPS_FAILED_TRANSFERS),
   input: { windowHours: 168, limit: 50 },
   shape: 'list',
   rowsKey: 'items',
@@ -741,9 +855,8 @@ export const PAY_TRANSFER_DETAIL: ReadSpec = {
   id: 'pay.transfer-detail',
   title: 'Transfer record',
   note: 'One standing-order execution or one one-off send. A dash means svc-bank holds no value for that field for this kind of transfer: a one-off send has no schedule, occurrence, rejection code or settle time, and an unsettled transfer has no settle time or ledger transaction.',
-  module: 'bank',
   plainName: 'the transfer record',
-  procedure: 'ops.transferDetail',
+  ...readOf(BANK_OPS_TRANSFER_DETAIL),
   shape: 'record',
   columns: [
     text('kind', 'Kind'),
@@ -787,9 +900,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
   id: 'bank.customer-balances',
   title: 'Customer balances',
   note: 'The customer’s balance per coin as the ledger holds it: the total, what is available, and what is locked by each kind of lock. Nothing here is summed or converted by this console.',
-  module: 'bank',
   plainName: 'the customer’s balances',
-  procedure: 'ops.customerBalances',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCES),
   shape: 'list',
   rowsKey: 'assets',
   idKey: 'assetId',
@@ -803,7 +915,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
     amount('collateral', 'Collateral'),
   ],
   emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
-  forbiddenText: FORBID_BANK_TREASURY,
+  forbiddenText:
+    'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read or the treasury permission admin:treasury).',
   refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 
@@ -812,9 +925,8 @@ export const BANK_CUSTOMER_ENTRIES: ReadSpec = {
   id: 'bank.customer-entries',
   title: 'Entries behind the balance',
   note: 'Every posting that makes up the available balance of one coin, newest first. A debit counts as plus and a credit as minus, the way the ledger signs them.',
-  module: 'bank',
   plainName: 'the customer’s entries',
-  procedure: 'ops.customerBalanceEntries',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCE_ENTRIES),
   shape: 'list',
   rowsKey: 'entries',
   anonymousRows: true,
@@ -837,9 +949,8 @@ export const BANK_CUSTOMER_ENTRIES_CHECK: ReadSpec = {
   id: 'bank.customer-entries-check',
   title: 'Do the entries add up to the balance',
   note: 'svc-bank adds the entries it holds and compares the sum with the balance it holds now. It only answers when the two agree.',
-  module: 'bank',
   plainName: 'the entries check',
-  procedure: 'ops.customerBalanceEntries',
+  ...readOf(BANK_OPS_CUSTOMER_BALANCE_ENTRIES),
   shape: 'record',
   columns: [
     bool('sumCheck.ok', 'Entries add up to the balance', { mustBe: true }),
@@ -856,9 +967,8 @@ const payBillsSummary: ReadSpec = {
   id: 'pay.bills-summary',
   title: 'Bill payments, all time',
   note: 'Counts by status over every bill payment, and whether each provider connection is set. "Unset" means no provider is connected, which is not the same as a rail that is up.',
-  module: 'bank',
   plainName: 'the bill payment summary',
-  procedure: 'bills.ops.summary',
+  ...readOf(BANK_BILLS_OPS_SUMMARY),
   shape: 'record',
   columns: [
     time('asOf', 'Computed by svc-bank at'),
@@ -880,9 +990,8 @@ const payBillsVolumes: ReadSpec = {
   id: 'pay.bills-volumes',
   title: 'Bill payments by status and asset, all time',
   note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
-  module: 'bank',
   plainName: 'the bill payment volumes',
-  procedure: 'bills.ops.summary',
+  ...readOf(BANK_BILLS_OPS_SUMMARY),
   shape: 'list',
   rowsKey: 'volumes',
   anonymousRows: true,
@@ -896,9 +1005,8 @@ const payBillsFailed: ReadSpec = {
   title: 'Failed bill payments',
   note: 'Newest first, status failed only (a returned payment is not in this list). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page.',
   cursorKey: 'nextCursor',
-  module: 'bank',
   plainName: 'the failed bill payments',
-  procedure: 'bills.ops.failed',
+  ...readOf(BANK_BILLS_OPS_FAILED),
   input: { limit: 50 },
   shape: 'list',
   rowsKey: 'items',
@@ -930,9 +1038,8 @@ const payGlobalSummary: ReadSpec = {
   id: 'pay.global-summary',
   title: 'Global sends, all time',
   note: 'Counts by status over every cross-border send, and whether each provider connection is set. "Unset" means no provider is connected; travel-rule "undecided" means no decision is recorded.',
-  module: 'bank',
   plainName: 'the global send summary',
-  procedure: 'global.ops.summary',
+  ...readOf(BANK_GLOBAL_OPS_SUMMARY),
   shape: 'record',
   columns: [
     time('asOf', 'Computed by svc-bank at'),
@@ -960,9 +1067,8 @@ const payGlobalVolumes: ReadSpec = {
   id: 'pay.global-volumes',
   title: 'Global sends by status and asset, all time',
   note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
-  module: 'bank',
   plainName: 'the global send volumes',
-  procedure: 'global.ops.summary',
+  ...readOf(BANK_GLOBAL_OPS_SUMMARY),
   shape: 'list',
   rowsKey: 'volumes',
   anonymousRows: true,
@@ -975,9 +1081,8 @@ const payGlobalFailed: ReadSpec = {
   id: 'pay.global-failed',
   title: 'Failed global sends',
   note: 'Newest first, status failed only. The 50 newest. svc-bank gives this list no page marker, so when exactly 50 are shown more may exist and older failures cannot be reached from here.',
-  module: 'bank',
   plainName: 'the failed global sends',
-  procedure: 'global.ops.failed',
+  ...readOf(BANK_GLOBAL_OPS_FAILED),
   input: { limit: 50 },
   shape: 'list',
   idKey: 'id',
@@ -1015,9 +1120,8 @@ const payGlobalRecalls: ReadSpec = {
   id: 'pay.global-recalls',
   title: 'Global sends their senders asked back',
   note: 'Oldest request first, refunded sends left out. The 50 oldest. A request moves nothing: the receiving bank decides, and a return is recorded and refunded by two different people.',
-  module: 'bank',
   plainName: 'the global send recall requests',
-  procedure: 'global.ops.recalls',
+  ...readOf(BANK_GLOBAL_OPS_RECALLS),
   input: { limit: 50 },
   shape: 'list',
   idKey: 'id',
@@ -1171,9 +1275,8 @@ function p2pOffers(status: OpsOfferStatus, title: string, note: string): ReadSpe
     id: `p2p.offers-${status}`,
     title,
     note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
-    module: 'p2p',
     plainName: `${title.toLowerCase()}`,
-    procedure: 'ops.offers',
+    ...readOf(P2P_OPS_OFFERS),
     input: { status, limit: 50 },
     shape: 'list',
     rowsKey: 'offers',
@@ -1203,9 +1306,8 @@ function p2pTrades(status: OpsTradeStatus, title: string, note: string): ReadSpe
     id: `p2p.trades-${status}`,
     title,
     note: `${note} The 50 newest; the page may be full, so this is not a total (the counts above are).`,
-    module: 'p2p',
     plainName: title.toLowerCase(),
-    procedure: 'ops.trades',
+    ...readOf(P2P_OPS_TRADES),
     input: { status, limit: 50 },
     shape: 'list',
     rowsKey: 'trades',
@@ -1244,8 +1346,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.health',
         title: 'Service health',
         note: '"Moderation configured" means someone is on the moderator list. svc-p2p cannot tell whether that person is actually watching the queue.',
-        module: 'p2p',
-        procedure: 'health',
+        ...readOf(P2P_HEALTH),
         shape: 'record',
         columns: [
           bool('ok', 'Answering'),
@@ -1261,8 +1362,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.fiat',
         title: 'Fiat currencies enabled',
         note: 'Currencies P2P can trade against, from configuration. Not a volume.',
-        module: 'p2p',
-        procedure: 'fiat.list',
+        ...readOf(P2P_FIAT_LIST),
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],
@@ -1284,8 +1384,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.backlog',
         title: 'Dispute backlog',
         note: 'Counts straight from svc-p2p. "Never seen" is open disputes no human has been served yet.',
-        module: 'p2p',
-        procedure: 'disputes.backlog',
+        ...readOf(P2P_DISPUTES_BACKLOG),
         shape: 'record',
         columns: [
           int('open', 'Open'),
@@ -1301,8 +1400,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.disputes',
         title: 'Open disputes',
         note: 'Reading this list does not mark a dispute as seen. The case detail is in the row: reason, who opened it, how it was opened and its escalations.',
-        module: 'p2p',
-        procedure: 'disputes.list',
+        ...readOf(P2P_DISPUTES_LIST),
         input: { status: 'open', limit: 50 },
         shape: 'list',
         rowsKey: 'disputes',
@@ -1350,8 +1448,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.late',
         title: 'Late or failed settlements',
         note: 'Trades resolved but not yet posted to the ledger. Age is in seconds since the decision.',
-        module: 'p2p',
-        procedure: 'ops.lateSettlements',
+        ...readOf(P2P_OPS_LATE_SETTLEMENTS),
         input: { limit: 100 },
         shape: 'list',
         rowsKey: 'trades',
@@ -1385,9 +1482,8 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.counts',
         title: 'Counts by status',
         note: 'Offers and trades in each status, counted by svc-p2p over all time. A status with none is a real zero.',
-        module: 'p2p',
         plainName: 'P2P counts',
-        procedure: 'ops.counts',
+        ...readOf(P2P_OPS_COUNTS),
         shape: 'record',
         columns: [
           int('offers.active', 'Offers open'),
@@ -1407,9 +1503,8 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.dispute-rate',
         title: 'Disputes against trades, last 24 hours',
         note: 'Disputes opened and trades created in the last 24 hours, and their ratio as svc-p2p states it. With no trade in the window there is no ratio, and none is shown.',
-        module: 'p2p',
         plainName: 'the dispute rate',
-        procedure: 'ops.disputeRate24h',
+        ...readOf(P2P_OPS_DISPUTE_RATE24H),
         shape: 'record',
         columns: [
           int('disputesOpened24h', 'Disputes opened'),
@@ -1454,8 +1549,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.health',
         title: 'Service health',
         note: 'Whether svc-academy answers.',
-        module: 'academy',
-        procedure: 'health',
+        ...readOf(ACADEMY_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1465,8 +1559,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.courses',
         title: 'Courses',
         note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
-        module: 'academy',
-        procedure: 'admin.courses',
+        ...readOf(ACADEMY_ADMIN_COURSES),
         input: { limit: 1 },
         shape: 'record',
         columns: [
@@ -1483,8 +1576,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.inventory',
         title: 'Curriculum inventory',
         note: 'Counts of the content the service ships, against the promise made on the product (the "title target").',
-        module: 'academy',
-        procedure: 'curriculumInventory',
+        ...readOf(ACADEMY_CURRICULUM_INVENTORY),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1505,8 +1597,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.depth',
         title: 'Content depth',
         note: 'How many items are long enough to be worth reading. Thin items are named, not hidden.',
-        module: 'academy',
-        procedure: 'curriculumDepth',
+        ...readOf(ACADEMY_CURRICULUM_DEPTH),
         shape: 'record',
         columns: [
           int('total', 'Items'),
@@ -1525,8 +1616,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.import',
         title: 'Import status',
         note: 'Where the content import stands, and whether the substance bar is met.',
-        module: 'academy',
-        procedure: 'curriculumImportStatus',
+        ...readOf(ACADEMY_CURRICULUM_IMPORT_STATUS),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1553,6 +1643,21 @@ const academySections: readonly DeskSection[] = [
         label: 'Learn hub',
         why: 'The featured article as staff chose it, and the topic list courses are filed under.',
       },
+      {
+        href: '/academy-ops/catalogue/analytics',
+        label: 'Academy numbers',
+        why: 'Lesson reads, completions and certificates by day, and a summary of each learner, as svc-academy counts them.',
+      },
+      {
+        href: '/academy-ops/catalogue/report-centre',
+        label: 'Reports centre',
+        why: 'Request a learners report, watch it run, abort it, download its file with its hash, and delete it.',
+      },
+      {
+        href: '/academy-ops/catalogue/moderation',
+        label: 'Moderation',
+        why: 'Discussion posts learners reported, deleting one with a reason, and every moderation action taken.',
+      },
     ],
   },
   {
@@ -1564,8 +1669,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-defs',
         title: 'Certificate definitions',
         note: 'What each certificate requires. Definitions, not grants.',
-        module: 'academy',
-        procedure: 'certDefinitions',
+        ...readOf(ACADEMY_CERT_DEFINITIONS),
         shape: 'list',
         idKey: 'id',
         columns: [text('id', 'Certificate'), text('title', 'Title'), list('requiredItemSlugs', 'Required items', { detail: true })],
@@ -1576,8 +1680,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-xp',
         title: 'XP on grant',
         note: 'Whether granting a certificate publishes XP to identity. "Off" is a deployment fact, not a ranking disagreement.',
-        module: 'academy',
-        procedure: 'certXpPlane',
+        ...readOf(ACADEMY_CERT_XP_PLANE),
         shape: 'record',
         columns: [bool('emitEnabled', 'XP publishing on'), text('publisherId', 'Publisher'), text('rankWriter', 'Rank written by')],
         emptyText: '',
@@ -1586,7 +1689,19 @@ const academySections: readonly DeskSection[] = [
     ],
     unavailable: [],
     disabledActions: [],
-    links: [{ href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' }],
+    links: [
+      {
+        href: '/academy-ops/certificates/designs',
+        label: 'Designs',
+        why: 'What each certificate prints: draft a design, activate it, and see which revision issued certificates keep.',
+      },
+      {
+        href: '/academy-ops/certificates/issued',
+        label: 'Issued',
+        why: 'Every issued certificate counted by status, with stored exports.',
+      },
+      { href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' },
+    ],
   },
   {
     id: 'programmes',
@@ -1597,8 +1712,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.seasons',
         title: 'Seasons',
         note: 'Season windows and status, as the service lists them.',
-        module: 'academy',
-        procedure: 'seasons',
+        ...readOf(ACADEMY_SEASONS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -1619,8 +1733,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.paper',
         title: 'Paper trading',
         note: 'Practice trading is simulated and must never read as real money.',
-        module: 'academy',
-        procedure: 'paperOpsStatus',
+        ...readOf(ACADEMY_PAPER_OPS_STATUS),
         shape: 'record',
         columns: [
           bool('enabled', 'Enabled'),
@@ -1647,8 +1760,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.ambassadors',
         title: 'Ambassadors',
         note: 'Every ambassador and whether they are active or frozen. Freezing and lifting a freeze are two-founder requests.',
-        module: 'academy',
-        procedure: 'ambassadors',
+        ...readOf(ACADEMY_AMBASSADORS),
         input: { limit: 100 },
         shape: 'list',
         idKey: 'userId',
@@ -1670,8 +1782,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.residencies',
         title: 'Residency applications awaiting a decision',
         note: 'Open applications, as svc-academy lists them. Accept or reject each as a two-founder request.',
-        module: 'academy',
-        procedure: 'openResidencies',
+        ...readOf(ACADEMY_OPEN_RESIDENCIES),
         input: { limit: 100 },
         shape: 'list',
         idKey: 'id',
@@ -1692,7 +1803,13 @@ const academySections: readonly DeskSection[] = [
     unavailable: [],
     disabledActions: [],
     sectionAction: 'academy.ambassador.appoint',
-    links: [],
+    links: [
+      {
+        href: '/academy-ops/ambassadors/roles',
+        label: 'Course team roles',
+        why: 'Who holds which role on each course, role changes waiting for a second founder, and custom roles.',
+      },
+    ],
   },
   {
     id: 'grants',
@@ -1735,11 +1852,16 @@ const academySections: readonly DeskSection[] = [
               bundle: 'Part of a bundle',
               membership: 'Part of a membership',
               issue: 'Certificate',
+              exception: 'Certificate issued as an exception',
             },
           }),
           text('reference', 'Reference', { detail: true }),
         ],
         emptyText: 'svc-academy records no grants or revokes yet.',
+        filters: {
+          course: { label: 'Course', emptyText: 'svc-academy records no grants or revokes for this course.' },
+          certificate: { label: 'Certificate', emptyText: 'svc-academy records no grants or revokes for this certificate.' },
+        },
         forbiddenText: FORBID_ACADEMY_ADMIN,
         refusals: {
           'academy.grant_audit_list_limit_unset':
@@ -1790,28 +1912,10 @@ const moreSections: readonly DeskSection[] = [
   {
     id: 'agents',
     title: 'Agents',
-    intro: 'The AI agent service: which tasks it can run and at what price.',
-    reads: [
-      {
-        id: 'agents.routes',
-        title: 'Task routes and prices',
-        note: 'Each task the gateway serves, its output ceiling and its metered price per million tokens. A route table, not usage.',
-        module: 'agents',
-        procedure: 'routes.list',
-        shape: 'list',
-        idKey: 'task',
-        columns: [
-          text('task', 'Task'),
-          text('capability', 'Capability'),
-          int('maxOutputTokens', 'Output ceiling (tokens)'),
-          amount('inputPerMillion', 'Input per million'),
-          amount('outputPerMillion', 'Output per million'),
-          text('assetId', 'Billed in'),
-        ],
-        emptyText: 'svc-agents serves no task routes.',
-        forbiddenText: 'svc-agents did not accept your founder session for this read (it needs agents:read).',
-      },
-    ],
+    intro: 'The AI agent service: which tasks it can run, on which provider and model, and at what price.',
+    // The routing table is its own panel (J-agents-20): its rows carry the two-founder change, which a read cannot.
+    reads: [],
+    panel: 'agents.routes',
     unavailable: [
       un(
         'agents.sessions',
@@ -1832,8 +1936,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.health',
         title: 'Service health',
         note: 'Whether svc-quant answers. Nothing about runs.',
-        module: 'quant',
-        procedure: 'health',
+        ...readOf(QUANT_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1843,9 +1946,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.strategies',
         title: 'Saved strategies',
         note: 'Every saved strategy across accounts, newest as the service orders them: name and labels only. The code and blocks are never in this read. Everything here is paper or a historical simulation; the two flags below are pinned, so a strategy claiming to be live is refused as unreadable. The service also limits this read by jurisdiction, so a console with no country may be refused.',
-        module: 'quant',
         plainName: 'saved strategies',
-        procedure: 'studio.operatorList',
+        ...readOf(QUANT_STUDIO_OPERATOR_LIST),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'strategies',
@@ -1887,9 +1989,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.terms',
         title: 'Pool terms',
         note: 'The fee and window size from the pool’s configuration. There is no default: an unset value is blank with its reason, not zero.',
-        module: 'mining',
+        ...readOf(MINING_TERMS),
         plainName: 'mining pool terms',
-        procedure: 'terms',
         shape: 'record',
         columns: [
           bps('feeBps', 'Pool fee', { nullable: true }),
@@ -1904,9 +2005,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.windows',
         title: 'Payout windows',
         note: 'Every window, newest first: its reward and fee as stored on the window, how many shares and how much weight it holds, and when it was paid. A blank reward or fee is blank, never zero.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WINDOWS),
         plainName: 'mining windows',
-        procedure: 'ops.windows',
         shape: 'list',
         rowsKey: 'windows',
         idKey: 'windowId',
@@ -1927,9 +2027,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.shares',
         title: 'Shares by window',
         note: 'Shares accepted and refused in each window, and the accepted weight. Refusals are counted only where the miner could be identified.',
-        module: 'mining',
+        ...readOf(MINING_OPS_SHARES),
         plainName: 'mining shares',
-        procedure: 'ops.shares',
         sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'windows',
@@ -1947,9 +2046,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.workers',
         title: 'Workers',
         note: 'Registered workers across accounts, newest first. Registration is refused because no write permission is chosen for it, so this list is expected to be empty.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WORKERS),
         plainName: 'mining workers',
-        procedure: 'ops.workers',
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'workers',
@@ -2007,8 +2105,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.applications',
         title: 'Vendor applications awaiting a decision',
         note: 'Applied and not yet decided, oldest first. Approve, reject or suspend each as a two-founder request.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'applied', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2029,8 +2126,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.approved',
         title: 'Approved vendors',
         note: 'Vendors currently approved. Suspend one here if it must stop selling.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'approved', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2051,8 +2147,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.suspended',
         title: 'Suspended vendors',
         note: 'Vendors taken out of the market. A suspended vendor can be approved again.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'suspended', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2073,8 +2168,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.listings',
         title: 'Public listings',
         note: 'What a shopper can see today. svc-market refuses to publish a listing while the house commission is blank (see Commerce programme on this desk), so a blank rate also means an empty list.',
-        module: 'market',
-        procedure: 'listings',
+        ...readOf(MARKET_LISTINGS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2100,9 +2194,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales',
         title: 'Sales by vendor, last 30 days',
         note: 'Settled volume, settled count and the house commission for each vendor and asset, for sales settled in the window. The commission is each purchase’s own rate at the time, so changing the rate later changes nothing here. Refused purchases are not in the volume. The 50 first rows; a full page is not a total.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market sales',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'list',
@@ -2123,9 +2216,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales-counts',
         title: 'Purchases not settled, last 30 days',
         note: 'Purchases that were refused and purchases still pending in the same window, counted over the whole window and not just the page above.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market purchase counts',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'record',
@@ -2137,8 +2229,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.commerce',
         title: 'Commerce programme',
         note: 'The house commission. Blank means listings and purchases refuse.',
-        module: 'market',
-        procedure: 'commerceProgramme',
+        ...readOf(MARKET_COMMERCE_PROGRAMME),
         shape: 'record',
         columns: [bps('commissionBps', 'House commission', { nullable: true }), bool('commissionConfigured', 'Configured')],
         emptyText: '',
@@ -2166,9 +2257,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.proposals',
         title: 'Governance proposals',
         note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make, so neither is shown.',
-        module: 'token',
         plainName: 'governance proposals',
-        procedure: 'listProposals',
+        ...readOf(TOKEN_LIST_PROPOSALS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2188,9 +2278,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.burned',
         title: 'Burned supply',
         note: 'Tokens burned so far, as a decimal exactly as svc-token formats it. A burn total, not the circulating supply.',
-        module: 'token',
         plainName: 'burned supply',
-        procedure: 'burnedSupply',
+        ...readOf(TOKEN_BURNED_SUPPLY),
         shape: 'record',
         columns: [amount('burned', 'Burned')],
         emptyText: '',
@@ -2200,9 +2289,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.epoch',
         title: 'Next emission epoch',
         note: 'The epoch number the next emission would use. A read: it mints nothing, and minting stays behind its own switch in svc-token.',
-        module: 'token',
         plainName: 'the next emission epoch',
-        procedure: 'nextEmissionEpoch',
+        ...readOf(TOKEN_NEXT_EMISSION_EPOCH),
         shape: 'record',
         columns: [int('epoch', 'Next epoch')],
         emptyText: '',
@@ -2225,16 +2313,24 @@ const moreSections: readonly DeskSection[] = [
     title: 'Campaigns',
     intro: 'Customer campaigns and who took part.',
     reads: [],
-    unavailable: [
-      un(
-        'campaigns.participation',
-        'Campaign participation',
-        'svc-campaigns has no operator read of who joined a campaign (its participations are read per customer). The campaigns desk shows every campaign, its state and its budget.',
-        26,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
     links: [
+      {
+        href: '/more-ops/campaigns/watch',
+        label: 'Campaign watch',
+        why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
+      },
+      {
+        href: '/more-ops/campaigns/risk',
+        label: 'Risk review',
+        why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
+      },
+      {
+        href: '/more-ops/campaigns/payouts',
+        label: 'Payout board',
+        why: 'Reward intents by state (owed, pending funding, sending, paid, failed) with their keys and ledger and chain references, and each airdrop’s plan and run.',
+      },
       {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',
@@ -2267,9 +2363,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.chain',
         title: 'Chain status',
         note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_CHAIN_STATUS),
         plainName: 'chain status',
-        procedure: 'chainStatus',
         shape: 'record',
         columns: [
           bool('reachable', 'A chain answered'),
@@ -2309,9 +2404,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.audit',
         title: 'Audit status',
         note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_AUDIT_STATUS),
         plainName: 'audit status',
-        procedure: 'auditStatus',
         shape: 'record',
         columns: [
           text('id', 'Package'),
@@ -2339,9 +2433,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.indexer',
         title: 'Indexer status',
         note: 'Live per request. A blank height means the indexer has none yet, not zero. "Blocks behind" is blank when the chain tip or the indexer cursor is unknown.',
-        module: 'indexer',
+        ...readOf(INDEXER_STATUS),
         plainName: 'indexer finality',
-        procedure: 'status',
         shape: 'record',
         columns: [
           int('chainId', 'Chain id'),
@@ -2377,9 +2470,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.dex',
         title: 'DEX health',
         note: 'Configuration facts from svc-dex. A venue that is not wired is not a venue that is down.',
-        module: 'dex',
+        ...readOf(DEX_HEALTH),
         plainName: 'DEX health',
-        procedure: 'health',
         shape: 'record',
         columns: [
           bool('ammVenueWired', 'AMM venue wired'),
@@ -2393,9 +2485,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.health',
         title: 'Protocol service health',
         note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_HEALTH),
         plainName: 'protocol service health',
-        procedure: 'health',
         shape: 'record',
         columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],
         emptyText: '',
@@ -2432,6 +2523,17 @@ const protocolSections: readonly DeskSection[] = [
         why: 'What is hidden now, and the two-founder request to hide, restore, delist or relist.',
       },
     ],
+  },
+  {
+    id: 'trust',
+    title: 'Trust and safety',
+    intro:
+      'Scam reports with who filed them, and the labels two reviewers publish from them; the trust criteria; and the audit and disclosure room, as svc-protocol reports them. A label is a record about an address, not a verdict.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+    panel: 'protocol.trust',
   },
 ];
 
@@ -2528,6 +2630,30 @@ export function academySectionDesk(sectionId: string): DeskSpec {
 
 export function allReads(desk: DeskSpec): ReadSpec[] {
   return desk.sections.flatMap((s) => [...s.reads]);
+}
+
+/** A course slug or certificate id as the address may name one; anything else narrows nothing. */
+const FILTER_VALUE = /^[A-Za-z0-9:_-]{1,120}$/;
+
+/**
+ * The desk narrowed by the page's address (`?course=<slug>`): each read that names `filters` gets the first of them the
+ * address holds, in its input, with that filter's empty text. A key the read does not name, or a value of the wrong shape,
+ * narrows nothing. With nothing narrowed the desk is returned as it is.
+ */
+export function narrowDesk(desk: DeskSpec, params: Readonly<Record<string, string | string[] | undefined>>): DeskSpec {
+  const filter: Record<string, string> = {};
+  const sections = desk.sections.map((section) => ({
+    ...section,
+    reads: section.reads.map((spec) => {
+      const key = Object.keys(spec.filters ?? {}).find((k) => typeof params[k] === 'string' && FILTER_VALUE.test(params[k]));
+      if (key === undefined) return spec;
+      const value = params[key] as string;
+      const f = spec.filters![key]!;
+      filter[key] = value;
+      return { ...spec, input: { ...spec.input, [key]: value }, emptyText: f.emptyText, narrowed: { key, value, label: f.label } };
+    }),
+  }));
+  return Object.keys(filter).length === 0 ? desk : { ...desk, sections, filter };
 }
 
 export function readSpecFor(deskId: OpsDeskId, readId: string): ReadSpec | undefined {

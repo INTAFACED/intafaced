@@ -4,13 +4,11 @@
  * POST only because the caller signs the body. The venue down answers SERVICE_UNAVAILABLE, never an empty list.
  */
 import {
-  router,
-  serviceProcedureFor,
   tradeVenueActivityInputSchema,
   tradeVenueActivitySchema,
   TRADE_VENUE_ACTIVITY_CALLERS,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/trade-venue-activity';
+import { router, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import { VenueRefusalError, type UserVenue } from '@intafaced/venue-contracts';
 import type { PreparedActionStore } from './prepared-action-store.js';
 import { readOwnVenueActivity } from './own-activity.js';

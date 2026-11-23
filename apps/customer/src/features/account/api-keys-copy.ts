@@ -5,6 +5,12 @@ const messages = {
   intro: 'Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.',
   create: 'Create a key',
   backToKeys: 'Back to API keys',
+  sectionsLabel: 'API key sections',
+  explain:
+    'A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.',
+  detailSectionsLabel: 'Key sections',
+  detailExplain:
+    'An earlier end date saves at once; a later one needs your passkey or a code. Rotating makes a new key and keeps the old one working only for the overlap you choose.',
   security: 'Security',
   safetyTitle: 'Keeping a key safe',
   safetyOnePurpose: 'Make one key for each program, so you can switch one off without stopping the others.',
@@ -46,13 +52,56 @@ const messages = {
   permissions: 'Permissions',
   presetRead: 'Read only',
   presetTrade: 'Trade',
+  presetLead: 'Lead trading',
+  presetCopy: 'Copy trading',
   presetCustom: 'Choose',
   presetSummaryRead: 'This key can read your account. It cannot place or cancel orders or change anything.',
   presetSummaryTrade: 'This key can read your orders and trades, and place and cancel orders. It cannot withdraw.',
+  presetSummaryLead:
+    'This key places your orders as a lead through the lead API, on the instruments your lead listing names. It is only for an approved lead. It cannot withdraw.',
+  presetSummaryCopy: 'This key starts, changes, stops and lists the leaders you copy, as the web does. It cannot withdraw.',
   presetSummaryCustom: 'This key holds exactly the permissions ticked below.',
   scopesLoading: 'Reading the permissions a key may hold',
   accessRead: 'reads',
   accessWrite: 'acts',
+  /** A permission in plain words, "<area>: <action>"; the raw scope follows it in small type, for the API reference. */
+  scopeWords: '{area}: {action}',
+  scopeArea_identity: 'Your profile and security',
+  scopeArea_ledger: 'Your balances and history',
+  scopeArea_trade: 'Trading',
+  scopeArea_copy: 'Copy trading',
+  scopeArea_pay: 'Payments',
+  scopeArea_token: 'Token',
+  scopeArea_blueprint: 'Blueprint',
+  scopeArea_bank: 'Bank',
+  scopeArea_launch: 'Launchpad',
+  scopeArea_market: 'Market',
+  scopeArea_academy: 'Academy',
+  scopeArea_agents: 'Agents',
+  scopeArea_notify: 'Notifications',
+  scopeArea_support: 'Support',
+  scopeArea_tax: 'Tax',
+  scopeArea_campaigns: 'Rewards and campaigns',
+  scopeArea_ops: 'Operations',
+  scopeArea_protocol: 'Protocol',
+  scopeArea_quant: 'Strategies and backtests',
+  scopeArea_admin: 'Admin',
+  scopeAction_read: 'see',
+  scopeAction_write: 'make changes',
+  scopeAction_withdraw: 'withdraw',
+  scopeAction_lead: 'lead copy trades',
+  scopeAction_follow: 'follow leaders',
+  scopeAction_refund: 'refund payments',
+  scopeAction_payout: 'pay out',
+  scopeAction_onboard: 'sign up as a merchant',
+  scopeAction_stake: 'stake',
+  scopeAction_card: 'manage cards',
+  scopeAction_execute: 'run agents',
+  scopeAction_run: 'run backtests',
+  scopeAction_ops: 'run operations',
+  scopeAction_lookup: 'look up customers',
+  scopeAction_treasury: 'move treasury funds',
+  scopeAction_compliance: 'compliance reviews',
   blockedTitle: 'Never on a key',
   blocked_interactive_only: 'Only while you are signed in on a device, never by a key.',
   blocked_step_up_only: 'Only for a merchant key, after a second confirmation.',
@@ -98,6 +147,10 @@ const messages = {
   'refused.identity.key_cap_unset': 'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
   'refused.identity.key_signing_unset':
     'Keys that place orders sign every request, and request signing is not set up, so this key is refused. Nothing was created.',
+  'refused.identity.key_lead_not_approved':
+    'A lead trading key is only for an approved lead. Apply to lead first, and make this key once you are listed. Nothing was created.',
+  'refused.identity.key_lead_check_unavailable':
+    'We could not check whether you are an approved lead just now, so no lead trading key was created. Try again.',
   'refused.identity.key_cap_reached': 'This account holds as many keys as it may. Revoke one to make another. Nothing was created.',
   'refused.identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'refused.auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys. Nothing was created.',
@@ -160,6 +213,8 @@ const messages = {
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',
+  'refused.identity.account_frozen_self':
+    'You froze this account, so no new API key can be made. Nothing was created. Reactivate it in Security first.',
   colActions: 'Actions',
   revoke: 'Revoke',
   revokeTitle: 'Revoke this key',
@@ -375,3 +430,19 @@ export type ApiKeysCopyKey = keyof typeof messages;
 export type ApiKeysPlainKey = {
   [K in ApiKeysCopyKey]: (typeof messages)[K] extends `${string}{${string}` ? never : K;
 }[ApiKeysCopyKey];
+
+type ScopeWordKey = Extract<ApiKeysPlainKey, `scopeArea_${string}` | `scopeAction_${string}`>;
+const isScopeWordKey = (key: string): key is ScopeWordKey =>
+  (key.startsWith('scopeArea_') || key.startsWith('scopeAction_')) && Object.prototype.hasOwnProperty.call(messages, key);
+
+/**
+ * A permission named in plain words ("Trading: make changes") in place of its raw scope (`trade:write`), so a first-time
+ * trader can choose a key's permissions. A scope this app has no words for yet is shown as it is, never hidden.
+ */
+export function scopeWords(t: (typeof apiKeysCopy)['t'], scope: string): string {
+  const [area, action, ...rest] = scope.split(':');
+  const areaKey = `scopeArea_${area}`,
+    actionKey = `scopeAction_${action}`;
+  if (rest.length > 0 || !isScopeWordKey(areaKey) || !isScopeWordKey(actionKey)) return scope;
+  return t('scopeWords', { area: t(areaKey), action: t(actionKey) });
+}

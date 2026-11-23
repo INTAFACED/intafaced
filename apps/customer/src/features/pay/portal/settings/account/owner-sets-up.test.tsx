@@ -10,7 +10,7 @@ import type { Access } from '../../access/resolve';
 import { isTeamMember } from './rooms';
 import { OwnerSetsUp } from './ui';
 
-const ready = (role: 'owner' | 'admin' | 'viewer'): Access => ({ status: 'ready', role }) as unknown as Access;
+const ready = (role: 'owner' | 'admin' | 'viewer'): Access => ({ status: 'ready', role }) as Access;
 
 describe('setup for a team member', () => {
   it('tells a team member that the owner sets the business up', () => {

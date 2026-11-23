@@ -1,8 +1,9 @@
 import { homeCopy } from './copy';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
-import { HeroNumber, dec, roundScaled, toFixedString, refusalCopy, useDisplayRate, type HomePortfolio } from './deps';
+import { dec, roundScaled, toFixedString, refusalCopy, useDisplayRate, type HomePortfolio } from './deps';
+import { HeroFigure } from './volt-parts';
 
-/** A decimal rounded half-up to `places`, as the string HeroNumber animates. Unknown stays null. */
+/** A decimal rounded half-up to `places`, as the string the hero figure draws. Unknown stays null. */
 function rounded(value: string | null, places: number): string | null {
   const parsed = dec(value);
   return parsed === null ? null : toFixedString(roundScaled(parsed, places), places);
@@ -37,11 +38,10 @@ export function TotalFigure({
   pro: boolean;
 }) {
   const { inBtc } = totalUnit(data, displayCurrency);
-  const size = pro ? 'hero-pro' : undefined;
   return inBtc ? (
-    <HeroNumber value={rounded(data.btc!.total, 8)} decimals={8} prefix="₿" unit={pro ? 'BTC' : undefined} size={size} hidden={hidden} />
+    <HeroFigure value={rounded(data.btc!.total, 8)} decimals={8} prefix="₿" unit={pro ? 'BTC' : undefined} hidden={hidden} />
   ) : (
-    <HeroNumber value={rounded(data.totalUsd, 2)} decimals={2} prefix="$" unit={pro ? 'USD' : undefined} size={size} hidden={hidden} />
+    <HeroFigure value={rounded(data.totalUsd, 2)} decimals={2} prefix="$" unit={pro ? 'USD' : undefined} hidden={hidden} />
   );
 }
 

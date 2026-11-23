@@ -46,7 +46,24 @@ afterEach(() => {
 });
 
 const POOLS = [
-  { id: 'p1', assetId: 'USDC', kind: 'flexible', name: 'Flexible USDC', aprBps: 450, termDays: null, minDeposit: '10.00000000' },
+  // svc-bank's whole pool row: the desk reads it through the `earn.pools` record, which checks every field the bank sends.
+  {
+    id: 'p1',
+    assetId: 'USDC',
+    kind: 'flexible',
+    name: 'Flexible USDC',
+    aprBps: 450,
+    termDays: null,
+    minDeposit: '10.00000000',
+    payoutEvery: 'day',
+    compounding: 'simple',
+    rewardAssetId: 'USDC',
+    yieldSource: 'pool_reserve',
+    rateBands: null,
+    commissionBps: null,
+    capacity: null,
+    unbondingDays: null,
+  },
 ];
 
 describe('GET bank desk', () => {
@@ -305,7 +322,20 @@ describe('POST on desks with actions', () => {
   });
   it('academy: runs a residency decision at svc-academy with the approval ids', async () => {
     const id = '5a3b9c10-1111-4222-8333-444455556666';
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ id, status: 'rejected' }));
+    // svc-academy's whole answer (the decideResidency record's answer schema).
+    const answer = {
+      id,
+      userId: id,
+      cohortSlug: 'cohort',
+      statement: 'a statement',
+      status: 'rejected',
+      appliedAt: '2026-10-17T02:00:00.000Z',
+      decidedAt: '2026-10-17T02:00:00.000Z',
+      decidedBy: id,
+      decisionNote: null,
+      confirmOperatorId: 'x',
+    };
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(answer));
     vi.stubGlobal('fetch', fn);
     const res = await academy.POST(
       post('/api/academy-ops', {
@@ -343,7 +373,19 @@ describe('POST on desks with actions', () => {
   });
   it('academy: runs the freeze at svc-academy with the approval ids', async () => {
     const userId = '9f8e7d6c-1111-4222-8333-444455556666';
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId, status: 'frozen' }));
+    // svc-academy's whole answer for the frozen ambassador (ACADEMY_FREEZE_AMBASSADOR's output).
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
+      ok({
+        userId,
+        status: 'frozen',
+        appointedBy: '11111111-1111-4111-8111-111111111111',
+        appointedAt: '2026-01-01T00:00:00.000Z',
+        frozenAt: '2026-01-02T00:00:00.000Z',
+        frozenBy: '11111111-1111-4111-8111-111111111111',
+        freezeReason: 'conduct complaint under review',
+        confirmOperatorId: 'x',
+      }),
+    );
     vi.stubGlobal('fetch', fn);
     const res = await academy.POST(
       post('/api/academy-ops', {

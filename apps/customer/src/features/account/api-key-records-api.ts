@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { ApiClient } from '../../shared/api';
+import { callAs } from '../../shared/api';
+import { IDENTITY_API_KEYS_LIST } from '@intafaced/contracts/identity-api-keys-procedures';
 
 export const apiKeyReadWindows = [50, 100, 150, 200] as const;
 export type ApiKeyReadWindow = (typeof apiKeyReadWindows)[number];
@@ -37,5 +39,5 @@ export function apiKeyRecordsFor(limit: number) {
 export function readApiKeyRecords(api: ApiClient, limit: ApiKeyReadWindow, signal: AbortSignal) {
   // Ownership is the service's ctx.principal.userId predicate, never a client
   // owner/company argument or an authority inferred from returned metadata.
-  return api.query('identity', 'apiKeys.list', { limit }, apiKeyRecordsFor(limit), { signal });
+  return callAs(api, IDENTITY_API_KEYS_LIST, { limit }, apiKeyRecordsFor(limit), { signal });
 }

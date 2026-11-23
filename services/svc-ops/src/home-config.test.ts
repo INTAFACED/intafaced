@@ -11,6 +11,7 @@ describe('home.config owner values', () => {
       workListOrder: null,
       searchResultCap: null,
       noticeStripLimit: null,
+      recentActivityLimit: null,
       revision: 0,
     });
     expect(
@@ -19,12 +20,14 @@ describe('home.config owner values', () => {
         OPS_HOME_WORK_LIST_ORDER: '',
         OPS_HOME_SEARCH_RESULT_CAP: '',
         OPS_HOME_NOTICE_STRIP_LIMIT: ' ',
+        OPS_HOME_RECENT_ACTIVITY_LIMIT: '',
       }),
     ).toEqual({
       workListCap: null,
       workListOrder: null,
       searchResultCap: null,
       noticeStripLimit: null,
+      recentActivityLimit: null,
       revision: 0,
     });
   });
@@ -35,12 +38,14 @@ describe('home.config owner values', () => {
       OPS_HOME_WORK_LIST_ORDER: 'verification, margin_health,card_frozen',
       OPS_HOME_SEARCH_RESULT_CAP: '3',
       OPS_HOME_NOTICE_STRIP_LIMIT: '2',
+      OPS_HOME_RECENT_ACTIVITY_LIMIT: '3',
     });
     expect(config).toEqual({
       workListCap: 5,
       workListOrder: ['verification', 'margin_health', 'card_frozen'],
       searchResultCap: 3,
       noticeStripLimit: 2,
+      recentActivityLimit: 3,
       revision: 0,
     });
     expect(homeConfigOutputSchema.parse(config)).toEqual(config);
@@ -57,6 +62,9 @@ describe('home.config owner values', () => {
     ['OPS_HOME_NOTICE_STRIP_LIMIT', '0'],
     ['OPS_HOME_NOTICE_STRIP_LIMIT', '11'],
     ['OPS_HOME_NOTICE_STRIP_LIMIT', 'three'],
+    ['OPS_HOME_RECENT_ACTIVITY_LIMIT', '0'],
+    ['OPS_HOME_RECENT_ACTIVITY_LIMIT', '21'],
+    ['OPS_HOME_RECENT_ACTIVITY_LIMIT', '3.0'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,verification'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,loan_late'],
     ['OPS_HOME_WORK_LIST_ORDER', ' , '],
@@ -67,16 +75,17 @@ describe('home.config owner values', () => {
   it('is a public read: a caller with no principal gets the values', async () => {
     const config = homeConfigFromEnv({ OPS_HOME_WORK_LIST_CAP: '4' });
     const caller = createHomeConfigRouter(config).createCaller({} as never);
-    await expect(caller.config()).resolves.toEqual(config);
+    await expect(caller.config(undefined)).resolves.toEqual(config);
   });
 
   it('is mounted as home.config, blank when the service is given no values', async () => {
     const caller = createOpsRouter(new OpsService()).createCaller({} as never);
-    await expect(caller.home.config()).resolves.toEqual({
+    await expect(caller.home.config(undefined)).resolves.toEqual({
       workListCap: null,
       workListOrder: null,
       searchResultCap: null,
       noticeStripLimit: null,
+      recentActivityLimit: null,
       revision: 0,
     });
   });

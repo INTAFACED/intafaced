@@ -3,7 +3,7 @@
  * SERVICES MAP. One table of every service, built from the code.
  *
  *   pnpm services:map          write docs/SERVICES.md
- *   pnpm services:map --check  fail if docs/SERVICES.md is stale (run by `node tooling/ci/gates.mjs`)
+ *   pnpm services:map --check  fail if docs/SERVICES.md is stale (CI's check is services-map.test.mjs, run by tooling-tests)
  *
  * Sources: each `services/<name>/README.md` (purpose), `docker-compose.apps.yml` (port, host
  * publishing, profile) and each `src/env.ts` zod schema plus the shared slices in
@@ -130,7 +130,7 @@ function requiredEnv(service, slices) {
   for (const m of src.matchAll(/\.merge\(\s*(\w+)\s*\)|^const schema = (\w+)/gm)) {
     const name = m[1] ?? m[2];
     if (slices.has(name)) fields.push(...slices.get(name));
-    else if (/EnvSchema$/.test(name)) unresolved.push(name);
+    else if (name.endsWith('EnvSchema')) unresolved.push(name);
   }
   const own = /z\.object\(\{([\s\S]*)\}\)/.exec(src);
   if (own) fields.push(...fieldsOf(own[1], helpers));
@@ -189,6 +189,61 @@ function purpose(service) {
   return text.replace(/\|/g, '\\|');
 }
 
+/** Rust services: `crates/<svc-*>` with a binary. Each replaced a TypeScript service and runs under the same compose name. */
+function rustServices() {
+  if (!existsSync(join(ROOT, 'crates'))) return [];
+  return readdirSync(join(ROOT, 'crates'), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name.startsWith('svc-') && existsSync(join(ROOT, 'crates', d.name, 'src/main.rs')))
+    .map((d) => d.name)
+    .sort();
+}
+
+/** First sentence of a crate's `lib.rs` doc, past its `svc-x:` lead. */
+export function rustPurpose(lib) {
+  const doc = lib
+    .split('\n')
+    .filter((l) => l.startsWith('//!'))
+    .map((l) => l.replace(/^\/\/!\s?/, ''))
+    .join(' ')
+    .replace(/^svc-[\w-]+:\s*/, '');
+  const first = doc.split(/(?<=\.)\s+(?=[A-Z`(])/)[0]?.trim() ?? '';
+  if (!first) return 'No description in `src/lib.rs`.';
+  return (first[0].toUpperCase() + first.slice(1)).replace(/\|/g, '\\|');
+}
+
+// These shapes refuse an unset field: `get("X").map_or(Err(`, a blank or unset one read as `NaN` (`blank("X")` or
+// `get("X")` then `.unwrap_or("NaN")`, which no integer check passes), svc-ledger's `blank_int("X", None,` (no default),
+// svc-matching's unset read as empty text (`get("X").unwrap_or("")`) that the same source then refuses (`issue("X",`),
+// svc-agents' required URL (`o.url("X")`) and its `None => o.issue("X", ...)` arm of a match on the field, and
+// svc-bank's required batch size (`o.batch("X", min, max, true)`).
+const refusedWhenUnset = (src) =>
+  [
+    ...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g),
+    ...src.matchAll(/(?:blank|get)\(\s*"([A-Z0-9_]+)"\s*\)\s*\.unwrap_or\(\s*"NaN"\s*\)/g),
+    ...src.matchAll(/\bo\.url\(\s*"([A-Z0-9_]+)"\s*\)/g),
+    ...src.matchAll(/None\s*=>\s*o\.issue\(\s*"([A-Z0-9_]+)"/g),
+    ...src.matchAll(/\bo\.batch\(\s*"([A-Z0-9_]+)",[^,]+,[^,]+,\s*true\s*\)/g),
+    ...src.matchAll(/blank_int\(\s*"([A-Z0-9_]+)",\s*None,/g),
+    ...[...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.unwrap_or\(\s*""\s*\)/g)].filter((m) => src.includes(`issue("${m[1]}",`)),
+  ].map((m) => m[1]);
+
+/**
+ * Required env of a Rust service: each field `env.rs` refuses when unset (`get("X").map_or(Err(...`), and each one the
+ * kit's env slices it calls by path (`service_kit::env::edge(`) refuse, read from the slice's own body in `kit`
+ * (`crates/service-kit/src/env.rs`).
+ */
+export function rustRequiredEnv(src, kit = '') {
+  const slices = new Map(
+    kit.split(/\n(?=pub fn )/).flatMap((chunk) => {
+      const name = /^pub fn (\w+)\(/.exec(chunk)?.[1];
+      return name ? [[name, chunk]] : [];
+    }),
+  );
+  const called = [...src.matchAll(/\bservice_kit::env::(\w+)\(/g)].map((m) => m[1]);
+  const fromKit = called.flatMap((name) => refusedWhenUnset(slices.get(name) ?? ''));
+  return [...new Set([...refusedWhenUnset(src), ...fromKit])].sort();
+}
+
 /** Refuses over an empty tree: a map of nothing must not read as a current map. */
 function refuse(why) {
   console.error(`SERVICES MAP FAILED - ${why}. NOTHING WAS MAPPED.`);
@@ -222,14 +277,28 @@ export function render() {
     }
     return `| \`${s}\` | ${purpose(s)} | ${port} | ${host} | ${env} |`;
   });
+  const rust = rustServices().filter((s) => !services.includes(s));
+  for (const s of rust) {
+    const c = compose.get(s);
+    let host = 'not in compose';
+    if (c) host = c.published ? `published ${c.published}` : 'compose network only';
+    if (c?.profile) host += `, profile ${c.profile}`;
+    const envFile = `crates/${s}/src/env.rs`;
+    const kitEnv = 'crates/service-kit/src/env.rs';
+    const kit = existsSync(join(ROOT, kitEnv)) ? read(kitEnv) : '';
+    const names = existsSync(join(ROOT, envFile)) ? rustRequiredEnv(read(envFile), kit) : null;
+    const env = names === null ? 'see `src/env.rs`' : names.length ? names.map((n) => `\`${n}\``).join(', ') : 'none';
+    const purposeText = existsSync(join(ROOT, `crates/${s}/src/lib.rs`)) ? rustPurpose(read(`crates/${s}/src/lib.rs`)) : 'No `src/lib.rs`.';
+    rows.push(`| \`${s}\` (Rust, \`crates/${s}\`) | ${purposeText} | ${c?.port ?? '-'} | ${host} | ${env} |`);
+  }
 
   const inCompose = services.filter((s) => compose.has(s)).length;
   return [
     '# Services',
     '',
-    '> Generated by `node tooling/scripts/services-map.mjs` (`pnpm services:map`). Do not edit by hand: `node tooling/ci/gates.mjs` fails when this file is stale.',
+    '> Generated by `node tooling/scripts/services-map.mjs` (`pnpm services:map`). Do not edit by hand: `tooling/scripts/services-map.test.mjs` fails when this file is stale.',
     '',
-    `${services.length} directories under \`services/\`, ${inCompose} of them in \`docker-compose.apps.yml\`. Purpose is the first sentence of the service README. Port and host publishing come from \`docker-compose.apps.yml\`. Required env is read from each \`src/env.ts\` and the shared slices in \`packages/config/src/env.ts\` as fields with no default and not optional; conditional rules are not seen, so read \`src/env.ts\` before relying on it.`,
+    `${services.length} directories under \`services/\`, ${inCompose} of them in \`docker-compose.apps.yml\`${rust.length ? `, and ${rust.length} Rust service${rust.length === 1 ? '' : 's'} under \`crates/\`` : ''}. Purpose is the first sentence of the service README (of a Rust crate's \`src/lib.rs\` doc; its required env is each field \`src/env.rs\` refuses when unset). Port and host publishing come from \`docker-compose.apps.yml\`. Required env is read from each \`src/env.ts\` and the shared slices in \`packages/config/src/env.ts\` as fields with no default and not optional; conditional rules are not seen, so read \`src/env.ts\` before relying on it.`,
     '',
     '| Service | Purpose | HTTP port | Host | Required env (no default) |',
     '| --- | --- | --- | --- | --- |',

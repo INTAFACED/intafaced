@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { confirmEmailCopy } from './confirm-email-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
+import { IDENTITY_AUTH_CONFIRM_EMAIL } from '@intafaced/contracts/identity-auth-procedures';
 
 // hand-declared-ok: svc-identity's auth.confirmEmail answer has no browser-safe schema in packages/contracts yet
-const confirmedSchema = z.object({ confirmed: z.literal(true) });
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -39,7 +38,7 @@ export function ConfirmEmail() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'auth.confirmEmail', { token }, confirmedSchema);
+    const answer = await api.call(IDENTITY_AUTH_CONFIRM_EMAIL, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(true);
@@ -64,20 +63,20 @@ export function ConfirmEmail() {
       {done ? (
         <p role="status">
           {t('doneBody')}{' '}
-          <a className="text-link" href="/uc/account">
+          <a className="lt-link" href="/uc/account">
             {t('toAccount')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t(`${dead}Body`)}</p>
-          <a className="text-link" href="/uc/account">
+          <a className="lt-link" href="/uc/account">
             {t('toAccount')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           <Button onClick={() => void confirm()} disabled={busy}>
             {busy ? t('confirming') : t('confirm')}
           </Button>

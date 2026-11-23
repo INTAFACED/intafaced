@@ -1,11 +1,6 @@
-import {
-  AGENT_KEY_READ_PATH,
-  agentKeyReadSchema,
-  serviceCallSigner,
-  type AgentKeyRead,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { AgentKeyCalls, AgentKeyRead, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { AGENT_KEY_CALLS_PATH, AGENT_KEY_READ_PATH, agentKeyCallsSchema, agentKeyReadSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /**
  * Identity's read of one of a person's own API keys (`POST /internal/agent-keys/read`; svc-identity agent-key-read.ts),
@@ -47,6 +42,52 @@ export function createAgentKeyReader(
       if (!response.ok) return null;
       try {
         const parsed = agentKeyReadSchema.safeParse(await response.json());
+        return parsed.success ? parsed.data : null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+/**
+ * Identity's call log of one of a person's own API keys (`POST /internal/agent-keys/calls`; svc-identity agent-key-read.ts),
+ * for the assistant connection's Activity (J-agents-21 #11): every call the edge answered for the key, newest first.
+ * `null` when identity could not be asked or answered outside the contract; the caller refuses then.
+ */
+export interface AgentKeyCallReader {
+  calls(userId: string, keyId: string, limit: number): Promise<AgentKeyCalls | null>;
+}
+
+export function createAgentKeyCallReader(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  fetchFn: typeof globalThis.fetch = globalThis.fetch,
+): AgentKeyCallReader {
+  const target = `${baseUrl.replace(/\/+$/, '')}${AGENT_KEY_CALLS_PATH}`;
+  const sign = serviceCallSigner({ service: 'svc-trade', audience: 'svc-identity', legacySecret: internalSecret, s2s });
+  return {
+    async calls(userId, keyId, limit) {
+      const raw = JSON.stringify({ userId, keyId, limit });
+      let response: Response;
+      try {
+        response = await fetchFn(target, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...sign(raw, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
+          },
+          body: raw,
+          redirect: 'error',
+          signal: AbortSignal.timeout(FETCH_MS),
+        });
+      } catch {
+        return null;
+      }
+      if (!response.ok) return null;
+      try {
+        const parsed = agentKeyCallsSchema.safeParse(await response.json());
         return parsed.success ? parsed.data : null;
       } catch {
         return null;

@@ -15,9 +15,9 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
-import { div, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { isTestVenue, type PlaceUserOrderIntent, type PreparedVenueAction, type UserVenueAccount } from '@intafaced/venue-contracts';
-import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { TEST_VENUE_MARKETS, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { TradeOpsAdmin, type VenueMarketsRead } from '../admin/service.js';
 import { principalFor } from '../spot/testing.js';
@@ -75,13 +75,25 @@ function wallet(name: string) {
   };
 }
 
+/**
+ * The TEST venue's markets, read from the venue simulator's own list (`TEST_VENUE_MARKETS`) rather than written here, so a
+ * market added to the TEST venue needs no edit in this file: every perpetual takes the perpetuals group, and the caps
+ * read back are the caps that list publishes.
+ */
+const PERPETUALS = Object.fromEntries(TEST_VENUE_MARKETS.filter((m) => m.kind === 'perpetual').map((m) => [m.symbol, 'perpetuals']));
+const PUBLISHED_CAPS = TEST_VENUE_MARKETS.map((m) => ({
+  symbol: m.symbol,
+  kind: m.kind,
+  capBps: m.builderFeeCapBps?.known ? formatAmount(m.builderFeeCapBps.value) : null,
+}));
+
 const schedule = (spotBps: string, perpBps = '1') => ({
   makerBps: '8',
   takerBps: '10',
   builderFees: {
     'test-venue-sim': {
       defaultGroup: 'spot',
-      marketGroups: { 'BTC-PERP': 'perpetuals', 'XAU-PERP': 'perpetuals', 'XSTK-PERP': 'perpetuals', 'XSTD-PERP': 'perpetuals' },
+      marketGroups: PERPETUALS,
       groups: { spot: spotBps, perpetuals: perpBps },
     },
   },
@@ -120,6 +132,8 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
       // The boot owner value (LOCAL TEST): used only when no version in force names builder fees for the venue.
       builder: { address: BUILDER, feeBps: a('0.5') },
       builderFeesAt: async (at) => (await builderFeesAt(db.sql, at)).book,
+      // The owner's market price protection is blank: these tests place limit orders only.
+      slippageCapBps: null,
       // The stack's TEST listings (J-cex-spot-16): our listing gate shows the two markets these orders use.
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => now,
@@ -175,14 +189,14 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
   it("reads the venue's own cap per market, as the venue publishes it", async () => {
     const caps = await admin.builderFeeCaps(writer());
     expect(caps).toMatchObject({ venueId: 'test-venue-sim', test: true });
-    expect(caps.markets).toEqual([
-      { symbol: 'BTC-USDC', kind: 'spot', capBps: '100' },
-      { symbol: 'BTC-PERP', kind: 'perpetual', capBps: '10' },
-      { symbol: 'ETH-USDC', kind: 'spot', capBps: '100' },
-      { symbol: 'XAU-PERP', kind: 'perpetual', capBps: '10' },
-      { symbol: 'XSTK-PERP', kind: 'perpetual', capBps: '10' },
-      { symbol: 'XSTD-PERP', kind: 'perpetual', capBps: '10' },
-    ]);
+    expect(caps.markets).toEqual(PUBLISHED_CAPS);
+    // The two markets these orders use, as the venue publishes them: a cash spot capped at 100 bps, a perpetual at 10.
+    expect(caps.markets).toEqual(
+      expect.arrayContaining([
+        { symbol: 'BTC-USDC', kind: 'spot', capBps: '100' },
+        { symbol: 'BTC-PERP', kind: 'perpetual', capBps: '10' },
+      ]),
+    );
     doorOn = false;
     await expect(admin.builderFeeCaps(writer())).rejects.toMatchObject({ code: 'trade.user_venue_off' });
   });

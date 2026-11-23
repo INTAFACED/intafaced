@@ -2,10 +2,11 @@ import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { kybDocumentFileSchema, kybDocumentsUploadResultSchema } from '@intafaced/contracts/kyb-documents';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
 import { isUuid } from '@/lib/founder-ops/read-model';
 import { KYB_REASON_MAX, KYB_REASON_MIN, reasonLength } from '@/lib/merchants/kyb-review-model';
 import { moduleDisabledResponse } from '@/lib/modules';
+import { PAY_KYB_DOCUMENTS_FILE, PAY_KYB_DOCUMENTS_REVIEW } from '@intafaced/contracts/pay-kyb-procedures';
 
 /**
  * Merchants panel BFF: business verification documents (compliance).
@@ -51,10 +52,9 @@ export async function POST(request: Request) {
       if (verdict !== 'accepted' && verdict !== 'rejected') throw bad();
       if (verdict === 'rejected' && (reasonLength(reason) < KYB_REASON_MIN || reasonLength(reason) > KYB_REASON_MAX)) throw bad();
       if (verdict === 'accepted' && reason.length > 0) throw bad();
-      const result = await payCall(
+      const result = await payRecordRead(
         ctx,
-        'kyb.documents.review',
-        'POST',
+        PAY_KYB_DOCUMENTS_REVIEW,
         { applicationId, documentId, verdict, ...(verdict === 'rejected' ? { reason } : {}) },
         (raw) => {
           const parsed = kybDocumentsUploadResultSchema.safeParse(raw);
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     if (body.action === 'file') {
-      const result = await payCall(ctx, 'kyb.documents.file', 'POST', { applicationId, documentId }, (raw) => {
+      const result = await payRecordRead(ctx, PAY_KYB_DOCUMENTS_FILE, { applicationId, documentId }, (raw) => {
         const parsed = kybDocumentFileSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
       });

@@ -275,8 +275,11 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
         marketId: spot.id,
         side: 'buy',
         totalQty: amt('2'),
-        durationMs: 2000,
-        sliceIntervalMs: 1000,
+        // The restored place grant expires with the schedule (installAlgoPlaceGrant): a 2s schedule let a slow CI
+        // worker reach the tick after it ended, so the tick halted on the expired grant instead of recording the
+        // restriction miss (#8060). Two slices, as before, on a schedule no test run outlives.
+        durationMs: 120_000,
+        sliceIntervalMs: 60_000,
         limitPrice: amt('100'),
         clientAlgoId: 'recover-strategy',
       }),

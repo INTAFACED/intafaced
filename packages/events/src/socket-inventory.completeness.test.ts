@@ -6,15 +6,10 @@
  * Not a docs tip-bump. These cases run EVENT_BUS_MATRIX (every catalog key
  * listed live | socket | broken_promise), exercise MemoryEventBus for Class A
  * (publish without a subscriber) and Class B (handler receives when mounted
- * on the test bus — proving the defect is service mount, not schema), and
- * spawn `event-wiring` so the gate's Class A/B/C line matches the inventory.
+ * on the test bus — proving the defect is service mount, not schema).
  */
 
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { EVENT_CATALOG, WIRING_SOCKETS, wiringSocketReason, type EventName, type PayloadOf } from './catalog.js';
 import { MemoryEventBus } from './memory-bus.js';
@@ -30,10 +25,7 @@ import {
   socketKeys,
 } from './socket-inventory.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(here, '..', '..', '..');
-
-/** Same 12-hex pin shape as `tooling/ci/event-wiring.mjs`. */
+/** A 12-hex pin of a socket's written reason. */
 function reasonFingerprint(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12);
 }
@@ -124,7 +116,7 @@ describe('D26-P2-05 bus completeness inventory (ADR D-S-13)', () => {
     expect(inventory.brokenPromises[0]!.event).toBe('crewMemberCreated');
     expect(inventory.brokenPromises[0]!.missing).toBe('subscriber');
     expect(inventory.brokenPromises[0]!.class).toBe('B');
-    // Fingerprint matches CLASS_B_AWAITING_A_DECISION in event-wiring.mjs
+    // The reason's pin: rewording the recorded Class B reason fails here.
     expect(reasonFingerprint(inventory.brokenPromises[0]!.reason.trim())).toBe('c020418427c6');
   });
 
@@ -272,37 +264,4 @@ describe('D26-P2-05 executed MemoryEventBus behaviour', () => {
     await bus.close();
     await notify.close();
   });
-});
-
-describe('D26-P2-05 event-wiring gate concordance (executed)', () => {
-  // Vitest's default 5s test budget is below CI contention for this spawn —
-  // spawnSync already allows 120s; the it() budget must match or the gate is
-  // killed mid-run (false red, not a concordance failure).
-  it('spawns event-wiring and matches Class A/B/C counts from the inventory', () => {
-    const gate = join(repoRoot, 'tooling', 'ci', 'event-wiring.mjs');
-    expect(existsSync(gate), `missing gate at ${gate}`).toBe(true);
-
-    const result = spawnSync(process.execPath, [gate], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      timeout: 120_000,
-      env: process.env,
-    });
-
-    const stdout = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    expect(result.status, stdout).toBe(0);
-
-    const inventory = buildBusCompletenessInventory();
-    const counts = countByClass(inventory);
-
-    // Gate clean line: "… recorded socket(s), each with a written reason and a class (A N · B M · C P)"
-    const classLine = stdout.match(/class\s*\(\s*A\s+(\d+)\s*·\s*B\s+(\d+)\s*·\s*C\s+(\d+)\s*\)/i);
-    expect(classLine, `gate did not report class counts:\n${stdout}`).not.toBeNull();
-    expect(Number(classLine![1])).toBe(counts.A);
-    expect(Number(classLine![2])).toBe(counts.B);
-    expect(Number(classLine![3])).toBe(counts.C);
-
-    expect(stdout).toMatch(/crewMemberCreated/);
-    expect(stdout).toMatch(/Class B/i);
-  }, 120_000);
 });

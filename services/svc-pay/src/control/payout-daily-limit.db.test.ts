@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';

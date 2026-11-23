@@ -104,8 +104,8 @@ test('keys: a new key is shown once, then hidden; revoking asks first', async ({
 
 test('signing: the saved state is shown and preselected; a first turn-on shows the secret once', async ({ page }) => {
   const { b } = await setup(page);
-  await signIn(page, '/pay/developer/signing?key=TEST-key-2');
-  // TEST-key-2 has neither setting on: the form starts from that, not from "not chosen".
+  await signIn(page, '/pay/developer/signing?key=7e570000-0000-4000-8000-000000000002');
+  // 7e570000-0000-4000-8000-000000000002 has neither setting on: the form starts from that, not from "not chosen".
   await expect(page.getByText('Signed requests required: no. Allowed address required: no.')).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: 'Require signed requests' }).getByLabel('Off')).toBeChecked();
   await expect(page.getByRole('radiogroup', { name: /allowed IP address/ }).getByLabel('Off')).toBeChecked();
@@ -130,7 +130,7 @@ test('signing state: the key list and the signing page show what is saved for ea
   await expect(row('TEST Reporting').getByText('Any address')).toBeVisible();
   await expect(page.getByTestId('pp')).not.toContainText('ifs_');
   await look(page, 'P43b-api-keys-protection', { phone: true });
-  await go(page, '/pay/developer/signing?key=TEST-key-1');
+  await go(page, '/pay/developer/signing?key=7e570000-0000-4000-8000-000000000001');
   await expect(page.getByText('Signed requests required: yes. Allowed address required: yes.')).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: 'Require signed requests' }).getByLabel('On')).toBeChecked();
   await expect(page.getByLabel('Addresses')).toHaveValue('203.0.113.10');
@@ -139,7 +139,7 @@ test('signing state: the key list and the signing page show what is saved for ea
 
 test('signing off says it deletes the secret; an empty list is its own "Remove all addresses" choice', async ({ page }) => {
   const { b } = await setup(page);
-  await signIn(page, '/pay/developer/signing?key=TEST-key-1');
+  await signIn(page, '/pay/developer/signing?key=7e570000-0000-4000-8000-000000000001');
   await page.getByRole('radiogroup', { name: 'Require signed requests' }).getByLabel('Off').check();
   await page
     .getByRole('radiogroup', { name: /allowed IP address/ })
@@ -161,7 +161,7 @@ test('signing off says it deletes the secret; an empty list is its own "Remove a
 
 test('allowed addresses: the page says saving them leaves the signing setting alone', async ({ page }) => {
   const { b } = await setup(page);
-  await signIn(page, '/pay/developer/signing?key=TEST-key-1');
+  await signIn(page, '/pay/developer/signing?key=7e570000-0000-4000-8000-000000000001');
   await expect(page.getByText('Saving addresses does not change whether this key requires signed requests.')).toBeVisible();
   await page.getByLabel('Addresses').fill('203.0.113.10\n203.0.113.11');
   await page.getByRole('button', { name: 'Replace allowed addresses' }).click();

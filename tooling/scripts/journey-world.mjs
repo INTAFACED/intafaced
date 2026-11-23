@@ -61,7 +61,8 @@ const BOOK = [
   /`(?:Buy|Sell|Confirm|Open) \$\{/,
 ];
 const FREEZE = [/ledger-freeze/, /tool\(\s*['"`]local-test-gates\.mjs['"`],\s*['"`]posting-freeze['"`]/];
-// A stack script run some other way than `tool(…)` (execFileSync, spawnSync, a path joined by hand): its own tools.
+// A stack script run some other way than `tool(…)` or `toolAwaited(…)` (execFileSync, spawnSync, a path joined by
+// hand): its own tools.
 const STACK_SCRIPT = /['"`][^'"`\n]*\blocal-test[a-z-]*\.mjs['"`]/g;
 
 /** The world parts one piece of source touches directly (not through helpers). */
@@ -72,7 +73,7 @@ export function directWorld(src) {
   if (/\brestartWith\(/.test(src)) found.add('restart');
   const viaTool = new Set();
   // Any quote: 'x', "x" or `x` (a template with no ${…} in it is as literal as the others).
-  for (const m of src.matchAll(/\btool\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {
+  for (const m of src.matchAll(/\btool(?:Awaited)?\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {
     viaTool.add(m.index);
     const [, , script, , , literal] = m;
     // A subcommand the source computes counts as every part it could be.
@@ -94,7 +95,8 @@ export function directWorld(src) {
   // A stack script named outside `tool(…)` and outside an import: run by hand, so it counts as the stack's tools.
   for (const m of src.matchAll(STACK_SCRIPT)) {
     const before = src.slice(Math.max(0, m.index - 80), m.index);
-    if (/\btool\(\s*$/.test(before) || /\bfrom\s*$|\bimport\(\s*$|^\s*import\b[^\n]*$/.test(before.split('\n').at(-1) + '')) continue;
+    if (/\btool(?:Awaited)?\(\s*$/.test(before) || /\bfrom\s*$|\bimport\(\s*$|^\s*import\b[^\n]*$/.test(before.split('\n').at(-1) + ''))
+      continue;
     if (/local-test-(device|state)\.mjs/.test(m[0])) continue; // read-only helpers: the TEST device key and the state path
     found.add('stack');
   }

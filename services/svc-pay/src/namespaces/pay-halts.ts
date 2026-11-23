@@ -1,33 +1,28 @@
-import { z } from 'zod';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
-  router,
-  TRPCError,
-  payHaltStatusInputSchema,
-  payHaltStatusSchema,
-  payHaltOperatorStatusSchema,
-  payHaltSetInputSchema,
-  payHaltSetResultSchema,
-  payHaltHistoryInputSchema,
-  payHaltEventSchema,
-  payHaltPendingClearListInputSchema,
-  payHaltPendingClearListSchema,
-} from '@intafaced/contracts';
+  PAY_HALTS_HISTORY,
+  PAY_HALTS_OPERATOR_STATUS,
+  PAY_HALTS_PENDING_CLEARS,
+  PAY_HALTS_SET,
+} from '@intafaced/contracts/pay-halt-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import type { FounderAuthority } from '../founder-authority.js';
 import { PayHaltError, type PayHaltStore } from '../halts/store.js';
 import { PayError } from '../payment-service.js';
 import { allowMerchantRead } from '../merchant-read-access.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
-import { founderProcedure, type FounderContext } from './founder-procedure.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
+import { founderProcedure } from './founder-procedure.js';
+import { payRefusal } from '../record-refusal.js';
 import { hasScope } from '@intafaced/auth';
+import { PAY_PAY_HALTS_STATUS } from '@intafaced/contracts/pay-pay-halts-procedures';
 
 /**
  * `payHalts.*` (W5).
  *   - `status` is readable by a merchant: its own effective halts, MERCHANT-SAFE
  *     shape only (on/off and since when; no reason, actor or trip source).
  *   - `operatorStatus`, `set`, `history` and `pendingClears` are OPERATOR actions
- *     behind founder authority. Setting a halt takes one founder. CLEARING one takes
+ *     behind founder authority, each mounted from its record (`pay-halt-procedures`). Setting a halt takes one founder. CLEARING one takes
  *     two distinct founders: the first call answers `pending_confirmation`, a different
  *     founder repeating the same call applies it. `pendingClears` lists those open proposals.
  *
@@ -49,7 +44,7 @@ class PayHaltsRouterError extends Error {
 }
 
 function unavailable(): never {
-  const cause = new PayHaltsRouterError('pay.halt_store_unavailable');
+  const cause = new PayHaltError('pay.halt_store_unavailable');
   throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: cause.code, cause });
 }
 
@@ -70,19 +65,18 @@ function mapError(error: unknown): never {
       }
     }
   }
-  const cause = new PayHaltsRouterError('pay.halt_store_unavailable');
+  const cause = new PayHaltError('pay.halt_store_unavailable');
   throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: cause.code, cause });
 }
 
 export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: PayHaltsDeps) {
-  const read = ownMerchantRead();
-  const founder = founderProcedure(founderAuthority);
+  // The founder guard runs before any input is parsed; each operator door is mounted behind it.
+  const parts = { refusalOf: payRefusal, founder: founderProcedure(founderAuthority) };
   return router({
     payHalts: router({
-      status: read
-        .input(payHaltStatusInputSchema)
-        .output(payHaltStatusSchema)
-        .query(async ({ ctx, input }) => {
+      status: mountRecord(
+        PAY_PAY_HALTS_STATUS,
+        async ({ ctx, input }) => {
           if (!deps) return unavailable();
           // The platform-wide answer stays with acquiring merchants; an owner still onboarding asks about its own.
           if (!input.merchantId && !hasScope(ctx.principal.scopes, 'pay:read')) {
@@ -105,44 +99,53 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
             }
           }
           return deps.store.status(input.merchantId);
-        }),
-      operatorStatus: founder.output(payHaltOperatorStatusSchema).query(async () => {
-        if (!deps) return unavailable();
-        return deps.store.operatorStatus();
-      }),
-      set: founder
-        .input(payHaltSetInputSchema)
-        .output(payHaltSetResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        payRefusal,
+      ),
+      operatorStatus: mountRecord(
+        PAY_HALTS_OPERATOR_STATUS,
+        async () => {
+          if (!deps) return unavailable();
+          return deps.store.operatorStatus();
+        },
+        parts,
+      ),
+      set: mountRecord(
+        PAY_HALTS_SET,
+        async ({ ctx, input }) => {
           if (!deps) return unavailable();
           try {
-            return await deps.store.set((ctx as FounderContext).founderUserId, input);
+            return await deps.store.set(ctx.founderUserId, input);
           } catch (error) {
             return mapError(error);
           }
-        }),
-      history: founder
-        .input(payHaltHistoryInputSchema)
-        .output(z.array(payHaltEventSchema))
-        .query(async ({ input }) => {
+        },
+        parts,
+      ),
+      history: mountRecord(
+        PAY_HALTS_HISTORY,
+        async ({ input }) => {
           if (!deps) return unavailable();
           try {
             return await deps.store.history(input);
           } catch (error) {
             return mapError(error);
           }
-        }),
-      pendingClears: founder
-        .input(payHaltPendingClearListInputSchema)
-        .output(payHaltPendingClearListSchema)
-        .query(async ({ input }) => {
+        },
+        parts,
+      ),
+      pendingClears: mountRecord(
+        PAY_HALTS_PENDING_CLEARS,
+        async ({ input }) => {
           if (!deps) return unavailable();
           try {
             return await deps.store.pendingClears(input);
           } catch (error) {
             return mapError(error);
           }
-        }),
+        },
+        parts,
+      ),
     }),
   });
 }

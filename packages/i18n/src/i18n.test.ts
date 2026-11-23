@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MESSAGE_KEYS, coverage, defineCatalog, en, isMessageKey, type Catalog, type PartialCatalog } from './catalog.js';
 import { CATALOGS, TRANSLATED_LOCALES, UNTRANSLATED_LOCALES, catalogFor, hasCatalog, localeCoverage } from './catalogs.js';
@@ -15,6 +13,8 @@ import {
   rtlLocales,
 } from './locales.js';
 import { AmountFormatError, formatDate, formatMoney, formatNumber, formatPercent, formatRelativeTime } from './format.js';
+import * as formatModule from './format.js';
+import { countPlanted, countRule } from '../../../tooling/lint/count-rule.mjs';
 import {
   MissingMessageError,
   MissingParamError,
@@ -106,7 +106,17 @@ describe('catalog — the key set is closed and complete', () => {
     // An agent key's held payout or refund (J-developer-15 #6) and the API explorer's refused live write (J-developer-15 #7) add two error keys.
     // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
     // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(320);
+    // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
+    // A finished background run of an agent session in the inbox (J-agents-06 #2) adds a title and a body key.
+    // A price alert's body naming its market by symbol and the time it fired (J-charts-desk-10 #5) adds one body key.
+    // An API key revoked on an operator's leaked-key report (J-developer-07 #6) adds a title and a body key.
+    // A research answer refused for no source or no published uncertainty scale (J-agents-10 #4) adds two refusal keys.
+    // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
+    // The agent dashboard's range refusals, a blank From, a blank To or not a range of days (J-agents-13 #1), add three refusal keys.
+    // An operator's agent alert in the inbox (J-agents-16 #3) adds a title and a body key.
+    // A copy skipped at the follower's most per contract or most per day (J-copy-bots-otc-02 #3) adds two reason bodies.
+    // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(340);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
@@ -148,7 +158,7 @@ describe('catalog — the key set is closed and complete', () => {
   });
 
   it('accepts a complete catalog through defineCatalog', () => {
-    const clone = defineCatalog(structuredClone(en) as unknown as Catalog);
+    const clone = defineCatalog(structuredClone(en) as Catalog);
     expect(coverage(clone).missing).toEqual([]);
   });
 
@@ -354,14 +364,78 @@ describe('formatMoney — decimal strings, never floats', () => {
     expect(formatMoney(LEDGER_PRECISION, 'USD', 'en', { maxFractionDigits: 18 })).toContain('123456789012345678');
   });
 
-  it('contains no float conversion anywhere in its source', () => {
-    const source = readFileSync(fileURLToPath(new URL('./format.ts', import.meta.url)), 'utf8');
-    // Comments may name the hazard — they do, at length. The code may not call
-    // it: `Number` survives only as its static guards (`Number.isNaN`).
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const pattern of [/parseFloat\s*\(/, /parseInt\s*\(/, /(?<![.\w])Number\s*\(/]) {
-      expect(code, String(pattern)).not.toMatch(pattern);
+  // garden/no-number-money judges format.ts for every Number(), parseFloat(), parseInt() and new Number(), whatever the
+  // value is called (tooling/lint/oxlint-plugin-garden/money-rules.js). Run strict: a disable comment for the rule counts
+  // as a finding, so a float on money cannot be silenced from inside the formatter. Comments may name the hazard.
+  const FORMAT = 'packages/i18n/src/format.ts';
+  const NUMBER_MONEY = 'garden/no-number-money';
+
+  it('contains no float conversion anywhere in its code, by the lint rule run strict', () => {
+    const { files, checked } = countRule(NUMBER_MONEY, [FORMAT], { strict: true });
+    expect(checked).toEqual([FORMAT]);
+    expect(files).toEqual({});
+  }, 60_000);
+
+  it('the rule fails each float door in format.ts, a silenced one too, and not a comment naming it', () => {
+    const off = ['oxlint', 'disable'].join('-');
+    const planted = [
+      '// parseFloat(x), Number(x) and parseInt(x) are the hazard this file never calls.',
+      'export const a = (s: string) => parseFloat(s);',
+      'export const b = (s: string) => parseInt(s, 10);',
+      'export const c = (s: string) => Number(s);',
+      'export const d = (s: string) => new Number(s);',
+      'export const e = (s: string) => Number.parseFloat(s);',
+      `// ${off}-next-line ${NUMBER_MONEY} -- planted: a silenced copy still counts`,
+      'export const f = (s: string) => Number(s);',
+      'export const ok = (s: string) => Number.isNaN(s);',
+      '',
+    ].join('\n');
+    expect(countPlanted(NUMBER_MONEY, { [FORMAT]: planted }, { strict: true }).files).toEqual({ [FORMAT]: 6 });
+  }, 60_000);
+
+  it('converts no amount through a float on any formatting path', () => {
+    // Comments may name the hazard. The code may not call it: `Number` survives only as its static guards
+    // (`Number.isNaN`). Every float door is swapped for a counting one while each formatter runs.
+    const calls: string[] = [];
+    const real = { Number: globalThis.Number, parseFloat: globalThis.parseFloat, parseInt: globalThis.parseInt };
+    const counted = (name: string, fn: (...args: never[]) => unknown) =>
+      function (this: unknown, ...args: never[]) {
+        calls.push(name);
+        return fn.apply(this, args);
+      };
+    globalThis.Number = new Proxy(real.Number, {
+      apply: (target, self, args) => (calls.push('Number()'), Reflect.apply(target, self, args)),
+      construct: (target, args) => (calls.push('new Number()'), Reflect.construct(target, args)),
+      get: (target, key) =>
+        key === 'parseFloat' || key === 'parseInt' ? counted(`Number.${key}`, Reflect.get(target, key)) : Reflect.get(target, key),
+    });
+    globalThis.parseFloat = counted('parseFloat', real.parseFloat) as typeof parseFloat;
+    globalThis.parseInt = counted('parseInt', real.parseInt) as typeof parseInt;
+    const out: unknown[] = [];
+    try {
+      out.push(
+        formatModule.formatMoney(LEDGER_PRECISION, 'USD', 'en', { maxFractionDigits: 18 }),
+        formatModule.formatMoney('-1234.5', 'EUR', 'de'),
+        formatModule.formatMoney('2.675', 'JPY', 'fr'),
+        formatModule.formatMoneyToParts(LEDGER_PRECISION, 'KWD', 'en'),
+        formatModule.formatNumber(LEDGER_PRECISION, 'en', { maxFractionDigits: 18 }),
+        formatModule.formatNumber(1234.5, 'de'),
+        formatModule.formatNumber(12345678901234567890n, 'en'),
+        formatModule.formatNumberToParts('0.000000000000000001', 'en', { maxFractionDigits: 18 }),
+        formatModule.formatCompact('1234567.891', 'en'),
+        formatModule.formatCompactToParts('-98765.4321', 'fr'),
+        formatModule.formatPercent('0.123456789012345678', 'en', { maxFractionDigits: 6 }),
+        formatModule.formatPercent(0.5, 'de'),
+        formatModule.formatPercentToParts('-0.0025', 'en'),
+      );
+    } finally {
+      globalThis.Number = real.Number;
+      globalThis.parseFloat = real.parseFloat;
+      globalThis.parseInt = real.parseInt;
     }
+    expect(calls, 'a formatter converted through a float').toEqual([]);
+    expect(out[0]).toBe('$1,234.123456789012345678');
+    expect(out[4]).toContain('123456789012345678');
   });
 
   it('rounds display precision half-up on the digit string, not through a float', () => {

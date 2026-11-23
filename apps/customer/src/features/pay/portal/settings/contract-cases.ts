@@ -6,6 +6,7 @@ export const settingsContract: ContractPart = {
   cases: [
     ...accountContract.cases,
     { method: 'kybCurrent', run: (p) => p.kybCurrent() },
+    { method: 'onboardingDraft', run: (p) => p.onboardingDraft() },
     { method: 'activation', run: (p) => p.activation() },
     { method: 'kybHistory', run: (p) => p.kybHistory(undefined) },
     { method: 'teamList', run: (p) => p.teamList(undefined, '') },
@@ -24,6 +25,7 @@ export const settingsContract: ContractPart = {
   notMocked: {
     ...accountContract.notMocked,
     createMerchant: write,
+    saveOnboardingDraft: write,
     submitKyb: write,
     setPayoutDestination: write,
     changeRole: write,

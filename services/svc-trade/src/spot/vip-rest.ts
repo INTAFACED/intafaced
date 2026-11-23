@@ -11,7 +11,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import type { EdgeTrust } from '../edge-trust.js';
 import type { OwnerFeeSchedule } from './fee-schedule.js';
 import {
@@ -95,7 +96,7 @@ export function registerVipRest(app: FastifyInstance, deps: VipRestDeps): void {
       return reply.code(created ? 201 : 200).send({ application });
     } catch (error) {
       if (error instanceof VipError) {
-        return reply.code(VIP_ERROR_STATUS[error.code]).send({ code: error.code, message: error.message, ...(error.data ?? {}) });
+        return reply.code(VIP_ERROR_STATUS[error.code]).send({ code: error.code, message: error.message, ...error.data });
       }
       throw error;
     }

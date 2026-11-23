@@ -3,6 +3,7 @@ import { merchantSettlementAssetsSchema } from '@intafaced/contracts/merchant-me
 import { registerRefusals } from '../refusal';
 import type { PortalTools } from '../api-tools';
 import { mc } from './copy';
+import { PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS } from '@intafaced/contracts/pay-merchant-metrics-procedures';
 
 /**
  * svc-pay `merchantMetrics.settlementAssets`, read with the contract's own schema: each asset the business can settle in,
@@ -16,7 +17,7 @@ export type SettlementAssets = z.infer<typeof settlementAssetsSchema>;
 export const SETTLEMENT_ASSETS_UNSET = 'pay.settlement_assets_unset';
 registerRefusals({ [SETTLEMENT_ASSETS_UNSET]: () => mc.t('rSettlementAssetsUnset') });
 
-export const settlementAssetsApi = ({ query }: PortalTools) => ({
+export const settlementAssetsApi = ({ queryRecord }: PortalTools) => ({
   settlementAssets: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantMetrics.settlementAssets', { merchantId }, settlementAssetsSchema, signal),
+    queryRecord(PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS, { merchantId }, signal),
 });

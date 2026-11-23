@@ -63,6 +63,22 @@ export function requireTier(principal: Principal, tier: Principal['tier']): void
 }
 
 /**
+ * The level a trading gate reads: the approved `tier`, or `basic` for a person the trading checks alone cleared for
+ * trading (`trd`, OWNER 258 (4)). Only trading gates use it; every other gate reads `tier`, so a trading clear never
+ * opens custody, transfer or withdrawal.
+ */
+export function tradeTier(principal: Pick<Principal, 'tier' | 'trd'>): Principal['tier'] {
+  return principal.tier === 'none' && principal.trd === true ? 'basic' : principal.tier;
+}
+
+/** `requireTier` for a trading action: the trading checks' clear counts as `basic` here, and only here. */
+export function requireTradeTier(principal: Principal, tier: Principal['tier']): void {
+  if (TIER_ORDER[tradeTier(principal)] < TIER_ORDER[tier]) {
+    throw new AuthError(`Verification tier "${tier}" is required`, 'tier.insufficient');
+  }
+}
+
+/**
  * Ownership check. A principal may act on its own resources, and on its own
  * sub-accounts — never on another user's, whatever scopes it holds.
  *

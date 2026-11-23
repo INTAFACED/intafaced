@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   MARKETING_BAN_WORDS,
   OWNER_SEAL_MARKER,
@@ -9,6 +7,11 @@ import {
   hasOwnerSeal,
   isHonestMarketingLanguageUse,
 } from './marketing-language.js';
+
+/** The copy lint rule's own word list and judge (garden/no-unsealed-claim), a plain .js module with no type file. */
+type CopyRules = { CLAIM_WORDS: readonly string[]; unsealedClaims: (line: string, previousLine?: string) => string[] };
+const copyRulesUrl = new URL('../../../tooling/lint/oxlint-plugin-garden/copy-rules.js', import.meta.url).href;
+const { CLAIM_WORDS, unsealedClaims } = (await import(copyRulesUrl)) as CopyRules;
 
 describe('marketing language ban (D26-P0-16 / §8.9)', () => {
   it('freezes the three ban words and the owner seal spelling', () => {
@@ -47,13 +50,16 @@ describe('marketing language ban (D26-P0-16 / §8.9)', () => {
     expect(findUnsealedMarketingClaims('            audited: "Template audited",')).toEqual([]);
   });
 
-  it('stays in lockstep with the CI gate source (seal + words)', () => {
-    const gatePath = join(process.cwd(), '../../tooling/ci/marketing-language-scan.mjs');
-    const gate = readFileSync(gatePath, 'utf8');
-    expect(gate).toContain(OWNER_SEAL_MARKER);
+  it('stays in lockstep with the copy lint rule that applies it (seal + words)', () => {
+    // The rule's own list and judge (garden/no-unsealed-claim), called, not read.
+    expect([...CLAIM_WORDS]).toEqual([...MARKETING_BAN_WORDS]);
     for (const word of MARKETING_BAN_WORDS) {
-      expect(gate).toContain(`'${word}'`);
+      const claim = `Every vault is ${word}.`;
+      expect(unsealedClaims(claim), `the rule refuses an unsealed "${word}"`).toEqual([word]);
+      expect(findUnsealedMarketingClaims(claim).map((h) => h.word)).toEqual([word]);
+      // The seal this module spells, on the line or the one above, clears it in the rule too.
+      expect(unsealedClaims(`${claim} ${OWNER_SEAL_MARKER}`), `the rule accepts the seal ${OWNER_SEAL_MARKER}`).toEqual([]);
+      expect(unsealedClaims(claim, OWNER_SEAL_MARKER)).toEqual([]);
     }
-    expect(gate).toContain('packages/config/src/marketing-language.ts');
   });
 });

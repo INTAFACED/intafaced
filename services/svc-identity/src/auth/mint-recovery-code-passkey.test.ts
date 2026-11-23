@@ -25,7 +25,7 @@ function fakeSql(row: { webauthn_creds: unknown; recovery_code_hashes?: unknown 
     get updates() {
       return updates;
     },
-  }) as unknown as Parameters<typeof mintRecoveryCodeAfterPasskey>[0] & { updates: unknown[] };
+  }) as Parameters<typeof mintRecoveryCodeAfterPasskey>[0] & { updates: unknown[] };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

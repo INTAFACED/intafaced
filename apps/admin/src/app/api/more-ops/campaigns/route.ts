@@ -4,6 +4,7 @@ import { adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
 import {
   checkCreate,
+  checkEarningEvaluate,
   checkMove,
   checkRuleSave,
   checkRuleTest,
@@ -11,6 +12,7 @@ import {
   checkVoucherIssue,
   checkVoucherList,
   createCampaign,
+  evaluateEarning,
   issueVoucher,
   listVouchers,
   listRules,
@@ -35,6 +37,7 @@ import {
  *   POST { op: 'rule-save', name, tree }                 the name's next revision in the rule library
  *   GET ?vouchers=<campaign id>                          a voucher campaign's vouchers, each with the revision it keeps
  *   POST { op: 'voucher-issue', campaignId, code }       a voucher under the live revision; the code is its key
+ *   POST { op: 'earning-evaluate', id, trigger, values } each earning rule's answer to a TEST event; stores nothing
  *
  * Founder-only. svc-campaigns records the founder from their own token and refuses an approval by whoever wrote or asked.
  */
@@ -120,6 +123,11 @@ export async function POST(request: Request) {
         const checked = checkVoucherIssue({ campaignId: body.campaignId, code: body.code });
         if (!checked.ok) return incomplete(checked.why);
         return send(await issueVoucher(session, checked.input));
+      }
+      case 'earning-evaluate': {
+        const checked = checkEarningEvaluate({ id: body.id, trigger: body.trigger, values: body.values });
+        if (!checked.ok) return incomplete(checked.why);
+        return send(await evaluateEarning(session, checked.input));
       }
       default:
         return incomplete('Unknown action.');

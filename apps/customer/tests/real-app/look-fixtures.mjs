@@ -39,7 +39,14 @@ export const TRPC = {
   'identity:listSessions': () => sessions(),
   'identity:apiKeys.list': () => apiKeys(),
   // Home's owner values and every owner's work list: an established account owes nothing.
-  'ops:home.config': () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: 3, revision: 1 }),
+  'ops:home.config': () => ({
+    workListCap: 5,
+    workListOrder: null,
+    searchResultCap: null,
+    noticeStripLimit: 3,
+    recentActivityLimit: 3,
+    revision: 1,
+  }),
   'workItems.list': () => ({ items: [] }),
   'notify:notify.alerts': () => alertList(),
   // bank
@@ -73,6 +80,13 @@ export const TRPC = {
     );
     return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
   },
+  // quant: a new developer, as J-algo-dev-01 #1 starts: none of the three quick start steps done, no strategy saved,
+  // none shared with them; the sharing ID is the TEST account's own id.
+  'quant:quickStart': () => ({ strategy: false, backtest: false, paperRun: false }),
+  'quant:studio.list': () => ({ strategies: [], nextCursor: null }),
+  'quant:team.shared': () => ({ accountId: owner, strategies: [] }),
+  // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
+  'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
 };
 
 export const REST = {
@@ -83,4 +97,23 @@ export const REST = {
   'account/trades': () => fills(),
   'orders/open': () => openOrders(),
   'orders/closed': () => closedOrders(),
+  // TEST: what the venue reports in that trading account, so Home's Get started has its money step done.
+  'venue/balances': () => ({
+    venueId: 'test-venue',
+    asOf: new Date(Date.now()).toISOString(),
+    value: [{ asset: 'USDC', free: '25', locked: '0', total: '25' }],
+  }),
 };
+
+/** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */
+function venueConnection() {
+  const now = Date.now();
+  return {
+    address: '0x00000000000000000000000000000000000000a1',
+    chainId: 84532,
+    connectedAt: new Date(now - 86_400_000).toISOString(),
+    expiresAt: new Date(now + 30 * 86_400_000).toISOString(),
+    status: 'live',
+    holdsKey: false,
+  };
+}

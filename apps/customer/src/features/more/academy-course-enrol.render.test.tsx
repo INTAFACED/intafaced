@@ -8,9 +8,10 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intafaced/contracts/academy-catalogue';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
-import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
+import { MyLearningView } from './AcademyMyLearning';
+import { AccessGrantsView } from './academy-access-grants';
 import { CourseOutlineView, ItemCompletionView, outlineNeighbours } from './AcademyCourseOutline';
 import { LockedItemNotice } from './AcademyReaderParts';
 
@@ -67,7 +68,7 @@ describe('course page Enrol now (AC-enrolment-01)', () => {
     const out = view({ enrolment: { track: 'audit', enrolledAt: '2026-10-23T09:00:00.000Z' } });
     expect(out).toContain('You are enrolled on the Free track since October 23, 2026.');
     expect(out).toContain('data-not-connected="vendor.email"');
-    expect(out).toContain('The activation mail needs an email delivery provider. It is switched off in this build.');
+    expect(out).toContain('The activation mail needs an email sender. It is switched off in this build.');
     expect(out).not.toContain('Enrol now');
     // Leaving asks first: the first press only shows the confirmation.
     expect(out).toContain('Leave course');
@@ -112,6 +113,7 @@ const row = (slug: string, over: Partial<AcademyCourseOutlineItem> = {}): Academ
   slug,
   title: slug.toUpperCase(),
   kind: 'lesson',
+  type: 'lesson',
   state: 'unlocked',
   lock: null,
   missing: [],
@@ -139,7 +141,7 @@ describe('course outline (AC-course-structure-02)', () => {
 
   it('types each item, gives a locked one its reason as text and no link, and marks the open one', () => {
     const out = html(<CourseOutlineView outline={{ slug: 'markets', items }} current="b" />);
-    expect(out).toMatch(/<a href="\/academy\/b" aria-current="page"/);
+    expect(out).toMatch(/<a [^>]*href="\/academy\/b" aria-current="page"/);
     expect(out).not.toContain('href="/academy/c"');
     expect(out).not.toContain('href="/academy/d"');
     expect(out).toContain('Locked: complete B first.');
@@ -147,6 +149,20 @@ describe('course outline (AC-course-structure-02)', () => {
     expect(out).toContain('Completed');
     expect(out).toContain('Locked items skipped: 2');
     expect(out).toMatch(/href="\/academy\/e" rel="next"/);
+  });
+
+  it('types each item as a lesson, a quiz or an assignment, never by its content kind', () => {
+    const typed = [
+      row('a'),
+      row('b', { kind: 'playbook', type: 'quiz', rule: 'score', ruleMet: false }),
+      row('c', { kind: 'workbook', type: 'assignment' }),
+    ];
+    const out = html(<CourseOutlineView outline={{ slug: 'markets', items: typed }} current="a" />);
+    expect(out).toContain('<span data-item-type="lesson">Lesson</span>');
+    expect(out).toContain('<span data-item-type="quiz">Quiz</span>');
+    expect(out).toContain('<span data-item-type="assignment">Assignment</span>');
+    expect(out).not.toContain('Playbook');
+    expect(out).not.toContain('Workbook');
   });
 
   it('a course that has not started says no item can be opened instead of offering Previous and Next', () => {
@@ -196,7 +212,7 @@ describe('Complete and continue, Undo, and a locked item (AC-progress-01, AC-rel
   it('a locked lesson links each earlier item by title, and says so in words when Academy names none', () => {
     const out = html(<LockedItemNotice missing={['b']} lessons={[{ slug: 'b', title: 'Bee' } as never]} />);
     expect(out).toContain('This item is locked');
-    expect(out).toMatch(/<a class="text-link" href="\/academy\/b" lang="und">Bee<\/a>/);
+    expect(out).toMatch(/<a [^>]*href="\/academy\/b" lang="und">Bee<\/a>/);
     expect(html(<LockedItemNotice missing={[]} lessons={[]} />)).toContain('an earlier item must be completed first');
   });
 });

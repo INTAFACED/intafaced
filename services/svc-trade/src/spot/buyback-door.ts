@@ -12,7 +12,9 @@
  * `releasedQuote` is what went back to the rewards engine; it is "0" until the order is terminal.
  */
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import { toCcxtError } from '../ccxt-errors.js';
 import { BUYBACK_CALLER, BUYBACK_INVALID } from './buyback-order.js';

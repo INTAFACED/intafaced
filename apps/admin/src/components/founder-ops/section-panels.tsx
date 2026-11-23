@@ -1,10 +1,8 @@
 import type { ReactNode } from 'react';
 import type { FounderMerchantSection, FounderMerchantSectionPage } from '@intafaced/contracts';
 import { Chip } from '@/components/chip';
-import { CopyButton } from '@/components/merchants/copy-button';
-import { CsvButton } from '@/components/merchants/csv-button';
-import { Card, FailureState, KpiTile, MoneyText, shortId, StateBlock, StatusChip } from '@/components/merchants/ui';
-import { buildCsv } from '@/lib/merchants/csv';
+import { CopyButton, CsvButton, Card, FailureState, KpiTile, MoneyText, shortId, StateBlock, StatusChip } from '@/components/merchants';
+import { buildCsv } from '@/lib/csv';
 import { FEE_NO_CAPTURE_SNAPSHOT, FEE_NO_SETTLEMENT_SNAPSHOT, FEE_RECORDED_AT_CAPTURE } from '@/lib/merchants/fee-story';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';
@@ -34,7 +32,6 @@ import {
  */
 type Page = FounderMerchantSectionPage;
 type AnyItem = Page['items'][number];
-type ApiKeysPage = Extract<Page, { catalog: unknown }>;
 type ProfilePage = Extract<Page, { current: unknown }>;
 interface ItemMap {
   payments: Extract<AnyItem, { railAdapter: string }>;

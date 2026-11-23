@@ -1,5 +1,5 @@
 import type { AcademyAdminCourseQuiz, AcademyCourseQuizReview } from '@intafaced/contracts/academy-course-quizzes';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * A quiz item on the founder console (AC-quizzes-01, 02): its questions, attempt rules, state, what stops Publish and the

@@ -29,7 +29,13 @@ function fakeApi(answers: Answer[]) {
     if (!parsed.success) return { ok: false, reason: 'invalid_response', message: parsed.error.message };
     return { ok: true, data: parsed.data };
   });
-  return { api: { query } as unknown as ApiClient, calls };
+  // A call by its record reaches this double's query with the record's answer schema and the caller's own check on it.
+  const call = (
+    record: { module: string; path: string; output: ZodType },
+    input: unknown,
+    opts?: { accept?: (data: unknown) => boolean },
+  ) => query(record.module, record.path, input, opts?.accept ? record.output.refine(opts.accept) : record.output);
+  return { api: { query, call } as unknown as ApiClient, calls };
 }
 
 /** Read a source until it leaves `loading`. */
@@ -66,11 +72,14 @@ describe('createActivityFeed', () => {
     const feed = createActivityFeed(api, { assetId: 'BTC' });
     const first = ready(await settled(feed, stops));
     expect(first.hasMore).toBe(true);
+    expect(first.pageStarts).toEqual([0]);
     first.loadMore();
     expect(ready(feed.getSnapshot()).loadingMore).toBe(true);
     await vi.waitFor(() => expect(ready(feed.getSnapshot()).items.length).toBe(3));
     const second = ready(feed.getSnapshot());
     expect(second.items.map((row) => row.id)).toEqual(['a', 'b', 'c']);
+    // The second page starts after the first page's two rows; the row it repeated is not counted twice.
+    expect(second.pageStarts).toEqual([0, 2]);
     expect(second.hasMore).toBe(false);
     expect(second.loadingMore).toBe(false);
     expect(calls.map((call) => call.input)).toEqual([
@@ -121,30 +130,23 @@ describe('createActivityFeed', () => {
     stops.forEach((stop) => stop());
   });
 
-  it('reads a kind it does not know as "other" instead of failing the page', async () => {
+  // svc-bank's own answer schema for activity.list (the record's, which its router checks before replying) names every
+  // kind and requires a non-empty orderId when one is sent: an answer outside it is a failed read, never a guessed row.
+  it('refuses a kind the record does not name instead of guessing a row for it', async () => {
     const { api } = fakeApi([{ ok: true, data: { items: [item('a', { kind: 'cashback_v2' })], nextCursor: null } }]);
     const stops: Array<() => void> = [];
-    expect(ready(await settled(createActivityFeed(api), stops)).items[0]!.kind).toBe('other');
+    expect((await settled(createActivityFeed(api), stops)).status).toBe('error');
     stops.forEach((stop) => stop());
   });
 
-  it('reads orderId when the server sends it, and leaves it out when it does not (or sends null or an empty string)', async () => {
-    const { api } = fakeApi([
-      {
-        ok: true,
-        data: {
-          items: [item('a', { orderId: 'ord-1' }), item('b'), item('c', { orderId: null }), item('d', { orderId: '' })],
-          nextCursor: null,
-        },
-      },
-    ]);
+  it('reads orderId when the server sends it, leaves it out when it does not, and refuses a null or empty one', async () => {
+    const { api } = fakeApi([{ ok: true, data: { items: [item('a', { orderId: 'ord-1' }), item('b')], nextCursor: null } }]);
     const stops: Array<() => void> = [];
-    expect(ready(await settled(createActivityFeed(api), stops)).items.map((row) => row.orderId)).toEqual([
-      'ord-1',
-      undefined,
-      undefined,
-      undefined,
-    ]);
+    expect(ready(await settled(createActivityFeed(api), stops)).items.map((row) => row.orderId)).toEqual(['ord-1', undefined]);
+    for (const orderId of [null, '']) {
+      const bad = fakeApi([{ ok: true, data: { items: [item('c', { orderId })], nextCursor: null } }]);
+      expect((await settled(createActivityFeed(bad.api), stops)).status).toBe('error');
+    }
     stops.forEach((stop) => stop());
   });
 

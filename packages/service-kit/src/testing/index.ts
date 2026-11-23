@@ -7,6 +7,7 @@
  * - `edgeCallers({ serviceName, scopes })`: request contexts built by `createEdgeContext` over real signed headers
  *   (signed, anonymous, forged), so a mounted router test never hand-writes a principal into its context.
  * - `expectRefusal(promise, code)`: the refusal assertion, for a service error or the `TRPCError` that carries it.
+ * - `fakeSql(rows)`, `fakeFetch(answer)`, `partial<T>(x)`, `tick()`: the small fakes test files define again and again.
  *
  * Fixtures with domain meaning (a published course, a funded account) stay in the service: they are the test's story.
  */
@@ -123,6 +124,8 @@ export interface EdgeCallers {
   anonymous(): Context;
   /** A context whose principal header carries no edge signature: the service must treat it as anonymous. */
   forged(principal?: Principal | Partial<Principal>): Context;
+  /** A signed context that also names a calling service (this one unless given), as a service-to-service call does. */
+  hmacSigned(principal?: Principal | Partial<Principal>, service?: string): Context;
 }
 
 export const TEST_USER = '11111111-1111-4111-8111-111111111111';
@@ -146,20 +149,22 @@ export function edgeCallers(options: EdgeCallerOptions): EdgeCallers {
     }) as Principal;
   // A whole principal passes through unchanged (its fields win); a partial one is filled from the defaults.
   const full = (p: Principal | Partial<Principal> | undefined): Principal => principal(p ?? {});
+  const signed = (p?: Principal | Partial<Principal>): Context => {
+    const raw = encodePrincipal(full(p));
+    return context({
+      headers: {
+        'x-intafaced-principal': raw,
+        'x-intafaced-principal-sig': signPrincipalHeader(raw, secret, region),
+        'x-intafaced-region': region,
+      },
+      id: `req-signed-${++n}`,
+    });
+  };
   return {
     secret,
     principal,
-    signed(p) {
-      const raw = encodePrincipal(full(p));
-      return context({
-        headers: {
-          'x-intafaced-principal': raw,
-          'x-intafaced-principal-sig': signPrincipalHeader(raw, secret, region),
-          'x-intafaced-region': region,
-        },
-        id: `req-signed-${++n}`,
-      });
-    },
+    signed,
+    hmacSigned: (p, service = options.serviceName) => ({ ...signed(p), service }),
     anonymous: () => context({ headers: { 'x-intafaced-region': region }, id: `req-anon-${++n}` }),
     forged: (p) =>
       context({ headers: { 'x-intafaced-principal': encodePrincipal(full(p)), 'x-intafaced-region': region }, id: `req-forged-${++n}` }),
@@ -191,4 +196,45 @@ export async function expectRefusal(call: Promise<unknown> | (() => Promise<unkn
   expect(refusalCodeOf(thrown)).toBe(code);
   if (status !== undefined) expect((thrown as { code?: unknown }).code).toBe(status);
   return thrown;
+}
+
+/**
+ * A stand-in for a postgres.js `sql` tag that answers every query with `rows`, typed as whatever the caller needs
+ * (`fakeSql<Sql>()`, or the parameter type of the function under test). The one cast lives here, not in each file.
+ */
+export function fakeSql<S = unknown>(rows: readonly unknown[] = []): S {
+  const fn: unknown = async () => rows;
+  return fn as S;
+}
+
+export interface FakeFetchCall {
+  readonly url: string;
+  readonly init: RequestInit | undefined;
+}
+
+/**
+ * A `fetch` that records each call and answers with `answer(call, n)` (n counts from 1). Returns the function and
+ * the calls it saw.
+ */
+export function fakeFetch(answer: (call: FakeFetchCall, n: number) => Response | Promise<Response>): {
+  readonly fetch: typeof fetch;
+  readonly calls: FakeFetchCall[];
+} {
+  const calls: FakeFetchCall[] = [];
+  const impl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const call: FakeFetchCall = { url: input instanceof Request ? input.url : String(input), init };
+    calls.push(call);
+    return answer(call, calls.length);
+  };
+  return { fetch: impl as typeof fetch, calls };
+}
+
+/** A test double that fills only the fields the test reads: `partial<Port>({ read: async () => 1 })`. */
+export function partial<T>(x: Partial<T>): T {
+  return x as T;
+}
+
+/** Lets queued timers and promise callbacks run once: `await tick()`. */
+export function tick(ms = 0): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }

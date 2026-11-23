@@ -13,3 +13,4 @@ export * from './symbols.js';
 export * from './spine.js';
 export * from './market-lifecycle.js';
 export * from './market-lifecycle-admission-proof.js';
+export * from './matching-submit-order.js';

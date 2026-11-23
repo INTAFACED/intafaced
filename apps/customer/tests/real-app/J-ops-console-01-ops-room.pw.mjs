@@ -5,6 +5,7 @@ import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { signUp } from './desk.mjs';
+import { STACK_PORTS } from './stack.mjs';
 
 // J-ops-console-01 step #2: the customer app's /ops room asks identity whether the signed-in account is a founder. A founder
 // gets the operator console panel with its link to the Team console; anyone else gets a pointer to
@@ -26,7 +27,7 @@ test('J-ops-console-01 #2 a founder sees the console panel on /ops', async ({ pa
   await expect(page.getByRole('heading', { name: 'Open the operator console' })).toBeVisible();
   await expect(page.getByText('Nothing to open here')).toHaveCount(0);
   // The stack's build points the Team link at its LOCAL TEST HTTPS address (#6949), so the founder gets the real link.
-  await expect(page.getByTestId('team-desk-console')).toHaveAttribute('href', 'https://127.0.0.1:3143/ops');
+  await expect(page.getByTestId('team-desk-console')).toHaveAttribute('href', `https://127.0.0.1:${STACK_PORTS['team-tls']}/ops`);
   await expect(page.getByText('The Team deployment address is not configured.')).toHaveCount(0);
 });
 

@@ -4,16 +4,34 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('@intafaced/ui', async (original) => {
-  const real = await original<typeof import('@intafaced/ui')>();
-  return { ...real, useToast: () => ({ add: () => {} }) };
+vi.mock('@intafaced/ui/lit', async (original) => {
+  const real = await original<typeof import('@intafaced/ui/lit')>();
+  return { ...real, useToast: () => ({ add: () => '', close: () => {} }) };
 });
 const USER = '00000000-0000-4000-8000-000000000001';
 vi.mock('../../features/session/session', () => ({
   useSession: () => ({
     userId: USER,
     session: { accessToken: 'x', expiresAt: '2099-01-01T00:00:00Z', userId: USER },
-    api: { canWrite: () => true, query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) },
+    api: {
+      canWrite: () => true,
+      query: () => new Promise(() => {}),
+      mutate: () => new Promise(() => {}),
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
     profiles: { status: 'ready', businesses: [], active: 'personal', business: null, notice: null, reload: () => {} },
   }),
 }));
@@ -36,7 +54,7 @@ it('shows every bill step with the controls off and the reason on screen', () =>
   expect(out).toContain('Bill pay isn’t connected');
   for (const step of ['Choose a biller', 'Enter the bill reference', 'Enter the amount', 'Review and pay', 'Follow the status'])
     expect(out).toContain(step);
-  expect(out).toContain('<fieldset class="pay-fieldset" disabled');
+  expect(out).toMatch(/<fieldset[^>]*\sdisabled=""/);
   expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="bills-review"|<button[^>]*data-testid="bills-review"[^>]*disabled/);
   expect(out).toContain('No bills paid yet.');
   expect(out).not.toMatch(/coming soon/i);

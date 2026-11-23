@@ -1,16 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type { Incident, IncidentDetail, IncidentMetrics, IncidentSeverity, IncidentTimelineEntry } from '@intafaced/contracts';
 import {
   INCIDENT_ALREADY_RESOLVED,
   INCIDENT_ASSIGNEE_NOT_PARTICIPANT,
   INCIDENT_NOT_FOUND,
   INCIDENT_REQUEST_KEY_REUSED,
-  type Incident,
-  type IncidentDetail,
-  type IncidentMetrics,
-  type IncidentSeverity,
-  type IncidentTimelineEntry,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-incidents';
 import { isModuleId, type ModuleId } from '@intafaced/config';
 import { OpsError } from '../codes.js';
 

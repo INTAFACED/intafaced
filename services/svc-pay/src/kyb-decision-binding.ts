@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { payActionPayloadHash } from './action-approval-consume.js';
 import type { MerchantAddress } from './merchant-portal/fields.js';
@@ -140,7 +140,7 @@ export function kybDecisionBindingView(binding: KybDecisionBinding): {
   };
 }
 
-export async function loadKybDecisionBinding(sql: Sql, merchantId: string): Promise<KybDecisionBinding | null> {
+export async function loadKybDecisionBinding(sql: Queryable, merchantId: string): Promise<KybDecisionBinding | null> {
   const rows = await sql<IdentityRow[]>`
     SELECT legal_name, statement_descriptor, industry,
            address_line1, address_line2, address_city, address_region,

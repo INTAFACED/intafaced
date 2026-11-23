@@ -3,20 +3,10 @@ import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyRefusalText } from './academy-flows';
-import type { AcademyPath, CertificateState, LessonStatus } from './academy-lms';
+import type { CertificateState, LessonStatus } from './academy-lms';
 import './academy-lms.css';
 
-const pathKeys = {
-  foundations: 'pathFoundations',
-  markets: 'pathMarkets',
-  builder: 'pathBuilder',
-  sovereign: 'pathSovereign',
-} as const;
-const kindKeys = { playbook: 'kindPlaybook', workbook: 'kindWorkbook', lesson: 'kindLesson' } as const;
-/** A lesson's kind as a person reads it. A kind this app does not know is shown as sent. */
-export const kindLabel = (t: (typeof copy)['t'], kind: string): string =>
-  kind in kindKeys ? t(kindKeys[kind as keyof typeof kindKeys]) : kind;
-export const pathLabel = (t: (typeof copy)['t'], path: AcademyPath) => t(pathKeys[path]);
+export { pathLabel } from './academy-labels';
 
 /**
  * A bar is only drawn from a real ratio. Callers pass null when nothing is tracked and get text instead.
@@ -76,7 +66,7 @@ export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<
   const words = academyRefusalText(failure, t);
   if (words === null) return <Failure result={failure} retry={retry} />;
   return (
-    <div data-testid="failure" className="failure" role="status">
+    <div data-testid="failure" className="lt-refusal" role="status">
       <p>{words}</p>
     </div>
   );
@@ -102,7 +92,7 @@ export function GuardedButton({
         {children}
       </Button>
       {reason !== null && (
-        <small id={reasonId} className="muted">
+        <small id={reasonId} className="lt-muted">
           {reason}
         </small>
       )}
@@ -117,7 +107,7 @@ export function DisabledWithReason({ label, reason, id }: { label: ReactNode; re
       <Button variant="secondary" disabled aria-describedby={id}>
         {label}
       </Button>
-      <small id={id} className="muted">
+      <small id={id} className="lt-muted">
         {reason}
       </small>
     </div>

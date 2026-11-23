@@ -22,7 +22,11 @@ import { encodeMsgpack, type MsgpackValue } from './msgpack.js';
 export const HL_TESTNET_API_URL = 'https://api.hyperliquid-testnet.xyz';
 export const HL_TESTNET_SOURCE = 'b';
 export const HL_TESTNET_CHAIN = 'Testnet';
-/** The chain id the wallet signs user-signed actions under (Arbitrum Sepolia, 421614), as the SDK sets it. */
+/**
+ * The chain id the SDK's examples and vectors sign user-signed actions under (Arbitrum Sepolia, 421614), kept by the
+ * standalone builders here, whose key-held signers sign any chain. The venue adapter signs under the wallet's own chain
+ * instead (`walletChainId`): a wallet refuses a domain off its active chain.
+ */
 export const HL_SIGNATURE_CHAIN_ID = '0x66eee';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;

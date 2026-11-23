@@ -95,7 +95,7 @@ export class ChainUnavailableError extends Error {
 }
 
 /** scheme + host (host includes a non-default port). Drops userinfo, path, query, and hash. */
-export function redactRpcUrl(raw: string): string {
+function redactRpcUrl(raw: string): string {
   try {
     const url = new URL(raw);
     if (!url.host || (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'ws:' && url.protocol !== 'wss:')) {
@@ -152,7 +152,7 @@ function secretFragments(rpcUrl: string): string[] {
  * Remove endpoint secrets from a log line.
  * Whole URLs collapse to scheme+host; leftover key material from `rpcUrl` is cut.
  */
-export function redactSecrets(text: string, rpcUrl?: string): string {
+function redactSecrets(text: string, rpcUrl?: string): string {
   let out = rpcUrl ? text.split(rpcUrl).join(redactRpcUrl(rpcUrl)) : text;
   out = redactUrlsInText(out);
   if (!rpcUrl) return out;

@@ -2,14 +2,15 @@ import { portalAmount } from './portal/presentation';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { ApiResult } from '../../shared/api';
-import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from './pay-api';
+import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority, type PayRecord } from './pay-api';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import { MerchantPayments } from './MerchantPayments';
 import { MerchantBilling } from './MerchantBilling';
@@ -20,6 +21,9 @@ import { Redirect } from './portal/chrome/PortalNotFound';
 import { addressOf } from './portal/payments/checkout-address';
 import { moneyReason } from './portal/access/money-step';
 import './portal/portal.css';
+import { PAY_MERCHANT_BALANCES, PAY_MERCHANT_LIST_LINKS, PAY_MERCHANT_DEACTIVATE_LINK } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from '@intafaced/contracts/pay-settlement-procedures';
+import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
 
 /** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
 export const businessRooms = [
@@ -50,7 +54,7 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
     <LayoutFrame here={current ?? '/pay/merchant'} title={<PayCopy k={room} />} purpose={authority?.companyName}>
       <PayState resource={merchant.resource} retry={merchant.reload}>
         {(record) => (
-          <div className="stack">
+          <div className="lt-stack">
             <div className="pay-business-content">
               {current === '/pay/money' ? (
                 <MerchantBalance pay={pay} />
@@ -84,10 +88,10 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
       </PayState>
       {merchant.resource.status === 'failed' && (
         <div className="pay-return-links">
-          <a className="text-link" href="/pay">
+          <a className="lt-link" href="/pay">
             <PayCopy k="returnToPersonalPay" />
           </a>
-          <a className="text-link" href="/identbusiness">
+          <a className="lt-link" href="/identbusiness">
             <PayCopy k="openBusinessVerification" />
           </a>
         </div>
@@ -108,17 +112,19 @@ export async function validatedMutation<I, O>(
   if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
   return pay.mutate(procedure, parsed.data, output, scope, operation);
 }
-export const railHealthSchema = z.array(
-  z.object({
-    id: z.string(),
-    capabilities: z.array(z.string()),
-    mode: z.enum(['live', 'sandbox', 'absent']),
-    usable: z.boolean(),
-    healthy: z.boolean(),
-    latencyMs: z.number(),
-    reason: z.string().optional(),
-  }),
-);
+/** `validatedMutation` by the call's written record: the input is checked here first, the answer by the record. */
+export async function validatedRecordMutation<R extends PayRecord>(
+  pay: BusinessPayApi,
+  record: R,
+  input: unknown,
+  schema: z.ZodType<ProcedureInput<R>>,
+  scope: 'pay:write' | 'pay:refund' | 'pay:payout',
+  operation: string,
+) {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) return payRefusal('invalidInput', { reason: 'error' });
+  return pay.mutateRecord(record, parsed.data, scope, operation);
+}
 function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const { hideBalances } = usePreferences();
   const [assetDraft, setAssetDraft] = useState('');
@@ -126,12 +132,12 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const balance = useResource(
     (signal) =>
       asset
-        ? pay.query('merchant.balances', { merchantId: pay.authority!.merchantId, assetId: asset }, s.balanceSchema, signal)
+        ? pay.queryRecord(PAY_MERCHANT_BALANCES, { merchantId: pay.authority!.merchantId, assetId: asset }, signal)
         : Promise.resolve(payRefusal('chooseTheAssetToReadItsLedger', { reason: 'not_supported' })),
     `pay:balance:${pay.authority!.merchantId}:${asset}`,
   );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('merchantLedgerBalance')} description={payCopy.t('clearingAndAvailableAreReadProjectionsOf')}>
         <form
           data-testid="pay-filters"
@@ -157,13 +163,13 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
             {(data) => (
               <div className="pay-balance-grid">
                 <div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <PayCopy k="available" /> {asset}
                   </p>
                   <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.available, asset)}</strong>
                 </div>
                 <div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <PayCopy k="clearing" /> {asset}
                   </p>
                   <strong className="pay-value numeric">{hideBalances ? payCopy.t('hidden') : portalAmount(data.clearing, asset)}</strong>
@@ -198,15 +204,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
   const [expires, setExpires] = useState('');
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const links = useResource(
-    (signal) =>
-      pay
-        .query(
-          'merchant.listLinks',
-          { merchantId, limit },
-          z.object({ items: z.array(s.linkSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_MERCHANT_LIST_LINKS, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:links:${merchantId}:${limit}`,
   );
   const input = {
@@ -218,7 +216,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
     ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('createAPaymentLink')} description={payCopy.t('blankAmountAllowsThePayerToChoose')}>
         <div className="form-stack pay-form">
           <Field label={payCopy.t('linkLabel')} value={label} onChange={(event) => setLabel(event.target.value)} required maxLength={120} />
@@ -288,7 +286,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
               <a className="text-link pay-secret" href={addressOf(created) ?? undefined}>
                 {addressOf(created)}
               </a>
-              <span className="pay-cell-note">
+              <span className="lt-hint">
                 <PayCopy k="expires" /> <PayTime value={created.expiresAt} />
                 <PayCopy k="copyTheLinkBeforeLeavingThisPage" />
               </span>
@@ -315,9 +313,9 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                   <tr key={link.id}>
                     <td>
                       {link.label}
-                      <small className="pay-cell-note">{link.prefix}</small>
+                      <small className="lt-hint">{link.prefix}</small>
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {link.amount === null
                         ? payCopy.t('payerChooses')
                         : `${portalAmount(link.amount, link.currency ?? '')} ${link.currency ?? payCopy.t('assetChosenByPayer')}`}
@@ -327,7 +325,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                     </td>
                     <td>
                       {link.expiresAt ? <PayTime value={link.expiresAt} /> : payCopy.t('notSupplied')}
-                      <small className="pay-cell-note">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
+                      <small className="lt-hint">{link.active ? payCopy.t('active') : payCopy.t('deactivated')}</small>
                     </td>
                     <td>
                       {link.active && (
@@ -335,13 +333,7 @@ function MerchantLinks({ pay }: { pay: BusinessPayApi }) {
                           title={payCopy.t('deactivate')}
                           description={payCopy.t('preventNewPaymentsThroughThisLinkThe')}
                           perform={() =>
-                            pay.mutate(
-                              'merchant.deactivateLink',
-                              { merchantId, linkId: link.id },
-                              z.object({ deactivated: z.boolean() }),
-                              'pay:write',
-                              `link:${link.id}`,
-                            )
+                            pay.mutateRecord(PAY_MERCHANT_DEACTIVATE_LINK, { merchantId, linkId: link.id }, 'pay:write', `link:${link.id}`)
                           }
                           onConfirmed={links.reload}
                           disabled={Boolean(pay.access('pay:write'))}
@@ -368,31 +360,23 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   const [rail, setRail] = useState('');
   const [reason, setReason] = useState('');
   const records = useResource(
-    (signal) =>
-      pay
-        .query(
-          'settlement.list',
-          { merchantId, limit },
-          z.object({ items: z.array(s.settlementSchema), nextCursor: z.string().nullable() }),
-          signal,
-        )
-        .then((result) => s.listed(result)),
+    (signal) => pay.queryRecord(PAY_SETTLEMENT_LIST, { merchantId, limit }, signal).then((result) => s.listed(result)),
     `pay:settlements:${merchantId}:${limit}`,
   );
   const details = useResource(
     (signal) =>
       selected
-        ? pay.query('settlement.get', { settlementId: selected }, s.settlementSchema, signal)
+        ? pay.queryRecord(PAY_SETTLEMENT_GET, { settlementId: selected }, signal)
         : Promise.resolve(payRefusal('openASettlementRecord', { reason: 'not_supported' })),
     `pay:settlement:${merchantId}:${selected}`,
   );
-  const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:payout-rails:${merchantId}`);
+  const rails = useResource((signal) => pay.queryRecord(PAY_RAIL_HEALTH, undefined, signal), `pay:payout-rails:${merchantId}`);
   function refresh() {
     records.reload();
     details.reload();
   }
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {!payouts && (
         <PaySection title={payCopy.t('createASettlementWindow')} description={payCopy.t('theServiceFreezesEligiblePaymentsAndComputes')}>
           <div className="form-stack pay-form">
@@ -464,11 +448,11 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                   <tr key={record.id}>
                     <td>
                       {record.window}
-                      <small className="pay-cell-note">{record.assetId}</small>
+                      <small className="lt-hint">{record.assetId}</small>
                     </td>
-                    <td className="numeric">{portalAmount(record.gross, record.assetId)}</td>
-                    <td className="numeric">{portalAmount(record.fees, record.assetId)}</td>
-                    <td className="numeric">{portalAmount(record.net, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.gross, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.fees, record.assetId)}</td>
+                    <td className="lt-num">{portalAmount(record.net, record.assetId)}</td>
                     <td>
                       <Status value={record.status} />
                     </td>
@@ -489,7 +473,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         <PaySection title={payCopy.t('settlementDetails')}>
           <PayState resource={details.resource} retry={details.reload}>
             {(record) => (
-              <div className="form-stack">
+              <div className="lt-stack">
                 <PayDetails
                   values={[
                     [payCopy.t('settlement'), record.id],
@@ -510,10 +494,9 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       description={payCopy.t('unfreezePendingPaymentsSoTheyCanEnter')}
                       review={<p>{reason}</p>}
                       perform={() =>
-                        pay.mutate(
-                          'settlement.release',
+                        pay.mutateRecord(
+                          PAY_SETTLEMENT_RELEASE,
                           { settlementId: record.id, reason },
-                          s.settlementSchema,
                           'pay:write',
                           `settlement:${record.id}`,
                         )
@@ -525,7 +508,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                 )}
                 {record.status === 'posted' && (
                   <>
-                    <label className="field">
+                    <label className="lt-field">
                       <PayCopy k="livePayoutRail" />
                       <select value={rail} onChange={(event) => setRail(event.target.value)}>
                         <option value="">{payCopy.t('chooseAConnectedLivePayoutRail')}</option>
@@ -548,7 +531,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                         </PayNotice>
                       )}
                     {pay.access('pay:payout') && (
-                      <p className="muted" role="note">
+                      <p className="lt-muted" role="note">
                         {moneyReason('payout', pay.authority?.scopes)}
                       </p>
                     )}

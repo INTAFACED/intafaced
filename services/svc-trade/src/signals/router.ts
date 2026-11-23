@@ -4,9 +4,14 @@
  */
 import { z } from 'zod';
 import { AuthError } from '@intafaced/auth';
-import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { TradeError } from '../spot/types.js';
-import { SignalError, type SignalDesk } from './signal-desk.js';
+import { answerKeys } from '../answer-keys.js';
+import { SignalError, type SignalDesk, type SignalWebhookView } from './signal-desk.js';
+import { signalWebhookFields, signalWebhookCreatedAnswer } from '@intafaced/contracts/trade-call-schemas';
+import { TRADE_SIGNALS_WEBHOOKS_CREATE } from '@intafaced/contracts/trade-signals-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from '../record-refusal.js';
 
 function signalTrpcError(error: unknown): unknown {
   if (error instanceof TRPCError) return error;
@@ -28,6 +33,11 @@ function signalTrpcError(error: unknown): unknown {
   return error;
 }
 
+const signalWebhooksAnswer = z.array(z.object(signalWebhookFields));
+answerKeys<SignalWebhookView[]>()(signalWebhooksAnswer);
+
+answerKeys<Awaited<ReturnType<SignalDesk['create']>>>()(signalWebhookCreatedAnswer);
+
 export function signalsRouter(desk?: SignalDesk) {
   async function call<T>(fn: (desk: SignalDesk) => Promise<T>): Promise<T> {
     try {
@@ -39,18 +49,14 @@ export function signalsRouter(desk?: SignalDesk) {
   }
   return router({
     webhooks: router({
-      create: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z
-            .object({
-              symbol: z.string().min(1).max(32),
-              venueOwner: z.string().min(1).max(64),
-              clientRequestId: z.string().min(1).max(120),
-            })
-            .strict(),
-        )
-        .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region))),
-      list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((d) => d.list(ctx.principal))),
+      create: mountRecord(
+        TRADE_SIGNALS_WEBHOOKS_CREATE,
+        ({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region)),
+        tradeRefusal,
+      ),
+      list: scopedProcedure('trade:read', { module: 'trade' })
+        .output(signalWebhooksAnswer)
+        .query(({ ctx }) => call((d) => d.list(ctx.principal))),
     }),
     intents: scopedProcedure('trade:read', { module: 'trade' })
       .input(z.object({ webhookId: z.string().min(1).max(64) }).strict())

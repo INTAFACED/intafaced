@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
-import { Button, StateBlock, StatusTag } from '@intafaced/ui';
+import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
-import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
+import { activeHalts, spanParts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -13,7 +13,7 @@ import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
 import { NotLiveCard } from './chrome/NotLiveCard';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
+import type { AssetAmount, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -35,6 +35,17 @@ export function RefusalOnceProvider({ children }: { children: ReactNode }) {
   return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
 }
 
+/**
+ * "Say each refusal once" for one refusal on the page: `claim()` is true when this part is the one that says `key`; the
+ * words are given back when it goes. Outside the frame's `RefusalOnceProvider` every part says its own.
+ */
+export function useSaidOnce(key: string): () => boolean {
+  const once = useContext(RefusalOnce);
+  const id = useId();
+  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  return () => !once || once.claim(key, id);
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
@@ -51,25 +62,22 @@ export const NotLive = NotLiveCard;
 export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  const once = useContext(RefusalOnce);
-  const id = useId();
-  const key = `${refusalTitle(result)}|${refusalText(result)}`;
-  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  const claim = useSaidOnce(`${refusalTitle(result)}|${refusalText(result)}`);
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
   // The same refusal, twice on one page, is said once.
-  if (once && !once.claim(key, id)) return null;
+  if (!claim()) return null;
   return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (
-        <p className="muted">
+        <p className="lt-muted">
           {u('reference')} <CopyReference value={result.requestId} what={u('reference')} />
         </p>
       )}
       {result.reason === 'unauthorized' ? (
         <a
-          className="text-link"
+          className="lt-link"
           href={`/login?redirect=${encodeURIComponent(typeof location === 'undefined' ? '/pay/merchant' : location.pathname + location.search)}`}
         >
           {t('signIn')}
@@ -117,7 +125,7 @@ export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, 
   const failed = typeof state.more === 'object';
   return (
     <div className="pp-more">
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {state.hasMore ? t('rowsSoFar', { count: state.items.length }) : t('rowsAll', { count: state.items.length })}
       </p>
       {state.hasMore && (
@@ -180,14 +188,14 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
   const { t } = portalCopy.useCopy();
   if (items.length === 0)
     return (
-      <span className="pp-none" title={emptyLabel ?? t('noPaymentsInPeriod')}>
+      <span className="lt-muted" title={emptyLabel ?? t('noPaymentsInPeriod')}>
         —
       </span>
     );
   return (
     <span className="pp-lines">
       {items.map((item) => (
-        <span key={item.assetCode} className="pp-line">
+        <span key={item.assetCode}>
           <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
         </span>
       ))}
@@ -199,31 +207,6 @@ export function Money({ value, asset }: { value: string; asset: string }) {
     <span className="numeric pp-money">
       <MoneyDisplay value={value} asset={asset} unit={asset} />
     </span>
-  );
-}
-
-/** "As of" and lag on every metric (B12). Unknown freshness is stated, never dressed as live. */
-export function AsOf({ freshness }: { freshness: Freshness }) {
-  const { t } = portalCopy.useCopy();
-  const state = staleness(freshness);
-  if (state.kind === 'unknown')
-    return (
-      <p className="pp-asof pp-asof--warn" role="status">
-        {t('asOfUnknown')}
-      </p>
-    );
-  const lag = lagParts(state.lagSeconds);
-  const lagText =
-    lag.unit === 'seconds'
-      ? t('lagSeconds', { n: lag.n })
-      : lag.unit === 'minutes'
-        ? t('lagMinutes', { n: lag.n })
-        : t('lagHours', { n: lag.n });
-  return (
-    <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
-      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
-    </p>
   );
 }
 
@@ -409,9 +392,9 @@ export function Steps({
           <div>
             <strong>
               {item.title}
-              <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
+              <span className="lt-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
             </strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
+            {item.detail && <p className="lt-muted">{item.detail}</p>}
           </div>
         </li>
       ))}
@@ -426,7 +409,7 @@ export function UsageBar({ pct, label }: { pct: number; label: string }) {
   return (
     <div className="pp-usage" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
       <span className={`pp-usage-fill${full ? ' pp-usage-fill--full' : ''}`} style={{ width: `${pct}%` }} />
-      <span className="pp-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
+      <span className="lt-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
     </div>
   );
 }

@@ -9,6 +9,10 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
 // check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
 // through the customer's own API.
+// Steps #1, #4, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
+// Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
+// ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
+// (tooling/ci/journey-verdict.mjs judge, project-state #2232).
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -68,7 +72,7 @@ function writes(page) {
   return sent;
 }
 
-test(`${J} #1 opens /trade/futures and sees the whole desk`, async ({ page }) => {
+test(`${J}, part of #1, checked on our own ledger: opens /trade/futures and sees the whole desk`, async ({ page }) => {
   const who = await fundedTrader(page, 'jd', '1000');
   run.reset({ account: who });
   await desk(page);
@@ -144,7 +148,9 @@ test(`${J} #3 nothing asks for a risk agreement, a knowledge check or a notice b
   expect(await positionsOf(who)).toHaveLength(0);
 });
 
-test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark and funding`, async ({ page }) => {
+test(`${J}, part of #4, checked on our own ledger: picks the contract and reads its strip: family, settle asset, contract size, mark and funding`, async ({
+  page,
+}) => {
   await desk(page);
   const strip = page.getByRole('region', { name: SYMBOL, exact: true });
   await expect(strip.getByText('Perpetual · Linear')).toBeVisible();
@@ -160,7 +166,9 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
   expect([listed.family, listed.settleAsset, listed.contractSize]).toEqual(['linear', 'USDT', '0.001']);
 });
 
-test(`${J} #5 chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({ page }) => {
+test(`${J}, part of #5, checked on our own ledger: chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({
+  page,
+}) => {
   await desk(page);
   const sent = writes(page);
   const mode = page.getByRole('group', { name: 'Margin mode' });
@@ -189,7 +197,9 @@ async function fillTicket(page) {
   return ticket;
 }
 
-test(`${J} #6 types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({ page }) => {
+test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({
+  page,
+}) => {
   await desk(page);
   const ticket = await fillTicket(page);
   for (const row of ['Initial margin', 'Liquidation price', 'Total to commit now']) {
@@ -204,7 +214,10 @@ test(`${J} #6 types a TEST size and leverage and reviews: margin, fee, liquidati
   expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
 });
 
-test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({ page }) => {
+test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
+  page,
+  stepPicture,
+}) => {
   await desk(page);
   const sent = writes(page);
   const types = page.getByRole('group', { name: 'Order type' });
@@ -216,12 +229,32 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   await page.getByRole('button', { name: 'Order types not offered' }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  expect(await menu.getByRole('menuitem').count()).toBeGreaterThan(0);
+  // The resting types the service refuses for this contract, each listed, not selectable, with the service's refusal in words.
+  const catalogue = await page.request.get('/api/v1/futures/order-types?limit=50');
+  expect(catalogue.status()).toBe(200);
+  const entries = (await catalogue.json()).markets.find((m) => m.market === SYMBOL)?.orderTypes ?? [];
+  expect(
+    entries
+      .filter((e) => e.state === 'available')
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(['limit', 'market']);
+  const refusedTypes = entries.filter((e) => e.state === 'refused');
+  expect(refusedTypes.length, 'the service refuses resting types for this contract').toBeGreaterThan(0);
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(refusedTypes.length);
+  for (let i = 0; i < refusedTypes.length; i += 1) {
+    await expect(items.nth(i)).toBeDisabled();
+    await expect(items.nth(i)).toContainText(
+      'The futures book takes market and limit orders. Stop, take-profit and the other types are not offered.',
+    );
+  }
+  await stepPicture();
   await page.keyboard.press('Escape');
   expect(sent).toEqual([]);
 });
 
-test(`${J} #8 confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
+test(`${J}, part of #8, checked on our own ledger: confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
   const who = account();
   const before = (await (await api(who)).balances()).USDT;
   // Held from the review to the fill, as J-derivatives-02 #6 is: the margin tier is rated on the perp book's depth, and
@@ -281,7 +314,9 @@ test(`${J} #8 confirms "Open long": one position opens and its margin is locked`
   expect(orders.filter((o) => !o.reduceOnly && o.status !== 'refused')).toHaveLength(1);
 });
 
-test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({ page }) => {
+test(`${J}, part of #9, checked on our own ledger: opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({
+  page,
+}) => {
   const who = account();
   await desk(page);
   const [position] = await positionsOf(who);
@@ -310,7 +345,7 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   await expect(row).toContainText(`${grouped}${shownFraction ? `.${shownFraction}` : ''}`);
 });
 
-test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
+test(`${J}, part of #10, checked on our own ledger: closes 40 percent, then the rest`, async ({ page }) => {
   const who = account();
   await desk(page);
   const [position] = await positionsOf(who);
@@ -348,7 +383,9 @@ test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
   expect(toUnits(usdt.used ?? '0')).toBe(0n);
 });
 
-test(`${J} #11 opens History and sees the closed position with its realised result`, async ({ page }) => {
+test(`${J}, part of #11, checked on our own ledger: opens History and sees the closed position with its realised result`, async ({
+  page,
+}) => {
   const who = account();
   const { body: closed } = await (await api(who)).get('/api/v1/positions/closed?limit=5');
   await desk(page);

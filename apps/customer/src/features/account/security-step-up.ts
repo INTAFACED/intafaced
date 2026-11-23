@@ -1,7 +1,7 @@
 // hand-declared-ok: the step-up begin and complete answers are declared in svc-identity, not in packages/contracts yet
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { signAssertion } from '../session/webauthn';
+import { signAssertion } from '../session';
 
 const begun = z
   .object({

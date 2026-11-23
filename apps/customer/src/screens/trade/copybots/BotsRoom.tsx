@@ -18,6 +18,7 @@ import {
   type TableColumn,
 } from '@intafaced/ui';
 import { navigate } from '../../../app/location';
+import { LiveDeployWizard } from '../../../features/quant/LiveDeploy';
 import { usePortfolio } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
@@ -32,6 +33,8 @@ import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote 
 import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
 import { WebhooksRoom } from './WebhooksRoom';
+import { SignalsRoom } from './SignalsRoom';
+import { RecurringRoom } from './RecurringBuy';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
 
@@ -75,7 +78,7 @@ const CATALOGUE: readonly CatalogueRow[] = [
     id: 'dca',
     name: 'Recurring buy (DCA)',
     does: 'Buys a fixed amount on a schedule',
-    needs: 'An amount, a schedule, and a recurring-order service',
+    needs: 'An amount, a schedule, and USDC on your own venue account. Set it up from a coin page.',
   },
   {
     id: 'studio',
@@ -97,25 +100,18 @@ const TYPE_LINK: Record<CatalogueRow['id'], { name: string; href: string }> = {
 
 type OpenBot = { algo: Algo | null; progress: Progress | null; failure: Failure | null };
 
-/** Why a bot type with no engine can't be set up, in the catalogue and in its own room. */
-const NOT_BUILT: Record<'dca', string> = {
-  dca: 'No recurring-order service exists. Use Convert for a single trade.',
-};
-
-/** Bot types with no engine yet: the room is reachable and says why nothing can be set up. */
-const PARKED: Record<string, { title: string; reason: string }> = {
-  [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
-};
-
 const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that address.' };
 
 export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
+  // The recurring buy (J-copy-bots-otc-16): its rules and their share pages.
+  if (pathname === TYPE_LINK.dca.href || pathname.startsWith(`${TYPE_LINK.dca.href}/`)) return <RecurringRoom path={path} />;
   if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
-  const parked = PARKED[pathname];
-  if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
-  // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
+  // The deploy wizard of a saved Quant Studio strategy (AL-live-02): `/trade/bots/new?from=<strategyId>`.
+  if (pathname === '/trade/bots/new') return <LiveDeployWizard path={path} />;
+  if (pathname === '/trade/bots/signals' || pathname.startsWith('/trade/bots/signals/')) return <SignalsRoom path={path} />;
+  // Only grid and the recurring buy have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
   if (pathname.startsWith('/trade/bots/')) return <ParkedBotRoom title={UNKNOWN_KIND.title} reason={UNKNOWN_KIND.reason} />;
   return <BotsHub path={path} />;
 }
@@ -123,8 +119,8 @@ export function BotsRoom({ path }: { path: string }) {
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
-    <Page width="full" className="cb-page">
-      <ModeNav active="bots" />
+    <Page width="full" className="cb-page" landmark={false}>
+      <ModeNav />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
         variant="refused"
@@ -276,7 +272,7 @@ function BotsHub({ path }: { path: string }) {
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
       if (policy.data && !policy.data.capability.createEnabled)
         return { tone: 'warn', word: 'Switched off', reason: 'New bots can’t be created right now', ready: false };
-      if (policy.data?.immatureKinds.includes(row.id))
+      if (policy.data?.immatureKinds.some((k) => k === row.id))
         return {
           tone: 'warn',
           word: 'Needs trading history',
@@ -295,7 +291,9 @@ function BotsHub({ path }: { path: string }) {
       }
       return { tone: 'lime', word: gridSetup.data ? 'Ready' : 'Checking', reason: null, ready: true };
     }
-    return { tone: 'neutral', word: 'Not built', reason: NOT_BUILT.dca, ready: false };
+    // The recurring buy trades on the person's own venue account: it is set up from a coin page.
+    if (!session) return { tone: 'neutral', word: 'Sign in', reason: 'Sign in to set up a bot.', ready: false };
+    return { tone: 'lime', word: 'Ready', reason: null, ready: true };
   };
 
   // A setup link opens the wizard only where the catalogue's Set up button would, once the policy has answered; where it
@@ -343,21 +341,25 @@ function BotsHub({ path }: { path: string }) {
               {t('See strategies')}
             </Button>
           );
+        // A bot that can't be set up now says so in words a person can read (the status beside it says why); a faded
+        // button there was unreadable once the catalogue stacks on a phone.
+        if (!s.ready) return <span className="text-fg-2">{t('Not available')}</span>;
         if (r.id === 'twap' || r.id === 'vwap' || r.id === 'pov')
           return (
-            <Button size={28} disabled={!s.ready || !session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>
+            <Button size={28} disabled={!session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>
               {t('Set up')}
             </Button>
           );
         if (r.id === 'grid')
           return (
-            <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.grid.href)}>
+            <Button size={28} onClick={() => navigate(TYPE_LINK.grid.href)}>
               {t('Set up')}
             </Button>
           );
+        // The recurring buy: its room lists the person's rules; a new one is set up from a coin page.
         return (
-          <Button variant="secondary" size={28} disabled>
-            {t('Not built')}
+          <Button size={28} onClick={() => navigate(TYPE_LINK.dca.href)}>
+            {t('Set up')}
           </Button>
         );
       },
@@ -372,13 +374,13 @@ function BotsHub({ path }: { path: string }) {
       value: nameOf,
       cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
       pin: 'start',
-      width: 200,
     },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')), width: 88 },
     {
       id: 'status',
       header: t('State'),
       cell: (r) => <Badge tone={BOT_TONE[r.status] ?? 'neutral'}>{t((BOT_WORD[r.status] ?? 'Unknown state') as 'Running')}</Badge>,
+      width: 140,
     },
     {
       id: 'progress',
@@ -386,13 +388,15 @@ function BotsHub({ path }: { path: string }) {
       value: (r) => percentFilled(r.filledQty, r.totalQty)?.replace('%', '') ?? null,
       numeric: true,
       cell: (r) => percentFilled(r.filledQty, r.totalQty) ?? '—',
+      width: 112,
     },
-    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty) },
+    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty), width: 140 },
     { id: 'created', header: t('Started'), value: (r) => new Date(r.created).toLocaleString(), width: 200 },
     {
       id: 'open',
       header: t('Manage'),
       headerLabel: t('Manage'),
+      width: 120,
       cell: (r) => (
         <Button variant="secondary" size={28} onClick={() => setOpenId(r.id)}>
           {t('Manage')}
@@ -449,12 +453,22 @@ function BotsHub({ path }: { path: string }) {
       cell: (r) => displayAmount(r.risk.maxNotional),
     },
     { id: 'kill', header: t('Stops at a loss of'), value: (r) => r.risk.kill, numeric: true, cell: (r) => displayAmount(r.risk.kill) },
+    {
+      id: 'deploy',
+      header: t('Live'),
+      cell: (r) => (
+        <a href={`/trade/bots/new?from=${encodeURIComponent(r.id)}`} data-testid="bots-deploy-live">
+          {t('Deploy live')}
+        </a>
+      ),
+      width: 140,
+    },
   ];
 
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
-    <Page width="full" className="cb-page">
-      <ModeNav active="bots" />
+    <Page width="full" className="cb-page" landmark={false}>
+      <ModeNav />
       <PageHeader
         title={t('Bots')}
         description={t('Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.')}
@@ -557,9 +571,9 @@ function BotsHub({ path }: { path: string }) {
                 minWidth={940}
               />
             ) : null}
-            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
+            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one below with its reference.')}</InfoNote>
             {moreMine ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 {mineLimit < BOT_LIST_MAX ? (
                   <Button variant="secondary" onClick={showMoreMine}>
                     {t('Show more bots')}
@@ -576,7 +590,7 @@ function BotsHub({ path }: { path: string }) {
                 openById();
               }}
             >
-              <Field label={t('Open a bot by ID')}>
+              <Field label={t('Open a bot that isn’t listed')}>
                 <Input kind="text" value={byId} onValueChange={setById} autoComplete="off" />
               </Field>
               <Button type="submit" variant="secondary" disabled={!byId.trim()}>
@@ -584,7 +598,7 @@ function BotsHub({ path }: { path: string }) {
               </Button>
             </form>
             {open && openRefused && open.failure ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 <RefusalNote failure={open.failure} retry={opened.reload} />
                 <Button variant="ghost" size={28} onClick={() => setOpenId(null)}>
                   {t('Close')}
@@ -633,11 +647,11 @@ function BotsHub({ path }: { path: string }) {
             />
             <KeyValue
               items={[
-                { label: t('Running a strategy live'), value: t('Not built: a strategy cannot trade real money') },
+                { label: t('Running a strategy live'), value: t('Deploy live opens the deploy wizard, which checks the strategy first') },
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button variant="secondary" render={<a href="/quant/studio" />} nativeButton={false}>
                 {t('Open Quant Studio')}
               </Button>

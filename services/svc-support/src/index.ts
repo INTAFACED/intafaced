@@ -5,15 +5,19 @@ import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
+import { createIdentityLayoutsClient, createNotifyChartsClient } from './charts-lookup.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createBankScamTransferClient, createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createBankScamTransferClient } from '@intafaced/contracts/bank-scam-transfer';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
+import { SqlResponseTargetBook } from './response-targets.js';
 import { SqlSurveyBook } from './survey-settings.js';
 import { SqlHelpCentreBook } from './help-centre.js';
 import { RequestForms, SqlFormsStore } from './request-forms.js';
@@ -28,6 +32,7 @@ import { DeskMacros, SqlMacroBook } from './desk-macros.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { createIdentityChatMail, NO_CHAT_MAIL } from './chat-email.js';
 import { eventRatingRequestSink, RatingRequestOutbox, SqlRatingRequestBook } from './rating-request.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { UNCONFIGURED_ATTACHMENTS } from './attachments.js';
@@ -261,6 +266,9 @@ const chat = new SupportChat(
     claimSecret: createHmac('sha256', env.INTERNAL_SERVICE_SECRET).update('svc-support.chat.v1').digest('hex'),
   },
   async () => (await contactBook.get()).chatHours,
+  undefined,
+  // Continue by email (chat-email.ts): identity mails the customer's own proved address. Blank answers vendor.email.
+  env.SUPPORT_CHAT_EMAIL === 'identity' ? createIdentityChatMail(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : NO_CHAT_MAIL,
 );
 const loop = createTicketKbLoopObserver();
 // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose
@@ -272,6 +280,13 @@ const links = new TicketLinks(
   env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
 );
 support.useRecoveryLinks(() => links.recoveryTickets());
+support.useResponseTargets(new SqlResponseTargetBook(sql));
+// A customer's alerts and layouts for a ticket (J-charts-desk-19 #1): read per lookup from svc-notify and svc-identity on
+// svc-support's own credentials. No notify address or secret leaves the alerts unwired, and the lookup says so.
+support.useChartsSources({
+  alerts: createNotifyChartsClient({ notifyUrl: env.NOTIFY_URL, secret: env.NOTIFY_SUPPORT_SERVICE_SECRET, s2s: s2sKey }),
+  layouts: createIdentityLayoutsClient({ identityUrl: env.IDENTITY_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+});
 const appRouter = createSupportRouter(
   support,
   loop,

@@ -6,7 +6,8 @@ import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import { readRoutingActionRequest, type RoutingActionRequest } from './routing';
 import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
-import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
+import type { QueueEntry, QueueRead, TicketStatus } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Support queue: strict readers and the metrics that can honestly be computed from one page of the queue.
@@ -22,13 +23,9 @@ const STATUSES: readonly string[] = ['open', 'pending', 'on_hold', 'resolved', '
 
 export const isTicketId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function readEntry(raw: unknown): QueueEntry | null {
   if (!isRecord(raw)) return null;
-  const { ticketId, userId, category, status, subject, score, ageMs, createdAt, timingKind, sla } = raw;
+  const { ticketId, userId, category, status, subject, score, ageMs, createdAt, timingKind, sla, responseDue } = raw;
   if (!isTicketId(ticketId) || !isTicketId(userId)) return null;
   if (typeof category !== 'string' || category === '' || typeof subject !== 'string' || subject === '') return null;
   if (typeof status !== 'string' || !STATUSES.includes(status)) return null;
@@ -37,7 +34,19 @@ function readEntry(raw: unknown): QueueEntry | null {
   if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
   // The service promises these two. If they ever change, the desk must not keep implying a score is not a promise.
   if (timingKind !== 'score_not_promise' || sla !== false) return null;
-  return { ticketId, userId, category, status: status as TicketStatus, subject, score, ageMs, createdAt };
+  const due = readResponseDue(responseDue);
+  if (due === undefined) return null;
+  return { ticketId, userId, category, status: status as TicketStatus, subject, score, ageMs, createdAt, responseDue: due };
+}
+
+/** A row's due time from an active response target: null (none, or an older service that sends none), or undefined when malformed. */
+function readResponseDue(raw: unknown): QueueEntry['responseDue'] | undefined {
+  if (raw === null || raw === undefined) return null;
+  if (!isRecord(raw)) return undefined;
+  const { dueAt, targetMinutes } = raw;
+  if (typeof dueAt !== 'string' || !Number.isFinite(Date.parse(dueAt))) return undefined;
+  if (typeof targetMinutes !== 'number' || !Number.isInteger(targetMinutes) || targetMinutes < 1) return undefined;
+  return { dueAt, targetMinutes };
 }
 
 /** `listQueue`: `{status:'ok',entries}` or `{status:'empty'}`. Anything else is null, never an empty queue. */
@@ -486,16 +495,4 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     default:
       return null;
   }
-}
-
-/** `ratingOps`: the rating, or null when the customer has not rated. Anything else is null here, never "no rating". */
-export function readRatingResult(raw: unknown): { readonly value: SupportRating | null } | null {
-  if (raw === null) return { value: null };
-  if (!isRecord(raw)) return null;
-  const { ticketId, userId, score, note, createdAt } = raw;
-  if (!isTicketId(ticketId) || !isTicketId(userId)) return null;
-  if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) return null;
-  if (!(note === null || typeof note === 'string')) return null;
-  if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
-  return { value: { ticketId, userId, score, note, createdAt } };
 }

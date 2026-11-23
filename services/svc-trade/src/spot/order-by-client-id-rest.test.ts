@@ -92,6 +92,13 @@ describe('orders by clientOrderId', () => {
     expect(cancelled).toEqual([]);
   });
 
+  it('reads an unknown client id as OrderNotFound, the same answer as by id', async () => {
+    const { app } = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/orders/by-client-id/nope?symbol=BTC%2FUSDT', headers: signed(ALICE) });
+    expect(res.statusCode, res.body).toBe(404);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.order_not_found' });
+  });
+
   it('needs the symbol, because a client id is only unique per market', async () => {
     const { app, cancelled } = await build();
     const none = await app.inject({ method: 'DELETE', url: '/api/v1/orders/by-client-id/mine-1', headers: signed(ALICE) });

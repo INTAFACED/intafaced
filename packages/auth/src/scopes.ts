@@ -23,6 +23,13 @@ export const SCOPES = [
   'trade:write',
   'trade:withdraw',
 
+  // Copy trading by API key (J-copy-bots-otc-07). `copy:lead` places a lead's orders through the lead API and reads
+  // its own lead feeds; svc-identity mints it on a key only for an approved lead (a listing in the `listed` state),
+  // and svc-trade checks the listing again on every lead order. `copy:follow` starts, amends, stops and lists the
+  // caller's own follows, as the web does. Neither moves money off the platform.
+  'copy:lead',
+  'copy:follow',
+
   // Pay
   'pay:read',
   'pay:write',
@@ -103,6 +110,11 @@ export const SCOPES = [
   // Protocol plane (read-only by definition: keys are the user's, not ours)
   'protocol:read',
 
+  // Algo dev's strategy API (J-algo-dev-14): read your projects, backtests and reports; start a backtest. Neither moves
+  // money: svc-quant holds no ledger grant, and stopping a live strategy is `trade:write` on the trade door.
+  'quant:read',
+  'quant:run',
+
   // Operator
   'admin:read',
   'admin:write',
@@ -156,14 +168,14 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  *   2. Founder or operator desk authority (`admin:read`, `admin:write`,
  *      `admin:compliance`, `admin:treasury`, `support:ops`, `support:lookup`,
  *      `market:ops`).
- *      A founder session used to be able to copy `admin:write`, `admin:read`
- *      and `support:ops` onto an API key, and a session that held
- *      `admin:compliance` or `market:ops` could do the same. A long-lived key
- *      then bypasses the founder MFA and session model. Desk scopes stay on
+ *      A founder session must not copy `admin:write`, `admin:read` or
+ *      `support:ops` onto an API key, nor a session that holds
+ *      `admin:compliance` or `market:ops` copy those. A long-lived key
+ *      would bypass the founder MFA and session model. Desk scopes stay on
  *      the interactive session. A procedure that needs a second factor calls
  *      `requireMfa` itself — being interactive-only is not the same as
  *      requiring 2FA.
- *   3. `pay:onboard` (#4897). It does not move money. It is interactive-only
+ *   3. `pay:onboard`. It does not move money. It is interactive-only
  *      so it can never sit on an API key. Main's `requireScope` treated every
  *      member of this list as the 2FA gate, and a login token is issued with
  *      `mfa: false`, so it stays in `SESSION_MFA_SCOPES` too.
@@ -195,7 +207,7 @@ export type PayStepUpScope = (typeof PAY_STEP_UP_SCOPES)[number];
 /** Step-up access token lifetime. Ten minutes. Refresh does not reissue it. */
 export const PAY_STEP_UP_ACCESS_TTL_SECONDS = 600;
 
-/** Factor proof lifetime. Five minutes, the same window as STEPUP #4880. */
+/** Factor proof lifetime. Five minutes, the same window as the session step-up. */
 export const PAY_STEP_UP_FACTOR_TTL_SECONDS = 300;
 
 export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
@@ -209,7 +221,7 @@ export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
  * (refused on an API key) and are not in this list. Whether a live founder
  * session receives one is `IDENTITY_FOUNDER_SESSION_SCOPES`, and only after MFA.
  * Procedures that need a second factor call `requireMfa` themselves.
- * `pay:onboard` is in this list because #4897 put it on the list `requireScope`
+ * `pay:onboard` is in this list because it is on the list `requireScope`
  * used as the 2FA gate.
  */
 export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:onboard'];
@@ -220,7 +232,7 @@ export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:tr
  * Unlike `INTERACTIVE_ONLY_SCOPES`, a scope here is issued on every person's
  * session (`SESSION_SCOPES`). It is kept off API keys because what it
  * authorises spends the person's own money at the person's own instruction:
- * `agents:execute` runs a metered agent (OWNER 107, 29 Oct 2026: "Every
+ * `agents:execute` runs a metered agent (29 Oct 2026: "Every
  * signed-in person may run agents from their own session, never from API keys
  * or delegated tokens"). `requireScope` refuses a key or sub-account token that
  * carries one.
@@ -283,6 +295,8 @@ const SESSION_SCOPE_LIST = [
   'ledger:read',
   'trade:read',
   'trade:write',
+  'copy:lead',
+  'copy:follow',
   'p2p:read',
   'p2p:write',
   'token:read',
@@ -295,13 +309,13 @@ const SESSION_SCOPE_LIST = [
   //
   // What it deliberately does NOT decide is who may HOST. That is §4.1's
   // `rank_thresholds.perks.lobbyHostRights`, read from svc-identity at
-  // `createRoom` (services/svc-academy/src/host-rights.ts). Had hosting ridden
+  // `createRoom` (crates/svc-academy/src/lobbies/clients.rs). Had hosting ridden
   // on this scope, issuing it here would have handed room creation to every
   // account on the platform in the same commit — and §XIII's model is
   // ambassadors and operators running rooms, not anyone with a login.
   'academy:write',
   'agents:read',
-  // Owner decision 29 Oct 2026 (OWNER 107, "Everyone, bounded"): every
+  // Owner decision 29 Oct 2026 ("Everyone, bounded"): every
   // signed-in person may run agents from their own session. It spends their
   // money, so it is bounded where it is spent: svc-agents refuses a run before
   // the engine when its worst case passes the agent's stored cap, the person's
@@ -376,6 +390,11 @@ const SESSION_SCOPE_LIST = [
   // Non-custodial and `minTier: 'none'`, so §22 says permissionless — and a
   // scope issued to nobody left the smart-account claim flow unreachable.
   'protocol:read',
+  // Algo dev (svc-quant), non-custodial and `minTier: 'none'`. A session reaches it as before; the two scopes exist so a
+  // person can copy them onto an API key for the strategy API (J-algo-dev-14). `:run` starts a backtest, which posts
+  // nothing and moves no value; it never implies `:read`.
+  'quant:read',
+  'quant:run',
   // `satisfies`, not a plain `as const`. The comment on WITHHELD_SCOPE_REASONS
   // credits the compiler with enforcing that every scope is either issued to a
   // session or withheld with a written reason — but nothing constrained the

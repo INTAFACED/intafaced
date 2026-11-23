@@ -1,14 +1,12 @@
 import { useState, type ReactNode } from 'react';
-import { SubNav } from '@intafaced/ui';
-import { Loading, Tabs } from '../../shared/ui';
+import { SectionTabs } from '@intafaced/ui/lit/templates';
 import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
-import { useSession } from '../session/session';
-import { launchCopy } from './launch-copy';
+import { useSession } from '../session';
 import { launchDepthCopy } from './launch-depth-copy';
 import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';
 import { LaunchCatalogue } from './LaunchCatalogue';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
-import './launch-availability.css';
+import { LaunchRequirements } from './launch-requirements/LaunchRequirementsRoom';
 
 export type LaunchTab = 'Catalogue' | 'Journey' | 'Check' | 'Requirements' | 'Participation';
 const TABS: readonly LaunchTab[] = ['Catalogue', 'Journey', 'Check', 'Requirements', 'Participation'];
@@ -17,37 +15,30 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
   const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Catalogue'));
   const { t } = launchDepthCopy.useCopy();
   const catalogue = launchCatalogueCopy.useCopy();
-  const { userId, restoring, restoreFailed, retryRestore } = useSession();
+  const { userId, restoreFailed, retryRestore } = useSession();
   // The catalogue opens signed out (J-more-catalogue-11), and so does Requirements, which shows no account data. The
   // issuer journey, the pre-listing check and participation need an account: a signed-out visitor gets the sign-in
   // panel the other More rooms use (J-more-catalogue-01 #6) in their place, returning to the section's own address,
-  // and the same panel above the catalogue. Until the boot refresh answers, a private section shows Loading; if it
-  // could not answer, Retry, never a false "signed out".
-  const signedOut = !userId && !restoring && !restoreFailed;
+  // and the same panel above the catalogue. If the boot refresh could not answer, Retry, never a false "signed out".
+  const signedOut = !userId && !restoreFailed;
   const priv = (section: ReactNode, returnTo: string) =>
-    userId ? (
-      section
-    ) : restoring ? (
-      <Loading />
-    ) : restoreFailed ? (
-      <SessionRetryPanel retry={retryRestore} />
-    ) : (
-      <SignInPanel returnTo={returnTo} />
-    );
+    userId ? section : restoreFailed ? <SessionRetryPanel retry={retryRestore} /> : <SignInPanel returnTo={returnTo} />;
   return (
-    <div className="more-grid">
-      <Tabs
-        items={TABS}
+    <div className="lt-stack">
+      <SectionTabs<LaunchTab>
+        items={TABS.map((value) => ({
+          value,
+          label: {
+            Catalogue: catalogue.t('tabCatalogue'),
+            Journey: t('tabJourney'),
+            Check: t('tabCheck'),
+            Requirements: t('tabRequirements'),
+            Participation: t('tabParticipation'),
+          }[value],
+        }))}
         value={tab}
-        onChange={(value) => setTab(value as LaunchTab)}
+        onChange={setTab}
         label={t('sections')}
-        labels={{
-          Catalogue: catalogue.t('tabCatalogue'),
-          Journey: t('tabJourney'),
-          Check: t('tabCheck'),
-          Requirements: t('tabRequirements'),
-          Participation: t('tabParticipation'),
-        }}
       />
       {tab === 'Catalogue' ? (
         <>
@@ -63,98 +54,6 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
       ) : (
         <LaunchRequirements orders={false} />
       )}
-    </div>
-  );
-}
-
-/** No customer launch/participation contract is mounted. Keep each required
- * capability explicit; Market access listings do not fulfill asset listing. */
-function LaunchRequirements({ orders = false }: { orders?: boolean }) {
-  const { Copy, t, languageFor, directionFor } = launchCopy.useCopy();
-  return (
-    <div className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
-      <SubNav
-        aria-label={t('nav')}
-        active={orders ? 'participation' : 'overview'}
-        className="px-0"
-        items={[
-          { id: 'overview', label: t('overview'), href: '/launch' },
-          { id: 'participation', label: t('participation'), href: '/uc/innovation/myorders' },
-        ]}
-      />
-      <div className="launch-room-workspace">
-        <section className="launch-room-primary">
-          <div className="launch-room-status">
-            <h2>
-              <Copy k={orders ? 'ordersUnavailable' : 'launchUnavailable'} />
-            </h2>
-            <p className="muted">
-              <Copy k={orders ? 'ordersBody' : 'launchBody'} />
-            </p>
-          </div>
-          <a className="button button--primary launch-room-support" href="/support">
-            <Copy k="support" />
-          </a>
-          <section>
-            <h3 className="launch-room-required">
-              <Copy k="required" />
-            </h3>
-            <dl className="launch-room-requirements">
-              {(['issuance', 'listing', 'sale'] as const).map((key) => (
-                <div key={key}>
-                  <dt>
-                    <span>
-                      <Copy k={key} />
-                    </span>
-                    <span className="launch-room-state">
-                      <Copy k="unavailable" />
-                    </span>
-                  </dt>
-                  <dd>
-                    <Copy k={key === 'issuance' ? 'issuanceBody' : key === 'listing' ? 'listingBody' : 'saleBody'} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        </section>
-        <aside className="launch-room-aside">
-          <section>
-            <div className="launch-room-side-copy">
-              <h3>
-                <Copy k={orders ? 'returnTitle' : 'history'} />
-              </h3>
-              <p className="muted">
-                <Copy k={orders ? 'returnBody' : 'historyBody'} />
-              </p>
-            </div>
-            <a className="text-link launch-room-link" href={orders ? '/launch' : '/uc/innovation/myorders'}>
-              <Copy k={orders ? 'returnLink' : 'historyLink'} />
-            </a>
-          </section>
-          <section className="launch-room-market">
-            <div className="launch-room-side-copy">
-              <h3>
-                <Copy k="market" />
-              </h3>
-              <p className="muted">
-                <Copy k="marketBody" />
-              </p>
-            </div>
-            <a className="text-link launch-room-link" href="/market/mine">
-              <Copy k="marketLink" />
-            </a>
-          </section>
-          <details className="launch-room-details">
-            <summary>
-              <Copy k="details" />
-            </summary>
-            <p className="muted">
-              <Copy k="detailsBody" />
-            </p>
-          </details>
-        </aside>
-      </div>
     </div>
   );
 }

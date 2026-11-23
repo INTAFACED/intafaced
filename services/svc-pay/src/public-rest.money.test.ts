@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
@@ -117,6 +117,8 @@ const MIGRATIONS = [
   // createPayment reads the business's category (RC-merchant-08). The table is empty here, so nothing is refused.
   '20261024084448_pay_business_categories.sql',
   '20261029051500_pay_business_category_standard.sql',
+  // Every payment says whose custody its money is in, and the business's own receiving wallet (J-merchant-04).
+  '20261114093115_pay_merchant_own_wallet_acceptance.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-pay-public-rest-money-edge-secret-long-enough';
@@ -160,7 +162,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')

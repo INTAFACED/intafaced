@@ -1,7 +1,8 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { getAddress as toChecksum, type Address } from 'viem';
 import type { AddressReportKind } from '@intafaced/contracts/protocol-address-risk';
-import type { AddressRiskStore, LabelRecord, NewReport, ReportRecord } from './risk.js';
+import type { AddressRiskStore, LabelRecord, NewReport, ReportRecord, TokenStanding } from './risk.js';
 
 /**
  * Postgres `AddressRiskStore` over `protocol.address_labels` and `protocol.address_reports` (20261107073648). A report is
@@ -28,10 +29,15 @@ type ReportRow = {
   evidence_url: string | null;
   note: string | null;
   created_at: Date | string;
+  inserted: boolean;
 };
 
 // The service's client is shared with drizzle, which reads timestamps back as text.
 const at = (value: Date | string) => new Date(value);
+
+const stamp = z.union([z.date(), z.string()]);
+const BlockedStanding = z.object({ reason: z.string(), added_at: stamp });
+const GatedStanding = z.object({ pool: z.string(), checker: z.string(), approved_at: stamp });
 
 export class PostgresAddressRiskStore implements AddressRiskStore {
   constructor(private readonly sql: Sql) {}
@@ -64,10 +70,12 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
       INSERT INTO protocol.address_reports (idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note)
       VALUES (${report.idempotencyKey}, ${report.chainId}, ${toChecksum(report.address)}, ${report.reporterId}, ${report.kind},
               ${report.evidenceUrl}, ${report.note})
-      ON CONFLICT (idempotency_key) WHERE status = 'open' DO NOTHING
-      RETURNING id, idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note, created_at`;
+      ON CONFLICT (idempotency_key) WHERE status = 'open'
+        DO UPDATE SET duplicates_refused = protocol.address_reports.duplicates_refused + 1, updated_at = now()
+      RETURNING id, idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note, created_at, (xmax = 0) AS inserted`;
     const row = rows[0];
-    if (!row) return { kind: 'duplicate' };
+    // A second open report by the same person is refused, and counted on the open one so the queue can say so.
+    if (!row || !row.inserted) return { kind: 'duplicate' };
     return {
       kind: 'created',
       report: {
@@ -81,6 +89,22 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
         note: row.note,
         createdAt: at(row.created_at),
       },
+    };
+  }
+
+  async tokenStanding(chainId: number, address: Address): Promise<TokenStanding> {
+    const token = address.toLowerCase();
+    const [blocked] = BlockedStanding.array().parse(
+      await this.sql`SELECT reason, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ${token}`,
+    );
+    const [gated] = GatedStanding.array().parse(
+      await this.sql`
+        SELECT pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
+        WHERE chain_id = ${chainId} AND status = 'approved' AND token_contract = ${token} ORDER BY approved_at DESC LIMIT 1`,
+    );
+    return {
+      blocked: blocked ? { reason: blocked.reason, since: at(blocked.added_at).toISOString() } : null,
+      permissioned: gated ? { pool: gated.pool, checkerAddress: gated.checker, approvedAt: at(gated.approved_at).toISOString() } : null,
     };
   }
 }

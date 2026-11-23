@@ -28,7 +28,7 @@ async function caller() {
     notices: { publish: async () => {} },
     now: () => now,
   });
-  const admin = { venueMarkets } as unknown as TradeOpsAdmin;
+  const admin = { venueMarkets } as TradeOpsAdmin;
   const context = { principal: principalFor(OP, ['admin:read', 'admin:write']), region: 'SG', service: null, requestId: 'ctx' };
   return { store, call: router({ admin: tradeOpsAdminRouter(admin) }).createCaller(context as never) };
 }

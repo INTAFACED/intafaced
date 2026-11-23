@@ -1,12 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
-import { useMerchantAccess, useOptionalMerchantAccess } from '../access/MerchantAccess';
+import { useMerchantAccess } from '../access/MerchantAccess';
+import { useTestMode } from './test-mode';
 import { PortalFailure, PortalLoading, TestTag } from '../components';
 import type { ListState } from '../hooks';
 import { newRequestId } from '../model';
 import { isNotLive, refusalText } from '../refusal';
-import { formatDay } from '../ui/format';
 import { EntityList, type EntityCard, type EntityColumn } from '../ui/EntityList';
 import { dateRange, type ListFilters } from '../ui/FilterRow';
 import type { PortalApi } from '../api';
@@ -14,20 +14,16 @@ import type { ApiResult } from '../../../../shared/api';
 import { NotLiveCard } from '../chrome/NotLiveCard';
 import { reason, type ReasonKey } from '../chrome/copy';
 import { mc } from './copy';
+import { isStatementBusy } from './money-words';
+export { isStatementBusy, payoutName, shortDay } from './money-words';
 import type { ListQuery } from './api';
-
-/** The service allows one statement scan per merchant at a time; a second call is refused as busy. */
-export function isStatementBusy(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
-  const code = result.code?.startsWith('pay.') ? result.code : (/^(pay\.[a-z0-9_]+)/.exec(result.message)?.[1] ?? result.code ?? '');
-  return code === 'pay.statement_busy';
-}
 
 /** A refusal with its plain words and a retry; a busy statement is a calm wait, not an error. */
 export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t } = mc.useCopy();
   if (!isStatementBusy(result)) return <PortalFailure result={result} retry={retry} />;
   return (
-    <div data-testid="failure" className="failure" role="status">
+    <div data-testid="failure" className="lt-refusal" role="status">
       <h3>{t('stmBusyTitle')}</h3>
       <p>{t('rStatementBusy')}</p>
       {retry && (
@@ -56,11 +52,7 @@ export function LinkButton({
   );
 }
 
-/** True when the account runs on test money: its business is not yet approved, so every figure is practice. */
-export function useTestMode(): boolean {
-  const access = useOptionalMerchantAccess()?.access;
-  return access?.status === 'ready' && access.kybStatus !== null && access.kybStatus !== 'approved';
-}
+export { useTestMode } from './test-mode';
 
 export function TestBanner() {
   const { t } = mc.useCopy();
@@ -201,11 +193,10 @@ export function ExportButton({
   const { can } = useMerchantAccess();
   const [state, setState] = useState<'idle' | 'busy' | 'started' | { message: string }>('idle');
   // A different view is a different request; the same view clicked twice replays the first.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const requestId = useMemo(newRequestId, [kind, JSON.stringify(query)]);
   const allowed = can('exports.create');
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <Button
         variant="secondary"
         disabled={!allowed || state === 'busy'}
@@ -232,7 +223,7 @@ export function ExportButton({
         {state === 'started' && (
           <>
             {t('mnExportStarted')}{' '}
-            <a className="text-link" href="/pay/reports/exports">
+            <a className="lt-link" href="/pay/reports/exports">
               {t('mnExportReports')}
             </a>
           </>
@@ -243,7 +234,7 @@ export function ExportButton({
           {state.message}
         </span>
       )}
-      {!allowed && <small className="muted">{t('mnExportNotAllowed')}</small>}
+      {!allowed && <small className="lt-muted">{t('mnExportNotAllowed')}</small>}
     </div>
   );
 }
@@ -252,27 +243,6 @@ export function ExportButton({
 export function whoIs(id: string, me: string | null, names: ReadonlyMap<string, string>, you: string): string {
   if (id === me) return you;
   return names.get(id) ?? `${id.slice(0, 8)}…`;
-}
-
-/**
- * "Payout to ••4421 · Oct 15": named by where it went and the day its settlement was finalised, on every page. With no
- * date to hand the name drops it ("Payout to ••4421") rather than borrowing a different day, such as the day it was asked for.
- */
-export function payoutName(
-  t: ReturnType<typeof mc.useCopy>['t'],
-  locale: string,
-  row: { createdAt?: string | null },
-  approval?: { destinationMasked?: string } | null,
-): string {
-  const to = approval?.destinationMasked;
-  if (!row.createdAt) return to ? t('payoutNameToBare', { to }) : t('payoutNameBare');
-  const when = shortDay(row.createdAt, locale);
-  return to ? t('payoutNameTo', { to, when }) : t('payoutNamePlain', { when });
-}
-
-/** "Oct 15, 2026", in the browser's time zone (the same day the list shows for this row). */
-export function shortDay(value: string, locale: string): string {
-  return formatDay(value, locale) ?? value;
 }
 
 /** A refusal this page words itself (an address that cannot be right), shaped like a service refusal. */

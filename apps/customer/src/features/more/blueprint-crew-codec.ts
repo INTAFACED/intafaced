@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { blueprintExportSchema } from '../../../../../packages/contracts/src/blueprint';
+import type { BlueprintExport } from '@intafaced/contracts/blueprint';
 
 const timestamp = z
   .string()
@@ -7,47 +7,39 @@ const timestamp = z
   .refine((value) => Number.isFinite(new Date(value).getTime()));
 const integerCount = /^-?\d+$/;
 
-/** Validate the whole owner export before dropping profile, card and history.
+/** This caller's check over the owner export (`BLUEPRINT_EXPORT`'s reply), before dropping profile, card and history.
  * The service reads these records sequentially: exportedAt is not an as-of proof.
  */
-export function crewExportForOwner(owner: string) {
-  return blueprintExportSchema.superRefine((record, ctx) => {
-    const reject = () => ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Unverifiable owner crew export' });
+export function crewExportOwnedBy(owner: string) {
+  return (record: BlueprintExport): boolean => {
     if (!timestamp.safeParse(record.exportedAt).success || (record.membership && !timestamp.safeParse(record.membership.joinedAt).success))
-      reject();
+      return false;
     if (
       (record.blueprint && record.blueprint.userId !== owner) ||
       record.mentorMatches.some((row) => row.studentId !== owner) ||
       record.mentoringOthers.some((row) => row.mentorId !== owner)
     )
-      reject();
+      return false;
     if (
       record.blueprint
         ? !record.card || record.card.size !== 'portrait' || record.card.width !== 1080 || record.card.height !== 1350
         : record.card !== null
     )
-      reject();
+      return false;
     const { crew, membership, crewmates } = record;
-    if (!crew && !membership) {
-      if (crewmates.length) reject();
-      return;
-    }
-    if (!crew || !membership) {
-      reject();
-      return;
-    }
-    if (membership.userId !== owner || membership.crewId !== crew.id || !integerCount.test(crew.xp)) reject();
+    if (!crew && !membership) return crewmates.length === 0;
+    if (!crew || !membership) return false;
+    if (membership.userId !== owner || membership.crewId !== crew.id || !integerCount.test(crew.xp)) return false;
     const peers = new Set(crewmates.map((row) => row.userId));
-    if (
+    return !(
       peers.has(owner) ||
       peers.size !== crewmates.length ||
       crewmates.length + 1 > crew.capacity ||
       crewmates.some((row) => !timestamp.safeParse(row.joinedAt).success)
-    )
-      reject();
-  });
+    );
+  };
 }
-export type CrewEnvelope = z.infer<ReturnType<typeof crewExportForOwner>>;
+export type CrewEnvelope = BlueprintExport;
 
 /** Only pass the envelope validated for this request’s captured owner. */
 export function crewProjection(record: CrewEnvelope) {

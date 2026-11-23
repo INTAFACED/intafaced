@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -19,6 +19,7 @@ import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
 import { createPayRouter } from '../router.js';
 import { UserMoneyService } from '../user-money-service.js';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -44,7 +45,7 @@ const RAIL_TEXT = 'rail-text-must-stay-off-the-wire';
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_portal_reads_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -80,10 +81,6 @@ function coveringRange(): { from: string; to: string } {
 const statementFail: PayFail = (message, code) => {
   throw new PayError(message, code);
 };
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function refused(run: Promise<unknown>) {
   try {

@@ -48,6 +48,15 @@ pay/ledger recipe.
 `slaMinutes`. Describing support timing to a user needs an owner ruling
 (DIRECTION §8 item 9).
 
+**Response targets (SP-sla-01).** The score stays a ranking. A lead may set
+the desk's first-reply target (`support.responseTargetsSave`, from the revision
+read, with a reason, logged append-only in `support.sla_policy_log`); it is
+blank and off until then, and turning it on blank refuses
+`support.sla_targets_unset`. While it is on, each new request starts one
+first-reply clock (`support.sla_clocks`, keyed by ticket), and its queue row
+carries `responseDue` (`dueAt`, the creation time plus the target). Off, every
+row's `responseDue` is null again. The customer is shown none of it.
+
 ## API
 
 tRPC under `/trpc` (edge mounts `/api/support`). Principal via edge HMAC
@@ -73,6 +82,8 @@ tRPC under `/trpc` (edge mounts `/api/support`). Principal via edge HMAC
 | `support.getKb`                   | public                | One article or null                                                                                                                                                                                                                                                                                             |
 | `support.listQueue`               | `support:ops`         | Unassigned open/pending only                                                                                                                                                                                                                                                                                    |
 | `support.next`                    | `support:ops`         | Peek next free ticket                                                                                                                                                                                                                                                                                           |
+| `support.responseTargets`         | `support:ops`         | The first-reply target (minutes or null), whether it is on, its revision                                                                                                                                                                                                                                        |
+| `support.responseTargetsSave`     | `support:ops` (lead)  | Set the target or turn it on or off from the revision read; on with no target refuses `support.sla_targets_unset`; stale revision `support.sla_policy_revision_stale`                                                                                                                                           |
 | `support.claim`                   | `support:ops`         | Exclusive claim (atomic)                                                                                                                                                                                                                                                                                        |
 | `support.recordVerificationCheck` | `support:ops`         | Record a check the customer can confirm: an email or one record id, answered by its owner (see Balance disclosure gate)                                                                                                                                                                                         |
 | `support.verificationChecks`      | `support:ops`         | The checks on one ticket (kind and matched, never the value), how many of the two are matched, and the attempts                                                                                                                                                                                                 |
@@ -142,7 +153,7 @@ the opening message counts. Card numbers and recovery phrases are refused as on 
 `chat:<session>` (owner: the account, or the session id for a guest; body: the transcript), then linked in
 `ticket_sources` with the profile type svc-identity answered when the chat opened (`/internal/campaign-participant`,
 read per chat, `unread` when identity cannot answer). A closed chat takes no message (`support.chat_closed`).
-`chatContinueByEmail` answers `vendor.email` (no mailbox in this build) and leaves the chat open.
+`chatContinueByEmail` mails a signed-in owner's chat to their own proved address through svc-identity (`POST /internal/mail`, purpose `support-chat-email`, once per chat a day) when `SUPPORT_CHAT_EMAIL=identity`; blank, or for a guest, it answers `vendor.email`. Either way the chat stays open.
 
 Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
 signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,

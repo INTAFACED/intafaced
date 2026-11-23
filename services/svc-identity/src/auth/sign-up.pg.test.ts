@@ -9,6 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { ageOn, countryCode } from './sign-up.js';
+import { openBirthDate } from '../kyc/birth-date.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
 import { RankService } from '../rank/rank-service.js';
@@ -118,6 +119,7 @@ if (!available) {
       email: `${handle}@example.com`,
       password: PASSWORD,
       country: 'DE',
+      usPerson: false,
       dateOfBirth: '1990-05-01',
       accountType: 'individual' as const,
       ...over,
@@ -174,6 +176,35 @@ if (!available) {
   });
 
   describe('sign-up', () => {
+    it('closed with an invited list: a listed address confirms; a code asked for while open makes no account for anyone else (#9167)', async () => {
+      const invited = form();
+      const stranger = form();
+      const listed = createIdentityRouter(auth, rank, {
+        registrationOpen: false,
+        registrationAllowlist: new Set([invited.email.toLowerCase()]),
+        actionApprovals: stubActionApprovals(),
+      }).createCaller(anonContext);
+      // The stranger asked for a code while registration was open; then it closed to the list.
+      const early = await anon().auth.signUpStart(stranger);
+      const strangerCode = sent[0]!.code;
+      expect((await refusal(listed.auth.signUpStart(form()))).code).toBe('identity.registration_closed');
+      expect(await rows()).toEqual({ users: 0, flows: 1, drafts: 1, outbox: 1 });
+
+      expect((await refusal(listed.auth.signUpConfirm({ flowId: early.flowId, code: strangerCode }))).code).toBe(
+        'identity.registration_closed',
+      );
+      // Nothing made, the code not spent, the draft kept.
+      expect(await rows()).toEqual({ users: 0, flows: 1, drafts: 1, outbox: 1 });
+      expect(await db.sql`SELECT status, attempts FROM auth_flows WHERE id = ${early.flowId}`).toEqual([
+        { status: 'code_sent', attempts: 0 },
+      ]);
+
+      const answer = await listed.auth.signUpStart(invited);
+      const session = await listed.auth.signUpConfirm({ flowId: answer.flowId, code: sent.at(-1)!.code });
+      expect(await db.sql`SELECT email FROM users WHERE id = ${session.userId}`).toEqual([{ email: invited.email }]);
+      expect(await count('users')).toBe(1);
+    });
+
     it('opens no session until the mailed code is entered, then makes one account with the email proved', async () => {
       const input = form();
       const answer = await anon().auth.signUpStart(input);
@@ -202,6 +233,29 @@ if (!available) {
       // The date of birth is checked, not kept.
       expect(JSON.stringify(await db.sql`SELECT * FROM profiles`)).not.toContain('1990-05-01');
       await expect(anon().auth.login({ identifier: input.email, password: PASSWORD })).resolves.toMatchObject({ userId: session.userId });
+    });
+
+    it('with the KYC document key set, keeps the date of birth only sealed, for the trading checks (J-cex-spot-01 #3)', async () => {
+      const key = randomBytes(32);
+      auth.useSignUpPolicy({ ...POLICY, birthDateKey: key });
+      const input = form({ dateOfBirth: '1970-01-01' });
+      const answer = await anon().auth.signUpStart(input);
+      // Sealed in the draft, never in plaintext.
+      expect(JSON.stringify(await db.sql`SELECT * FROM signup_drafts`)).not.toContain('1970-01-01');
+      const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
+      const rows = await db.sql<
+        Array<{ ciphertext: Buffer; nonce: Buffer }>
+      >`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${session.userId}`;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.ciphertext.toString('utf8')).not.toContain('1970');
+      expect(openBirthDate(key, rows[0]!)).toBe('1970-01-01');
+      expect(await count('signup_drafts')).toBe(0);
+    });
+
+    it('with the KYC document key unset, keeps no date of birth at all', async () => {
+      const answer = await anon().auth.signUpStart(form());
+      const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
+      expect(await db.sql`SELECT user_id FROM birth_dates WHERE user_id = ${session.userId}`).toEqual([]);
     });
 
     it('answers a known address exactly like a new one, mails its owner a notice, and no code can finish it', async () => {
@@ -298,6 +352,9 @@ if (!available) {
         [{ country: 'KP' }, 'identity.region_blocked'],
         [{ country: 'DE', nationality: 'KP' }, 'identity.region_blocked'],
         [{ country: 'ZZ' }, 'identity.country_invalid'],
+        [{ country: 'CA', subdivision: 'CA-ON' }, 'identity.region_blocked'],
+        [{ usPerson: true }, 'identity.us_person_blocked'],
+        [{ usPerson: undefined }, 'identity.us_person_unanswered'],
         [{ password: 'short' }, 'auth.password_policy'],
         [{ channel: 'phone', phone: '+4915112345678' }, 'vendor.sms'],
       ];

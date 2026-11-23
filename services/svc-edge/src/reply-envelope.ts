@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { refusalCopy } from './user-copy.js';
+import { API_VERSION_REPLY_HEADERS } from './api-version.js';
 
 /**
  * What every reply from the front door carries (DV-errors-01, RC-developer-03).
@@ -51,8 +52,16 @@ export const REQUEST_ID_HEADER = 'x-request-id' as const;
 export const SERVER_RECEIVED_HEADER = 'x-server-received' as const;
 export const SERVER_SENT_HEADER = 'x-server-sent' as const;
 
-/** The response headers a browser on an allowed origin may read (`cors.ts`). Nothing else is exposed. */
-export const EXPOSED_RESPONSE_HEADERS = [REQUEST_ID_HEADER, SERVER_RECEIVED_HEADER, SERVER_SENT_HEADER] as const;
+/**
+ * The response headers a browser on an allowed origin may read (`cors.ts`). Nothing else is exposed. The last five are the
+ * API version echo and the deprecation advisory on `/api/v1` (`api-version.ts`): public facts of the API, no account data.
+ */
+export const EXPOSED_RESPONSE_HEADERS = [
+  REQUEST_ID_HEADER,
+  SERVER_RECEIVED_HEADER,
+  SERVER_SENT_HEADER,
+  ...API_VERSION_REPLY_HEADERS,
+] as const;
 
 /** The published error pages. Fixed paths plus the code: a link names no account and no key. */
 export const ERRORS_DOCS = '/developers/errors' as const;

@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { lockActiveLivePrice } from './catalog/price-lock.js';
 import { PayError } from './payment-service/internal.js';
@@ -14,7 +14,7 @@ import { PayError } from './payment-service/internal.js';
  * is never made on a price or product archived under it.
  */
 export async function linkPrice(
-  tx: Sql,
+  tx: Queryable,
   merchantId: string,
   priceId: string,
   sent: { amount?: Amount | undefined; currency?: string | undefined },
