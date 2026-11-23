@@ -103,14 +103,14 @@ test.describe('one TEST merchant', () => {
     // Available to pay out is the founder's available; pending settlement is the founder's clearing.
     const available = portal.getByRole('region', { name: 'Available to pay out' }).getByTestId('plo-balance-amount');
     await expect(available).toBeVisible();
-    await expect.poll(async () => figure(await available.innerText())).toBe(founder.available);
+    expect(figure(await available.innerText())).toBe(founder.available);
     // The room's Activity region is itself a section around the merchant's sections: the pending figure is read in the
     // innermost section under its own heading.
     const pending = portal
       .locator('section')
       .filter({ has: portal.getByRole('heading', { name: 'Pending settlement', level: 2 }), hasNot: portal.locator('section') });
     await expect(pending).toContainText('USDT');
-    await expect.poll(async () => figure(await pending.innerText())).toBe(founder.clearing);
+    expect(figure(await pending.innerText())).toBe(founder.clearing);
   });
 
   test(`${J} #3 the business verification queue lists submitted businesses and opens their screens`, async ({ page }) => {

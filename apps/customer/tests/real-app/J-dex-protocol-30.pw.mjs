@@ -96,7 +96,7 @@ test(`${J} #1 opens the scam report queue: reports with the reporter hidden from
   await page.goto(`/dex/tokens/${SUSPECT}`);
   const count = page.getByRole('main').getByTestId('scam-reports');
   await expect(count).toHaveText(/^\d+ reports?$/);
-  await expect.poll(async () => Number((await count.innerText()).split(' ')[0])).toBeGreaterThanOrEqual(1);
+  expect(Number((await count.innerText()).split(' ')[0])).toBeGreaterThanOrEqual(1);
   for (const hidden of [NOTE, reporterId, reporter.email, reporter.handle]) await expect(page.getByRole('main')).not.toContainText(hidden);
   const card = await riskCard(page);
   await expect(card).toContainText(/Reported \d+ times?\./);
