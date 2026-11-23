@@ -23,6 +23,7 @@ import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
 import { controlConfigureInputSchema, controlConfigureResultSchema, founderApprovalDecideInputSchema } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
+import { notBuilt } from './errors.js';
 import type { founderProcedure } from './founder-procedure.js';
 import {
   PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
@@ -50,14 +51,18 @@ async function merchantResult(control: ControlService, outcome: ChangeOutcome) {
   };
 }
 
-/** The contract's merchant-scoped change procedures (`founderAdmin.changes.*`) backed by the control room. */
-export function founderChangeProcedures(founder: Founder, control: ControlService) {
+/**
+ * The contract's merchant-scoped change procedures (`founderAdmin.changes.*`) backed by the control room. One procedure
+ * per path: with no control room each refuses as not built, so the path never has a second, stand-in procedure.
+ */
+export function founderChangeProcedures(founder: Founder, control: ControlService | undefined) {
   return {
     submit: founder
       .input(founderChangeSubmitInputSchema)
       .output(founderChangeSubmitResultSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(async () =>
+      .mutation(({ ctx, input }) => {
+        if (!control) return notBuilt('founderAdmin.changes.submit');
+        return guarded(async () =>
           merchantResult(
             control,
             await control.changes.submit(founderIdOf(ctx), {
@@ -67,36 +72,42 @@ export function founderChangeProcedures(founder: Founder, control: ControlServic
               expectedVersion: input.expectedVersion,
             }),
           ),
-        ),
-      ),
+        );
+      }),
     confirm: founder
       .input(founderChangeConfirmInputSchema)
       .output(founderChangeSubmitResultSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(async () => {
+      .mutation(({ ctx, input }) => {
+        if (!control) return notBuilt('founderAdmin.changes.confirm');
+        return guarded(async () => {
           // This procedure answers in the merchant shape; tier and pricing changes confirm under `control.configure`.
           if ((await control.changes.scopeOfRequest(input.requestId)) !== 'merchant') throw new ControlError('pay.change_not_found');
           return merchantResult(control, await control.changes.confirm(founderIdOf(ctx), input));
-        }),
-      ),
+        });
+      }),
     pending: founder
       .input(founderPendingChangeListInputSchema)
       .output(founderPendingChangeListSchema)
-      .query(({ input }) => guarded(() => control.changes.listPending(input))),
+      .query(({ input }) => (control ? guarded(() => control.changes.listPending(input)) : notBuilt('founderAdmin.changes.pending'))),
   };
 }
 
-export function founderApprovalProcedures(founder: Founder, control: ControlService) {
+/** `founderAdmin.approvals.*`: one procedure per path, refusing as not built with no control room. */
+export function founderApprovalProcedures(founder: Founder, control: ControlService | undefined) {
   return {
     list: founder
       .input(founderApprovalQueueInputSchema)
       .output(founderApprovalQueueSchema)
-      .query(({ input }) => guarded(() => control.approvals.founderQueue(input))),
+      .query(({ input }) => (control ? guarded(() => control.approvals.founderQueue(input)) : notBuilt('founderAdmin.approvals.list'))),
     /** Full destination of one queue row. A mutation so a reveal is never a cached GET: each call is one audit row. */
     destination: founder
       .input(founderApprovalDestinationInputSchema)
       .output(founderApprovalDestinationSchema)
-      .mutation(({ ctx, input }) => guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))),
+      .mutation(({ ctx, input }) =>
+        control
+          ? guarded(() => control.approvals.founderDestination(founderIdOf(ctx), input.approvalId))
+          : notBuilt('founderAdmin.approvals.destination'),
+      ),
   };
 }
 
