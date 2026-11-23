@@ -1,14 +1,9 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
+import { Button, Field, StatusNote } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
 import {
   addReceiveContact,
-  Button,
   contactKind,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   fetchReceiveContacts,
   removeReceiveContact,
   useSession,
@@ -153,10 +148,8 @@ export function ReceiveContacts() {
   }
 
   return (
-    <div className="pay-block" data-testid="receive-contacts">
-      <h3 className="pay-section-title" id={titleId}>
-        {payCopy.t('Ways to receive')}
-      </h3>
+    <div className="lt-stack" data-testid="receive-contacts">
+      <h3 id={titleId}>{payCopy.t('Ways to receive')}</h3>
       <p className="lt-hint">{payCopy.t('Ways to receive hint')}</p>
       {loaded.status === 'loading' ? (
         <p className="lt-hint" aria-busy="true">
@@ -164,137 +157,103 @@ export function ReceiveContacts() {
         </p>
       ) : null}
       {loaded.status === 'failed' ? (
-        <p className="pay-problem" role="alert">
+        <StatusNote tone="error" actions={<Button onClick={() => setRevision((n) => n + 1)}>{payCopy.t('Try again')}</Button>}>
           {payCopy.t('Ways to receive failed')}
-          <button type="button" className="pay-chip" onClick={() => setRevision((n) => n + 1)}>
-            {payCopy.t('Try again')}
-          </button>
-        </p>
+        </StatusNote>
       ) : null}
-      {loaded.status === 'refused' ? (
-        <p className="pay-problem" role="alert">
-          {receiveRefusalText(loaded.code, null)}
-        </p>
-      ) : null}
+      {loaded.status === 'refused' ? <StatusNote tone="error">{receiveRefusalText(loaded.code, null)}</StatusNote> : null}
       {list ? (
-        <ul aria-labelledby={titleId} className="pay-receive-contacts">
+        <ul aria-labelledby={titleId} className="lt-rows">
           {list.contacts.length === 0 ? <li className="lt-hint">{payCopy.t('No ways to receive')}</li> : null}
           {list.contacts.map((contact) => (
-            <li key={contact.id} className="pay-handle-row" data-verified={contact.verified ? '' : undefined}>
-              <span className="pay-handle-row__text">
-                <span className="pay-mono">{contact.target}</span>
+            <li key={contact.id} data-verified={contact.verified ? '' : undefined}>
+              <span className="lt-lines">
+                <span className="lt-mono">{contact.target}</span>
                 <span className="lt-hint">{contact.verified ? payCopy.t('Ready to receive') : payCopy.t('Waiting for its code')}</span>
               </span>
-              {contact.verified ? null : (
-                <Button variant="secondary" size={40} onClick={() => openCode(contact)}>
-                  {payCopy.t('Enter the code')}
+              <span className="lt-actions">
+                {contact.verified ? null : <Button onClick={() => openCode(contact)}>{payCopy.t('Enter the code')}</Button>}
+                <Button
+                  tone="quiet"
+                  aria-label={payCopy.t('Remove {target}', { target: contact.target })}
+                  disabled={removing !== null}
+                  aria-busy={removing === contact.id || undefined}
+                  onClick={() => void remove(contact)}
+                >
+                  {payCopy.t('Remove')}
                 </Button>
-              )}
-              <Button
-                variant="ghost"
-                size={40}
-                aria-label={payCopy.t('Remove {target}', { target: contact.target })}
-                disabled={removing !== null}
-                loading={removing === contact.id}
-                onClick={() => void remove(contact)}
-              >
-                {payCopy.t('Remove')}
-              </Button>
+              </span>
             </li>
           ))}
         </ul>
       ) : null}
-      {rowRefusal ? (
-        <p className="pay-problem" role="alert">
-          {receiveRefusalText(rowRefusal, max)}
-        </p>
-      ) : null}
-      <Button variant="secondary" size={40} disabled={list === null} onClick={openAdd}>
-        {payCopy.t('Add an email or phone to receive by')}
-      </Button>
+      {rowRefusal ? <StatusNote tone="error">{receiveRefusalText(rowRefusal, max)}</StatusNote> : null}
+      <div className="lt-actions">
+        <Button disabled={list === null} onClick={openAdd}>
+          {payCopy.t('Add an email or phone to receive by')}
+        </Button>
+      </div>
 
-      <Dialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
-        <DialogContent>
+      {open ? (
+        <Dialog
+          title={step.kind === 'address' ? payCopy.t('Add a way to receive') : payCopy.t('Enter the code')}
+          closeLabel={payCopy.t('Dismiss')}
+          onClose={() => !busy && setOpen(false)}
+        >
           {step.kind === 'address' ? (
-            <form onSubmit={(event) => void add(event)} noValidate>
-              <DialogHeader>
-                <DialogTitle>{payCopy.t('Add a way to receive')}</DialogTitle>
-                <DialogDescription>{payCopy.t('Add a way to receive body')}</DialogDescription>
-              </DialogHeader>
-              <div className="pay-field">
-                <label className="lt-hint" htmlFor={addressId}>
-                  {payCopy.t('Email or phone')}
-                </label>
-                <input
-                  id={addressId}
-                  className="pay-to__input"
-                  type="text"
-                  inputMode="email"
-                  value={draft}
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  maxLength={320}
-                  aria-invalid={refusal !== null || undefined}
-                  onChange={(event) => setDraft(event.target.value)}
-                />
-                <span className="lt-hint">{payCopy.t('Email or phone hint')}</span>
-              </div>
-              {refusal ? (
-                <p className="pay-problem" role="alert">
-                  {receiveRefusalText(refusal, max)}
-                </p>
-              ) : null}
-              <DialogFooter>
-                <Button type="button" variant="ghost" size={40} disabled={busy} onClick={() => setOpen(false)}>
+            <form className="lt-stack" onSubmit={(event) => void add(event)} noValidate>
+              <p className="lt-hint">{payCopy.t('Add a way to receive body')}</p>
+              <Field
+                id={addressId}
+                label={payCopy.t('Email or phone')}
+                type="text"
+                inputMode="email"
+                value={draft}
+                autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={320}
+                hint={payCopy.t('Email or phone hint')}
+                error={refusal ? receiveRefusalText(refusal, max) : undefined}
+                onChange={(event) => setDraft(event.target.value)}
+              />
+              <div className="lt-actions">
+                <Button tone="quiet" disabled={busy} onClick={() => setOpen(false)}>
                   {payCopy.t('Cancel')}
                 </Button>
-                <Button type="submit" variant="primary" size={40} loading={busy}>
+                <Button type="submit" tone="primary" disabled={busy} aria-busy={busy || undefined}>
                   {payCopy.t('Add')}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           ) : (
-            <form onSubmit={(event) => void confirm(event)} noValidate>
-              <DialogHeader>
-                <DialogTitle>{payCopy.t('Enter the code')}</DialogTitle>
-                <DialogDescription>{payCopy.t('Code sent to {target}', { target: step.contact.target })}</DialogDescription>
-              </DialogHeader>
-              <div className="pay-field">
-                <label className="lt-hint" htmlFor={codeId}>
-                  {payCopy.t('Code')}
-                </label>
-                <input
-                  id={codeId}
-                  className="pay-to__input"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={code}
-                  maxLength={16}
-                  aria-invalid={refusal !== null || undefined}
-                  onChange={(event) => setCode(event.target.value)}
-                  data-mono=""
-                />
-              </div>
-              {refusal ? (
-                <p className="pay-problem" role="alert">
-                  {receiveRefusalText(refusal, max)}
-                </p>
-              ) : null}
-              <DialogFooter>
-                <Button type="button" variant="ghost" size={40} disabled={busy} onClick={() => setOpen(false)}>
+            <form className="lt-stack" onSubmit={(event) => void confirm(event)} noValidate>
+              <p className="lt-hint">{payCopy.t('Code sent to {target}', { target: step.contact.target })}</p>
+              <Field
+                id={codeId}
+                label={payCopy.t('Code')}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                maxLength={16}
+                error={refusal ? receiveRefusalText(refusal, max) : undefined}
+                onChange={(event) => setCode(event.target.value)}
+                data-mono=""
+              />
+              <div className="lt-actions">
+                <Button tone="quiet" disabled={busy} onClick={() => setOpen(false)}>
                   {payCopy.t('Cancel')}
                 </Button>
-                <Button type="submit" variant="primary" size={40} loading={busy}>
+                <Button type="submit" tone="primary" disabled={busy} aria-busy={busy || undefined}>
                   {payCopy.t('Confirm')}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           )}
-        </DialogContent>
-      </Dialog>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
