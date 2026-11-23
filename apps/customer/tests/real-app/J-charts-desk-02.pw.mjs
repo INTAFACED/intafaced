@@ -526,9 +526,14 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
   const tradeBar = Math.floor(Math.max(...streamed.map((row) => row.timestamp)) / 60_000) * 60_000;
   await expect.poll(async () => Number(await host(page).getAttribute('data-last')), { timeout: 30_000 }).toBeGreaterThanOrEqual(tradeBar);
   await expect.poll(drawnBar, { timeout: 30_000 }).not.toBe(before);
-  // A key press moves the chart (the pan key) and the page keeps answering.
+  // The chart as it drew the stream, before the pan below moves the view.
+  await stepPicture();
+  // The page keeps answering: the pan key moves the view (chart-keys.ts), read off the chart. Its exact size isn't
+  // asserted: a pan to the first loaded bar asks for older bars, which renumbers the view.
+  const viewFrom = async () => Number(await host(page).getAttribute('data-view-from'));
+  const fromBefore = await viewFrom();
+  expect(Number.isFinite(fromBefore), 'the chart reports the bars in view').toBe(true);
   await host(page).focus();
   await page.keyboard.press('ArrowLeft');
-  await expect(host(page)).toBeVisible();
-  await stepPicture();
+  await expect.poll(viewFrom, { timeout: 10_000 }).not.toBe(fromBefore);
 });
