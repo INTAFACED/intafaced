@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { pictureFromTop, signIn, signUp, verify } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
 import { doorCalls, ledgerUntouched, ledgerView } from './venue-door.mjs';
@@ -275,7 +275,7 @@ test(`${J} #2 opens a position's details: entry, break-even adjusted by fees to 
       );
     }).toPass({ timeout: 30_000 });
     // The step's picture: the first position's details, open, from the top (a later call takes none).
-    await pictureFromTop(page, stepPicture);
+    await stepPicture(page);
     await detail.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(detail).toHaveCount(0);
   }
@@ -592,6 +592,6 @@ test(`${J} #7 moves a position between main and sub-account: moved where the ven
   }
   // The step's picture: the refused position move and the last margin move, both accounts' figures on screen.
   await expect(movePosition.getByTestId('positions-move-position-refused')).toBeVisible();
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
   await ledgerUntouched(s);
 });
