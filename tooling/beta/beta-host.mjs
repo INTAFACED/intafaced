@@ -16,7 +16,9 @@
  *                                             write status.json: `updating` from before the checkout moves until then,
  *                                             so the front shows its updating page, never a half-built app (#10299)
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
- *                                             stack's state folder); exit 1 on any finding
+ *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
+ *                                             also passes the exact hosted allow list: the test networks' hosts and the
+ *                                             beta's own, nothing else (hostedAllowList)
  *   node tooling/beta/beta-host.mjs status    what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
@@ -143,17 +145,42 @@ export function ensureAnvil(paths, sh = (cmd, args) => spawnSync(cmd, args, { en
 
 // ── The TEST funds check ────────────────────────────────────────────────────
 
+const NO_HOSTS = new Set();
+
+/**
+ * The public test networks' hosts a hosted beta may reach (#10208), each exactly: the Hyperliquid test network's API
+ * (packages/venue-hyperliquid HL_TESTNET_API_URL) and the Base Sepolia RPC. A host is allowed only by an exact match,
+ * never a suffix, so `sepolia.base.org.attacker.net` is a finding. Adding a test network here is the only way to open
+ * one; a mainnet, a bank or a card rail never goes on it.
+ */
+export const HOSTED_TEST_NETWORK_HOSTS = Object.freeze(['api.hyperliquid-testnet.xyz', 'sepolia.base.org']);
+
+/**
+ * The exact allow list for a hosted beta: the test networks' hosts and the beta's own host, nothing else. `betaHost`
+ * must be one plain DNS name (no scheme, port, path or wildcard); anything else throws, so the check never runs open.
+ */
+export function hostedAllowList(betaHost) {
+  const host = String(betaHost ?? '')
+    .trim()
+    .toLowerCase();
+  const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  if (!new RegExp(`^${label}(?:\\.${label})+$`).test(host))
+    throw new Error(`beta: the hosted beta's host must be one plain DNS name like beta.example.com, not "${betaHost ?? ''}"`);
+  return new Set([...HOSTED_TEST_NETWORK_HOSTS, host]);
+}
+
 /**
  * Every address in one process environment that names a host other than this machine, as `{ key, scheme, host }`. A
- * value is read for every `scheme://[user@]host` in it (a list of URLs counts each one). The value itself is never
- * returned: environments hold the stack's secrets.
+ * value is read for every `scheme://[user@]host` in it (a list of URLs counts each one). `allow` (a hosted beta's
+ * `hostedAllowList`) adds hosts that pass by exact match; without it only this machine and reserved names pass. The
+ * value itself is never returned: environments hold the stack's secrets.
  */
-export function outsideAddresses(entries) {
+export function outsideAddresses(entries, allow = NO_HOSTS) {
   const out = [];
   for (const [key, value] of entries) {
     for (const m of String(value).matchAll(/\b([a-z][a-z0-9+.-]*):\/\/(?:[^/\s@"',;]*@)?(\[[^\]]+\]|[^/\s:,;"'?#]+)/gi)) {
       const host = m[2].toLowerCase();
-      if (!LOOPBACK.has(host) && !reservedHost(host)) out.push({ key, scheme: m[1].toLowerCase(), host });
+      if (!LOOPBACK.has(host) && !reservedHost(host) && !allow.has(host)) out.push({ key, scheme: m[1].toLowerCase(), host });
     }
   }
   return out;
@@ -206,7 +233,7 @@ const loopbackListen = (host) => host.startsWith('127.') || host === '::1' || ho
  * finding: the home network could reach it (#10244). Returns `{ ok, lines }`, one line per finding or pass, naming
  * keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, readListeners = () => null, page }) {
+export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -217,15 +244,17 @@ export function fundsCheck({ records, readEnviron, readListeners = () => null, p
     const text = readEnviron(r.pid);
     if (text == null) continue; // a process that has ended holds no route
     read++;
-    const outside = outsideAddresses(environEntries(text));
+    const outside = outsideAddresses(environEntries(text), allow);
     if (outside.length === 0) clean++;
-    for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, off this machine`);
+    const off = allow.size ? 'off this machine and the hosted allow list' : 'off this machine';
+    for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, ${off}`);
     for (const l of readListeners(r.pid) ?? []) {
       if (!loopbackListen(l.host)) findings.push(`${name} (pid ${r.pid}): listens on ${l.host} port ${l.port}, reachable off this machine`);
     }
   }
   if (named.length && read === 0) findings.push('no running process could be read');
-  if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is this machine or a reserved name`);
+  const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
+  if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is ${where}`);
   if (page == null) findings.push('the Customer page did not answer');
   else if (!page.includes(BANNER_MARK)) findings.push(`the Customer page lacks the TEST banner ("${BANNER_MARK}")`);
   else passes.push(`the Customer page carries the TEST banner ("${BANNER_MARK}")`);
@@ -287,9 +316,9 @@ function getText(url) {
   });
 }
 
-async function checkStack(state, link) {
+async function checkStack(state, link, allow = NO_HOSTS) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link) });
+  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
@@ -781,7 +810,9 @@ async function main(argv) {
     const state = i >= 0 ? path.resolve(rest[i + 1]) : paths.state;
     const marker = readJson(path.join(state, 'LOCAL-TEST-STACK.json'), {});
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
-    const c = await checkStack(state, link);
+    const h = rest.indexOf('--hosted');
+    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : NO_HOSTS;
+    const c = await checkStack(state, link, allow);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);
   }
@@ -808,7 +839,9 @@ async function main(argv) {
     console.log(`installed ${paths.unit}; status: node tooling/beta/beta-host.mjs status`);
     return;
   }
-  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install | invited-test [--watch]');
+  console.error(
+    'usage: beta-host.mjs serve | round | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+  );
   process.exit(2);
 }
 
