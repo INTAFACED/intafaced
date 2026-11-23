@@ -113,7 +113,7 @@ env:
 jobs:
   preflight:
     name: Preflight (no credentials)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Belt and braces with the `on:` block. If a future edit adds a trigger, this
     # condition still refuses to run the job — and the step below still fails the
     # run rather than letting it pass silently.
@@ -223,7 +223,7 @@ jobs:
   image:
     name: Build and publish the deployment unit
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Skipped entirely when a digest was supplied — that is the ADR's rollback
     # ("rollback is redeploy previous image tag"). Rebuilding to roll back would
     # mean the thing you roll back to is a fresh build of old source, which is
@@ -322,7 +322,7 @@ jobs:
       always()
       && needs.preflight.result == 'success'
       && (needs.image.result == 'success' || needs.image.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # THE ATTENDED GATE. Required reviewers, wait timer and deployment branch
     # rules are attached HERE, by the owner, in repository settings — a workflow
