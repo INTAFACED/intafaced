@@ -12019,6 +12019,125 @@
         }
       ]
     },
+    "identity.kyc.approve": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "kyc.approve",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["recordId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["none", "basic", "full", "institutional"]
+          },
+          "jurisdiction": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "expired"]
+          },
+          "reviewedAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "userId", "tier", "jurisdiction", "status", "reviewedAt", "expiresAt", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "recordId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.kyc.attempts.read": {
       "service": "svc-identity",
       "module": "identity",

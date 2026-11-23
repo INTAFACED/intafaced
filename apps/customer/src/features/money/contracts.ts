@@ -14,6 +14,7 @@ import type { sharedPotCardSchema, sorterSchema } from './contracts-spaces';
 import { BANK_EARN_SET_AUTO_RENEW } from '@intafaced/contracts/bank-earn-procedures';
 import { BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
+import { BANK_SHARED_POTS_INVITE } from '@intafaced/contracts/bank-shared-pots-procedures';
 
 /**
  * The bank's wire shapes, one file per area (contracts-<area>.ts). This file only composes each area's reads and writes
@@ -146,7 +147,7 @@ export function bankWriteForReview(
       case 'sharedPots.freezeCard':
         return (data as z.infer<typeof sharedPotCardSchema>).status === 'frozen';
       case 'sharedPots.invite': {
-        const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
+        const row = data as z.infer<(typeof BANK_SHARED_POTS_INVITE)['output']>;
         return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;
       }
       case 'sorter.cancel': {

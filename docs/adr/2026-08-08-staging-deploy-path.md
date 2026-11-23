@@ -82,3 +82,13 @@ The owner chose a free, temporary way for people to click through the app before
   - The protection is the `TRY_PASSWORD` secret, which only an admin sets and no agent sees. Wrong guesses are rate-limited.
   - TEST-only money, and the end of the run.
 - **What does not change.** This is not a staging host. A permanent or always-on host still follows this ADR in full: `APP_ENV=staging` stays fail-closed, and setting `APP_ENV=dev` on a reachable host to make it boot stays forbidden. `Try it` is `workflow_dispatch` only, is not a deploy, and has no `push`, `schedule` or `pull_request` trigger.
+
+## Amendment, 23 Nov 2026: the beta posture, staging on TEST networks only (owner decision)
+
+The owner chose a beta mode for real test networks: it keeps staging's protections, and only test networks are allowed (#10217).
+
+- **What it is.** `APP_ENV=staging` plus `INTAFACED_BETA_POSTURE=test-networks`. It is still staging: production posture holds (`packages/config/src/production-posture.ts`: no dev keys, no published passwords, real generated secrets, S2S body binding required), blank owner values still refuse, and screening still fails closed (`INTAFACED_SCREENING_FAIL_CLOSED=off`, a TEST KMS key and TEST business blocks still refuse to boot).
+- **What it opens.** Only TEST networks and labelled TEST stand-ins: a TEST venue (simulator, testnet, partner sandbox; `refuseTestVenueOutsideTest`), the TEST sign-in wallet provider (`TEST:test`, loopback only), and the labelled TEST sanctions list. Each keeps its TEST label; nothing is renamed to read as real.
+- **What it refuses.** `assertBetaPosture` (`packages/config/src/beta-posture.ts`) runs in every service's `loadEnv` and refuses to boot when: the switch has any other value; it is set under any `APP_ENV` but `staging`; any `*_CHAIN_ID` is not a listed public testnet (`BETA_TESTNET_CHAIN_IDS`); any URL setting points at a mainnet endpoint; or any bank or card partner setting (`BANK_*_PARTNER`, `_ISSUER`, `_SCHEME`) names anything but `none`, `off`, `test` or a `*-sim` stand-in. Test: `packages/config/src/beta-posture.test.ts`.
+- **What does not change.** Everything this ADR forbids for real money still holds. Setting `APP_ENV=dev` on a reachable host stays forbidden; the beta switch is the only way to run TEST networks on one. Plain staging, without the switch, refuses every TEST network as before. The switch never runs in `prod`.
+- **Not yet opened.** The tester profile's seed (`docker-compose.apps.yml` `seed`) and the other local stand-ins that check `APP_ENV` dev or test directly still refuse under the beta posture.

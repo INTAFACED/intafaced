@@ -320,6 +320,7 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
       col('recordId', 'Verification id', 'text', { detail: true }),
       col('id', 'Case id', 'text', { detail: true }),
     ],
+    rowAction: 'identity.kyc.approve',
     emptyText: 'This person has asked for no identity verification.',
     forbiddenText:
       'Identity did not accept your founder session for this read (verification cases are for an enabled founder with the compliance permission).',

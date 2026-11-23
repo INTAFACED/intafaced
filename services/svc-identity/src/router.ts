@@ -195,6 +195,7 @@ import {
   IDENTITY_KYC_SELFIE_DECIDE,
   IDENTITY_KYC_PENDING,
   IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_APPROVE,
   IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
@@ -2581,19 +2582,9 @@ export function createIdentityRouter(
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */
-      approve: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            recordId: z.string().guid(),
-            /** When the verification lapses. Null means it does not. */
-            expiresAt: z.string().datetime({ offset: true }).nullish(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(kycRecordOutput)
-        .mutation(async ({ ctx, input }) => {
+      approve: mountRecord(
+        IDENTITY_KYC_APPROVE,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             refuseAgentKycReview(ctx);
@@ -2615,7 +2606,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The other half of a review. Grants nothing. Dual-control matches approve. A reject names a code from the owner's
