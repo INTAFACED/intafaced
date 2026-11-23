@@ -39,7 +39,8 @@ describe('card round-up review', () => {
       BANK_AUTO_INVEST_CREATE_ROUND_UP.output,
     );
     expect(review.safeParse(rule({ targetPoolId: POOL, targetSpaceId: null })).success).toBe(true);
-    expect(review.safeParse(rule({ targetPoolId: POOL })).success).toBe(true);
+    // The record the app parses the reply with names targetSpaceId on every rule (null when none): a reply without it is refused.
+    expect(review.safeParse(rule({ targetPoolId: POOL })).success).toBe(false);
     expect(review.safeParse(rule({ targetPoolId: POOL, targetSpaceId: SPACE })).success).toBe(false);
   });
 });
