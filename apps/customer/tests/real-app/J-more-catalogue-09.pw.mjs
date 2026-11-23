@@ -535,6 +535,7 @@ test(`${J} #6 Opens a proposal and reads my voting power: Power fixed when the p
 
 test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot with bad weights is refused; the vote needs a signed message and a validation rule; if the wallet link is absent the typed unavailable reply shows`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const { who, nonce, ballots } = run.read();
@@ -699,6 +700,8 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   await expect(rows).toHaveText(['TEST first02', 'TEST second1501', 'TEST third03']);
   await expect(tally).toContainText('Voters1');
   await expect(tally).toContainText('Instant-runoff rounds: 1');
+  // This step's page is on its own context (the passkey origin), so its picture is taken from it by name.
+  await stepPicture(page);
 });
 
 test(`${J} #8 Presses Delegate: The refusal naming the Protocol blocker; no row written`, async ({ page }) => {
@@ -780,6 +783,7 @@ test(`${J} #9 Opens the treasury panel: Each figure equals the token service rea
 
 test(`${J} ends: my vote is recorded once with its power fixed at proposal creation; delegation shows its blocker and the treasury view shows only what the token service reports`, async ({
   browser,
+  stepPicture,
 }) => {
   // The re-cast, two concurrent casts, the delegation refusal and the treasury reconcile run in one test.
   test.setTimeout(180_000);
@@ -914,8 +918,10 @@ test(`${J} ends: my vote is recorded once with its power fixed at proposal creat
     ['treasury-bought', 'treasury-burns', 'treasury-distributed', 'treasury-last-buyback', 'treasury-minted', 'treasury-to-rewards'].sort(),
   );
   await expect(treasury.getByTestId('treasury-minted')).toHaveText(view.minted);
-  await expect(treasury.getByTestId('treasury-burns')).toHaveText(units(view.burned) === 0n ? 'none recorded' : view.burned);
+  expect(units(view.burned)).toBe(0n);
+  await expect(treasury.getByTestId('treasury-burns')).toHaveText('none recorded');
   for (const id of ['treasury-bought', 'treasury-to-rewards', 'treasury-distributed', 'treasury-last-buyback']) {
     await expect(treasury.getByTestId(id)).toHaveText('not reported');
   }
+  await stepPicture(page);
 });
