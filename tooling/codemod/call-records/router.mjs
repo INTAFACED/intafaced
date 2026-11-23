@@ -55,14 +55,16 @@ export function procedures(serviceDir, fnName) {
   const seen = new Set();
   const visit = (p, node, prefix, depth, env = undefined) => {
     if (!node || depth > 40) return;
-    const key = `${p.file}:${node.start}:${prefix}`;
+    // A wrapper and what it wraps can start at one offset (`a?.b` and `a.b`), so the type is part of the key.
+    const key = `${p.file}:${node.start}:${node.type}:${prefix}`;
     if (seen.has(key)) return;
     seen.add(key);
     if (
       node.type === 'TSAsExpression' ||
       node.type === 'TSSatisfiesExpression' ||
       node.type === 'ParenthesizedExpression' ||
-      node.type === 'TSNonNullExpression'
+      node.type === 'TSNonNullExpression' ||
+      node.type === 'ChainExpression'
     )
       return visit(p, node.expression, prefix, depth + 1, env);
     if (node.type === 'ObjectExpression') {
@@ -188,8 +190,26 @@ function exportedFunction(q, name) {
 function objectValue(p, node, depth = 0) {
   if (!node || depth > 12) return undefined;
   if (node.type === 'ObjectExpression') return { p, node };
-  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression')
+  if (
+    node.type === 'TSAsExpression' ||
+    node.type === 'TSSatisfiesExpression' ||
+    node.type === 'ParenthesizedExpression' ||
+    node.type === 'TSNonNullExpression' ||
+    node.type === 'ChainExpression'
+  )
     return objectValue(p, node.expression, depth + 1);
+  // An object behind a switch (`ready ? build() : null`, `a && b`): the one branch that gives an object. Two that do are
+  // not guessed between.
+  const branches =
+    node.type === 'ConditionalExpression'
+      ? [node.consequent, node.alternate]
+      : node.type === 'LogicalExpression'
+        ? [node.left, node.right]
+        : null;
+  if (branches) {
+    const found = branches.map((b) => objectValue(p, b, depth + 1)).filter(Boolean);
+    return found.length === 1 ? found[0] : undefined;
+  }
   if (node.type === 'Identifier') {
     const b = bindingOf(p, node, node.name);
     if (b.kind === 'var' && b.declarator.init) return objectValue(p, b.declarator.init, depth + 1);

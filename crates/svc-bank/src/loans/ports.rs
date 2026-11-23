@@ -106,7 +106,7 @@ pub fn market_maker(asset_id: &str) -> LedgerAccount {
 }
 
 /// One whole unit, scaled.
-pub const ONE: Amount = 1_000_000_000_000_000_000;
+pub const ONE: Amount = Amount::whole(1);
 
 impl Venue for MarketMaker {
     fn quote(&self, ask: &SaleAsk<'_>) -> Result<Option<VenueQuote>, String> {
@@ -161,7 +161,7 @@ impl MarginCalls for BusMarginCalls<'_> {
         if !service_kit::tokens::is_guid(&n.loan_id)
             || n.sequence < 1
             || n.ltv_bps < 0
-            || n.cure_collateral_amount < 0
+            || n.cure_collateral_amount < Amount::ZERO
         {
             return Err(format!(
                 "bankMarginCalled payload from {} is invalid",
@@ -216,7 +216,7 @@ pub fn leg_after_repay(
     interest: Amount,
     asset: &str,
 ) -> Vec<FeeLeg> {
-    if interest <= 0 {
+    if interest <= Amount::ZERO {
         return Vec::new();
     }
     vec![FeeLeg {
@@ -237,7 +237,7 @@ pub fn leg_after_liquidate(
     asset: &str,
 ) -> Vec<FeeLeg> {
     let cut = interest + penalty;
-    if cut <= 0 {
+    if cut <= Amount::ZERO {
         return Vec::new();
     }
     vec![FeeLeg {

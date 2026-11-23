@@ -33,9 +33,20 @@ const BUILT = /^services\/(svc-[a-z0-9-]+)\/dist\/([A-Za-z0-9._@/-]+)\.js$/;
 /** Where a stack's services write what ran: `<state>/logs/code/<service>.jsonl`. */
 export const codeReachDir = (state) => path.join(state, 'logs', 'code');
 
-/** The flags and environment that make a Node service `name` record into `dir` (the stack's start, for each one). */
-export function nodeServiceReach(dir, name, env) {
+/**
+ * Set to `off` on a stack no journey runs on (the beta link, tooling/beta/beta-host.mjs): its services start without the
+ * preload. Precise coverage with call counts, read every TICK_MS in each of some thirty services, kept the idle beta at
+ * about two thirds of a core and wrote a gigabyte a day nobody read (project-state #3857).
+ */
+export const STACK_CODE_REACH_ENV = 'LOCAL_STACK_CODE_REACH';
+
+/**
+ * The flags and environment that make a Node service `name` record into `dir` (the stack's start, for each one); no
+ * flags and `env` unchanged when the stack's STACK_CODE_REACH_ENV is `off`.
+ */
+export function nodeServiceReach(dir, name, env, stackEnv = process.env) {
   if (!NAME.test(String(name))) throw new Error(`not a service name: ${name}`);
+  if (stackEnv[STACK_CODE_REACH_ENV] === 'off') return { flags: [], env };
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return { flags: ['--import', pathToFileURL(SELF).href], env: { ...env, [CODE_REACH_ENV]: path.join(dir, `${name}.jsonl`) } };
 }

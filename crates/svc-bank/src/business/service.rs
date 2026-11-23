@@ -641,7 +641,7 @@ pub fn create_account(d: &Deps<'_>, ask: &NewAccount<'_>) -> Result<Account, Ref
             "Business create needs a caller-stable account id",
         ));
     }
-    if ask.spend_threshold <= 0 {
+    if ask.spend_threshold <= Amount::ZERO {
         return Err(refuse(
             "bank.business_invalid_threshold",
             "Business spend threshold must be positive",
@@ -879,7 +879,7 @@ pub fn propose_transfer(d: &Deps<'_>, ask: &Propose<'_>) -> Result<Proposed, Ref
             "Business propose needs a caller-stable client id",
         ));
     }
-    if ask.amount <= 0 {
+    if ask.amount <= Amount::ZERO {
         return Err(refuse(
             "bank.below_minimum",
             "Transfer amount must be positive",
@@ -2029,7 +2029,7 @@ pub fn set_threshold(
     request_id: &str,
 ) -> Result<Control, Refusal> {
     require_request_id(request_id)?;
-    if spend_threshold <= 0 {
+    if spend_threshold <= Amount::ZERO {
         return Err(refuse(
             "bank.business_invalid_threshold",
             "Business spend threshold must be positive",
@@ -2367,7 +2367,7 @@ pub fn run_payroll(d: &Deps<'_>, ask: &Payroll<'_>) -> Result<PayrollRun, Refusa
     let mut seen: Vec<&str> = vec![ask.from_space_id];
     let mut resolved: Vec<(Amount, LedgerAccount)> = Vec::new();
     for (to_space, line_amount) in &ask.recipients {
-        if *line_amount <= 0 {
+        if *line_amount <= Amount::ZERO {
             return Err(refuse(
                 "bank.below_minimum",
                 "Payroll line amount must be positive",

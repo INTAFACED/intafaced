@@ -1007,7 +1007,7 @@ mod tests {
         assert!(
             p(r#"{"kind":"channel","channel":"atm"}"#)
                 .unwrap()
-                .declines("USDT", 1, "atm", None)
+                .declines("USDT", Amount::from_scaled(1), "atm", None)
         );
     }
 
@@ -1017,7 +1017,16 @@ mod tests {
             mode: "challenge_all".to_owned(),
             exemption: Some(("USDT".to_owned(), "30".to_owned())),
         };
-        assert!(three_ds_decision(Some(&policy), "card-present", "USDT", 1, None).is_none());
+        assert!(
+            three_ds_decision(
+                Some(&policy),
+                "card-present",
+                "USDT",
+                Amount::from_scaled(1),
+                None
+            )
+            .is_none()
+        );
         let low = three_ds_decision(
             Some(&policy),
             "online",
@@ -1050,7 +1059,7 @@ mod tests {
         .unwrap();
         assert_eq!((passed.0.result, passed.1), ("pass", None));
         assert_eq!(
-            three_ds_decision(None, "online", "USDT", 1, None)
+            three_ds_decision(None, "online", "USDT", Amount::from_scaled(1), None)
                 .unwrap()
                 .0
                 .result,

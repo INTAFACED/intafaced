@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { merchantStarterFeeSchema } from './merchant-portal.js';
+import {
+  merchantStarterFeeSchema,
+  merchantMyAccessSchema,
+  merchantPortalMerchantInputSchema,
+  merchantBusinessProfileSchema,
+  merchantTermsAcceptInputSchema,
+  merchantTermsAcceptResultSchema,
+  merchantOnboardingProgressSchema,
+} from './merchant-portal.js';
 import { assetIdSchema, amountSchema, onboardingDraftSchema, onboardingDraftSaveInputSchema } from './pay-call-schemas.js';
 import {
   payLinkListInputSchema,
@@ -21,6 +29,7 @@ import {
 } from './pay-portal-reads.js';
 import { payPageSchema } from './pay-merchant-reads.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
+import { merchantCategoryGetInputSchema, merchantCategoryViewSchema, merchantCategoryChooseInputSchema } from './business-category.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `merchant.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -325,6 +334,114 @@ export const PAY_MERCHANT_SUBMIT_KYB = defineProcedure({
   }),
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', kybRef: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_MY_ACCESS = defineProcedure({
+  ...base,
+  name: 'pay.merchant.myAccess',
+  kind: 'query',
+  path: 'merchant.myAccess',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: merchantMyAccessSchema,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_BUSINESS_PROFILE_GET = defineProcedure({
+  ...base,
+  name: 'pay.merchant.businessProfile.get',
+  kind: 'query',
+  path: 'merchant.businessProfile.get',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantPortalMerchantInputSchema,
+  output: merchantBusinessProfileSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner accepts the published terms, on `pay:write` or before verification on `pay:onboard`. Interactive only. */
+export const PAY_MERCHANT_TERMS_ACCEPT = defineProcedure({
+  ...base,
+  name: 'pay.merchant.terms.accept',
+  kind: 'mutation',
+  path: 'merchant.terms.accept',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: merchantTermsAcceptInputSchema,
+  output: merchantTermsAcceptResultSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', version: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_ONBOARDING_PROGRESS = defineProcedure({
+  ...base,
+  name: 'pay.merchant.onboarding.progress',
+  kind: 'query',
+  path: 'merchant.onboarding.progress',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantPortalMerchantInputSchema,
+  output: merchantOnboardingProgressSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * RC-merchant-08: the business category table as the business reads it, and its own choice. The owner, and a
+ * team member who can read the profile.
+ */
+export const PAY_MERCHANT_CATEGORY_GET = defineProcedure({
+  ...base,
+  name: 'pay.merchant.category.get',
+  kind: 'query',
+  path: 'merchant.category.get',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantCategoryGetInputSchema,
+  output: merchantCategoryViewSchema,
+  outputChecks: {
+    reserve_percent_holds: {
+      at: ['output.policy.categories[].reserve.percent', 'output.chosen.category.reserve.percent'],
+      says: 'above 0',
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The owner picks the category, from an interactive session, before the business is verified. */
+export const PAY_MERCHANT_CATEGORY_CHOOSE = defineProcedure({
+  ...base,
+  name: 'pay.merchant.category.choose',
+  kind: 'mutation',
+  path: 'merchant.category.choose',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay' },
+  refusals: {},
+  input: merchantCategoryChooseInputSchema,
+  output: merchantCategoryViewSchema,
+  outputChecks: {
+    reserve_percent_holds: {
+      at: ['output.policy.categories[].reserve.percent', 'output.chosen.category.reserve.percent'],
+      says: 'above 0',
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', categoryKey: 'sample', expectedTableVersion: 1 } },
     { verdict: 'refuse', input: 42 },
   ],
 });

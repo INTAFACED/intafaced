@@ -202,7 +202,7 @@ impl Summary {
         self.by_category
             .iter()
             .find(|(c, _)| *c == category)
-            .map_or(0, |(_, a)| *a)
+            .map_or(Amount::ZERO, |(_, a)| *a)
     }
 }
 
@@ -271,7 +271,7 @@ impl Fold {
                     .outflow
                     .iter()
                     .find(|(k, _)| k == c)
-                    .map_or(0, |(_, a)| *a);
+                    .map_or(Amount::ZERO, |(_, a)| *a);
                 (
                     *c,
                     if *c == "deposits" {
@@ -494,7 +494,7 @@ pub fn month_range(period: &str) -> Result<(Instant, Instant), Refusal> {
 }
 
 fn signed(v: Amount) -> String {
-    if v < 0 {
+    if v < Amount::ZERO {
         format!("-{}", format_amount(-v))
     } else {
         format_amount(v)
@@ -505,9 +505,10 @@ fn signed(v: Amount) -> String {
 fn bps(spent: Amount, target: Amount) -> Result<i64, Refusal> {
     let over = || Refusal::Other("budget progress is out of range".to_owned());
     let q = spent
+        .scaled()
         .checked_mul(10_000)
         .ok_or_else(over)?
-        .checked_div(target)
+        .checked_div(target.scaled())
         .ok_or_else(over)?;
     i64::try_from(q).map_err(|_| over())
 }
@@ -584,7 +585,7 @@ pub fn set(
         )));
     }
     let target = parse_amount(target).map_err(Refusal::Other)?;
-    if target <= 0 {
+    if target <= Amount::ZERO {
         return Err(invalid("A budget target is more than zero"));
     }
     if alert_bps.fract() != 0.0 || alert_bps <= 0.0 || alert_bps > 10_000.0 {
@@ -706,8 +707,8 @@ pub fn compare(
         .iter()
         .map(|c| {
             let by_month: Vec<Amount> = summaries.iter().map(|s| s.outflow(c)).collect();
-            let change =
-                by_month.last().copied().unwrap_or(0) - by_month.first().copied().unwrap_or(0);
+            let change = by_month.last().copied().unwrap_or(Amount::ZERO)
+                - by_month.first().copied().unwrap_or(Amount::ZERO);
             Json::obj([
                 ("category", Json::str(*c)),
                 (
@@ -840,7 +841,7 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "a test")]
     use super::*;
 
-    const ZERO: Amount = 0;
+    const ZERO: Amount = Amount::ZERO;
 
     fn amt(s: &str) -> Amount {
         parse_amount(s).unwrap()

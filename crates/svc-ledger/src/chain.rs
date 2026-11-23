@@ -80,13 +80,13 @@ mod tests {
                 account_id: "a0000000-0000-4000-8000-000000000001",
                 asset_id: "USDT",
                 direction: "debit",
-                amount: 10_000_000_000_000_000_000,
+                amount: Amount::whole(10),
             },
             HashEntry {
                 account_id: "a0000000-0000-4000-8000-000000000002",
                 asset_id: "USDT",
                 direction: "credit",
-                amount: 10_000_000_000_000_000_000,
+                amount: Amount::whole(10),
             },
         ];
         let first = HashTx {
