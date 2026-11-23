@@ -167,9 +167,10 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
         run: |
-          parent=()
-          if [ -f "$RUNNER_TEMP/parent/index.html" ]; then parent=(--parent "$RUNNER_TEMP/parent"); fi
-          node "$GATE" --pr --before "$RUNNER_TEMP/before" --after "$RUNNER_TEMP/after" "${parent[@]}" --shard ${{ matrix.shard }}/3 --out look-pr-out
+          # This job's container runs sh, not bash: no arrays.
+          set --
+          if [ -f "$RUNNER_TEMP/parent/index.html" ]; then set -- --parent "$RUNNER_TEMP/parent"; fi
+          node "$GATE" --pr --before "$RUNNER_TEMP/before" --after "$RUNNER_TEMP/after" "$@" --shard ${{ matrix.shard }}/3 --out look-pr-out
 
       - name: Keep the pictures and the report
         if: success() || failure()
