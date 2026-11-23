@@ -675,7 +675,7 @@ pub fn customer_balances(
         }
         checked += 1;
         let balance = amount(row.try_get(4)?, "accounts.balance")?;
-        if balance != 0 {
+        if balance != Amount::ZERO {
             open.push(CustomerHit {
                 account_id: row.try_get(0)?,
                 asset_id: row.try_get(1)?,

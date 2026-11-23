@@ -432,7 +432,7 @@ fn recurring_row(r: &postgres::Row) -> Result<Recurring, Refusal> {
 /// `canonical`: an amount above zero, in the ledger's canonical text.
 fn canonical(raw: &str) -> Result<(String, Amount), Refusal> {
     let amount = parse_amount(raw).map_err(|_| pp("bank.personal_pay_request_invalid"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(pp("bank.personal_pay_request_invalid"));
     }
     Ok((format_amount(amount), amount))
@@ -491,7 +491,7 @@ fn usable_lookup(row: &Lookup) -> Result<Json, Refusal> {
         return Err(pp(U));
     }
     let amount = parse_amount(&row.amount_due).map_err(|_| pp(U))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(pp(U));
     }
     let d = row.due_date.as_bytes();

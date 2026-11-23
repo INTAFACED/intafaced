@@ -999,7 +999,7 @@ pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunE
 /// \`retryUnpaidWindows\`: the person's sealed, unpaid windows retried smallest first on their own keys; the first the
 /// ledger does not take stops the retry, and it and every larger one stay owed.
 pub fn retry_unpaid_windows(x: &Rt<'_>, user_id: &str) -> Result<Amount, RunError> {
-    let mut owed = 0;
+    let mut owed = Amount::ZERO;
     let mut stopped = false;
     for (session_id, window_id, amount) in meter::unpaid_windows(x.pool, user_id)? {
         if !stopped {
@@ -1043,7 +1043,7 @@ pub fn usage_cost(
     output_tokens: i64,
     price: &Price,
 ) -> Result<Amount, RunError> {
-    let cost = |t: i64, p: Amount| token_cost(Amount::from(t), p).map_err(|e| RunError::Other(e.0));
+    let cost = |t: i64, p: Amount| token_cost(i128::from(t), p).map_err(|e| RunError::Other(e.0));
     Ok(cost(input_tokens, price.input_per_million)?
         + cost(output_tokens, price.output_per_million)?)
 }
@@ -1212,7 +1212,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     if should_meter {
         let owed = retry_unpaid_windows(x, &s.user_id)?;
         let grace = x.rt.overage_grace;
-        if owed > 0 && grace.is_none_or(|g| owed > g) {
+        if owed > Amount::ZERO && grace.is_none_or(|g| owed > g) {
             let refusal = match grace {
                 None => refuse(
                     "agents.overage_grace_unset",
@@ -1251,12 +1251,15 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     }
 
     // 2a · Funds, only for a runtime wired without a spend gate (with one, the hold checks them under its lock).
-    let funds = x.rt.funds.as_deref().filter(|_| should_meter && worst > 0);
+    let funds =
+        x.rt.funds
+            .as_deref()
+            .filter(|_| should_meter && worst > Amount::ZERO);
     if !x.rt.spend
         && let Some(f) = funds
     {
         let outcome = match f.available(x.pool, &s.user_id, fee, &s.agent_id, &s.id) {
-            Ok(reading) => funds::shortfall(&reading, 0, worst),
+            Ok(reading) => funds::shortfall(&reading, Amount::ZERO, worst),
             Err(u) => Some(Outcome::Unread(u)),
         };
         if let Some(o) = outcome {
@@ -1461,7 +1464,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
                 model: Some(&route.model),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
-                cost: if recorded { cost } else { 0 },
+                cost: if recorded { cost } else { Amount::ZERO },
                 user_message_key: "agents.action.completed",
                 user_message_params: vec![audit::param("task", input.task)],
                 input_digest: Some(&input_digest),
@@ -1512,7 +1515,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     Ok(ThinkResult {
         text: done.result.text,
         usage,
-        cost: if metered { cost } else { 0 },
+        cost: if metered { cost } else { Amount::ZERO },
         metered,
         window_id,
         route,

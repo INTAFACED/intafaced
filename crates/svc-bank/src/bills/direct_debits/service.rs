@@ -870,7 +870,7 @@ pub fn present(
     let now = d.now();
     let amount = parse_amount(amount)
         .map_err(|_| invalid("The collection amount must be a decimal string."))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(invalid("The collection amount must be more than zero."));
     }
     let due = service_kit::time::js_date(due_at)

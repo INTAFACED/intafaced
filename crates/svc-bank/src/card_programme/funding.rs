@@ -95,7 +95,7 @@ pub fn read(d: &Deps<'_>, from: Instant, to: Instant) -> Result<Json, Refusal> {
         };
         let decision: String = r.get(2);
         if decision == "approved" {
-            *bucket.1.entry(r.get(1)).or_insert(0) += amount(&r.get::<_, String>(3))?;
+            *bucket.1.entry(r.get(1)).or_insert(Amount::ZERO) += amount(&r.get::<_, String>(3))?;
         } else if decision == "declined" {
             bucket.2 += r.get::<_, i64>(4);
         }
@@ -222,7 +222,7 @@ fn display_marks(
 ) -> BTreeMap<String, (Amount, Instant)> {
     let mut out = BTreeMap::new();
     if assets.iter().any(|a| a == quote) {
-        out.insert(quote.to_owned(), (1_000_000_000_000_000_000, now));
+        out.insert(quote.to_owned(), (Amount::ONE, now));
     }
     let others: Vec<String> = assets.iter().filter(|a| *a != quote).cloned().collect();
     if others.is_empty() {
@@ -387,7 +387,7 @@ pub fn view(d: &Deps<'_>) -> Result<Json, Refusal> {
     let mut rows = Vec::with_capacity(assets.len());
     for asset in &assets {
         let mine = app.get(asset);
-        let app_figure = mine.map(|(h, c)| h + c);
+        let app_figure = mine.map(|(h, c)| *h + *c);
         let sum = match partner.iter().find(|(a, _)| a == asset) {
             Some((_, (h, c))) => Some(amount(h)? + amount(c)?),
             None => None,
@@ -405,7 +405,7 @@ pub fn view(d: &Deps<'_>) -> Result<Json, Refusal> {
         let status = match (partner_figure, difference) {
             (None, _) => "not_known",
             (Some(_), None) => "missing",
-            (Some(_), Some(0)) => "matches",
+            (Some(_), Some(Amount::ZERO)) => "matches",
             _ => "break",
         };
         rows.push(Json::obj([
@@ -460,7 +460,7 @@ pub fn view(d: &Deps<'_>) -> Result<Json, Refusal> {
 /// `positiveOrRefuse`.
 fn positive(raw: &str, what: &str) -> Result<Amount, Refusal> {
     match parse_amount(raw) {
-        Ok(a) if is_decimal(raw) && a > 0 => Ok(a),
+        Ok(a) if is_decimal(raw) && a > Amount::ZERO => Ok(a),
         _ => Err(refuse(
             "bank.card_funding_invalid",
             format!("A programme funding {what} is a positive decimal (bank.card_funding_invalid)"),

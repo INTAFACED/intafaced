@@ -650,7 +650,7 @@ fn cardholder_funds(d: &Deps<'_>, user_id: &str) -> Result<Json, Refusal> {
                 "status",
                 Json::str(match difference {
                     None => "not_known",
-                    Some(0) => "matches",
+                    Some(Amount::ZERO) => "matches",
                     Some(_) => "break",
                 }),
             ),

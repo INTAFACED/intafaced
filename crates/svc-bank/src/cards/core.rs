@@ -242,7 +242,7 @@ pub fn issue(d: &Deps<'_>, ask: &IssueAsk) -> Result<Card, Refusal> {
             ));
         }
     }
-    if ask.per_authorization_limit <= 0 {
+    if ask.per_authorization_limit <= Amount::ZERO {
         return Err(refuse(
             "bank.card_limit_exceeded",
             "A card needs a positive per-authorisation limit",
@@ -486,13 +486,13 @@ pub fn set_limits(
     l: &Limits,
 ) -> Result<Card, Refusal> {
     d.assert_module_enabled()?;
-    if l.per <= 0 {
+    if l.per <= Amount::ZERO {
         return Err(limit_exceeded(
             "A card needs a positive per-authorisation limit",
         ));
     }
     for v in [l.daily, l.monthly, l.cash] {
-        if matches!(v, Some(Some(a)) if a <= 0) {
+        if matches!(v, Some(Some(a)) if a <= Amount::ZERO) {
             return Err(limit_exceeded("A card limit must be a positive amount"));
         }
     }

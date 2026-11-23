@@ -50,7 +50,7 @@ use svc_ledger::status::{self, FreezeState, read_freeze};
 
 const USER: &str = "55555555-5555-4555-8555-555555555555";
 const USER_B: &str = "66666666-6666-4666-8666-666666666666";
-const TEN: i128 = 10_000_000_000_000_000_000;
+const TEN: service_kit::money::Amount = service_kit::money::Amount::whole(10);
 /// 20 integer digits: fits `numeric(38,18)`. Twice that does not.
 const FITS: &str = "60000000000000000000";
 const FROZEN_LOG: &str =
@@ -204,7 +204,7 @@ impl Book {
     }
 
     /// `recipes.deposit` booked as `PostgresLedger.post` books it; `Err` carries the refusal's code.
-    fn deposit_to(&self, user: &str, amount: i128) -> Result<String, String> {
+    fn deposit_to(&self, user: &str, amount: service_kit::money::Amount) -> Result<String, String> {
         let rail_ref = format!("rc-{}", RAIL_REF.fetch_add(1, Ordering::SeqCst));
         let mut c = self.session();
         let mut tx = c.transaction().map_err(|e| e.to_string())?;
@@ -368,7 +368,7 @@ impl Book {
                     &[&id],
                 )
                 .unwrap();
-            let owned: Vec<(String, String, String, i128)> = rows
+            let owned: Vec<(String, String, String, service_kit::money::Amount)> = rows
                 .iter()
                 .map(|r| {
                     (
@@ -1373,7 +1373,7 @@ fn a_customer_check_that_cannot_finish_on_a_consistent_book_is_an_error_never_ma
 #[test]
 fn a_real_scheduled_timeout_does_not_freeze_and_the_next_tick_retries() {
     let Some(b) = book() else { return };
-    b.deposit_to(USER, 1_000_000_000_000_000_000).unwrap();
+    b.deposit_to(USER, service_kit::money::Amount::ONE).unwrap();
     let ledger = b.ledger();
     let run = || ledger.run_scheduled(&opts(1_000, CustodyLayer::On));
     let sink = Sink::default();
