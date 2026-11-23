@@ -15,6 +15,9 @@ import {
   ensureAnvil,
   environEntries,
   fundsCheck,
+  listeningSockets,
+  procHost,
+  readListeners,
   mailboxPage,
   mailboxRows,
   outsideAddresses,
@@ -121,6 +124,76 @@ test('fundsCheck fails closed: no process, no readable process, no page, or a pa
   assert.equal(noBanner.ok, false);
   assert.match(noBanner.lines[0], /lacks the TEST banner/);
 });
+
+test('procHost and listeningSockets read the kernel tables: only LISTEN rows, every address family', () => {
+  assert.equal(procHost('00000000'), '0.0.0.0');
+  assert.equal(procHost('0100007F'), '127.0.0.1');
+  assert.equal(procHost('00000000000000000000000000000000'), '::');
+  assert.equal(procHost('00000000000000000000000001000000'), '::1');
+  assert.equal(procHost('0000000000000000FFFF00000100007F'), '::ffff:127.0.0.1');
+  const table = [
+    '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode',
+    '   0: 00000000:446F 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 111 1 0 100 0 0 10 0',
+    '   1: 0100007F:4470 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 222 1 0 100 0 0 10 0',
+    '   2: 0100007F:4470 0100007F:9C40 01 00000000:00000000 00:00000000 00000000  1000        0 333 1 0 20 4 30 10 -1',
+  ].join('\n');
+  assert.deepEqual(listeningSockets(table), [
+    { inode: '111', host: '0.0.0.0', port: 17519 },
+    { inode: '222', host: '127.0.0.1', port: 17520 },
+  ]);
+});
+
+test('fundsCheck fails a listener on every interface, naming the process, host and port; loopback passes (#10244)', () => {
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  const check = (listeners) => fundsCheck({ records: { fix: { pid: 31 } }, readEnviron: ok, readListeners: () => listeners, page: PAGE });
+  for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
+    const r = check([
+      { host: '127.0.0.1', port: 17526 },
+      { host, port: 17527 },
+    ]);
+    assert.equal(r.ok, false, host);
+    assert.ok(r.lines.includes(`FAIL fix (pid 31): listens on ${host} port 17527, reachable off this machine`), r.lines.join('\n'));
+  }
+  assert.equal(
+    check([
+      { host: '127.0.0.1', port: 17526 },
+      { host: '::1', port: 17527 },
+      { host: '::ffff:127.0.0.1', port: 17528 },
+    ]).ok,
+    true,
+  );
+});
+
+test(
+  'the real check fails a planted all-interfaces listener in a live process and passes it on loopback (#10244)',
+  { skip: process.platform !== 'linux' && 'reads /proc' },
+  async () => {
+    const net = await import('node:net');
+    const listenOn = (host) =>
+      new Promise((resolve) => {
+        const s = net.createServer();
+        s.listen(0, host, () => resolve(s));
+      });
+    const run = () => fundsCheck({ records: { planted: { pid: process.pid } }, readEnviron: () => environ({}), readListeners, page: PAGE });
+    const wild = await listenOn('0.0.0.0');
+    try {
+      const r = run();
+      assert.equal(r.ok, false);
+      assert.ok(
+        r.lines.includes(`FAIL planted (pid ${process.pid}): listens on 0.0.0.0 port ${wild.address().port}, reachable off this machine`),
+        r.lines.join('\n'),
+      );
+    } finally {
+      await new Promise((resolve) => wild.close(resolve));
+    }
+    const local = await listenOn('127.0.0.1');
+    try {
+      assert.equal(run().ok, true, run().lines.join('\n'));
+    } finally {
+      await new Promise((resolve) => local.close(resolve));
+    }
+  },
+);
 
 test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {
   assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');

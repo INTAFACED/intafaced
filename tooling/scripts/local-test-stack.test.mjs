@@ -76,6 +76,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   const servicePorts = defs.map((d) => d.env.HTTP_PORT);
   for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
   assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
+  // svc-fix binds its FIX sockets and ingest listener to HTTP_HOST: loopback, never the home network (#10244).
+  assert.equal(fixEnv.HTTP_HOST, '127.0.0.1', 'svc-fix listens on loopback only');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
     for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
