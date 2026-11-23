@@ -75,7 +75,7 @@ export function CollateralTab({ collateral }: { collateral: Loadable<Collateral>
                 const words = futuresRefusal({ code: r.code ?? undefined });
                 const name = REFUSED_NAMES[r.collateralClass as keyof typeof REFUSED_NAMES];
                 return (
-                  <li key={r.collateralClass} className="text-xs text-fg-2" data-code={r.code ?? undefined}>
+                  <li key={r.collateralClass} className="lt-hint" data-code={r.code ?? undefined}>
                     <span className="text-fg">{name ? t(name) : r.collateralClass}</span>: {words.title}
                   </li>
                 );

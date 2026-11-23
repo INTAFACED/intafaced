@@ -130,6 +130,7 @@ export const EVENT_BUS_MATRIX = {
   orderUpdated: { kind: 'live' },
   fillSettled: { kind: 'live' },
   positionUpdated: { kind: 'live' },
+  venueBalanceChanged: { kind: 'live' },
   protocolAccountCreated: { kind: 'socket', socketClass: 'A' },
   protocolSessionKeyCreated: { kind: 'socket', socketClass: 'A' },
   protocolSessionKeyCancelled: { kind: 'socket', socketClass: 'A' },

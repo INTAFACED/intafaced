@@ -47,7 +47,7 @@ async function session(tier: KycTier, region = 'DE'): Promise<Context> {
 const ok = () => ({ ok: true });
 
 const surface = router({
-  // services/svc-bank/src/router.ts — `spaces.list`, `spaces.create`
+  // crates/svc-bank/src/door/calls.rs — `spaces.list`, `spaces.create`
   bankRead: scopedProcedure('bank:read', { module: 'bank' }).query(ok),
   bankWrite: scopedProcedure('bank:write', { module: 'bank' }).mutation(ok),
   // Withheld from every session: interactive-only card spend authority.

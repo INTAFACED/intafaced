@@ -46,6 +46,8 @@ const ROOT = process.cwd();
 const LEDGER_BIN = process.env.SVC_LEDGER_BIN ?? 'target/release/svc-ledger';
 /** svc-matching's Rust binary (crates/svc-matching), built by the workflow. */
 const MATCHING_BIN = process.env.SVC_MATCHING_BIN ?? 'target/release/svc-matching';
+/** svc-bank's Rust binary (crates/svc-bank), built by the workflow. */
+const BANK_BIN = process.env.SVC_BANK_BIN ?? 'target/release/svc-bank';
 const SECRET = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-only-cx8-internal-service-secret-xx';
 const EDGE = process.env.EDGE_PRINCIPAL_SECRET ?? 'dev-only-cx8-edge-principal-secret-xxxx';
 const JWT = process.env.JWT_ACCESS_SECRET ?? 'dev-only-cx8-jwt-access-secret-xxxxxxxx';
@@ -307,7 +309,8 @@ async function main() {
       DATABASE_URL: payUrl,
       ...common,
     });
-    await run('pnpm', ['--filter', '@intafaced/svc-bank', 'db:migrate'], {
+    // svc-bank is the Rust binary the workflow builds (`cargo build --release -p svc-bank`); it applies its own migrations.
+    await run(BANK_BIN, ['migrate'], {
       DATABASE_URL: bankUrl,
       ...common,
     });
@@ -362,7 +365,7 @@ async function main() {
   // Bank, for the wallet-view journeys: balances read from the ledger, no rail, no card programme, no price feed. Every owner-set
   // figure below is a throwaway for this rig, not a product value.
   if (WITH_PAY)
-    start('bank', 'node', ['services/svc-bank/dist/index.js'], {
+    start('bank', BANK_BIN, [], {
       ...common,
       SERVICE_NAME: 'svc-bank',
       HTTP_HOST: '127.0.0.1',

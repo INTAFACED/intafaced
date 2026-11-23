@@ -1,17 +1,9 @@
-//! The wire replay. `services/svc-bank/src/wire-replay.golden/` is what the TypeScript service answered (through the
-//! production Fastify adapter, every dependency a stub) to every tRPC call and every REST door `index.ts` mounts through
-//! an exported register function, with six inputs (absent, null, a wrong type, empty, the schema's sample, the sample
-//! with every field null), from five people (nobody, a person holding no scope, a verified customer, a holder of every
-//! scope, the same in the US) and seven signed services. This sends the same requests, built the same way, to the Rust
-//! door.
-//!
-//! An answer the door decides must match byte for byte: every route and method refusal, every 401, every scope, tier,
-//! region, job and service 403, every input 400, the REST doors' refusals and the door's own call (`health`). Any other
-//! answer is the handler's: while the Rust door answers it "not ported" it is owed by the call's slice, counted and
-//! printed, and fails nothing. One difference that is not owed fails the test.
-//!
-//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-bank --test it -- wire_replay:: --nocapture` prints that
-//! slice's owed answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any.
+//! The wire replay. `tests/fixtures/wire-replay.golden/` is what the TypeScript service answered before it was deleted
+//! (through the production Fastify adapter, every dependency a stub) to every tRPC call and every REST door `index.ts`
+//! mounted through an exported register function, with six inputs (absent, null, a wrong type, empty, the schema's
+//! sample, the sample with every field null), from five people (nobody, a person holding no scope, a verified customer,
+//! a holder of every scope, the same in the US) and seven signed services. This sends the same requests, built the same
+//! way, to the Rust door, and every answer must match byte for byte: status and body.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,7 +12,7 @@
     reason = "a test: a failure is the point"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use service_kit::edge;
@@ -291,8 +283,7 @@ fn s(j: &Json, k: &str) -> String {
 }
 
 fn golden() -> Golden {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../services/svc-bank/src/wire-replay.golden");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wire-replay.golden");
     let callers = json::parse(&std::fs::read_to_string(dir.join("callers.json")).unwrap()).unwrap();
     let Json::Array(callers) = callers else {
         panic!("callers.json")
@@ -406,23 +397,12 @@ struct Tally {
     sent: usize,
     same: usize,
     held: BTreeMap<u16, usize>,
-    owed: BTreeMap<Slice, (usize, usize, BTreeSet<String>)>,
     differ: Vec<String>,
 }
 
 impl Tally {
-    fn judge(
-        &mut self,
-        key: &str,
-        slice: Slice,
-        decides: bool,
-        want: &(u16, String),
-        got: (u16, String),
-        only: Option<&str>,
-    ) {
+    fn judge(&mut self, key: &str, decides: bool, want: &(u16, String), got: (u16, String)) {
         self.sent += 1;
-        let entry = self.owed.entry(slice).or_default();
-        entry.1 += 1;
         if &got == want {
             self.same += 1;
             if decides {
@@ -430,29 +410,15 @@ impl Tally {
             }
             return;
         }
-        let not_ported = got.0 == 500
-            && got
-                .1
-                .contains(&format!("the {} slice is not ported", slice.name()));
-        if not_ported && !decides {
-            entry.0 += 1;
-            entry
-                .2
-                .insert(key.split(' ').next().unwrap_or("").to_owned());
-            if only == Some(slice.name()) {
-                println!("owed {key}: {} {}", want.0, want.1);
-            }
-        } else {
-            self.differ.push(format!(
-                "{key}:\n  ts:   {} {}\n  rust: {} {}",
-                want.0, want.1, got.0, got.1
-            ));
-        }
+        self.differ.push(format!(
+            "{key}:\n  ts:   {} {}\n  rust: {} {}",
+            want.0, want.1, got.0, got.1
+        ));
     }
 }
 
 #[test]
-fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
+fn every_recorded_request_gets_the_recorded_answer() {
     let g = golden();
     let ours: Vec<(String, String, String)> = door::callers()
         .into_iter()
@@ -464,8 +430,6 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
     );
 
     let door = serve();
-    let only = std::env::var("WIRE_REPLAY_SLICE").ok();
-    let strict = std::env::var("WIRE_REPLAY_STRICT").ok();
     let mut t = Tally::default();
     let want = |key: &str| {
         g.answers
@@ -498,14 +462,7 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
                 let key = format!("{} {input_name} {who}", call.path);
                 let w = want(&key);
                 let got = send(&door, method, &url, payload.as_deref(), h);
-                t.judge(
-                    &key,
-                    call.slice,
-                    door_decides(call, w.0, &w.1),
-                    &w,
-                    got,
-                    only.as_deref(),
-                );
+                t.judge(&key, door_decides(call, w.0, &w.1), &w, got);
             }
         }
     }
@@ -523,7 +480,7 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
                 let w = want(&key);
                 let got = send(&door, "POST", rest.path, Some(&payload), h);
                 let decides = w.0 != 200 && w.0 != 503;
-                t.judge(&key, rest.slice, decides, &w, got, only.as_deref());
+                t.judge(&key, decides, &w, got);
             }
         }
     }
@@ -535,28 +492,8 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
     );
     println!("wire replay: {} answers, {} the same", t.sent, t.same);
     println!("  held byte for byte by the door: {:?}", t.held);
-    for (slice, (n, of, calls)) in &t.owed {
-        println!(
-            "  owed by {:<16} {n:>5} of {of:>5} answers, over {} calls",
-            slice.name(),
-            calls.len()
-        );
-    }
     for d in t.differ.iter().take(30) {
         println!("{d}");
     }
-    assert!(
-        t.differ.is_empty(),
-        "{} answers differ and are not owed by a slice",
-        t.differ.len()
-    );
-    if let Some(s) = strict {
-        let left: usize = t
-            .owed
-            .iter()
-            .filter(|(k, _)| k.name() == s)
-            .map(|(_, v)| v.0)
-            .sum();
-        assert_eq!(left, 0, "the {s} slice still owes {left} answers");
-    }
+    assert!(t.differ.is_empty(), "{} answers differ", t.differ.len());
 }

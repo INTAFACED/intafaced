@@ -743,6 +743,7 @@ pub fn from_env(env: &BTreeMap<String, String>) -> Result<Ports, String> {
                 .to_owned(),
             signer,
             fetch: Box::new(UreqFetch::new()),
+            post: None,
         },
     };
     Ok((Box::new(pay), Box::new(registry)))
