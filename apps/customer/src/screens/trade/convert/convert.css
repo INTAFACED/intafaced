@@ -37,6 +37,7 @@
     column-gap: var(--if-space-16);
     align-items: start;
     padding-top: var(--if-space-8);
+    padding-bottom: var(--if-space-12);
   }
   .cvt-hero h1 {
     display: flex;
