@@ -1,67 +1,30 @@
-// hand-declared-ok: svc-pay's allowlist view schemas live in the service, not in a browser-safe @intafaced/contracts export yet; moving them there is a contracts follow-up.
 import { z } from 'zod';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  PAY_ALLOWLIST_CANCEL,
+  PAY_ALLOWLIST_GET,
+  PAY_ALLOWLIST_LIST_CHANGES,
+  PAY_ALLOWLIST_LIST_ENTRIES,
+  PAY_ALLOWLIST_MODE,
+  PAY_ALLOWLIST_POLICY,
+  PAY_ALLOWLIST_PROPOSE_ADD,
+  PAY_ALLOWLIST_PROPOSE_DELETE,
+  PAY_ALLOWLIST_PROPOSE_POLICY,
+  PAY_ALLOWLIST_SET_MODE,
+} from '@intafaced/contracts/pay-allowlist-procedures';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { decimalSchema } from '../../shared/money';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 
-// Published svc-pay `allowlist.*` views. The list says where money MAY go; it is not a balance and moves nothing.
+// svc-pay's `allowlist.*` calls, each by its record (`@intafaced/contracts/pay-allowlist-procedures`). The list says where
+// money MAY go; it is not a balance and moves nothing.
+export type AllowlistEntry = ProcedureOutput<typeof PAY_ALLOWLIST_LIST_ENTRIES>[number];
+export type AllowlistChange = ProcedureOutput<typeof PAY_ALLOWLIST_GET>;
+export type AllowlistMode = ProcedureOutput<typeof PAY_ALLOWLIST_MODE>;
+export type AllowlistPolicy = ProcedureOutput<typeof PAY_ALLOWLIST_POLICY>;
+export type AllowlistSetModeResult = ProcedureOutput<typeof PAY_ALLOWLIST_SET_MODE>;
+export type AllowlistGroup = AllowlistEntry['group'];
+
 const id = z.string().guid();
-const stamp = z.string().datetime({ offset: true });
-
-export const entrySchema = z.object({
-  id,
-  userId: id,
-  group: z.enum(['internal_wallet', 'external_wallet', 'contract']),
-  assetId: z.string().min(1).max(32),
-  address: z.string().min(1),
-  label: z.string().min(1),
-  state: z.enum(['active', 'suspended', 'removed']),
-  createdBy: z.string(),
-  suspendedReason: z.string().nullable(),
-  createdAt: stamp,
-  lastUsedAt: stamp.nullable(),
-});
-export type AllowlistEntry = z.infer<typeof entrySchema>;
-
-export const CHANGE_STATUSES = ['waiting', 'approved', 'cancelled', 'rejected', 'failed'] as const;
-export const changeSchema = z.object({
-  id,
-  userId: id,
-  op: z.enum(['add', 'delete', 'mode_off', 'onetime_policy']),
-  entryId: id.nullable(),
-  subject: z.record(z.string(), z.unknown()),
-  requestHash: z.string().regex(/^[0-9a-f]{64}$/),
-  teamAccountId: id,
-  requiredApprovals: z.number().int().min(1),
-  approvalCount: z.number().int().min(0),
-  approvedByMe: z.boolean(),
-  status: z.enum(CHANGE_STATUSES),
-  failureCode: z.string().nullable(),
-  createdAt: stamp,
-  decidedAt: stamp.nullable(),
-});
-export type AllowlistChange = z.infer<typeof changeSchema>;
-
-export const modeSchema = z.object({ userId: id, enabled: z.boolean(), setAt: stamp.nullable() });
-export type AllowlistMode = z.infer<typeof modeSchema>;
-
-export const policySchema = z.object({
-  userId: id,
-  enabled: z.boolean(),
-  assetId: z.string().nullable(),
-  maxAmount: z
-    .string()
-    .regex(/^\d+(\.\d{1,18})?$/)
-    .pipe(decimalSchema)
-    .nullable(),
-  setAt: stamp.nullable(),
-});
-export type AllowlistPolicy = z.infer<typeof policySchema>;
-
-export const setModeResultSchema = z.object({ mode: modeSchema, change: changeSchema.nullable() });
-export type AllowlistSetModeResult = z.infer<typeof setModeResultSchema>;
-export type AllowlistGroup = z.infer<typeof entrySchema>['group'];
-
 const changeIdSchema = id.transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
 
@@ -91,7 +54,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
     async mode(signal?: AbortSignal): Promise<ApiResult<AllowlistMode>> {
       const denied = admission(signal);
       if (denied) return denied;
-      const result = await api.query('pay', 'allowlist.mode', {}, modeSchema, { signal });
+      const result = await api.call(PAY_ALLOWLIST_MODE, {}, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       return result.ok && result.data.userId !== userId ? refuse('allowlist.window_invalid', 'invalidWindow') : result;
@@ -99,7 +62,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
     async policy(signal?: AbortSignal): Promise<ApiResult<AllowlistPolicy>> {
       const denied = admission(signal);
       if (denied) return denied;
-      const result = await api.query('pay', 'allowlist.policy', {}, policySchema, { signal });
+      const result = await api.call(PAY_ALLOWLIST_POLICY, {}, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       return result.ok && result.data.userId !== userId ? refuse('allowlist.window_invalid', 'invalidWindow') : result;
@@ -108,7 +71,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
       const denied = admission(signal);
       if (denied) return denied;
       if (!limitSchema.safeParse(limit).success) return refuse('allowlist.window_invalid', 'invalidWindow');
-      const result = await api.query('pay', 'allowlist.listEntries', { limit }, z.array(entrySchema), { signal });
+      const result = await api.call(PAY_ALLOWLIST_LIST_ENTRIES, { limit }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       return result.ok && !ownRows(result.data, limit) ? refuse('allowlist.window_invalid', 'invalidWindow') : result;
@@ -117,7 +80,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
       const denied = admission(signal);
       if (denied) return denied;
       if (!limitSchema.safeParse(limit).success) return refuse('allowlist.window_invalid', 'invalidWindow');
-      const result = await api.query('pay', 'allowlist.listChanges', { limit }, z.array(changeSchema), { signal });
+      const result = await api.call(PAY_ALLOWLIST_LIST_CHANGES, { limit }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       return result.ok && !ownRows(result.data, limit) ? refuse('allowlist.window_invalid', 'invalidWindow') : result;
@@ -127,7 +90,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
       if (denied) return denied;
       const parsed = changeIdSchema.safeParse(changeId);
       if (!parsed.success) return refuse('allowlist.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'allowlist.get', { changeId: parsed.data }, changeSchema, { signal });
+      const result = await api.call(PAY_ALLOWLIST_GET, { changeId: parsed.data }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       return result.ok && result.data.id.toLowerCase() !== parsed.data ? refuse('allowlist.input_invalid', 'invalidId') : result;
@@ -138,7 +101,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
       if (denied) return denied;
       const parsed = changeIdSchema.safeParse(changeId);
       if (!parsed.success) return refuse('allowlist.input_invalid', 'invalidId');
-      return api.mutate('pay', 'allowlist.cancel', { changeId: parsed.data }, changeSchema);
+      return api.call(PAY_ALLOWLIST_CANCEL, { changeId: parsed.data });
     },
     // The four calls below need `trade:withdraw`. Each carries the one-use token from `WithdrawStepUp` as its own bearer;
     // the session is never swapped. `clientRef` is the request's own reference, fixed when the person starts the action
@@ -147,7 +110,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
     async setMode(enabled: boolean, clientRef: string, token: string): Promise<ApiResult<AllowlistSetModeResult>> {
       const denied = admission();
       if (denied) return denied;
-      return api.mutate('pay', 'allowlist.setMode', { enabled, clientRef }, setModeResultSchema, { bearer: token });
+      return api.call(PAY_ALLOWLIST_SET_MODE, { enabled, clientRef }, { bearer: token });
     },
     async proposeAdd(
       input: { group: AllowlistGroup; assetId: string; address: string; label: string; clientRef: string },
@@ -155,12 +118,12 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
     ): Promise<ApiResult<AllowlistChange>> {
       const denied = admission();
       if (denied) return denied;
-      return api.mutate('pay', 'allowlist.proposeAdd', input, changeSchema, { bearer: token });
+      return api.call(PAY_ALLOWLIST_PROPOSE_ADD, input, { bearer: token });
     },
     async proposeDelete(entryId: string, clientRef: string, token: string): Promise<ApiResult<AllowlistChange>> {
       const denied = admission();
       if (denied) return denied;
-      return api.mutate('pay', 'allowlist.proposeDelete', { entryId, clientRef }, changeSchema, { bearer: token });
+      return api.call(PAY_ALLOWLIST_PROPOSE_DELETE, { entryId, clientRef }, { bearer: token });
     },
     async proposePolicy(
       input: { enabled: boolean; assetId: string; maxAmount: string; clientRef: string },
@@ -168,7 +131,7 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
     ): Promise<ApiResult<AllowlistChange>> {
       const denied = admission();
       if (denied) return denied;
-      return api.mutate('pay', 'allowlist.proposePolicy', input, changeSchema, { bearer: token });
+      return api.call(PAY_ALLOWLIST_PROPOSE_POLICY, input, { bearer: token });
     },
   };
 }

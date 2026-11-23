@@ -135,27 +135,28 @@ describe('the owner calls that need the withdrawal token', () => {
     decidedAt: null,
   };
   const make = () => {
-    const mutate = vi.fn().mockResolvedValue({ ok: true, data: changeRow });
-    return { mutate, reads: createAllowlistReads({ mutate } as never, ownerId, () => true) };
+    const call = vi.fn().mockResolvedValue({ ok: true, data: changeRow });
+    return { call, reads: createAllowlistReads({ call } as never, ownerId, () => true) };
   };
 
-  it('sends each one with the confirmation token as its own bearer and the request reference', async () => {
-    const { mutate, reads } = make();
+  it('sends each one by its record with the confirmation token as its own bearer and the request reference', async () => {
+    const { call, reads } = make();
     await reads.proposeAdd({ group: 'external_wallet', assetId: 'USDT', address: '0xabc', label: 'Cold', clientRef: 'r1' }, 'tok');
     await reads.proposeDelete('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'r2', 'tok');
     await reads.proposePolicy({ enabled: true, assetId: 'USDT', maxAmount: '10', clientRef: 'r3' }, 'tok');
-    expect(mutate.mock.calls.map((c: unknown[]) => c[1])).toEqual([
+    expect(call.mock.calls.map((c: unknown[]) => (c[0] as { path: string }).path)).toEqual([
       'allowlist.proposeAdd',
       'allowlist.proposeDelete',
       'allowlist.proposePolicy',
     ]);
-    for (const call of mutate.mock.calls) expect(call[4]).toEqual({ bearer: 'tok' });
+    expect(call.mock.calls.map((c: unknown[]) => (c[1] as { clientRef: string }).clientRef)).toEqual(['r1', 'r2', 'r3']);
+    for (const c of call.mock.calls) expect(c[2]).toEqual({ bearer: 'tok' });
   });
 
   it('sends nothing when the account changed', async () => {
-    const mutate = vi.fn();
-    const reads = createAllowlistReads({ mutate } as never, ownerId, () => false);
+    const call = vi.fn();
+    const reads = createAllowlistReads({ call } as never, ownerId, () => false);
     expect(await reads.setMode(true, 'r', 'tok')).toMatchObject({ ok: false });
-    expect(mutate).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
   });
 });

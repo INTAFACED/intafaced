@@ -378,7 +378,7 @@ function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
         </div>
         {plane.detail && plane.status === 'reachable' && <p className="adm-footnote">{plane.detail}</p>}
         <p className="adm-footnote">
-          Operator runbook: <code>docs/OPS-KILL-SWITCH-RUNBOOK.md</code>
+          Operator runbook: <code>docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md</code>
         </p>
       </div>
     </Panel>

@@ -12,6 +12,7 @@ import {
 /** One row per `module/reason` the ledger posts today. The kind is what a person sees. */
 const ROWS: Array<[string, string, ActivityKind]> = [
   ['ledger', 'deposit.credited', 'deposit'],
+  ['ledger', 'deposit.reversed', 'deposit'],
   ['ledger', 'withdraw.held', 'withdrawal'],
   ['ledger', 'withdraw.settled', 'withdrawal'],
   ['ledger', 'withdraw.reversed', 'withdrawal'],

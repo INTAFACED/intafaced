@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Button, StateBlock } from '@intafaced/ui';
 import { navigate } from '../../../../app/location';
-import { createActivityFeed, fmtAmount, refusalCopy } from '../../../../data';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
-import { useSession } from '../../../session/session';
-import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
+import { useSession } from '../../../session';
+import { readRequests, removeRequest } from '../personal-model';
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
-import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
+import { decodedSegment, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
-import { fetchHeldSend, type HeldSend } from '../../held-send';
+import { SETTINGS_ROOM_IDS, SettingsRoom } from './SettingsRooms';
 import { isServerRequestId } from '../requests';
 import { ServerRequestRoom } from '../../../../screens/pay/ServerRequests';
+import { PersonalRecordRoom } from '../../../../screens/pay/PersonalRecordRooms';
 
 /** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
@@ -61,25 +61,6 @@ function Rows({ rows }: { rows: ReadonlyArray<readonly [string, ReactNode]> }) {
   );
 }
 
-/** A control that cannot run yet: visible, off, and tied to the reason on screen. */
-function Off({ children, describedBy }: { children: ReactNode; describedBy: string }) {
-  return (
-    <Button type="button" variant="secondary" size={40} disabled aria-describedby={describedBy}>
-      {children}
-    </Button>
-  );
-}
-
-function Section({ title, empty, off, describedBy }: { title: string; empty: string; off: string; describedBy: string }) {
-  return (
-    <div className="pay-block">
-      <h3 className="pay-section-title">{title}</h3>
-      <p className="pay-empty">{empty}</p>
-      <Off describedBy={describedBy}>{off}</Off>
-    </div>
-  );
-}
-
 function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { userId } = useSession();
@@ -108,7 +89,7 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
               [t('requestStatus'), t('requestStatusBody')],
             ]}
           />
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="secondary" size={40} nativeButton={false} render={<a href={entry.path} />}>
               {t('requestOpen')}
             </Button>
@@ -137,180 +118,6 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   );
 }
 
-function ScheduledRoom({ slice }: { slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('scheduledTitle')} line={t('scheduledLine')}>
-      <Blocked slice={slice}>{t('scheduledReason')}</Blocked>
-      <Section title={t('scheduledListTitle')} empty={t('scheduledEmpty')} off={t('scheduledNew')} describedBy="pay-room-reason" />
-    </Frame>
-  );
-}
-
-function ContactsRoom({ slice }: { slice: string }) {
-  const copy = roomsCopy.useCopy();
-  const { t } = copy;
-  const { userId } = useSession();
-  const people = useMemo(() => (userId ? contactsFrom(readSent(userId), 50) : []), [userId]);
-  return (
-    <Frame title={t('contactsTitle')} line={t('contactsLine')}>
-      <div className="pay-block" data-testid="contacts-device">
-        <h3 className="pay-section-title">{t('contactsRecentTitle')}</h3>
-        {people.length === 0 ? (
-          <p className="pay-empty">{t('contactsRecentEmpty')}</p>
-        ) : (
-          <ul className="pay-list">
-            {people.map((person) => (
-              <li key={person.userId} data-testid="contact-row">
-                <div className="pay-list__main">
-                  <span>{contactLabel(person)}</span>
-                  <span className="pay-list__sub">{copy.t('contactsTimes', { count: String(person.times) })}</span>
-                </div>
-                <div className="pay-row-actions">
-                  <Button
-                    variant="secondary"
-                    size={32}
-                    nativeButton={false}
-                    render={<a href={requestPath({ to: person.handle ?? person.userId })} />}
-                  >
-                    {t('contactsPay')}
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <Section title={t('contactsSaved')} empty={t('contactsSavedEmpty')} off={t('contactsAdd')} describedBy="pay-room-reason" />
-      <Section title={t('contactsGroups')} empty={t('contactsGroupsEmpty')} off={t('contactsNewGroup')} describedBy="pay-room-reason" />
-      <Section title={t('contactsPools')} empty={t('contactsPoolsEmpty')} off={t('contactsNewPool')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('contactsReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | null; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  const pool = kind === 'pool';
-  const rows: Array<readonly [string, string]> = [[t('reference'), id ?? t('notSet')]];
-  if (pool) rows.push([t('poolAmount'), t('notSet')], [t('poolPaid'), t('notSet')]);
-  return (
-    <Frame title={t(pool ? 'poolTitle' : 'groupTitle')} line={t(pool ? 'poolLine' : 'groupLine')}>
-      <Rows rows={rows} />
-      <Section title={t('members')} empty={t('membersEmpty')} off={t('addMember')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('groupReason')}</Blocked>
-    </Frame>
-  );
-}
-
-/** A send the owner's review holds, as its sender reads it: its state, the reason class, and what it would send. */
-function HeldStatus({ held }: { held: HeldSend }) {
-  const { t } = roomsCopy.useCopy();
-  const { timeZone } = usePreferences();
-  const state = held.status === 'in_review' ? t('heldInReview') : held.status === 'rejected' ? t('heldRejected') : t('heldReleased');
-  const reason = held.reasonClass === 'amount_over_review_line' ? t('heldReason_amount_over_review_line') : t('heldReasonOther');
-  return (
-    <>
-      <p className="pay-banner" role="status" data-testid="payment-status" data-status={held.status}>
-        {state}
-      </p>
-      <Rows
-        rows={[
-          [t('heldStatusRow'), <span data-testid="payment-status-word">{state}</span>],
-          [
-            t('heldReasonRow'),
-            <span data-testid="payment-review-reason" data-reason={held.reasonClass}>
-              {reason}
-            </span>,
-          ],
-          [t('requestAmount'), <span lang="zxx">{`${fmtAmount(held.amount, { places: 18 })} ${held.assetId}`}</span>],
-          [t('heldTo'), held.toHandle ? `@${held.toHandle}` : t('notSet')],
-          [t('requestMade'), <span lang="zxx">{stamp(held.createdAt, timeZone, Date.now())}</span>],
-          [t('reference'), <span lang="zxx">{held.transferId}</span>],
-        ]}
-      />
-      <p className="pay-hint" data-testid="payment-held-note">
-        {held.status === 'in_review' ? t('heldNote') : held.status === 'rejected' ? t('heldRejectedNote') : t('heldReleasedNote')}
-      </p>
-    </>
-  );
-}
-
-function PaymentRoom({ id, slice }: { id: string | null; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  const { api, userId } = useSession();
-  const { timeZone } = usePreferences();
-  // A send the review holds is not in the ledger's activity: the bank's own record of it is read first. Not found means
-  // it was never held, and the activity is read; any other failure says so, never "not in your activity".
-  const [held, setHeld] = useState<{ state: 'loading' } | { state: 'none' } | { state: 'failed' } | { state: 'held'; data: HeldSend }>({
-    state: 'loading',
-  });
-  const [heldTry, retryHeld] = useState(0);
-  useEffect(() => {
-    if (!id) return setHeld({ state: 'none' });
-    setHeld({ state: 'loading' });
-    const controller = new AbortController();
-    void fetchHeldSend(api, id, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.ok) setHeld({ state: 'held', data: result.data });
-      else setHeld(result.code === 'bank.held_send_not_found' ? { state: 'none' } : { state: 'failed' });
-    });
-    return () => controller.abort();
-  }, [api, id, userId, heldTry]);
-  const source = useMemo(() => createActivityFeed(api, { pageSize: 50 }), [api, userId]);
-  const feed = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
-  const item = feed.status === 'ready' && id ? (feed.data.items.find((row) => row.id === id || row.txId === id) ?? null) : null;
-  const body =
-    held.state === 'held' ? (
-      <HeldStatus held={held.data} />
-    ) : held.state === 'failed' ? (
-      <StateBlock kind="error" title={t('paymentFailed')} onRetry={() => retryHeld((n) => n + 1)} retryLabel={t('tryAgain')} />
-    ) : held.state === 'loading' || feed.status === 'loading' ? (
-      <StateBlock kind="loading" rows={3} rowHeight={40} label={t('paymentTitle')} />
-    ) : feed.status === 'refused' ? (
-      (() => {
-        const words = refusalCopy(feed.code);
-        return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
-      })()
-    ) : feed.status === 'error' ? (
-      <StateBlock kind="error" title={t('paymentFailed')} onRetry={feed.retry} retryLabel={t('tryAgain')} />
-    ) : item ? (
-      <>
-        <Rows
-          rows={[
-            [
-              t('requestAmount'),
-              <span lang="zxx">{`${item.direction === 'out' ? '−' : '+'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}</span>,
-            ],
-            [t('requestMade'), <span lang="zxx">{stamp(item.postedAt, timeZone, Date.now())}</span>],
-            [t('linkFrom'), item.counterparty ? `@${item.counterparty.handle}` : t('notSet')],
-            [t('reference'), <span lang="zxx">{item.txId}</span>],
-          ]}
-        />
-        <Button variant="secondary" size={40} nativeButton={false} render={<a href={`/money/activity/${encodeURIComponent(item.id)}`} />}>
-          {t('paymentReceipt')}
-        </Button>
-        <p className="pay-hint">{t('paymentReceiptNote')}</p>
-      </>
-    ) : (
-      <StateBlock
-        kind="empty"
-        title={t('paymentMissingTitle')}
-        body={t('paymentMissingBody')}
-        action={{ label: t('paymentActivity'), href: '/money/activity?tab=transfers' }}
-      />
-    );
-  return (
-    <Frame title={t('paymentTitle')} line={t('paymentLine')}>
-      {body}
-      <div className="pay-block">
-        <Off describedBy="pay-room-reason">{t('paymentProblem')}</Off>
-      </div>
-      <Blocked slice={slice}>{t('paymentReason')}</Blocked>
-    </Frame>
-  );
-}
-
 function ClaimRoom({ slice }: { slice: string }) {
   const { t } = roomsCopy.useCopy();
   return (
@@ -327,70 +134,6 @@ function ClaimRoom({ slice }: { slice: string }) {
         {t('claimButton')}
       </Button>
       <Blocked slice={slice}>{t('claimReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function CasesRoom({ slice }: { slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('casesTitle')} line={t('casesLine')}>
-      <Section title={t('casesListTitle')} empty={t('casesEmpty')} off={t('casesOpen')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('casesReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function CaseRoom({ id, slice }: { id: string | null; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('caseTitle')} line={t('caseLine')}>
-      <Rows
-        rows={[
-          [t('reference'), id ?? t('notSet')],
-          [t('caseStatus'), t('notSet')],
-        ]}
-      />
-      <Section title={t('caseMessages')} empty={t('caseMessagesEmpty')} off={t('caseReply')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('casesReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function FactsRoom({ title, line, facts, reason, slice }: { title: string; line: string; facts: string[]; reason: string; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={title} line={line}>
-      <Rows rows={facts.map((fact): readonly [string, string] => [fact, t('notSet')])} />
-      <Blocked slice={slice}>{reason}</Blocked>
-    </Frame>
-  );
-}
-
-function PreferencesRoom({ slice }: { slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('preferencesTitle')} line={t('preferencesLine')}>
-      <form className="pay-body" noValidate onSubmit={(event) => event.preventDefault()}>
-        <fieldset className="pay-fieldset" disabled aria-describedby="pay-room-reason">
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="pay-pref-source">
-              {t('prefSource')}
-            </label>
-            <select id="pay-pref-source" className="pay-text" defaultValue="">
-              <option value="">{t('notSet')}</option>
-            </select>
-            <p className="pay-hint">{t('prefSourceHint')}</p>
-          </div>
-          <label className="pay-field__label">
-            <input type="checkbox" /> {t('prefFind')}
-          </label>
-          <label className="pay-field__label">
-            <input type="checkbox" /> {t('prefReceipts')}
-          </label>
-        </fieldset>
-      </form>
-      <Blocked slice={slice}>{t('preferencesReason')}</Blocked>
     </Frame>
   );
 }
@@ -474,7 +217,7 @@ function ScanRoom({ slice }: { slice: string }) {
 
   return (
     <Frame title={t('scanTitle')} line={t('scanLine')}>
-      <div className="pay-row-actions">
+      <div className="lt-actions">
         <Button
           type="button"
           variant="secondary"
@@ -494,7 +237,7 @@ function ScanRoom({ slice }: { slice: string }) {
       {camera && (
         <>
           <video ref={video} className="pay-scan-video" muted playsInline aria-label={t('scanCameraLabel')} />
-          <p className="pay-hint" role="status">
+          <p className="lt-hint" role="status">
             {t('scanLooking')}
           </p>
         </>
@@ -514,7 +257,7 @@ function ScanRoom({ slice }: { slice: string }) {
         />
       </div>
       {reading && (
-        <p className="pay-hint" role="status">
+        <p className="lt-hint" role="status">
           {t('scanReading')}
         </p>
       )}
@@ -546,30 +289,12 @@ function LinkRoom({ id, slice }: { id: string | null; slice: string }) {
   );
 }
 
-function InvoiceRoom({ id, slice }: { id: string | null; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('invoiceTitle')} line={t('invoiceLine')}>
-      <Rows
-        rows={[
-          [t('reference'), id ?? t('notSet')],
-          [t('invoiceBiller'), t('notSet')],
-          [t('invoiceAmount'), t('notSet')],
-          [t('invoiceDue'), t('notSet')],
-        ]}
-      />
-      <Button type="button" variant="primary" size={56} fullWidth disabled aria-describedby="pay-room-reason">
-        {t('invoicePay')}
-      </Button>
-      <Blocked slice={slice}>{t('invoiceReason')}</Blocked>
-    </Frame>
-  );
-}
-
 /** One personal Pay room, picked by the matched address. A signed-out visitor is sent to sign in and nothing is read. */
 export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
   const { t } = roomsCopy.useCopy();
   const { session } = useSession();
+  // The settings rooms are on their template, and say sign in there themselves.
+  if (SETTINGS_ROOM_IDS.has(match.room.id)) return <SettingsRoom match={match} />;
   if (!session) {
     const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
     return (
@@ -584,55 +309,22 @@ export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
 }
 
 function RoomBody({ match }: { match: PersonalRoomMatch }) {
-  const { t } = roomsCopy.useCopy();
   const { room, params } = match;
   const slice = room.slice;
   switch (room.id) {
     case 'request':
       return <RequestRoom id={decodedSegment(params.requestId)} slice={slice} />;
-    case 'scheduled':
-      return <ScheduledRoom slice={slice} />;
-    case 'contacts':
-      return <ContactsRoom slice={slice} />;
-    case 'group':
-      return <GroupRoom kind="group" id={decodedSegment(params.groupId)} slice={slice} />;
-    case 'pool':
-      return <GroupRoom kind="pool" id={decodedSegment(params.poolId)} slice={slice} />;
-    case 'payment':
-      return <PaymentRoom id={decodedSegment(params.transferId)} slice={slice} />;
     case 'claim':
       return <ClaimRoom slice={slice} />;
-    case 'cases':
-      return <CasesRoom slice={slice} />;
-    case 'case':
-      return <CaseRoom id={decodedSegment(params.caseId)} slice={slice} />;
-    case 'limits':
-      return (
-        <FactsRoom
-          title={t('limitsTitle')}
-          line={t('limitsLine')}
-          facts={[t('limitsTier'), t('limitsPerPayment'), t('limitsPerDay'), t('limitsUsedToday')]}
-          reason={t('limitsReason')}
-          slice={slice}
-        />
-      );
-    case 'fees':
-      return (
-        <FactsRoom
-          title={t('feesTitle')}
-          line={t('feesLine')}
-          facts={[t('feesSend'), t('feesRequest'), t('feesGlobal')]}
-          reason={t('feesReason')}
-          slice={slice}
-        />
-      );
-    case 'preferences':
-      return <PreferencesRoom slice={slice} />;
     case 'scan':
       return <ScanRoom slice={slice} />;
     case 'link':
       return <LinkRoom id={decodedSegment(params.linkId)} slice={slice} />;
+    case 'scheduled':
+    case 'payment':
+    case 'cases':
+    case 'case':
     case 'invoice':
-      return <InvoiceRoom id={decodedSegment(params.invoiceId)} slice={slice} />;
+      return <PersonalRecordRoom match={match} />;
   }
 }

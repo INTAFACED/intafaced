@@ -30,6 +30,7 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
+import { sleep } from '@intafaced/contracts/sleep';
 
 const BORROWER = '11111111-1111-4111-8111-111111111111';
 const PAYER = '99999999-9999-4999-8999-999999999999';
@@ -102,10 +103,6 @@ function queryText(arg: unknown): string {
 
 function isDebtReread(text: string): boolean {
   return text.includes('WITH drawn AS') && text.includes('loan_repayments');
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('LoanService.repay — overlapping event ids pay the outstanding once', () => {

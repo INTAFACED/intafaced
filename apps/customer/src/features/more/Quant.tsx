@@ -1,13 +1,13 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Read, Select, TextArea, useAction } from './common';
+import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
+import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
+import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, parsesAs, type ApiResult } from '../../shared/api';
 import { refusalCopy } from '../../data/refusals';
 import {
   COST_MODELS,
@@ -23,18 +23,34 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { StudioLibrary } from '../quant/StudioLibrary';
-import { StudioSave } from '../quant/StudioSave';
-import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
-import { studioCopy } from '../quant/studio-copy';
-import { builderCopy } from '../quant/builder-copy';
-import { SignalBuilder } from '../quant/SignalBuilder';
-import { StudioTemplates } from '../quant/StudioTemplates';
-import { emptySignalRules } from '../quant/signal-rules';
-import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { quantStrategyHeadSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { QUANT_BACKTEST_RUN } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_SANDBOX_CAPABILITIES, QUANT_SANDBOX_RUN } from '@intafaced/contracts/quant-sandbox-procedures';
+import { QUANT_SANDBOX_LANGUAGES } from '@intafaced/contracts/quant-wire';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
-import { QuantRooms } from '../quant/QuantRooms';
+import {
+  limitsCopy,
+  researchCopy,
+  PYTHON_TEMPLATE,
+  sandboxLimitRefusalOf,
+  sandboxLimitSentence,
+  StudioLibrary,
+  StudioSave,
+  fingerprint,
+  newLink,
+  readLink,
+  writeLink,
+  type StudioLink,
+  studioCopy,
+  builderCopy,
+  SignalBuilder,
+  StudioTemplates,
+  emptySignalRules,
+  QuantRooms,
+  PaperOrders,
+} from '../quant';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
@@ -45,6 +61,7 @@ const stamp = z.object({
   live: z.literal(false),
   simulated: z.literal(true),
 });
+type SandboxLanguage = (typeof QUANT_SANDBOX_LANGUAGES)[number];
 const runSchema = stamp.extend({
   ok: z.literal(true),
   language: z.enum(['javascript', 'typescript', 'python']),
@@ -55,9 +72,72 @@ const runSchema = stamp.extend({
     z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: decimalSchema, price: decimalSchema, venue: z.literal('internal') }),
   ),
   positions: z.array(z.object({ symbol: z.string(), qty: signedDecimalSchema })),
+  events: z.array(
+    z.object({
+      seq: z.number().int(),
+      order: z.string(),
+      kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
+      type: z.enum(['market', 'limit']),
+      side: z.enum(['buy', 'sell']),
+      symbol: z.string(),
+      qty: z.string(),
+      tif: z.enum(['gtc', 'ioc']),
+      market: z.string(),
+      limit: z.string().optional(),
+      price: z.string().optional(),
+      reason: z.string().optional(),
+      notional: z.string().optional(),
+      fee: z.string().optional(),
+      cash: z.string().optional(),
+      position: z.string().optional(),
+      reserved: z.string().optional(),
+    }),
+  ),
+  legs: z.array(
+    z.object({
+      leg: z.enum(['close', 'open']),
+      side: z.enum(['buy', 'sell']),
+      symbol: z.string(),
+      qty: z.string(),
+      checked: z.literal(true),
+      outcome: z.enum(['filled', 'refused']),
+      order: z.string(),
+      reason: z.string().nullable(),
+    }),
+  ),
+  ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
   venue: z.literal('internal'),
   venueVault: z.enum(['unset', 'set']),
+  limits: z
+    .object({
+      wallClockMs: z.number().int().nullable(),
+      memoryBytes: z.number().int().nullable(),
+      outputBytes: z.number().int().nullable(),
+      maxOps: z.number().int().nullable(),
+      maxSource: z.number().int().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
+/** A result table that carries its own name, so the fills and positions read as named tables. */
+function NamedTable({ headers, label, children }: { headers: readonly ReactNode[]; label: string; children: ReactNode }) {
+  return (
+    <div className="table-scroll" tabIndex={0}>
+      <table aria-label={label}>
+        <thead>
+          <tr>
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
 /** The plain-English name of a cost model; an unknown model from the service is shown as received. */
 function modelLabel(t: (key: (typeof MODEL_COPY)[keyof typeof MODEL_COPY]) => string, kind: string) {
   return kind in MODEL_COPY ? t(MODEL_COPY[kind as keyof typeof MODEL_COPY]) : kind;
@@ -67,7 +147,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     { userId } = useSession(),
     action = useAction(`quant-${mode}`);
   const [draftStart] = useState(() => (mode === 'studio' ? (readDraft(userId ?? null) ?? emptyDraft()) : emptyDraft()));
-  const [language, setLanguage] = useState('javascript'),
+  const [language, setLanguage] = useState<SandboxLanguage>('javascript'),
     [source, setSource] = useState(''),
     [cash, setCash] = useState(draftStart.cash),
     [name, setName] = useState(draftStart.name),
@@ -121,22 +201,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     lastAttempt.result.reason !== 'uncertain'
       ? lastAttempt
       : null;
-  const capabilities = useResource(
-    (signal) =>
-      api.query(
-        'quant',
-        'sandbox.capabilities',
-        undefined,
-        z.object({
-          isolate: z.enum(['wired', 'unwired']),
-          languages: z.array(z.enum(['javascript', 'typescript', 'python'])),
-          venueVault: z.enum(['trade-only', 'unset']),
-          refuse: z.string().nullable(),
-        }),
-        { signal },
-      ),
-    'quant-capabilities',
-  );
+  const capabilities = useResource((signal) => api.call(QUANT_SANDBOX_CAPABILITIES, undefined, { signal }), 'quant-capabilities');
   const validCash = signedDecimalSchema.safeParse(cash).success;
   useEffect(() => {
     if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, modules, drawdown, notional, kill });
@@ -178,6 +243,35 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     setKill(draft.risk.kill);
     setLink(nextLink);
   };
+  // "Open in Studio" from a strategy's page: /quant/studio?open=<id> loads that strategy's newest version into the form,
+  // as the library's Open does, then drops the parameter so a reload keeps whatever is edited since.
+  const [opening, setOpening] = useState(() =>
+    mode === 'studio' ? new URLSearchParams(globalThis.location?.search ?? '').get('open') : null,
+  );
+  // The form waits for the strategy, so nothing typed before it arrives is overwritten; a failed read says so.
+  const [openFailure, setOpenFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  useEffect(() => {
+    if (!opening) return;
+    const controller = new AbortController();
+    void api
+      .call(QUANT_STUDIO_GET, { id: opening }, { signal: controller.signal, accept: parsesAs(quantStrategyHeadSchema) })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        if (!res.ok) {
+          setOpenFailure(res);
+          return;
+        }
+        const head = res.data;
+        load(head, { clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved: fingerprint(head) });
+        const url = new URL(window.location.href);
+        url.searchParams.delete('open');
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+        setOpening(null);
+      });
+    return () => controller.abort();
+    // `load` only sets this form's state; the open is read once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
   return (
     <div className="more-grid">
       <QuantRooms active={mode} paper={paper} />
@@ -189,7 +283,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Panel title={copyText('quant.strategy.sandbox')}>
             <Read resource={capabilities.resource} retry={capabilities.reload}>
               {(c) => (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
                   <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
                   {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
@@ -214,20 +308,31 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     />
                   ),
                   run: async () => {
-                    const res = await api.mutate(
-                      'quant',
-                      'sandbox.run',
+                    const res = await api.call(
+                      QUANT_SANDBOX_RUN,
                       { language, source, cash, environment: 'paper', presentedAs: 'paper', idempotencyKey },
-                      runSchema.refine(
-                        (data) =>
+                      {
+                        // The simulation result must match the reviewed language and environment.
+                        accept: (data) =>
+                          parsesAs(runSchema)(data) &&
                           data.language === language &&
                           data.environment === 'paper' &&
                           data.kind === 'paper' &&
                           data.claimLabel === 'Paper — not live performance',
-                        'The simulation result does not match the reviewed language and environment',
-                      ),
+                      },
                     );
                     if (res.ok && action.isCurrent()) setResult(res.data);
+                    // A plan limit that refused the start, or that ended the run, is named in the plan's words (J-algo-dev-12).
+                    const limit = res.ok ? null : sandboxLimitRefusalOf(res);
+                    if (!res.ok && limit) {
+                      return presentActionFailure(res, (locale) => {
+                        const words = limitsCopy.forLocale(locale);
+                        return {
+                          message: sandboxLimitSentence(limit, words),
+                          language: words.languageFor(limit.kind === 'unset' ? 'refusedUnset' : 'refusedHit'),
+                        };
+                      });
+                    }
                     return res;
                   },
                 });
@@ -236,8 +341,11 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               <Select
                 label={copyText('quant.language')}
                 value={language}
-                onChange={setLanguage}
-                options={['javascript', 'typescript', 'python']}
+                onChange={(value) => {
+                  const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
+                  if (picked) setLanguage(picked);
+                }}
+                options={QUANT_SANDBOX_LANGUAGES}
               />
               <Field
                 label={copyText('quant.simulated.starting.cash')}
@@ -247,6 +355,23 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 hint={copyText('quant.user.supplied.simulation.input.separate.from.your')}
               />
               <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
+              <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
+                <h4>{researchCopy.t('pyTitle')}</h4>
+                <p className="lt-muted">{researchCopy.t('pyIntro')}</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setLanguage('python');
+                    setSource(PYTHON_TEMPLATE);
+                  }}
+                >
+                  {researchCopy.t('pyTemplate')}
+                </Button>{' '}
+                <a className="lt-link" href="/developers/quant#python" data-testid="quant-python-package">
+                  {researchCopy.t('pyPackage')}
+                </a>
+              </section>
               <Button
                 type="submit"
                 disabled={
@@ -260,7 +385,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Text k="quant.review.simulation" />
               </Button>
             </form>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
             </p>
           </Panel>
@@ -270,7 +395,12 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <p lang="und">{result.claimLabel}</p>
                 <Details
                   items={[
-                    [copyText('quant.cash'), copyText('quant.simulated.units', { amount: displayAmount(result.cash) })],
+                    [
+                      copyText('quant.cash'),
+                      <span data-testid="quant-paper-cash" data-value={result.cash}>
+                        {copyText('quant.simulated.units', { amount: displayAmount(result.cash) })}
+                      </span>,
+                    ],
                     [copyText('quant.p.l'), copyText('quant.simulated.units', { amount: displayAmount(result.pnl) })],
                     [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
                   ]}
@@ -278,7 +408,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <pre data-testid="more-body" className="more-body" lang="und">
                   {result.logs.join('\n')}
                 </pre>
-                <DataTable
+                <NamedTable
                   headers={[copyText('quant.side'), copyText('quant.symbol'), copyText('quant.quantity'), copyText('quant.price')]}
                   label={copyText('quant.simulated.fills')}
                 >
@@ -290,9 +420,9 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       <td lang="zxx">{f.price}</td>
                     </tr>
                   ))}
-                </DataTable>
+                </NamedTable>
                 {result.positions.length > 0 && (
-                  <DataTable
+                  <NamedTable
                     headers={[copyText('quant.position'), copyText('quant.quantity')]}
                     label={copyText('quant.simulated.positions')}
                   >
@@ -302,16 +432,41 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                         <td lang="zxx">{p.qty}</td>
                       </tr>
                     ))}
-                  </DataTable>
+                  </NamedTable>
+                )}
+                <PaperOrders events={result.events} legs={result.legs} ticks={result.ticks} />
+                {result.limits && (
+                  <NamedTable headers={[researchCopy.t('limitsTitle'), limitsCopy.t('value')]} label={researchCopy.t('limitsTitle')}>
+                    {(
+                      [
+                        ['wallClockMs', 'limitWall'],
+                        ['memoryBytes', 'limitMemory'],
+                        ['outputBytes', 'limitOutput'],
+                        ['maxOps', 'limitOps'],
+                        ['maxSource', 'limitSource'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <tr key={key} data-testid="quant-run-limit" data-limit={key} data-value={result.limits?.[key] ?? ''}>
+                        <th scope="row">{researchCopy.t(label)}</th>
+                        <td lang="zxx">{result.limits?.[key] ?? researchCopy.t('limitNotSet')}</td>
+                      </tr>
+                    ))}
+                  </NamedTable>
                 )}
               </>
             ) : (
-              <p className="muted">
+              <p className="lt-muted">
                 <Text k="quant.run.the.connected.isolate.to.receive.its" />
               </p>
             )}
           </Panel>
         </div>
+      ) : mode === 'studio' && opening ? (
+        openFailure ? (
+          <Failure result={openFailure} retry={() => window.location.reload()} />
+        ) : (
+          <Loading />
+        )
       ) : mode === 'studio' ? (
         <div className="more-columns">
           <Panel title={copyText('quant.build.a.strategy')}>
@@ -459,14 +614,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Copy k="originalAttempt" />
               </p>
               <code lang="zxx">{action.unresolvedId}</code>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="unknownBody" />
               </p>
-              <div className="actions">
-                <a className="button button--secondary" href="/support">
+              <div className="lt-actions">
+                <a className="lt-button lt-button-secondary" href="/support">
                   <Copy k="contact" />
                 </a>
-                <a className="button button--secondary" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="lt-button lt-button-secondary" href={preservePaperHref('/quant/studio', paper)}>
                   <Text k="quant.studio" />
                 </a>
               </div>
@@ -487,13 +642,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             </div>
             <div className="quant-analysis-draft" ref={draft}>
               <Panel title={t('draft')}>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="draftBody" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="fullStrategy" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="utc" />
                 </p>
                 <form
@@ -556,27 +711,27 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                               ),
                             ]}
                           />
-                          <p className="muted">
+                          <p className="lt-muted">
                             <Copy k="fullStrategy" />
                           </p>
                         </>
                       ),
                       run: async (canDispatch) => {
                         if (!canDispatch()) return authoredRefusal('aborted', { key: 'beforeDispatch' });
-                        const response = await api.mutate(
-                          'quant',
-                          'backtest.run',
-                          request,
-                          historicalResultSchema.refine(
-                            (data) => matchesHistoricalRequest(data, request),
-                            'The historical result does not match the reviewed strategy, windows and declared verdict',
-                          ),
-                        );
+                        // The historical result must match the reviewed strategy, windows and declared verdict.
+                        const response = await api.call(QUANT_BACKTEST_RUN, request, {
+                          accept: (data) => {
+                            const read = historicalResultSchema.safeParse(data);
+                            return read.success && matchesHistoricalRequest(read.data, request);
+                          },
+                        });
+                        // Accepted above, so the reply reads as this room's historical result.
+                        const read = response.ok ? { ...response, data: historicalResultSchema.parse(response.data) } : response;
                         if (action.isCurrent()) {
-                          setLastAttempt({ request, view, result: response });
-                          if (response.ok) setBt({ data: response.data, request, view });
+                          setLastAttempt({ request, view, result: read });
+                          if (read.ok) setBt({ data: read.data, request, view });
                         }
-                        return response;
+                        return read;
                       },
                     });
                   }}
@@ -592,16 +747,16 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                           ...strategyNames.map((name) => ({ value: name, label: name })),
                         ]}
                       />
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="strategyNote" />
                       </p>
                     </>
                   ) : (
-                    <div className="field" role="group" aria-label={t('strategyLabel')}>
+                    <div className="lt-field" role="group" aria-label={t('strategyLabel')}>
                       <span>{t('strategyLabel')}</span>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
-                        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                        <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
                           <Copy k="strategyOpenStudio" />
                         </a>
                       </p>
@@ -637,7 +792,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
                     options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
                   />
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="hypothesisNote" />
                   </p>
                   <Field
@@ -665,7 +820,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     </fieldset>
                   ))}
                   {!validAnalysis && (
-                    <p className="muted" id="quant-backtest-reason">
+                    <p className="lt-muted" id="quant-backtest-reason">
                       <Copy k="invalid" />
                     </p>
                   )}

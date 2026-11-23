@@ -1,6 +1,7 @@
 // World: book, stack
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
+import { HOUR, closedMinute, hourStart, minuteStart } from './clock.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
@@ -176,7 +177,7 @@ async function bank() {
  * one-minute read fails, svc-tax prices from the last hourly candle that ended before the moment (prices.ts, tested there),
  * so that close is a candidate too. */
 async function valuesAt(qty, [from, to]) {
-  const since = Math.floor(from / 60_000) * 60_000 - 3_600_000;
+  const since = minuteStart(from) - HOUR;
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`, {
     headers: { origin: ORIGIN },
   });
@@ -185,9 +186,8 @@ async function valuesAt(qty, [from, to]) {
   const before = candles.filter((c) => c[0] <= from).at(-1);
   const closes = [...(before ? [before] : []), ...candles.filter((c) => c[0] > from && c[0] <= to)].map((c) => c[4]);
   expect(closes.length).toBeGreaterThan(0);
-  const HOUR = 3_600_000;
   const hourly = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1h&since=${Math.floor(from / HOUR) * HOUR - 24 * HOUR}&limit=48`,
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1h&since=${hourStart(from) - 24 * HOUR}&limit=48`,
     { headers: { origin: ORIGIN } },
   );
   expect(hourly.status).toBe(200);
@@ -316,9 +316,8 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   // The withdrawal is valued at the close of the minute it left in, worked out from the fills on every read. While that
   // minute is open, any trade on this shared market moves the close between the hand count and the screen (main run
   // 42943158075: the screen's $65.11 was a close the hand count, read moments before, had seen as $65.15). So both read
-  // it once the minute has ended (at most a minute's wait, plus time for a fill stamped in it to be stored).
-  const minuteOver = Math.floor(left[1] / 60_000) * 60_000 + 60_000;
-  await page.waitForTimeout(Math.max(0, minuteOver + 5_000 - Date.now()));
+  // it once the minute has ended.
+  await closedMinute(page, left[1]);
 
   // The book, read by hand: the sale is what arrived less what the buy cost; the withdrawal moved out 0.001 of the
   // deposit (FIFO: the bought lot was used up) at its value when it left, less the price entered for it.

@@ -42,6 +42,7 @@ const fresh = { asOf: '2026-10-15T11:59:56.000Z', lagSeconds: 4 };
 const quietHalts = ready<p.HaltStatus>({ readable: true, states: [] });
 const snapshot = (patch: Partial<p.Snapshot> = {}): p.Snapshot => ({
   merchantId: 'm',
+  window: { kind: 'preset', preset: 'rolling_30d' },
   freshness: fresh,
   balances: [],
   paymentCount: 12,

@@ -21,6 +21,9 @@ import { registerPublicPayRest } from './public-rest.js';
 import { verifySignature } from './rails/webhook-signature.js';
 import { MemoryRestIdempotencyStore } from './rest-idempotency.js';
 
+/** A TEST retry policy (the owner's value is PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS): seven retries, eight attempts. */
+const TEST_RETRY_SCHEDULE = [60, 300, 1_800, 7_200, 43_200, 86_400, 86_400] as const;
+
 const SECRET = 'a-pay-public-api-done-bar-edge-secret-xx';
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const MERCHANT = '33333333-3333-4333-8333-333333333333';
@@ -127,7 +130,12 @@ describe('D26-P1-P7 Done bar — surface + webhooks + sandbox', () => {
 
   it('sandbox create → mode=sandbox; live naming sandbox refused; webhook deliver+enable', async () => {
     const store = new MemoryMerchantWebhookStore();
-    const webhooks = new MerchantWebhookService(store, { allowLocalHttp: true, disableAfterFailures: 1, maxAttempts: 4 });
+    const webhooks = new MerchantWebhookService(store, {
+      retryScheduleSeconds: TEST_RETRY_SCHEDULE,
+      allowLocalHttp: true,
+      disableAfterFailures: 1,
+      maxAttempts: 4,
+    });
     app = Fastify({ logger: false });
     await registerPublicPayRest(app, {
       edgeSecret: SECRET,

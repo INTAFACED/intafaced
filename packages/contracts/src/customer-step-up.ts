@@ -24,6 +24,9 @@ export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
 
 const AMOUNT_RE = /^\d+(\.\d{1,18})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An instant as `Date.prototype.toISOString` writes it, the one form svc-bank hashes a statement period in. */
+const isoInstant = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && new Date(value).toISOString() === value;
 
 /** A send's note as svc-bank `plainNote` keeps it: trimmed, not blank, plain text up to 140 characters. */
 const sendNote = (value: string) =>
@@ -157,6 +160,113 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'bank.step_up.businessTeam.propose',
+    purpose: 'businessTeam.propose',
+    clientFields: ['accountId', 'paymentId', 'payee', 'paymentType', 'amount'],
+    amountField: 'amount',
+    targetField: 'payee',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.approve',
+    purpose: 'businessTeam.approve',
+    clientFields: ['paymentId'],
+    targetField: 'paymentId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.invite',
+    purpose: 'businessTeam.invite',
+    clientFields: ['accountId', 'inviteId', 'email', 'role', 'roleId'],
+    targetField: 'inviteId',
+    targetRequired: true,
+    // A link invite has no email; an invite carries a built-in role or a custom one, never both.
+    emptyOk: ['email', 'role', 'roleId'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.acceptInvite',
+    purpose: 'businessTeam.acceptInvite',
+    // The sha256 (hex) of the link's secret: the secret itself never leaves the person's device for identity.
+    clientFields: ['tokenHash'],
+    targetField: 'tokenHash',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: { tokenHash: (v: string) => /^[0-9a-f]{64}$/.test(v) },
+  },
+  {
+    scope: 'bank.step_up.businessTeam.assignRole',
+    purpose: 'businessTeam.assignRole',
+    clientFields: ['accountId', 'userId', 'roleId'],
+    targetField: 'userId',
+    targetRequired: true,
+    // An empty roleId takes the custom role away.
+    emptyOk: ['roleId'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessBills.pay',
+    purpose: 'businessBills.pay',
+    clientFields: ['billId', 'paymentId', 'scheduledFor'],
+    targetField: 'paymentId',
+    targetRequired: true,
+    // A payment made now has no day.
+    emptyOk: ['scheduledFor'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessPayouts.confirmRun',
+    purpose: 'businessPayouts.confirmRun',
+    clientFields: ['runId'],
+    targetField: 'runId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessPayouts.payBatch',
+    purpose: 'businessPayouts.payBatch',
+    clientFields: ['accountId', 'batchId'],
+    targetField: 'batchId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessCards.approveAndPay',
+    purpose: 'businessCards.approveAndPay',
+    clientFields: ['claimId'],
+    targetField: 'claimId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessBooks.exportStatement',
+    purpose: 'businessBooks.exportStatement',
+    clientFields: ['accountId', 'exportId', 'from', 'to'],
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: { accountId: (v) => UUID_RE.test(v), exportId: (v) => UUID_RE.test(v), from: isoInstant, to: isoInstant },
+  },
+  {
     scope: 'bank.step_up.business.setMemberRole',
     purpose: 'business.setMemberRole',
     clientFields: ['accountId', 'userId', 'role', 'requestId'],
@@ -273,6 +383,19 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
 
+  {
+    // A move in to the trading account (J-derivatives-25 #2): the partner sends this amount to the person's own wallet.
+    scope: 'bank.step_up.ownMoves.toWallet',
+    purpose: 'ownMoves.toWallet',
+    clientFields: ['moveId', 'assetId', 'amount', 'wallet'],
+    amountField: 'amount',
+    targetField: 'wallet',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+    shapes: { moveId: (v) => UUID_RE.test(v), wallet: (v) => /^0x[0-9a-f]{40}$/.test(v) },
+  },
   {
     scope: 'bank.step_up.ramps.offramp',
     purpose: 'ramps.offramp',

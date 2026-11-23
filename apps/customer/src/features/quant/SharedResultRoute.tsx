@@ -1,4 +1,4 @@
-import { SharedResult } from './ReportShare';
+import { SharedResult } from './shared-result/SharedResultRoom';
 
 /** The token in a share link's path (`/quant/share/<token>`, AL-report-03), or null for any other path. */
 export function shareToken(path: string): string | null {

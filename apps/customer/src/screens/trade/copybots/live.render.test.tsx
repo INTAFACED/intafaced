@@ -1,15 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ApiResult } from '../../../shared/api';
 
-// The session as the room sees it: the boot refresh still running, then answered with a signed-in person.
-const session = vi.hoisted(() => ({ restoring: true, token: undefined as string | undefined }));
-vi.mock('../../../features/session/session', async (original) => ({
-  ...(await original<typeof import('../../../features/session/session')>()),
-  useSession: () => ({ restoring: session.restoring }),
-}));
+// The session the room's reads carry. No room renders, and so no read goes out, until the boot refresh has answered
+// (App, #8658; src/app/session-gate.render.test.tsx holds that).
+const session = { token: undefined as string | undefined };
 
 import { useLive, type Live } from './live';
 
@@ -24,7 +21,7 @@ const load = async (): Promise<ApiResult<string>> => {
   seen.push(session.token);
   return session.token
     ? ({ ok: true, data: 'profile' } as ApiResult<string>)
-    : ({ ok: false, reason: 'unauthorized', message: 'no', code: 'UNAUTHORIZED' } as unknown as ApiResult<string>);
+    : ({ ok: false, reason: 'unauthorized', message: 'no', code: 'UNAUTHORIZED' } as ApiResult<string>);
 };
 
 function Probe() {
@@ -34,7 +31,6 @@ function Probe() {
 
 beforeEach(() => {
   seen = [];
-  session.restoring = true;
   session.token = undefined;
   host = document.createElement('div');
   document.body.append(host);
@@ -45,14 +41,8 @@ afterEach(() => {
   host.remove();
 });
 
-describe('a live read waits for the boot refresh (#7355)', () => {
-  it('sends nothing while the session is restoring, then reads once with the token it brought', async () => {
-    await act(async () => root.render(<Probe />));
-    expect(seen).toEqual([]);
-    expect(shown.status).toBe('loading');
-    expect(shown.failure).toBeNull();
-
-    session.restoring = false;
+describe('a live read after the boot refresh (#7355)', () => {
+  it('reads once with the token the session brought', async () => {
     session.token = 'session-token';
     await act(async () => root.render(<Probe />));
     expect(seen).toEqual(['session-token']);
@@ -62,8 +52,6 @@ describe('a live read waits for the boot refresh (#7355)', () => {
   });
 
   it('still shows the refusal to someone the boot refresh found signed out', async () => {
-    await act(async () => root.render(<Probe />));
-    session.restoring = false;
     await act(async () => root.render(<Probe />));
     expect(seen).toEqual([undefined]);
     expect(shown.status).toBe('error');

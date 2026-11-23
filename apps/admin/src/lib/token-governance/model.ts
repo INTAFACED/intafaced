@@ -1,9 +1,12 @@
+import { TOKEN_GOVERNANCE_ROLES } from '@intafaced/contracts/token-procedures';
+
 /**
  * Token governance settings and roles as svc-token answers them (`governance.*`, MC-token-02, J-more-catalogue-10). A blank
  * setting is null, never a default; every figure is a whole number of milliseconds as a decimal string.
  */
 
-export const GOVERNANCE_ROLES = ['controller', 'admin', 'moderator', 'author'] as const;
+/** svc-token's roles, from its records. */
+export const GOVERNANCE_ROLES = TOKEN_GOVERNANCE_ROLES;
 export type GovernanceRole = (typeof GOVERNANCE_ROLES)[number];
 
 /** What a role may do, in plain words. */
@@ -45,48 +48,6 @@ export interface RoleRow {
 }
 
 export const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const msOrNull = (v: unknown): v is string | null => v === null || (typeof v === 'string' && MS.test(v));
-const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
-
-export function readSettings(raw: unknown): GovernanceSettings | null {
-  if (!isObj(raw) || !msOrNull(raw.votingDelayMs) || !msOrNull(raw.votingPeriodMs) || !whole(raw.revision)) return null;
-  return { votingDelayMs: raw.votingDelayMs, votingPeriodMs: raw.votingPeriodMs, revision: raw.revision };
-}
-
-export function readSettingsHistory(raw: unknown): SettingsMove[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: SettingsMove[] = [];
-  for (const m of raw) {
-    if (!isObj(m) || !whole(m.ordinal) || !msOrNull(m.votingDelayMs) || !msOrNull(m.votingPeriodMs)) return null;
-    if (typeof m.actorId !== 'string' || typeof m.approverId !== 'string' || typeof m.at !== 'string') return null;
-    out.push({
-      ordinal: m.ordinal,
-      votingDelayMs: m.votingDelayMs,
-      votingPeriodMs: m.votingPeriodMs,
-      actorId: m.actorId,
-      approverId: m.approverId,
-      at: m.at,
-    });
-  }
-  return out;
-}
-
-const isRole = (v: unknown): v is GovernanceRole => typeof v === 'string' && (GOVERNANCE_ROLES as readonly string[]).includes(v);
-
-export function readRoles(raw: unknown): RoleRow[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: RoleRow[] = [];
-  for (const r of raw) {
-    if (!isObj(r) || typeof r.userId !== 'string' || !(r.role === null || isRole(r.role)) || !whole(r.revision)) return null;
-    out.push({ userId: r.userId, role: r.role, revision: r.revision });
-  }
-  return out;
-}
-
-export function readRoleResult(raw: unknown): { userId: string; role: GovernanceRole | null; revision: number } | null {
-  if (!isObj(raw) || typeof raw.userId !== 'string' || !(raw.role === null || isRole(raw.role)) || !whole(raw.revision)) return null;
-  return { userId: raw.userId, role: raw.role, revision: raw.revision };
-}
 
 /** A stored figure in plain words: "not set", or hours (and days when whole). */
 export function durationWords(ms: string | null): string {

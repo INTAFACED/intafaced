@@ -1,0 +1,6 @@
+# The one Rust toolchain every machine and CI job uses: rustup reads this file and installs it on first use
+# (`rustup toolchain install` with no arguments installs it now). Moving it is a reviewed change (a gate file).
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { BankError } from '../errors.js';
 import type { SpaceService } from './space-service.js';
@@ -79,7 +80,7 @@ export class BillsPotService {
   }
 
   /** The bills pot role of one space, or null. Read on the caller's connection so a standing order sees its own claim. */
-  async forSpace(spaceId: string, db: Sql = this.sql): Promise<BillsPot | null> {
+  async forSpace(spaceId: string, db: Queryable = this.sql): Promise<BillsPot | null> {
     const rows = await db<BillsPotRow[]>`
       SELECT b.user_id, b.asset_id, b.space_id, b.fallback, b.set_at
         FROM bank.bills_pots b JOIN bank.spaces s ON s.id = b.space_id

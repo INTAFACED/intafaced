@@ -1,0 +1,902 @@
+{
+  "blank POST /markets/ETH-USDT/open valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.missing\",\"message\":\"approvalId and operationId are required; a typed-in second name is not approval\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open no-approval founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open not-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Too small: expected string to have >=1 characters\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open blank-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received undefined\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received null\"]}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /markets/ETH-USDT/open all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"marketId\":\"ETH-USDT\",\"prelaunch\":false,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"rejected\":null}"
+  },
+  "set POST /markets/ETH-USDT/open valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.missing\",\"message\":\"approvalId and operationId are required; a typed-in second name is not approval\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open no-approval founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.not_operator\",\"message\":\"the requester is not an operator of this venue\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open not-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Too small: expected string to have >=1 characters\"]}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open blank-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "set POST /markets/ETH-USDT/open absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "set POST /markets/ETH-USDT/open null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received undefined\"]}"
+  },
+  "set POST /markets/ETH-USDT/open empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"marketId\":\"ETH-USDT\",\"prelaunch\":false,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"rejected\":null}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received null\"]}"
+  },
+  "set POST /markets/ETH-USDT/open all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /markets/ETH-USDT/open all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  }
+}

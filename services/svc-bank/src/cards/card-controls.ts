@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { BankError } from '../errors.js';
 
@@ -149,6 +150,11 @@ export class CardControlStore {
 }
 
 /** Writes one change of a card's status, inside the transaction that made it. */
-export async function noteStatusEvent(tx: Sql, cardId: string, status: CardStatusEvent['status'], actor: CardStatusActor): Promise<void> {
+export async function noteStatusEvent(
+  tx: Queryable,
+  cardId: string,
+  status: CardStatusEvent['status'],
+  actor: CardStatusActor,
+): Promise<void> {
   await tx`INSERT INTO bank.card_status_events (card_id, status, actor) VALUES (${cardId}, ${status}, ${actor})`;
 }

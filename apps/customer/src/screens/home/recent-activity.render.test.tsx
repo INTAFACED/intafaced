@@ -27,13 +27,15 @@ const ready = (items: ActivityItem[]): Loadable<ActivityFeed> => ({
   asOf: 1,
 });
 
-const hrefs = (html: string) => [...html.matchAll(/class="home-activity__row" href="([^"]+)"/g)].map((match) => match[1] ?? '');
+const hrefs = (html: string) =>
+  [...html.matchAll(/data-testid="home-activity__row" class="lt-row-link" href="([^"]+)"/g)].map((match) => match[1] ?? '');
 
 describe('Recent activity on Home (HM-dashboard-04)', () => {
   it('shows one row per movement as the Activity room does: a trade’s two legs are one row', () => {
     const html = renderToString(
       <RecentActivity
         hidden={false}
+        limit={{ state: 'ready', count: 3 }}
         activity={ready([
           line({ id: 'fill-in', postedAt: '2026-10-22T12:00:03Z', kind: 'trade', asset: 'BTC', amount: '0.1', orderId: 'o1' }),
           line({ id: 'fill-out', postedAt: '2026-10-22T12:00:02Z', kind: 'trade', direction: 'out', amount: '6700', orderId: 'o1' }),
@@ -50,5 +52,19 @@ describe('Recent activity on Home (HM-dashboard-04)', () => {
     expect(new Set(links).size).toBe(3);
     expect(html).toContain('0.123456789012345678 USDT');
     expect(html).not.toContain('dep-0');
+  });
+
+  it('lists as many movements as the owner set, and with the number blank says it is not set and lists none', () => {
+    const items = [
+      line({ id: 'dep-2', postedAt: '2026-10-22T11:00:00Z' }),
+      line({ id: 'dep-1', postedAt: '2026-10-22T10:00:00Z' }),
+      line({ id: 'dep-0', postedAt: '2026-10-22T09:00:00Z' }),
+    ];
+    const two = renderToString(<RecentActivity hidden={false} limit={{ state: 'ready', count: 2 }} activity={ready(items)} />);
+    expect(hrefs(two)).toEqual(['/money/activity/dep-2', '/money/activity/dep-1']);
+    const unset = renderToString(<RecentActivity hidden={false} limit={{ state: 'unset' }} activity={ready(items)} />);
+    expect(hrefs(unset)).toEqual([]);
+    expect(unset).toContain('Number of movements not set');
+    expect(unset).toContain('home.recent_activity_limit_unset');
   });
 });

@@ -1,9 +1,10 @@
-import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+// volt-room: /developers/status
+import { ReadingTemplate } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';
-import { readStatusFeed, STATUS_COMPONENT_IDS, type StatusFeed } from './developers-api';
+import { readStatusFeed, STATUS_COMPONENT_IDS, type StatusFeed } from '../../shared/notify-reads';
 import { useRead } from './use-read';
-import '../public/public-pages.css';
+import { ReadFailed, ReadLoading } from './ReadState';
 
 const when = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
@@ -13,21 +14,26 @@ export function StatusPage() {
   const { api } = useSession();
   const { read, reload } = useRead((signal) => readStatusFeed(api, signal), [api]);
   return (
-    <div className="pub-page" data-testid="developers-status">
-      <header className="pub-heading">
-        <h1>{t('statusTitle')}</h1>
-        <p className="muted">{t('statusLead')}</p>
-      </header>
-      {read.status === 'loading' ? (
-        <StateBlock kind="loading" rows={4} rowHeight={48} label={t('loading')} />
-      ) : read.status === 'failed' ? (
-        <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
-      ) : (
-        <StatusView feed={read.data} />
-      )}
-      <a className="text-link" href="/developers">
-        ← {t('back')}
-      </a>
+    <div data-testid="developers-status">
+      <ReadingTemplate
+        title={t('statusTitle')}
+        description={t('statusLead')}
+        state={{ kind: 'ready' }}
+        body={
+          read.status === 'loading' ? (
+            <ReadLoading rows={4} label={t('loading')} />
+          ) : read.status === 'failed' ? (
+            <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
+          ) : (
+            <StatusView feed={read.data} />
+          )
+        }
+        footer={
+          <a className="lt-link lt-link-alone" href="/developers">
+            <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
+          </a>
+        }
+      />
     </div>
   );
 }
@@ -37,10 +43,10 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
   const historyDays = feed.history.days.filter((entry) => entry.components.some((c) => c.incidentMinutes > 0));
   return (
     <>
-      <p className="muted">{t('asOf', { when: when(feed.asOf) })}</p>
-      <section className="pub-card" aria-labelledby="st-components">
+      <p>{t('asOf', { when: when(feed.asOf) })}</p>
+      <section aria-labelledby="st-components">
         <h2 id="st-components">{t('componentsTitle')}</h2>
-        <table>
+        <table className="lt-table">
           <thead>
             <tr>
               <th scope="col">{t('colComponent')}</th>
@@ -56,7 +62,7 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
                   <th scope="row">{t(`component_${id}` as const)}</th>
                   <td>
                     {t(`state_${row?.state ?? 'unknown'}` as const)}
-                    {!row || row.state === 'unknown' ? <span className="muted"> · {t('unknownNote')}</span> : null}
+                    {!row || row.state === 'unknown' ? <small> · {t('unknownNote')}</small> : null}
                   </td>
                   <td>{row?.since ? when(row.since) : ''}</td>
                 </tr>
@@ -65,7 +71,7 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
           </tbody>
         </table>
       </section>
-      <section className="pub-card" aria-labelledby="st-incidents">
+      <section aria-labelledby="st-incidents">
         <h2 id="st-incidents">{t('incidentsTitle')}</h2>
         {feed.incidents.length === 0 ? (
           <p>{t('incidentsNone')}</p>
@@ -74,11 +80,11 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
             {feed.incidents.map((incident) => (
               <li key={incident.id} data-incident-state={incident.resolvedAt ? 'resolved' : 'open'}>
                 <strong>{incident.title}</strong>{' '}
-                <span className="muted">
+                <small>
                   {incident.impact ? `${t(`impact_${incident.impact}` as const)} · ` : ''}
                   {incident.components.map((id) => t(`component_${id}` as const)).join(', ')} ·{' '}
                   {incident.resolvedAt ? t('incidentResolved', { when: when(incident.resolvedAt) }) : t('incidentOpen')}
-                </span>
+                </small>
                 <ol>
                   {incident.updates.map((update) => (
                     <li key={update.id}>
@@ -91,7 +97,7 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
           </ul>
         )}
       </section>
-      <section className="pub-card" aria-labelledby="st-maintenance">
+      <section aria-labelledby="st-maintenance">
         <h2 id="st-maintenance">{t('maintenanceTitle')}</h2>
         {feed.maintenance.length === 0 ? (
           <p>{t('maintenanceNone')}</p>
@@ -100,22 +106,22 @@ export function StatusView({ feed }: { feed: StatusFeed }) {
             {feed.maintenance.map((window) => (
               <li key={window.id}>
                 <strong>{window.title}</strong>{' '}
-                <span className="muted">
+                <small>
                   {window.components.map((id) => t(`component_${id}` as const)).join(', ')} ·{' '}
-                  {window.startsAt ? when(window.startsAt) : t('windowNotSet')} → {window.endsAt ? when(window.endsAt) : t('windowNotSet')}
-                </span>
+                  {window.startsAt ? when(window.startsAt) : t('windowNotSet')} – {window.endsAt ? when(window.endsAt) : t('windowNotSet')}
+                </small>
               </li>
             ))}
           </ul>
         )}
       </section>
-      <section className="pub-card" aria-labelledby="st-history">
+      <section aria-labelledby="st-history">
         <h2 id="st-history">{t('historyTitle')}</h2>
-        <p className="muted">{t('historyLead')}</p>
+        <p>{t('historyLead')}</p>
         {historyDays.length === 0 ? (
           <p>{t('historyNone')}</p>
         ) : (
-          <table>
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colSince')}</th>

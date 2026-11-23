@@ -1,9 +1,6 @@
 /** Browser hop for the maintenance-mode desk. Same-origin BFF only; no credential is held here. */
 import type { ConsoleModeRead } from './server';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchConsoleMode(signal?: AbortSignal): Promise<ConsoleModeRead | null> {
   try {

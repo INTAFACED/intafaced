@@ -1,8 +1,5 @@
-// The only file in this screen that knows where the shared pieces come from: the kit in
-// @intafaced/ui (B1), the data layer in ../../data (B3) and the feature registry (B2).
-export { Amount, Button, ChangeText, CoinIcon, HeroNumber, Money, Pct, Skeleton, Sparkline, StateBlock, StatusTag } from '@intafaced/ui';
-export { Tooltip, TooltipContent, TooltipTrigger } from '@intafaced/ui';
-export { Loading } from '../../shared/ui';
+// The only file in this screen that knows where the shared pieces come from: the data layer in ../../data (B3) and the
+// feature registry (B2). Home draws from the Volt kit (@intafaced/ui/lit) and its own parts (./volt-parts).
 
 export {
   direction,
@@ -34,7 +31,6 @@ export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref, defaultDeskPair } from '../../app/navigation';
 
 // The inbox's own row and read, so Home shows the newest notification exactly as Notifications does.
-import '../notifications/notifications.css';
 export { NotificationRow } from '../notifications/NotificationRow';
 export { useInboxView } from '../notifications/use-notifications';
 export type { Notification } from '../notifications/notify-api';

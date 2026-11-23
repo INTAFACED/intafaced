@@ -7,10 +7,18 @@ import {
   academyGradingQueueSchema,
   academyOpenGradingInputSchema,
 } from '@intafaced/contracts/academy-courses';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  founderRecordRead,
+} from '@/lib/desk';
 import type { AcademyBulkGradeResult, AcademyGradingQueue, GradingDeskReply, GradingView } from './grading-model';
+import { ACADEMY_ADMIN_GRADING_QUEUE } from '@intafaced/contracts/academy-admin-records';
 
 /**
  * One assignment's grading queue as the signed-in founder (AC-assignments-02). svc-academy shows learners under aliases,
@@ -28,7 +36,7 @@ const readQueue = parseWith(academyGradingQueueSchema);
 const readBulk = parseWith(academyBulkGradeResultSchema);
 
 export async function loadGradingQueue(ctx: FounderCallContext, itemId: string): Promise<GradingView> {
-  const queue = await founderCall(ctx, 'academy', 'admin.gradingQueue', 'GET', { itemId }, readQueue);
+  const queue = await founderRecordRead(ctx, ACADEMY_ADMIN_GRADING_QUEUE, { itemId }, readQueue);
   return { queue: partFrom(queue, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 

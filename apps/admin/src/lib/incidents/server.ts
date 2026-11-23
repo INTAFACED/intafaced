@@ -6,10 +6,8 @@ import {
   incidentMetricsSchema,
   type IncidentDetail,
 } from '@intafaced/contracts/ops-incidents';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { writeRefusalOf } from '@/lib/desk/write-refusal';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView, founderRecordRead } from '@/lib/desk';
+import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from '@intafaced/contracts/ops-incidents-procedures';
 
 /** svc-ops' staff incidents (OPS-oncall-02), read and changed as the signed-in person. Nothing is cached. */
 
@@ -24,8 +22,8 @@ export const INCIDENT_LIST_PAGE = 50;
 
 export async function loadIncidents(ctx: FounderCallContext) {
   const [list, metrics] = await Promise.all([
-    founderCall(ctx, 'ops', 'incidents.list', 'GET', { limit: INCIDENT_LIST_PAGE }, parse(incidentListOutputSchema)),
-    founderCall(ctx, 'ops', 'incidents.metrics', 'GET', undefined, parse(incidentMetricsSchema)),
+    founderRecordRead(ctx, OPS_INCIDENTS_LIST, { limit: INCIDENT_LIST_PAGE }, parse(incidentListOutputSchema)),
+    founderRecordRead(ctx, OPS_INCIDENTS_METRICS, undefined, parse(incidentMetricsSchema)),
   ]);
   return {
     list: opsReadOf(list, INCIDENT_STORAGE_UNCONFIGURED, 'incidents'),
@@ -34,7 +32,7 @@ export async function loadIncidents(ctx: FounderCallContext) {
 }
 
 export async function loadIncident(ctx: FounderCallContext, incidentId: string) {
-  const result = await founderCall(ctx, 'ops', 'incidents.get', 'GET', { incidentId }, parse(incidentDetailSchema));
+  const result = await founderRecordRead(ctx, OPS_INCIDENTS_GET, { incidentId }, parse(incidentDetailSchema));
   return opsReadOf(result, INCIDENT_STORAGE_UNCONFIGURED, 'incidents');
 }
 

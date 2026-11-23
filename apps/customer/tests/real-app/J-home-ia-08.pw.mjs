@@ -151,7 +151,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
     await expect(row.getByRole('button', { name: label })).toBeDisabled();
     await expectServiceOff(row.locator('[data-not-connected]'), 'chain.go', label);
   }
-  // Swapping is blocked by a gap of our own on this stack: the shared empty-state component names it, with no code at all.
+  // Swapping is blocked by a gap of our own on this stack: the kit's shared empty-state component (`.lt-empty`, the Volt template's empty state) names it, with no code at all.
   await page.goto('/dex');
   await expectWeb3(page);
   const swap = page.locator('[data-action="swap"]');
@@ -159,7 +159,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   await expect(button).toBeDisabled();
   const note = swap.getByRole('note');
   await expect(note).toHaveCount(1);
-  const gap = note.locator(':scope > .empty-state');
+  const gap = note.locator(':scope > .lt-empty');
   await expect(gap).toHaveCount(1);
   await expect(gap.getByRole('heading')).toHaveText(/^Blocked: .+/);
   // The blocker it names is the one the disabled Swap names, once the room has read its sources: while a source is still
@@ -168,7 +168,7 @@ test(`${J} #3 a blocked action names its blocker: an outside one is the shared s
   const reading = async () => {
     const { title, said } = await swap.evaluate((row) => ({
       title: row.querySelector('button')?.getAttribute('title') ?? '',
-      said: row.querySelector('[role="note"] > .empty-state :is(h1, h2, h3, h4, h5, h6, [role="heading"])')?.textContent ?? '',
+      said: row.querySelector('[role="note"] > .lt-empty :is(h1, h2, h3, h4, h5, h6, [role="heading"])')?.textContent ?? '',
     }));
     const tidy = (text) => text.replace(/\s+/g, ' ').trim().toLowerCase();
     return { said: tidy(said), named: tidy(`Blocked: ${title}`) };
@@ -222,11 +222,31 @@ test(`${J} #4 switching back returns the last Exchange room; a device with no hi
 test(`${J} #5 /dex signed out is the public read-only view with a prompt to sign in`, async ({ browser }) => {
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
+  // Every call the page makes, so "nothing here moves money" is read from the wire: no write (non-GET) call goes out.
+  const calls = [];
+  page.on('request', (req) => calls.push({ method: req.method(), url: req.url() }));
   await page.goto('/dex');
   await expectWeb3(page);
   await expect(page.getByText('Read only · nothing here moves money').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'DEX', exact: true })).toBeVisible();
   await expect(page.getByText('No wallet connected')).toBeVisible();
+  // Read only: the one action that moves money here, Swap (the form's own and the room's action row), is drawn disabled.
+  // Each is pressed anyway (`force`): the page stays on /dex and no write request goes out.
+  const swaps = page.getByRole('button', { name: 'Swap', exact: true });
+  await expect(swaps).toHaveCount(2);
+  for (const swap of await swaps.all()) {
+    await expect(swap).toBeDisabled();
+    const from = calls.length;
+    await swap.click({ force: true });
+    await page.waitForTimeout(1_000);
+    await expect(page).toHaveURL(/\/dex$/);
+    // A write is any non-GET call but the app's own session check (identity's auth.refresh, which a signed-out page sends
+    // on load and which stores nothing for a person with no session).
+    const writes = calls
+      .slice(from)
+      .filter((c) => !['GET', 'HEAD', 'OPTIONS'].includes(c.method) && !c.url.includes('/api/identity/trpc/auth.refresh'));
+    expect(writes, JSON.stringify(writes)).toEqual([]);
+  }
   const logIn = page.getByRole('banner').getByRole('link', { name: 'Log in' });
   await expect(logIn).toBeVisible();
   await expect(page.getByRole('banner').getByRole('link', { name: 'Sign up' })).toHaveAttribute('href', '/register');

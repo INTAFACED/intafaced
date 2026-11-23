@@ -1,6 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom } from '@/lib/desk/part';
+import { replyAccepted, type ProcedureRecord } from '@intafaced/contracts/procedure';
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
+import { founderCall, type FounderCallContext, type FounderCallResult, partFrom } from '@/lib/desk';
 import {
   BANK_CUSTOMER_BALANCES,
   BANK_CUSTOMER_ENTRIES,
@@ -8,6 +9,7 @@ import {
   DESKS,
   PAY_TRANSFER_DETAIL,
   allReads,
+  narrowDesk,
   readSpecFor,
 } from './catalog';
 import { inputFor, readData } from './model';
@@ -57,6 +59,16 @@ function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: st
   };
 }
 
+const RECORDS: ReadonlyMap<string, ProcedureRecord> = new Map(CONTRACT_PROCEDURES.map((r) => [r.name, r]));
+
+/** The answer parses by the read's record and passes every caller's checks on it (`accept`). A name with no record reads nothing. */
+function onRecord(recordName: string, raw: unknown): boolean {
+  const record = RECORDS.get(recordName);
+  if (record === undefined) return false;
+  const parsed = record.output.safeParse(raw);
+  return parsed.success && replyAccepted(record, parsed.data);
+}
+
 async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], now: Date): Promise<ReadOutcome[]> {
   const first = specs[0]!;
   const answer = await founderCall(ctx, first.module, first.procedure, 'GET', inputFor(first, now), (raw) => ({ raw }), {
@@ -65,7 +77,7 @@ async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], no
   const asOf = new Date().toISOString();
   return specs.map((spec) => {
     if (answer.kind !== 'ok') return outcomeOf(spec, answer, asOf);
-    const data = readData(spec, answer.data.raw);
+    const data = spec.recordName === undefined || onRecord(spec.recordName, answer.data.raw) ? readData(spec, answer.data.raw) : null;
     return outcomeOf(
       spec,
       data === null ? { kind: 'invalid', requestId: answer.requestId } : { kind: 'ok', data, requestId: answer.requestId },
@@ -135,14 +147,18 @@ export async function loadReads(
   return Object.fromEntries(outcomes.map((o) => [o.id, o]));
 }
 
-/** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
+/**
+ * `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section).
+ * `filter` is the page address's narrowing (`narrowDesk`): a read that names a filter it holds is read for that one thing.
+ */
 export async function loadDesk(
   ctx: FounderCallContext,
   deskId: OpsDeskId,
   now: Date = new Date(),
   sections?: readonly string[],
+  filter: Readonly<Record<string, string | string[] | undefined>> = {},
 ): Promise<DeskView> {
   const desk = DESKS[deskId];
-  const reads = allReads(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk);
+  const reads = allReads(narrowDesk(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk, filter));
   return { deskId, asOf: now.toISOString(), reads: await loadReads(ctx, reads, now) };
 }

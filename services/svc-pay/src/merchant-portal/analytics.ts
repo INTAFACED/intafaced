@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
@@ -155,12 +156,12 @@ export class MerchantAnalyticsService {
     });
   }
 
-  private async snapshot<T>(merchantId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  private async snapshot<T>(merchantId: string, fn: (tx: Queryable) => Promise<T>): Promise<T> {
     void merchantId;
-    return (await this.sql.begin('isolation level repeatable read read only', (tx) => fn(tx as unknown as Sql))) as T;
+    return (await this.sql.begin('isolation level repeatable read read only', (tx) => fn(tx))) as T;
   }
 
-  private async freshness(tx: Sql, merchantId: string) {
+  private async freshness(tx: Queryable, merchantId: string) {
     const [row] = await tx<Array<{ oldest: Date | null; as_of_now: Date }>>`
       SELECT min(marked_at) AS oldest, now() AS as_of_now FROM pay.metrics_dirty WHERE merchant_id = ${merchantId}`;
     const now = row?.as_of_now ?? new Date();
@@ -170,7 +171,7 @@ export class MerchantAnalyticsService {
 
   /** Fees ÷ gross per asset for the whole window, not the current page. */
   private async windowRates(
-    tx: Sql,
+    tx: Queryable,
     merchantId: string,
     range: DayRange,
     asset: string | null,
@@ -190,7 +191,7 @@ export class MerchantAnalyticsService {
   }
 
   private async points(
-    tx: Sql,
+    tx: Queryable,
     input: AnalyticsInput,
     page: { limit: number; cursor: SeriesCursor | null; asset: string | null; range: DayRange },
     kind: 'volume' | 'fees',

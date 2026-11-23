@@ -1,13 +1,11 @@
 import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
   BANK_INTERNAL_WITHDRAWAL_CALLERS,
   bankInternalWithdrawalInputSchema,
   bankInternalWithdrawalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-internal-withdrawal';
+import { router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
@@ -23,6 +21,7 @@ import {
 import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
 import { heldRefusal, isHeldSend } from '../transfers/send-review.js';
 import { guard } from './errors.js';
+import { assertExtrasAllow } from '../safety/extra-controls.js';
 import type { BankRouterContext } from './context.js';
 
 export function createTransfersRouter(c: BankRouterContext) {
@@ -262,7 +261,9 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          /** The ledger transaction on the custodial layer; null when the partner bank moved it (OWNER 226). */
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           amount: amountString,
           note: z.string().nullable(),
           reference: z.string().nullable(),
@@ -277,6 +278,15 @@ export function createTransfersRouter(c: BankRouterContext) {
           assertSelf(ctx.principal.userId, from.userId);
           const note = plainNote(input.note) ?? undefined;
           const reference = plainReference(input.reference) ?? undefined;
+          // The person's own extra checks hold a send above their allowance (BK-safe-01), before any step-up is spent.
+          if (c.options.extraControls) {
+            await assertExtrasAllow(c.options.extraControls, {
+              userId: ctx.principal.userId,
+              toUserId: input.toUserId,
+              assetId: from.assetId,
+              amount: parseAmount(input.amount),
+            });
+          }
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,
@@ -319,6 +329,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           if (isHeldSend(result)) throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
+            partnerMove: result.partnerMove,
             amount: result.amount,
             note: result.note,
             reference: result.reference,
@@ -341,7 +352,8 @@ export function createTransfersRouter(c: BankRouterContext) {
       .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           transferId: z.string(),
           createdAt: z.string().datetime(),
           fromHandle: z.string().nullable(),
@@ -360,6 +372,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
           return {
             ledgerTxId: row.ledgerTxId,
+            partnerMove: row.partnerMove,
             transferId: row.transferId,
             createdAt: row.createdAt,
             fromHandle: row.fromHandle,

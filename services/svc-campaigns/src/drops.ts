@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import { z } from 'zod';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type {
   Drop,
   DropClaim,
@@ -336,6 +336,6 @@ function assertPublishable(row: { status: string; created_by: string }, actor: s
   }
 }
 
-async function audit(tx: Sql, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
+async function audit(tx: Queryable, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
   await tx`INSERT INTO campaigns.audit_log (actor, action, target, detail) VALUES (${actor}, ${action}, ${target}, ${tx.json(detail as postgres.JSONValue)})`;
 }

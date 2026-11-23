@@ -1,15 +1,11 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import {
-  identityOperationIntentSchema,
-  identityOperationDecisionSchema,
-  normalizeIdentityOperationInput,
-  canonicalIdentityOperationIntent,
-  type IdentityOperationDecisionPort,
-  type IdentityOperationIntent,
-} from '@intafaced/contracts';
+import type { IdentityOperationDecisionPort, IdentityOperationIntent } from '@intafaced/contracts';
+import { normalizeIdentityOperationInput, canonicalIdentityOperationIntent } from '@intafaced/contracts/operation-identity-client';
+import { identityOperationIntentSchema, identityOperationDecisionSchema } from '@intafaced/contracts/operation-identity-decisions';
 export type IdentityPayoutAdmissionPort = IdentityOperationDecisionPort;
 export class PayoutAdmissionError extends Error {
   constructor(readonly code: 'pay.identity_admission_unavailable' | 'pay.identity_admission_denied' | 'pay.identity_admission_conflict') {
@@ -174,7 +170,11 @@ export async function finalizePayoutIdentity(
   if (!accepted) throw new PayoutAdmissionError('pay.identity_admission_denied');
 }
 /** Call only while the founder writer owns the merchant FOR UPDATE guard. */
-export async function drainPendingPayoutIdentityIntents(tx: Sql, merchantId: string, identity: IdentityPayoutAdmissionPort): Promise<void> {
+export async function drainPendingPayoutIdentityIntents(
+  tx: Queryable,
+  merchantId: string,
+  identity: IdentityPayoutAdmissionPort,
+): Promise<void> {
   const rows = await tx<
     PayoutAdmission[]
   >`SELECT a.* FROM pay.payout_admissions a WHERE a.merchant_id=${merchantId} AND a.identity_intent IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pay.payout_outcomes o WHERE o.admission_id=a.id AND o.kind IN('identity_granted','identity_cancelled'))`;

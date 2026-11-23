@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { IncomingRows, IncomingRules } from './IncomingPayments';
-import { bankReads, type IncomingLine } from './contracts';
+import { incomingPageSchema, type IncomingLine } from './contracts';
 
 /** BK-acct-02 incoming half (J-bank-02 #7): money that came in, with timing, availability, returns and refusals in plain words. */
 
@@ -56,9 +56,9 @@ describe('incoming payments', () => {
   });
 
   it('parses the bank’s page and refuses a number amount or money going out', () => {
-    expect(bankReads['activity.list'].parse({ items: [{ ...line(), extra: 1 }], nextCursor: null }).items[0]).not.toHaveProperty('extra');
-    expect(bankReads['activity.list'].safeParse({ items: [{ ...line(), amount: 50 }], nextCursor: null }).success).toBe(false);
-    expect(bankReads['activity.list'].safeParse({ items: [{ ...line(), direction: 'out' }], nextCursor: null }).success).toBe(false);
-    expect(bankReads['activity.list'].safeParse({ items: [{ ...line(), kind: 'order_release' }], nextCursor: null }).success).toBe(false);
+    expect(incomingPageSchema.parse({ items: [{ ...line(), extra: 1 }], nextCursor: null }).items[0]).not.toHaveProperty('extra');
+    expect(incomingPageSchema.safeParse({ items: [{ ...line(), amount: 50 }], nextCursor: null }).success).toBe(false);
+    expect(incomingPageSchema.safeParse({ items: [{ ...line(), direction: 'out' }], nextCursor: null }).success).toBe(false);
+    expect(incomingPageSchema.safeParse({ items: [{ ...line(), kind: 'order_release' }], nextCursor: null }).success).toBe(false);
   });
 });

@@ -41,6 +41,22 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.business.addMember',
   'bank.step_up.business.removeMember',
   'bank.step_up.business.setMemberRole',
+  // A business team whose money is partner-held (J-bank-19): a payment proposed (sent at once when no rule applies), each
+  // approval of one, and every door that seats a person or grants a role.
+  'bank.step_up.businessTeam.propose',
+  'bank.step_up.businessTeam.approve',
+  'bank.step_up.businessTeam.invite',
+  'bank.step_up.businessTeam.acceptInvite',
+  'bank.step_up.businessTeam.assignRole',
+  // Paying a business's bill from its partner-held account (J-bank-20).
+  'bank.step_up.businessBills.pay',
+  // Confirming a bulk payment run and paying a contractor batch from a business's partner-held account (J-bank-21).
+  'bank.step_up.businessPayouts.confirmRun',
+  'bank.step_up.businessPayouts.payBatch',
+  // Approving and paying a member's reimbursement from a business's partner-held account (J-bank-22).
+  'bank.step_up.businessCards.approveAndPay',
+  // Exporting a business statement that reaches back past the partner's strong customer authentication age (J-bank-23).
+  'bank.step_up.businessBooks.exportStatement',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
   'bank.step_up.cards.setLimits',
@@ -56,6 +72,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Withdrawals. Identity mints and consumes these. svc-bank ramps still gate on the
   // trade:withdraw bearer until a bank change reads the approval.
   'bank.step_up.ramps.offramp',
+  // A move from the person's partner account to their own wallet, on to their trading account (J-derivatives-25 #2).
+  'bank.step_up.ownMoves.toWallet',
   'bank.step_up.ramps.setWithdrawDestination',
   // Merchant payout destination. Identity mints it; svc-pay consumes it.
   // A bank door cannot spend this approval (target service follows the prefix).

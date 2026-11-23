@@ -70,7 +70,7 @@ describe('bank approver eligibility client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankApproverEligibilityClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankApproverEligibilityClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.approver_eligibility_unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -80,7 +80,7 @@ describe('bank approver eligibility client', () => {
     const client = createBankApproverEligibilityClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check({ accountId: 'x', userId: 'u' })).resolves.toMatchObject({ state: 'unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
@@ -95,7 +95,7 @@ describe('bank approver eligibility client', () => {
     const client = createBankApproverEligibilityClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.approver_eligibility_unavailable' });
   });
@@ -109,7 +109,7 @@ describe('bank approver eligibility client', () => {
       bankUrl: 'http://bank.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toMatchObject({ state: 'unavailable' });
   });

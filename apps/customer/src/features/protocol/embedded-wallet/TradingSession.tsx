@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Tag } from '@intafaced/ui/lit';
 import type { ProtocolEmbeddedWalletRecord } from '@intafaced/contracts/protocol-embedded-wallet';
+import { tradingMarketsSchema } from '@intafaced/contracts/protocol-trading-session';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { embeddedWalletCopy } from './embedded-wallet-copy';
@@ -24,10 +24,6 @@ import {
 
 type T = ReturnType<typeof embeddedWalletCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-const marketsSchema = z
-  .object({ value: z.array(z.object({ symbol: z.string(), kind: z.string(), orderTypes: z.array(z.string()) }).passthrough()) })
-  .passthrough();
 
 /** `a >= b` for two non-negative decimal strings, exactly (no floating point). */
 export function decimalAtLeast(a: string, b: string): boolean {
@@ -75,7 +71,8 @@ export function TradingSession(props: {
     `venue-builder-approval:${userId}:${owner}:${doorReady?.builder ? 'on' : 'off'}:${epoch}`,
   );
   const markets = useResource(
-    (signal) => (doorReady ? api.rest('/venue/markets', marketsSchema, { signal }) : Promise.resolve({ ok: true as const, data: null })),
+    (signal) =>
+      doorReady ? api.rest('/venue/markets', tradingMarketsSchema, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `venue-markets:${userId}:${doorReady ? 'on' : 'off'}`,
   );
   const [held, setHeld] = useState<HeldKey | null>(() => heldKey(userId));
@@ -89,6 +86,9 @@ export function TradingSession(props: {
   const [order, setOrder] = useState({ symbol: '', side: 'buy', amount: '0.001', price: '1000' });
 
   const read = session.resource.status === 'ready' ? session.resource.data : null;
+  // Until this sign-in's session has been read, no session action is offered: a press then could not know whether an
+  // approval is still out (to be read back, never a second key) or a session is already on.
+  const sessionRead = session.resource.status === 'ready';
   const current: SessionView | null = read?.current ?? null;
   // Judged only against a real read of this sign-in's session: never while the door or the read is still loading.
   const use = read ? keyFor(current, held) : 'none';
@@ -166,6 +166,7 @@ export function TradingSession(props: {
 
   const start = () =>
     once(async () => {
+      if (!sessionRead) return;
       // The key for an approval still out is the same key, so a retry is the same approval. An approval that was sent
       // with no answer, whose key this tab does not hold (a closed tab), is read back by sending the stored approval
       // again, with no new prompt; the venue's answer then decides. Otherwise a new key.
@@ -316,7 +317,11 @@ export function TradingSession(props: {
                 : null;
 
   return (
-    <section aria-label={t('sessionTitle')} data-panel="trading-session" data-session-state={onNow ? 'on' : state}>
+    <section
+      aria-label={t('sessionTitle')}
+      data-panel="trading-session"
+      data-session-state={!sessionRead ? 'reading' : onNow ? 'on' : state}
+    >
       <h2>{t('sessionTitle')}</h2>
       <p>
         {t('sessionVenue', { venue: venueName })}{' '}
@@ -333,8 +338,13 @@ export function TradingSession(props: {
             <p>{t('builderNote', { fee: doorReady.builder.feeBps })}</p>
             {builderApproved ? (
               <p data-builder-approved>{t('builderApproved')}</p>
+            ) : approval.resource.status === 'loading' ? (
+              // Not read yet: offering Approve now could ask the wallet for an approval it has already given.
+              <p role="status" data-builder-reading>
+                {t('builderReading')}
+              </p>
             ) : (
-              <Button disabled={busy || !client} onClick={() => void approveBuilder()}>
+              <Button tone="primary" disabled={busy || !client} onClick={() => void approveBuilder()}>
                 {t('builderApprove')}
               </Button>
             )}
@@ -388,7 +398,7 @@ export function TradingSession(props: {
               {t('orderPrice')}{' '}
               <input inputMode="decimal" value={order.price} onChange={(e) => setOrder({ ...order, price: e.target.value })} />
             </label>{' '}
-            <Button variant="primary" disabled={busy || !symbol || !builderApproved} onClick={() => void place()}>
+            <Button tone="primary" disabled={busy || !symbol || !builderApproved} onClick={() => void place()}>
               {t('orderPlace')}
             </Button>
             {placed.length ? (
@@ -401,14 +411,15 @@ export function TradingSession(props: {
               </ol>
             ) : null}
           </section>
-          <Button disabled={busy || !client} onClick={() => void end()}>
+          <Button tone="primary" disabled={busy || !client} onClick={() => void end()}>
             {t('sessionEnd')}
           </Button>
         </>
       ) : (
         <>
           {why ? <p role="status">{why}</p> : <p>{t('sessionAbout', { venue: venueName })}</p>}
-          <Button variant="primary" disabled={busy || !client} onClick={() => void start()}>
+          {!sessionRead ? <p role="status">{t('sessionReading')}</p> : null}
+          <Button tone="primary" disabled={busy || !client || !sessionRead} onClick={() => void start()}>
             {state === 'none' || state === 'awaiting_signature' || state === 'approving' ? t('sessionStart') : t('sessionStartNew')}
           </Button>
         </>

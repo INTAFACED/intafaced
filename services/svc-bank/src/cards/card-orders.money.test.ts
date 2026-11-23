@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt, recipes, userAvailable, withdrawalHoldAccount } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -51,7 +51,7 @@ const ADDRESS = {
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  const container = await testPostgres('postgres:16-alpine').start();
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
@@ -244,5 +244,24 @@ describe('getting a card (J-bank-13, PG-hard)', () => {
     expect(await sql`SELECT id FROM bank.cards WHERE user_id = ${user}`).toHaveLength(2);
     expect(await available()).toBe(amt('100'));
     expect((await orders.delivery(user, replacementId)).state).toBe('ordered');
+  });
+
+  // The replacement card's issuer ref is deterministic in its id, so cards_pkey and cards_issuer_ref_idx both name it: the
+  // call that loses the insert race must read the winner's card, not raise 23505 on whichever key Postgres checks first.
+  it('gives every same-id replace call at once the one replacement card, never a duplicate-key error', async () => {
+    for (let round = 0; round < 40; round++) {
+      user = randomUUID();
+      await accept();
+      const card = await virtual();
+      const replacementId = randomUUID();
+      const results = await Promise.allSettled(
+        Array.from({ length: 2 }, () => cards.replace({ cardId: card.id, userId: user, replacementId, reason: 'lost' })),
+      );
+      const failures = results.flatMap((r) => (r.status === 'rejected' ? [String((r.reason as Error)?.message ?? r.reason)] : []));
+      expect(failures).toEqual([]);
+      for (const r of results) expect(r.status === 'fulfilled' && r.value.id).toBe(replacementId);
+      expect(await sql`SELECT id FROM bank.cards WHERE replaces_card_id = ${card.id}`).toHaveLength(1);
+      expect(await cards.card(card.id)).toMatchObject({ status: 'closed', replacedByCardId: replacementId });
+    }
   });
 });

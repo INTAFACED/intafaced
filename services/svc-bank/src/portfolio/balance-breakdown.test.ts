@@ -61,13 +61,13 @@ function service(rows: Balance[], spaces: SpaceRecord[] = []) {
       asked.push([ownerType, ownerId]);
       return rows.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId);
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const lister: SpaceLister = { namedSpaces: async (userId) => spaces.filter((s) => s.userId === userId) };
   return { portfolio: new PortfolioService(ledger, lister), asked };
 }
 
 const callerFor = (portfolio: PortfolioService, userId: string, scopes?: string[]) =>
-  createBankRouter({ portfolio } as unknown as BankServices).createCaller(signed(userId, scopes));
+  createBankRouter({ portfolio } as BankServices).createCaller(signed(userId, scopes));
 
 const named = (id: string, userId: string): SpaceRecord => ({
   id,
@@ -192,7 +192,7 @@ describe('bank.portfolio.balanceBreakdown', () => {
     const { portfolio, asked } = service([row(ALICE, 'USDT', 'available', '5')]);
     await expect(callerFor(portfolio, ALICE, ['trade:read']).portfolio.balanceBreakdown()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(
-      createBankRouter({ portfolio } as unknown as BankServices)
+      createBankRouter({ portfolio } as BankServices)
         .createCaller(edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon' }))
         .portfolio.balanceBreakdown(),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
@@ -204,7 +204,7 @@ describe('bank.portfolio.balanceBreakdown', () => {
       balances: async () => {
         throw new Error('ledger down');
       },
-    } as unknown as Pick<LedgerClient, 'balances'>;
+    } as Pick<LedgerClient, 'balances'>;
     const portfolio = new PortfolioService(ledger, { namedSpaces: async () => [] });
     await expect(callerFor(portfolio, ALICE).portfolio.balanceBreakdown()).rejects.toBeDefined();
   });

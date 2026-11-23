@@ -65,6 +65,14 @@ export interface PartnerCredit {
   readonly hold: PartnerPurchaseHold | null;
 }
 
+export interface PartnerReturn {
+  /** The partner's own reference for the return. */
+  readonly id: string;
+  readonly key: string;
+  readonly amount: Amount;
+  readonly returnedAt: Date;
+}
+
 export interface PartnerPurchases {
   readonly label: string;
   /**
@@ -75,6 +83,14 @@ export interface PartnerPurchases {
   credit(userId: string, purchase: PartnerPurchase): Promise<PartnerCredit>;
   /** What the partner holds back of the person's purchases, and what it has released, as it reports them. */
   holds(userId: string): Promise<PartnerPurchaseHolds>;
+  /**
+   * The partner says a purchase it credited was sent back (J-bank-02 #7): it takes the amount out of the person's main
+   * balance once, under the purchase's key, and holds nothing back of it any more. The same key again answers the same
+   * return. Refuses before anything moves: `bank.partner_unavailable` (not answering), `bank.partner_move_conflict` (no
+   * purchase credited under this key, or one on other terms), `bank.partner_insufficient_funds` (the balance no longer
+   * holds it).
+   */
+  returned(userId: string, purchase: PartnerPurchase): Promise<PartnerReturn>;
 }
 
 /** Which partner, if any, a person's purchases are credited at: the one that holds their money, or none. */

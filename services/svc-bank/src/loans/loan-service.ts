@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { z } from 'zod';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -394,6 +395,82 @@ class NoLongerPending extends Error {
   }
 }
 
+/** One collateral event row as lockCollateral reads it. */
+const CollateralEventRow = z.object({
+  id: z.string(),
+  sequence: z.coerce.number().int(),
+  ledger_tx_id: z.string().nullable(),
+  amount: z.string(),
+  direction: z.string(),
+  loan_id: z.string(),
+});
+
+/** The next free collateral sequence on a loan. */
+const NextSequenceRow = z.object({ next: z.coerce.number().int() });
+
+/** The `bank.loan_products` columns `toProduct` reads from a `SELECT *` / `RETURNING *` row. */
+const LoanProductRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  debt_asset_id: z.string(),
+  collateral_asset_id: z.string(),
+  quote_asset_id: z.string(),
+  apr_bps: z.number(),
+  max_ltv_bps: z.number(),
+  margin_call_ltv_bps: z.number(),
+  liquidation_ltv_bps: z.number(),
+  insolvency_ltv_bps: z.number(),
+  target_ltv_bps: z.number(),
+  penalty_bps: z.number(),
+  max_tranche_bps: z.number(),
+  grace_seconds: z.number(),
+  /** Nullable in the table; a missing or blank floor is `toProduct`'s typed refusal, never 0. */
+  min_principal: z.string().nullish(),
+  status: z.string(),
+});
+
+/** The `bank.loans` columns `toLoan` reads from a `SELECT *` / `RETURNING *` row. */
+const LoanRow = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  user_id: z.string(),
+  debt_asset_id: z.string(),
+  collateral_asset_id: z.string(),
+  quote_asset_id: z.string(),
+  apr_bps: z.number(),
+  principal: z.string(),
+  status: z.string(),
+  draw_ledger_tx_id: z.string().nullable(),
+  opened_at: z.date(),
+  margin_called_at: z.date().nullable(),
+  last_mark_price: z.string().nullable(),
+  closed_at: z.date().nullable(),
+  opening_collateral: z.string().nullable(),
+});
+
+/** A claimed money row: its id and the ledger tx it names, if any. */
+const LedgerTxRow = z.object({ id: z.string(), ledger_tx_id: z.string().nullable() });
+
+/** One collateral event as a lock or release re-reads it. */
+const CollateralMoveRow = z.object({
+  id: z.string(),
+  sequence: z.number(),
+  ledger_tx_id: z.string().nullable(),
+  amount: z.string(),
+  direction: z.string(),
+  loan_id: z.string(),
+});
+
+/** One repayment row as a repay claims it. */
+const RepaymentClaimRow = z.object({
+  id: z.string(),
+  loan_id: z.string(),
+  sequence: z.number(),
+  ledger_tx_id: z.string().nullable(),
+  interest_amount: z.string(),
+  principal_amount: z.string(),
+});
+
 export class LoanService {
   private readonly venue: LiquidationVenue;
   private readonly marginCalls: MarginCallSink;
@@ -442,7 +519,8 @@ export class LoanService {
       throw new BankError('Loan product terms are invalid: minPrincipal is blank', 'bank.loan_params_invalid');
     }
 
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanProductRow.array().parse(
+      await this.sql`
       INSERT INTO bank.loan_products (
         name, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, max_ltv_bps,
         margin_call_ltv_bps, liquidation_ltv_bps, insolvency_ltv_bps, target_ltv_bps,
@@ -455,7 +533,8 @@ export class LoanService {
         ${formatAmount(minPrincipal)}::numeric
       )
       RETURNING *
-    `;
+    `,
+    );
     return toProduct(rows[0]!);
   }
 
@@ -478,7 +557,8 @@ export class LoanService {
     policy: LiquidationPolicy;
   }): Promise<{ product: LoanProductRecord; replayed: boolean }> {
     assertLoanParams(input);
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanProductRow.array().parse(
+      await this.sql`
       INSERT INTO bank.loan_products (
         id, name, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, max_ltv_bps,
         margin_call_ltv_bps, liquidation_ltv_bps, insolvency_ltv_bps, target_ltv_bps,
@@ -492,7 +572,8 @@ export class LoanService {
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
-    `;
+    `,
+    );
     if (rows.length > 0) return { product: toProduct(rows[0]!), replayed: false };
     const stored = await this.product(input.productId);
     if (!sameProductTerms(stored, input)) {
@@ -507,19 +588,23 @@ export class LoanService {
   async listProducts(assetId?: string, limit?: number): Promise<LoanProductRecord[]> {
     const page = assertLoanProductsListLimit(limit);
     const rows = assetId
-      ? await this.sql<Array<Record<string, unknown>>>`
+      ? LoanProductRow.array().parse(
+          await this.sql`
           SELECT * FROM bank.loan_products
            WHERE status = 'open' AND (debt_asset_id = ${assetId} OR collateral_asset_id = ${assetId})
            ORDER BY name ASC
-           LIMIT ${page}`
-      : await this.sql<Array<Record<string, unknown>>>`
+           LIMIT ${page}`,
+        )
+      : LoanProductRow.array().parse(
+          await this.sql`
           SELECT * FROM bank.loan_products WHERE status = 'open' ORDER BY name ASC
-           LIMIT ${page}`;
+           LIMIT ${page}`,
+        );
     return rows.map(toProduct);
   }
 
   async product(id: string): Promise<LoanProductRecord> {
-    const rows = await this.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.loan_products WHERE id = ${id}`;
+    const rows = LoanProductRow.array().parse(await this.sql`SELECT * FROM bank.loan_products WHERE id = ${id}`);
     if (rows.length === 0) throw new BankError(`No loan product ${id}`, 'bank.loan_product_not_found');
     return toProduct(rows[0]!);
   }
@@ -598,7 +683,10 @@ export class LoanService {
     marginCallLtvBps: number | null;
     liquidationLtvBps: number | null;
   }> {
-    const rows = await this.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.loans WHERE id = ${loanId}`;
+    // Thresholds are null on rows opened before they were snapshotted.
+    const rows = LoanRow.extend({ margin_call_ltv_bps: z.number().nullish(), liquidation_ltv_bps: z.number().nullish() })
+      .array()
+      .parse(await this.sql`SELECT * FROM bank.loans WHERE id = ${loanId}`);
     if (rows.length === 0) throw new BankError(`No loan ${loanId}`, 'bank.loan_not_found');
     const row = rows[0]!;
     const bps = (v: unknown) => (v === null || v === undefined ? null : Number(v));
@@ -638,9 +726,13 @@ export class LoanService {
     approvalId: string,
     input: { productId: string; fromAprBps: number; aprBps: number; reason: string },
   ): Promise<{ productId: string; aprBps: number; previousAprBps: number; approvedBy: string } | null> {
-    const rows = await this.sql<
-      Array<{ product_id: string; apr_bps: number; previous_apr_bps: number; reason: string; approved_by: string }>
-    >`SELECT product_id, apr_bps, previous_apr_bps, reason, approved_by FROM bank.loan_product_rate_changes WHERE approval_id = ${approvalId}`;
+    const rows = z
+      .object({ product_id: z.string(), apr_bps: z.number(), previous_apr_bps: z.number(), reason: z.string(), approved_by: z.string() })
+      .array()
+      .parse(
+        await this
+          .sql`SELECT product_id, apr_bps, previous_apr_bps, reason, approved_by FROM bank.loan_product_rate_changes WHERE approval_id = ${approvalId}`,
+      );
     const row = rows[0];
     if (!row) return null;
     if (
@@ -671,7 +763,10 @@ export class LoanService {
   }): Promise<{ product: LoanProductRecord; previousAprBps: number }> {
     await this.checkRateChange(input);
     if (input.approvalId.trim() === '') throw new BankError('A rate change needs its approval id', 'bank.loan_params_invalid');
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanProductRow.extend({ previous_apr_bps: z.number(), recorded: z.number() })
+      .array()
+      .parse(
+        await this.sql`
       WITH prev AS (
         SELECT id, apr_bps FROM bank.loan_products WHERE id = ${input.productId} FOR UPDATE
       ), changed AS (
@@ -684,7 +779,8 @@ export class LoanService {
         RETURNING id
       )
       SELECT changed.*, (SELECT count(*) FROM recorded)::int AS recorded FROM changed
-    `;
+    `,
+      );
     const row = rows[0];
     if (!row || row.recorded !== 1) {
       throw new BankError(`The product's rate moved before this change was made: read it again`, 'bank.loan_rate_moved');
@@ -695,27 +791,31 @@ export class LoanService {
   // ── Reading a loan ─────────────────────────────────────────────────────────
 
   async loan(id: string): Promise<LoanRecord> {
-    const rows = await this.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.loans WHERE id = ${id}`;
+    const rows = LoanRow.array().parse(await this.sql`SELECT * FROM bank.loans WHERE id = ${id}`);
     if (rows.length === 0) throw new BankError(`No loan ${id}`, 'bank.loan_not_found');
     return toLoan(rows[0]!);
   }
 
   async loansOf(userId: string, limit?: number): Promise<LoanRecord[]> {
     const page = assertLoansListLimit(limit);
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanRow.array().parse(
+      await this.sql`
       SELECT * FROM bank.loans WHERE user_id = ${userId} ORDER BY opened_at DESC
        LIMIT ${page}
-    `;
+    `,
+    );
     return rows.map(toLoan);
   }
 
   /** Job work set — open book for markUser. Not a list page; mark is not milled as a dump. */
   private async openLoansForMark(userId: string): Promise<LoanRecord[]> {
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanRow.array().parse(
+      await this.sql`
       SELECT * FROM bank.loans
        WHERE user_id = ${userId} AND status IN ('active', 'margin_call', 'liquidating')
        ORDER BY opened_at DESC
-    `;
+    `,
+    );
     return rows.map(toLoan);
   }
 
@@ -733,8 +833,12 @@ export class LoanService {
    * response is a zero here plus a shortfall of nothing — not a figure that would
    * quietly credit the borrower on the next repayment.
    */
-  async outstanding(loanId: string, tx: Sql = this.sql): Promise<LoanDebt> {
-    const rows = await tx<Array<{ principal: string; interest: string }>>`
+  async outstanding(loanId: string, tx: Queryable = this.sql): Promise<LoanDebt> {
+    const rows = z
+      .object({ principal: z.string(), interest: z.string() })
+      .array()
+      .parse(
+        await tx`
       WITH drawn AS (
         SELECT principal FROM bank.loans WHERE id = ${loanId}
       ),
@@ -769,7 +873,8 @@ export class LoanService {
         GREATEST((SELECT principal FROM drawn) - repaid.p - seized.p - seized.s, 0) AS principal,
         GREATEST(accrued.v + adjusted.v - repaid.i - seized.i, 0) AS interest
         FROM accrued, adjusted, repaid, seized
-    `;
+    `,
+      );
 
     if (rows.length === 0) throw new BankError(`No loan ${loanId}`, 'bank.loan_not_found');
 
@@ -859,7 +964,8 @@ export class LoanService {
       );
     }
 
-    const inserted = await this.sql<Array<Record<string, unknown>>>`
+    const inserted = LoanRow.array().parse(
+      await this.sql`
       INSERT INTO bank.loans (
         id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at,
         margin_call_ltv_bps, liquidation_ltv_bps
@@ -871,7 +977,8 @@ export class LoanService {
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
-    `;
+    `,
+    );
 
     const loan = inserted.length > 0 ? toLoan(inserted[0]!) : await this.loan(loanId);
 
@@ -1010,13 +1117,15 @@ export class LoanService {
         `;
       }
     }
-    const updated = await this.sql<Array<Record<string, unknown>>>`
+    const updated = LoanRow.array().parse(
+      await this.sql`
       UPDATE bank.loans
          SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
              last_mark_price = ${null}, updated_at = now()
        WHERE id = ${loan.id} AND status = 'pending'
        RETURNING *
-    `;
+    `,
+    );
     return {
       loan: updated.length > 0 ? toLoan(updated[0]!) : await this.loan(loan.id),
       collateralLedgerTxId: collateralTxId,
@@ -1079,7 +1188,7 @@ export class LoanService {
         let collateralTxId: string;
         try {
           await this.touchAttempt(current.id);
-          collateralTxId = (await this.lockCollateral(current, collateralAmount, 0, current.id)).ledgerTxId;
+          collateralTxId = (await this.lockCollateral(current, collateralAmount, current.id, 0)).ledgerTxId;
         } catch (err) {
           if (isInsufficientFunds(err)) {
             // Borrower cannot fund the lock. Loan stays `pending` with no lock
@@ -1127,13 +1236,15 @@ export class LoanService {
 
         // Status and tx id commit together, so there is no window in which the
         // principal has moved and the row does not know.
-        const updated = await this.sql<Array<Record<string, unknown>>>`
+        const updated = LoanRow.array().parse(
+          await this.sql`
           UPDATE bank.loans
              SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
                  last_mark_price = ${null}, updated_at = now()
            WHERE id = ${current.id} AND status = 'pending'
            RETURNING *
-        `;
+        `,
+        );
 
         span.setAttribute('intafaced.ltv_bps', openingLtv);
 
@@ -1173,9 +1284,11 @@ export class LoanService {
     now: Date = new Date(),
   ): Promise<Array<{ loanId: string; outcome: 'completed' | 'failed'; reason?: string }>> {
     const batch = assertLoanResumePendingLimit(limit);
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanRow.array().parse(
+      await this.sql`
       SELECT * FROM bank.loans WHERE status = 'pending' ORDER BY opened_at ASC LIMIT ${batch}
-    `;
+    `,
+    );
 
     const out: Array<{ loanId: string; outcome: 'completed' | 'failed'; reason?: string }> = [];
 
@@ -1217,10 +1330,15 @@ export class LoanService {
    * Read on the DATABASE clock against the `updated_at` that `touchAttempt` wrote.
    */
   private async inFlightWaitSeconds(loanId: string): Promise<number> {
-    const rows = await this.sql<Array<{ wait: string }>>`
+    const rows = z
+      .object({ wait: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT GREATEST(0, CEIL(${LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS}::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::text AS wait
         FROM bank.loans WHERE id = ${loanId}
-    `;
+    `,
+      );
     return Number(rows[0]?.wait ?? 0);
   }
 
@@ -1292,9 +1410,10 @@ export class LoanService {
    *
    * `eventId` is the client retry key (§5). Required: omit used to allocate MAX+1
    * and post a second loanCollateralLock. A minted UUID would be a fake key a
-   * retry cannot reuse. Sequence is MAX+1 only for a *new* event. An overlapping
-   * retry that loses `ON CONFLICT (id)` posts the claimed row's sequence — the
-   * ledger key is loanId:sequence, so posting the caller's MAX+1 would lock twice.
+   * retry cannot reuse. Sequence is MAX+1 only for a *new* event, taken under the
+   * loan row lock. An overlapping retry waits on that lock and posts the claimed
+   * row's sequence — the ledger key is loanId:sequence, so a second MAX+1 would
+   * lock twice.
    */
   async addCollateral(input: {
     loanId: string;
@@ -1325,13 +1444,8 @@ export class LoanService {
 
     const eventId = input.eventId;
     const existing = await this.collateralEventById(eventId);
-    if (existing) {
-      this.assertCollateralRetryMatches(loan, eventId, input.amount, existing);
-      return this.lockCollateral(loan, input.amount, existing.sequence, eventId);
-    }
-
-    const sequence = await this.nextCollateralSequence(loan.id);
-    return this.lockCollateral(loan, input.amount, sequence, eventId);
+    if (existing) this.assertCollateralRetryMatches(loan, eventId, input.amount, existing);
+    return this.lockCollateral(loan, input.amount, eventId);
   }
 
   /**
@@ -1376,11 +1490,16 @@ export class LoanService {
     }
     const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
     const product = await this.product(loan.productId);
-    const pendingRows = await this.sql<Array<{ pending: string }>>`
+    const pendingRows = z
+      .object({ pending: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT COALESCE(SUM(amount), 0)::text AS pending
         FROM bank.loan_collateral_events
        WHERE loan_id = ${loan.id} AND direction = 'release' AND status = 'pending'
-    `;
+    `,
+      );
     const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
     const ledgerHeld = await this.collateralOf(loan);
     const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
@@ -1472,37 +1591,55 @@ export class LoanService {
   private async lockCollateral(
     loan: LoanRecord,
     amount: Amount,
-    sequence: number,
     eventId: string,
+    /** The opening lock is always sequence 0; a top-up takes MAX+1 under the lock. */
+    fixedSequence?: number,
   ): Promise<{ ledgerTxId: string; sequence: number }> {
-    // Overlap key = eventId. The ledger recipe keys on loanId:sequence, so a
-    // loser of ON CONFLICT (id) must post the claimed row's sequence, not the
-    // MAX+1 it allocated before the winner's insert was visible.
-    let postSequence = sequence;
+    // Overlap key = eventId; the ledger recipe keys on loanId:sequence, so every
+    // caller posts the claimed row's sequence. The loan row lock is held from the
+    // re-read by id through the insert, and the sequence is MAX+1 inside it, as in
+    // releaseNamedCollateral: a duplicate of this eventId waits and replays the
+    // winner's row, and two different top-ups take different sequences.
+    // The insert names no conflict target: the closing releases write a sequence
+    // without this lock, and a clash with one of them on (loan_id, sequence) is
+    // absorbed and the next sequence taken, rather than raising 23505.
+    let postSequence = 0;
     const ledgerTxId = await this.drivenPost({
       claim: async (tx) => {
-        const rows = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
-          INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount)
-          VALUES (${eventId}, ${loan.id}, ${sequence}, 'lock', ${formatAmount(amount)}::numeric)
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id, sequence, ledger_tx_id, amount, direction, loan_id
-        `;
-        if (rows.length > 0) {
-          postSequence = Number(rows[0]!.sequence);
-          return { claimed: true as const, id: rows[0]!.id };
+        await tx`SELECT id FROM bank.loans WHERE id = ${loan.id} FOR UPDATE`;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const prior = CollateralEventRow.array().parse(
+            await tx`
+              SELECT id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
+                FROM bank.loan_collateral_events WHERE id = ${eventId}
+            `,
+          );
+          if (prior[0]) {
+            const row = prior[0];
+            this.assertCollateralRetryMatches(loan, eventId, amount, row);
+            postSequence = Number(row.sequence);
+            return { claimed: false as const, id: row.id, ledgerTxId: row.ledger_tx_id };
+          }
+          const next = NextSequenceRow.array().parse(
+            await tx`
+              SELECT COALESCE(MAX(sequence) + 1, 0) AS next FROM bank.loan_collateral_events WHERE loan_id = ${loan.id}
+            `,
+          );
+          const sequence = fixedSequence ?? next[0]?.next ?? 0;
+          const rows = CollateralEventRow.array().parse(
+            await tx`
+              INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount)
+              VALUES (${eventId}, ${loan.id}, ${sequence}, 'lock', ${formatAmount(amount)}::numeric)
+              ON CONFLICT DO NOTHING
+              RETURNING id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
+            `,
+          );
+          if (rows[0]) {
+            postSequence = Number(rows[0].sequence);
+            return { claimed: true as const, id: rows[0].id };
+          }
         }
-        const existing = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
-          SELECT id, sequence, ledger_tx_id, amount, direction, loan_id
-            FROM bank.loan_collateral_events WHERE id = ${eventId}
-        `;
-        const row = existing[0]!;
-        this.assertCollateralRetryMatches(loan, eventId, amount, row);
-        postSequence = Number(row.sequence);
-        return { claimed: false as const, id: row.id, ledgerTxId: row.ledger_tx_id };
+        throw new Error(`Collateral lock ${eventId} on loan ${loan.id} found no free sequence after 5 tries`);
       },
       post: () =>
         this.ledger.post(
@@ -1530,16 +1667,20 @@ export class LoanService {
     const seq = sequence ?? (await this.nextCollateralSequence(loan.id));
     return this.drivenPost({
       claim: async (tx) => {
-        const rows = await tx<Array<{ id: string; ledger_tx_id: string | null }>>`
+        const rows = LedgerTxRow.array().parse(
+          await tx`
           INSERT INTO bank.loan_collateral_events (loan_id, sequence, direction, amount)
           VALUES (${loan.id}, ${seq}, 'release', ${formatAmount(amount)}::numeric)
           ON CONFLICT (loan_id, sequence) DO NOTHING
           RETURNING id, ledger_tx_id
-        `;
+        `,
+        );
         if (rows.length > 0) return { claimed: true as const, id: rows[0]!.id };
-        const existing = await tx<Array<{ id: string; ledger_tx_id: string | null }>>`
+        const existing = LedgerTxRow.array().parse(
+          await tx`
           SELECT id, ledger_tx_id FROM bank.loan_collateral_events WHERE loan_id = ${loan.id} AND sequence = ${seq}
-        `;
+        `,
+        );
         return { claimed: false as const, id: existing[0]!.id, ledgerTxId: existing[0]!.ledger_tx_id };
       },
       post: () =>
@@ -1575,26 +1716,31 @@ export class LoanService {
     return this.drivenPost({
       claim: async (tx) => {
         await tx`SELECT id FROM bank.loans WHERE id = ${loan.id} FOR UPDATE`;
-        const existing = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
+        const existing = CollateralMoveRow.array().parse(
+          await tx`
           SELECT id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
             FROM bank.loan_collateral_events WHERE id = ${eventId}
-        `;
+        `,
+        );
         const prior = existing[0];
 
         // The cap check, run for a new release and for a re-drive of one the
         // ledger has not booked. `ownRow` leaves the retried row's own pending
         // amount out of what is reserved, so it is not counted against itself.
         const checkCap = async (ownRow: string | null) => {
-          const pendingRows = await tx<Array<{ pending: string }>>`
+          const pendingRows = z
+            .object({ pending: z.string() })
+            .array()
+            .parse(
+              await tx`
             SELECT COALESCE(SUM(amount), 0)::text AS pending
               FROM bank.loan_collateral_events
              WHERE loan_id = ${loan.id}
                AND direction = 'release'
                AND status = 'pending'
                AND (${ownRow}::uuid IS NULL OR id <> ${ownRow}::uuid)
-          `;
+          `,
+            );
           const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
           const ledgerHeld = await this.collateralOf(loan);
           const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
@@ -1644,31 +1790,36 @@ export class LoanService {
 
         await checkCap(null);
 
-        const seqRows = await tx<Array<{ next: number | string | null }>>`
+        const seqRows = z
+          .object({ next: z.number() })
+          .array()
+          .parse(
+            await tx`
           SELECT COALESCE(MAX(sequence) + 1, 0) AS next
             FROM bank.loan_collateral_events
            WHERE loan_id = ${loan.id}
-        `;
+        `,
+          );
         const seq = Number(seqRows[0]?.next ?? 0);
         postSequence = seq;
-        const rows = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
+        const rows = CollateralMoveRow.array().parse(
+          await tx`
           INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount)
           VALUES (${eventId}, ${loan.id}, ${seq}, 'release', ${formatAmount(amount)}::numeric)
           ON CONFLICT (id) DO NOTHING
           RETURNING id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
-        `;
+        `,
+        );
         if (rows.length > 0) {
           postSequence = Number(rows[0]!.sequence);
           return { claimed: true as const, id: rows[0]!.id };
         }
-        const lost = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
+        const lost = CollateralMoveRow.array().parse(
+          await tx`
           SELECT id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
             FROM bank.loan_collateral_events WHERE id = ${eventId}
-        `;
+        `,
+        );
         const row = lost[0]!;
         this.assertCollateralRetryMatches(loan, eventId, amount, row, 'release');
         postSequence = Number(row.sequence);
@@ -1728,9 +1879,14 @@ export class LoanService {
       return { loanId: loan.id, days: [], charged: 0n };
     }
 
-    const last = await this.sql<Array<{ d: string | null }>>`
+    const last = z
+      .object({ d: z.string().nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT MAX(accrual_date)::text AS d FROM bank.loan_interest_accruals WHERE loan_id = ${loan.id}
-    `;
+    `,
+      );
     const days = daysToAccrue(last[0]?.d ?? null, loan.openedAt, until);
     if (days.length === 0) return { loanId: loan.id, days: [], charged: 0n };
 
@@ -1747,21 +1903,31 @@ export class LoanService {
       // Zero-interest days are still WRITTEN. A day with no row would be
       // re-derived and re-charged forever by the next run, and on a dust loan
       // that means the day list grows without bound.
-      const rows = await this.sql<Array<{ id: string }>>`
+      const rows = z
+        .object({ id: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         INSERT INTO bank.loan_interest_accruals (loan_id, accrual_date, rate_bps, principal_basis, interest_amount)
         VALUES (${loan.id}, ${day}, ${loan.aprBps}, ${formatAmount(debt)}::numeric, ${formatAmount(interest)}::numeric)
         ON CONFLICT (loan_id, accrual_date) DO NOTHING
         RETURNING id
-      `;
+      `,
+        );
 
       if (rows.length === 0) {
         // THE GUARD FIRING. Another runner already charged this day, or this
         // runner is a retry of one that crashed after committing it. Either way
         // the day is charged once; we read what was actually charged so the
         // running debt stays true to the rows rather than to our arithmetic.
-        const existing = await this.sql<Array<{ interest_amount: string }>>`
+        const existing = z
+          .object({ interest_amount: z.string() })
+          .array()
+          .parse(
+            await this.sql`
           SELECT interest_amount FROM bank.loan_interest_accruals WHERE loan_id = ${loan.id} AND accrual_date = ${day}
-        `;
+        `,
+          );
         const actual = parseAmount(existing[0]!.interest_amount);
         debt += actual;
         results.push({ date: day, interest: actual, basis: debt - actual, alreadyAccrued: true });
@@ -1794,9 +1960,14 @@ export class LoanService {
     failures: Array<{ loanId: string; reason: string; code?: string }>;
   }> {
     const batch = assertLoanAccrueBatchLimit(limit);
-    const rows = await this.sql<Array<{ id: string }>>`
+    const rows = z
+      .object({ id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id FROM bank.loans WHERE status IN ('active', 'margin_call', 'liquidating') ORDER BY opened_at ASC LIMIT ${batch}
-    `;
+    `,
+      );
     const results: Array<{ loanId: string; charged: Amount; days: number }> = [];
     const failures: Array<{ loanId: string; reason: string; code?: string }> = [];
     for (const row of rows) {
@@ -1914,26 +2085,24 @@ export class LoanService {
     const ledgerTxId = await this.withRepayLock(loan.id, () =>
       this.drivenPost({
         claim: async (tx) => {
-          const locked = await tx<Array<{ status: string }>>`
+          const locked = z
+            .object({ status: z.string() })
+            .array()
+            .parse(
+              await tx`
           SELECT status FROM bank.loans WHERE id = ${loan.id} FOR UPDATE
-        `;
+        `,
+            );
           if (locked.length === 0) throw new BankError(`No loan ${loan.id}`, 'bank.loan_not_found');
 
-          const existing = await tx<
-            Array<{
-              id: string;
-              loan_id: string;
-              sequence: number;
-              ledger_tx_id: string | null;
-              interest_amount: string;
-              principal_amount: string;
-            }>
-          >`
+          const existing = RepaymentClaimRow.array().parse(
+            await tx`
           SELECT id, loan_id, sequence, ledger_tx_id,
                  interest_amount::text AS interest_amount,
                  principal_amount::text AS principal_amount
             FROM bank.loan_repayments WHERE id = ${eventId}
-        `;
+        `,
+          );
           const held = existing[0];
           if (held) {
             if (held.loan_id !== loan.id) {
@@ -1967,13 +2136,18 @@ export class LoanService {
           // pending rows, and the ledger post happens after this transaction
           // commits, so a second caller would otherwise read the full balance.
           const debt = await this.outstanding(loan.id, tx);
-          const pendingRows = await tx<Array<{ principal: string; interest: string }>>`
+          const pendingRows = z
+            .object({ principal: z.string(), interest: z.string() })
+            .array()
+            .parse(
+              await tx`
           SELECT COALESCE(SUM(principal_amount), 0)::text AS principal,
                  COALESCE(SUM(interest_amount), 0)::text AS interest
             FROM bank.loan_repayments
            WHERE loan_id = ${loan.id}
              AND status = 'pending'
-        `;
+        `,
+            );
           const pendingPrincipal = parseAmount(pendingRows[0]?.principal ?? '0');
           const pendingInterest = parseAmount(pendingRows[0]?.interest ?? '0');
           const interestOpen = debt.interest > pendingInterest ? debt.interest - pendingInterest : 0n;
@@ -2003,31 +2177,29 @@ export class LoanService {
           sequence = await this.nextSequence('loan_repayments', loan.id, 'sequence', tx);
           postSequence = sequence;
 
-          const rows = await tx<Array<{ id: string; sequence: number; ledger_tx_id: string | null }>>`
+          const rows = z
+            .object({ id: z.string(), sequence: z.number(), ledger_tx_id: z.string().nullable() })
+            .array()
+            .parse(
+              await tx`
           INSERT INTO bank.loan_repayments (id, loan_id, sequence, interest_amount, principal_amount)
           VALUES (${eventId}, ${loan.id}, ${sequence}, ${formatAmount(interestPaid)}::numeric, ${formatAmount(principalPaid)}::numeric)
           ON CONFLICT (id) DO NOTHING
           RETURNING id, sequence, ledger_tx_id
-        `;
+        `,
+            );
           if (rows.length > 0) {
             postSequence = Number(rows[0]!.sequence);
             return { claimed: true as const, id: rows[0]!.id };
           }
-          const lost = await tx<
-            Array<{
-              id: string;
-              loan_id: string;
-              sequence: number;
-              ledger_tx_id: string | null;
-              interest_amount: string;
-              principal_amount: string;
-            }>
-          >`
+          const lost = RepaymentClaimRow.array().parse(
+            await tx`
           SELECT id, loan_id, sequence, ledger_tx_id,
                  interest_amount::text AS interest_amount,
                  principal_amount::text AS principal_amount
             FROM bank.loan_repayments WHERE id = ${eventId}
-        `;
+        `,
+          );
           const row = lost[0]!;
           if (row.loan_id !== loan.id) {
             throw new BankError(
@@ -2161,21 +2333,24 @@ export class LoanService {
       now,
     });
 
-    const rows = await this.sql<
-      Array<{
-        ledger_tx_id: string | null;
-        collateral_sold: string;
-        proceeds: string;
-        principal_repaid: string;
-        interest_repaid: string;
-      }>
-    >`
+    const rows = z
+      .object({
+        ledger_tx_id: z.string().nullable(),
+        collateral_sold: z.string(),
+        proceeds: z.string(),
+        principal_repaid: z.string(),
+        interest_repaid: z.string(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT ledger_tx_id, collateral_sold, proceeds, principal_repaid, interest_repaid
         FROM bank.loan_liquidations
        WHERE loan_id = ${loan.id} AND status = 'settled'
        ORDER BY tranche DESC
        LIMIT 1
-    `;
+    `,
+      );
     const row = rows[0];
     if (!row?.ledger_tx_id) {
       throw new BankError(`Loan ${loan.id} seize posted no liquidation`, 'bank.no_liquidation_counterparty');
@@ -2290,11 +2465,13 @@ export class LoanService {
   }> {
     const now = input.now ?? new Date();
     const limit = assertLoanRiskSweepLimit(input.limit);
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanRow.array().parse(
+      await this.sql`
       SELECT * FROM bank.loans
        WHERE status IN ('active', 'margin_call', 'liquidating')
        ORDER BY opened_at ASC LIMIT ${limit}
-    `;
+    `,
+    );
 
     let marked = 0;
     let called = 0;
@@ -2342,10 +2519,15 @@ export class LoanService {
     if (debt.total <= 0n) {
       // Fully recovered — including after coverOpenShortfalls stamped insurance.
       // If any liquidate row settled, close as liquidated (not stuck `liquidating`).
-      const liq = await this.sql<Array<{ n: string }>>`
+      const liq = z
+        .object({ n: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT COUNT(*)::text AS n FROM bank.loan_liquidations
          WHERE loan_id = ${loan.id} AND status = 'settled'
-      `;
+      `,
+        );
       if (Number(liq[0]?.n ?? 0) > 0) {
         const held = await this.collateralOf(loan);
         if (held > 0n) await this.releaseCollateral(loan, held);
@@ -2394,13 +2576,18 @@ export class LoanService {
     // A rung whose post had an unknown outcome (no tx yet) is finished the same
     // way: liquidateTranche reuses the stored sale and its tranche key, so the
     // ledger returns the original sale if it committed or makes it once.
-    const postedPending = await this.sql<Array<{ ltv_bps: number; grace_waived: boolean; collateral_sold: string }>>`
+    const postedPending = z
+      .object({ ltv_bps: z.number(), grace_waived: z.boolean(), collateral_sold: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT ltv_bps, grace_waived, collateral_sold::text AS collateral_sold
         FROM bank.loan_liquidations
        WHERE loan_id = ${loan.id} AND status = 'pending'
        ORDER BY tranche ASC
        LIMIT 1
-    `;
+    `,
+      );
     if (postedPending[0]) {
       await this.liquidateTranche({
         loan,
@@ -2507,15 +2694,25 @@ export class LoanService {
     // A call already open for this loan is the call. A later sweep does not make
     // a second row or send a second notice; it only re-sends a notice that
     // never got out, on the same row, so the publisher key stays the same.
-    const open = await this.sql<
-      Array<{ sequence: number; ltv_bps: number; cure: string; called_at: Date; grace_expires_at: Date; notified_at: Date | null }>
-    >`
+    const open = z
+      .object({
+        sequence: z.number(),
+        ltv_bps: z.number(),
+        cure: z.string(),
+        called_at: z.date(),
+        grace_expires_at: z.date(),
+        notified_at: z.date().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT sequence, ltv_bps, cure_collateral_amount::text AS cure, called_at, grace_expires_at, notified_at
         FROM bank.loan_margin_calls
        WHERE loan_id = ${loan.id} AND cleared_at IS NULL
        ORDER BY sequence DESC
        LIMIT 1
-    `;
+    `,
+      );
     if (open[0]) {
       // A crash between the call row and the loan update leaves the loan without
       // its grace clock. Finish that update from the row's own call time.
@@ -2664,20 +2861,22 @@ export class LoanService {
     // with shortfall 0. drivenPost stores ledger_tx_id and only then writes
     // shortfall. A retry in that window still sees shortfall 0. Building a later
     // quote and writing its shortfall would replace the first sale.
-    const pendingRows = await this.sql<
-      Array<{
-        tranche: number;
-        proceeds: string;
-        principal_repaid: string;
-        interest_repaid: string;
-        penalty: string;
-        surplus_returned: string;
-        shortfall: string;
-        collateral_sold: string;
-        mark_price: string;
-        ledger_tx_id: string | null;
-      }>
-    >`
+    const pendingRows = z
+      .object({
+        tranche: z.number(),
+        proceeds: z.string(),
+        principal_repaid: z.string(),
+        interest_repaid: z.string(),
+        penalty: z.string(),
+        surplus_returned: z.string(),
+        shortfall: z.string(),
+        collateral_sold: z.string(),
+        mark_price: z.string(),
+        ledger_tx_id: z.string().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT tranche,
              proceeds::text AS proceeds,
              principal_repaid::text AS principal_repaid,
@@ -2692,7 +2891,8 @@ export class LoanService {
        WHERE loan_id = ${loan.id} AND status = 'pending'
        ORDER BY tranche ASC
        LIMIT 1
-    `;
+    `,
+      );
     const pending = pendingRows[0];
     const storedSale = pending
       ? {
@@ -2719,9 +2919,14 @@ export class LoanService {
       pricedDebt = debtNow;
       const heldNow = await this.collateralOf(loan);
       if (heldNow !== input.collateralAtPlan) return;
-      const statusRows = await this.sql<Array<{ status: string }>>`
+      const statusRows = z
+        .object({ status: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT status FROM bank.loans WHERE id = ${loan.id}
-      `;
+      `,
+        );
       const status = statusRows[0]?.status;
       if (status !== 'active' && status !== 'margin_call') return;
       openStatus = status;
@@ -2770,11 +2975,16 @@ export class LoanService {
     // from interleaving with another sweep.
     let claimedOpen = false;
     if (!pending) {
-      const claimed = await this.sql<Array<{ id: string }>>`
+      const claimed = z
+        .object({ id: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         UPDATE bank.loans SET status = 'liquidating', updated_at = now()
          WHERE id = ${loan.id} AND status IN ('active', 'margin_call')
          RETURNING id
-      `;
+      `,
+        );
       if (claimed.length === 0) return;
       claimedOpen = true;
     }
@@ -2843,7 +3053,8 @@ export class LoanService {
 
         const ledgerTxId = await this.drivenPost({
           claim: async (tx) => {
-            const rows = await tx<Array<{ id: string; ledger_tx_id: string | null }>>`
+            const rows = LedgerTxRow.array().parse(
+              await tx`
                 INSERT INTO bank.loan_liquidations (
                   loan_id, tranche, ltv_bps, mark_price, grace_waived, collateral_sold, proceeds,
                   principal_repaid, interest_repaid, penalty, surplus_returned
@@ -2856,11 +3067,14 @@ export class LoanService {
                 )
                 ON CONFLICT (loan_id, tranche) DO NOTHING
                 RETURNING id, ledger_tx_id
-              `;
+              `,
+            );
             if (rows.length > 0) return { claimed: true as const, id: rows[0]!.id };
-            const existing = await tx<Array<{ id: string; ledger_tx_id: string | null }>>`
+            const existing = LedgerTxRow.array().parse(
+              await tx`
                 SELECT id, ledger_tx_id FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND tranche = ${tranche}
-              `;
+              `,
+            );
             return { claimed: false as const, id: existing[0]!.id, ledgerTxId: existing[0]!.ledger_tx_id };
           },
           post: () => {
@@ -2995,13 +3209,18 @@ export class LoanService {
   }
 
   private async hasOpenShortfall(loanId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ n: string }>>`
+    const rows = z
+      .object({ n: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT COUNT(*)::text AS n FROM bank.loan_liquidations
        WHERE loan_id = ${loanId}
          AND status = 'settled'
          AND shortfall > 0
          AND bad_debt_ledger_tx_id IS NULL
-    `;
+    `,
+      );
     return Number(rows[0]?.n ?? 0) > 0;
   }
 
@@ -3017,7 +3236,11 @@ export class LoanService {
 
   /** Retry any settled liquidations whose shortfall never made it onto the insurance fund (B-01). */
   private async coverOpenShortfalls(loan: LoanRecord): Promise<void> {
-    const rows = await this.sql<Array<{ tranche: number; shortfall: string }>>`
+    const rows = z
+      .object({ tranche: z.number(), shortfall: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT tranche, shortfall::text AS shortfall
         FROM bank.loan_liquidations
        WHERE loan_id = ${loan.id}
@@ -3025,7 +3248,8 @@ export class LoanService {
          AND shortfall > 0
          AND bad_debt_ledger_tx_id IS NULL
        ORDER BY tranche ASC
-    `;
+    `,
+      );
     for (const row of rows) {
       await this.coverShortfallTranche(loan, Number(row.tranche), parseAmount(row.shortfall));
     }
@@ -3045,18 +3269,28 @@ export class LoanService {
       throw new BankError('Reserve funding amount must be positive', 'bank.below_minimum');
     }
 
-    const claimed = await this.sql<Array<{ funding_id: string; status: string; ledger_tx_id: string | null; amount: string }>>`
+    const claimed = z
+      .object({ funding_id: z.string(), status: z.string(), ledger_tx_id: z.string().nullable(), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       INSERT INTO bank.loan_reserve_fundings (funding_id, debt_asset_id, amount, status)
       VALUES (${input.fundingId}, ${input.debtAssetId}, ${formatAmount(input.amount)}::numeric, 'pending')
       ON CONFLICT (funding_id) DO NOTHING
       RETURNING funding_id, status, ledger_tx_id, amount::text AS amount
-    `;
+    `,
+      );
 
     if (claimed.length === 0) {
-      const existing = await this.sql<Array<{ status: string; ledger_tx_id: string | null; amount: string; debt_asset_id: string }>>`
+      const existing = z
+        .object({ status: z.string(), ledger_tx_id: z.string().nullable(), amount: z.string(), debt_asset_id: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT status, ledger_tx_id, amount::text AS amount, debt_asset_id
           FROM bank.loan_reserve_fundings WHERE funding_id = ${input.fundingId}
-      `;
+      `,
+        );
       const row = existing[0];
       if (!row) {
         throw new BankError(`Funding ${input.fundingId} disappeared after a conflict`, 'bank.loan_not_found');
@@ -3113,16 +3347,18 @@ export class LoanService {
   }> {
     const reserve = await this.ledger.balance(loanReserve(debtAssetId));
 
-    const rows = await this.sql<
-      Array<{
-        outstanding_principal: string;
-        bad_debt: string;
-        drawn: string;
-        repaid: string;
-        recovered: string;
-        funded: string;
-      }>
-    >`
+    const rows = z
+      .object({
+        outstanding_principal: z.string(),
+        bad_debt: z.string(),
+        drawn: z.string(),
+        repaid: z.string(),
+        recovered: z.string(),
+        funded: z.string(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       WITH open_loans AS (
         -- Only DRAWN loans. A pending row's principal never left the reserve;
         -- counting it as outstanding inflates the identity and makes an empty
@@ -3145,7 +3381,8 @@ export class LoanService {
           SELECT SUM(amount) FROM bank.loan_reserve_fundings
            WHERE debt_asset_id = ${debtAssetId} AND status = 'settled'
         ), 0) AS funded
-    `;
+    `,
+      );
 
     const row = rows[0]!;
     const drawn = parseAmount(row.drawn);
@@ -3236,10 +3473,10 @@ export class LoanService {
     const [debt, chargedThrough, pending, shortfall] = await Promise.all([
       this.outstanding(loan.id),
       this.chargedThrough(loan),
-      this.sql<Array<{ repayments: string; sales: string }>>`
+      this.sql`
         SELECT (SELECT COUNT(*) FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'pending')::text AS repayments,
                (SELECT COUNT(*) FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'pending')::text AS sales
-      `,
+      `.then((rows) => z.object({ repayments: z.string(), sales: z.string() }).array().parse(rows)),
       this.hasOpenShortfall(loan.id),
     ]);
     if (Number(pending[0]?.repayments ?? 0) > 0) {
@@ -3280,9 +3517,14 @@ export class LoanService {
 
   /** The last UTC day `accrue` charged, or the open day when it has charged none (the day `accrue` counts from). */
   private async chargedThrough(loan: LoanRecord): Promise<string> {
-    const last = await this.sql<Array<{ d: string | null }>>`
+    const last = z
+      .object({ d: z.string().nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT MAX(accrual_date)::text AS d FROM bank.loan_interest_accruals WHERE loan_id = ${loan.id}
-    `;
+    `,
+      );
     return last[0]?.d ?? accrualDay(loan.openedAt);
   }
 
@@ -3383,14 +3625,16 @@ export class LoanService {
    */
   async recoverRepayments(limit?: number): Promise<Array<{ loanId: string; outcome: 'completed' | 'open' | 'failed'; reason?: string }>> {
     const batch = assertLoanResumePendingLimit(limit);
-    const rows = await this.sql<Array<Record<string, unknown>>>`
+    const rows = LoanRow.array().parse(
+      await this.sql`
       SELECT l.* FROM bank.loans l
        WHERE l.status IN ('active', 'margin_call')
          AND (EXISTS (SELECT 1 FROM bank.loan_repayments r WHERE r.loan_id = l.id AND r.status = 'pending')
            OR EXISTS (SELECT 1 FROM bank.loan_collateral_events e
                        WHERE e.loan_id = l.id AND e.direction = 'release' AND e.status = 'pending'))
        ORDER BY l.opened_at ASC LIMIT ${batch}
-    `;
+    `,
+    );
     const out: Array<{ loanId: string; outcome: 'completed' | 'open' | 'failed'; reason?: string }> = [];
     for (const row of rows) {
       const loan = toLoan(row);
@@ -3436,24 +3680,39 @@ export class LoanService {
     await this.clearMarginCalls(loan.id, now);
   }
 
-  private async hasPendingLiquidation(loanId: string, tx: Sql = this.sql): Promise<boolean> {
-    const rows = await tx<Array<{ n: string }>>`
+  private async hasPendingLiquidation(loanId: string, tx: Queryable = this.sql): Promise<boolean> {
+    const rows = z
+      .object({ n: z.string() })
+      .array()
+      .parse(
+        await tx`
       SELECT COUNT(*)::text AS n FROM bank.loan_liquidations WHERE loan_id = ${loanId} AND status = 'pending'
-    `;
+    `,
+      );
     return Number(rows[0]?.n ?? 0) > 0;
   }
 
   private async hasPendingRepayment(loanId: string, tx: Sql = this.sql): Promise<boolean> {
-    const rows = await tx<Array<{ n: string }>>`
+    const rows = z
+      .object({ n: z.string() })
+      .array()
+      .parse(
+        await tx`
       SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'pending'
-    `;
+    `,
+      );
     return Number(rows[0]?.n ?? 0) > 0;
   }
 
   private async hasSettledRepayment(loanId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ n: string }>>`
+    const rows = z
+      .object({ n: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'settled'
-    `;
+    `,
+      );
     return Number(rows[0]?.n ?? 0) > 0;
   }
 
@@ -3465,12 +3724,17 @@ export class LoanService {
    * an unknown outcome still throws, so callers act on nothing for this loan.
    */
   private async redrivePendingRepayments(loan: LoanRecord): Promise<void> {
-    const pending = await this.sql<Array<{ id: string; sequence: number; interest_amount: string; principal_amount: string }>>`
+    const pending = z
+      .object({ id: z.string(), sequence: z.number(), interest_amount: z.string(), principal_amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, sequence, interest_amount::text AS interest_amount, principal_amount::text AS principal_amount
         FROM bank.loan_repayments
        WHERE loan_id = ${loan.id} AND status = 'pending'
        ORDER BY sequence ASC
-    `;
+    `,
+      );
     for (const row of pending) {
       try {
         await this.withRepayLock(loan.id, () =>
@@ -3503,14 +3767,14 @@ export class LoanService {
    * else is skipped.
    */
   private async reclaimPending(
-    tx: Sql,
+    tx: Queryable,
     table: 'loan_repayments' | 'loan_collateral_events',
     id: string,
   ): Promise<{ claimed: false; id: string; ledgerTxId: string | null }> {
-    const rows = await tx.unsafe<Array<{ status: string; ledger_tx_id: string | null }>>(
-      `SELECT status, ledger_tx_id FROM bank.${table} WHERE id = $1 FOR UPDATE`,
-      [id],
-    );
+    const rows = z
+      .object({ status: z.string(), ledger_tx_id: z.string().nullable() })
+      .array()
+      .parse(await tx.unsafe(`SELECT status, ledger_tx_id FROM bank.${table} WHERE id = $1 FOR UPDATE`, [id]));
     const row = rows[0];
     if (!row || row.status !== 'pending') throw new NoLongerPending(id);
     return { claimed: false, id, ledgerTxId: row.ledger_tx_id };
@@ -3522,12 +3786,17 @@ export class LoanService {
    * applies. Same row re-read and skip rules as redrivePendingRepayments.
    */
   private async redrivePendingReleases(loan: LoanRecord): Promise<void> {
-    const pending = await this.sql<Array<{ id: string; sequence: number; amount: string }>>`
+    const pending = z
+      .object({ id: z.string(), sequence: z.number(), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, sequence, amount::text AS amount
         FROM bank.loan_collateral_events
        WHERE loan_id = ${loan.id} AND direction = 'release' AND status = 'pending'
        ORDER BY sequence ASC
-    `;
+    `,
+      );
     for (const row of pending) {
       try {
         await this.drivenPost({
@@ -3564,7 +3833,7 @@ export class LoanService {
    * reason, and the ledger key gives the money a guarantee.
    */
   private async drivenPost(input: {
-    claim: (tx: Sql) => Promise<{ claimed: boolean; id: string; ledgerTxId?: string | null }>;
+    claim: (tx: Queryable) => Promise<{ claimed: boolean; id: string; ledgerTxId?: string | null }>;
     post: () => Promise<{ id: string }>;
     table: string;
     /**
@@ -3588,7 +3857,10 @@ export class LoanService {
       // caller attached one, writes that sale's shortfall together with the
       // bad-debt tx before status becomes settled. A caller that did not
       // attach one is a stored shortfall of 0, or a shortfall already stored.
-      const rows = await this.sql.unsafe<Array<{ status: string }>>(`SELECT status FROM bank.${input.table} WHERE id = $1`, [claim.id]);
+      const rows = z
+        .object({ status: z.string() })
+        .array()
+        .parse(await this.sql.unsafe(`SELECT status FROM bank.${input.table} WHERE id = $1`, [claim.id]));
       if (rows[0]?.status === 'settled') return claim.ledgerTxId;
       if (rows[0]?.status === 'pending') {
         if (input.beforeSettle) await input.beforeSettle();
@@ -3644,18 +3916,21 @@ export class LoanService {
     principal_amount: string;
     ledger_tx_id: string | null;
   } | null> {
-    const rows = await this.sql<
-      Array<{
-        loan_id: string;
-        sequence: number;
-        interest_amount: string;
-        principal_amount: string;
-        ledger_tx_id: string | null;
-      }>
-    >`
+    const rows = z
+      .object({
+        loan_id: z.string(),
+        sequence: z.number(),
+        interest_amount: z.string(),
+        principal_amount: z.string(),
+        ledger_tx_id: z.string().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT loan_id, sequence, interest_amount, principal_amount, ledger_tx_id
         FROM bank.loan_repayments WHERE id = ${eventId}
-    `;
+    `,
+      );
     return rows[0] ?? null;
   }
 
@@ -3681,11 +3956,12 @@ export class LoanService {
     return this.nextSequence('loan_collateral_events', loanId);
   }
 
-  private async nextSequence(table: string, loanId: string, column = 'sequence', db: Sql = this.sql): Promise<number> {
-    const rows = await db.unsafe<Array<{ next: number | null }>>(
-      `SELECT COALESCE(MAX("${column}") + 1, 0) AS next FROM bank.${table} WHERE loan_id = $1`,
-      [loanId],
-    );
+  private async nextSequence(table: string, loanId: string, column = 'sequence', db: Queryable = this.sql): Promise<number> {
+    // Every caller's sequence column is int4, so MAX + 1 reads back as a number.
+    const rows = z
+      .object({ next: z.number() })
+      .array()
+      .parse(await db.unsafe(`SELECT COALESCE(MAX("${column}") + 1, 0) AS next FROM bank.${table} WHERE loan_id = $1`, [loanId]));
     return Number(rows[0]?.next ?? 0);
   }
 
@@ -3693,9 +3969,14 @@ export class LoanService {
     loanId: string,
     sequence: number,
   ): Promise<{ amount: string; ledger_tx_id: string | null; status: string } | null> {
-    const rows = await this.sql<Array<{ amount: string; ledger_tx_id: string | null; status: string }>>`
+    const rows = z
+      .object({ amount: z.string(), ledger_tx_id: z.string().nullable(), status: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT amount, ledger_tx_id, status FROM bank.loan_collateral_events WHERE loan_id = ${loanId} AND sequence = ${sequence}
-    `;
+    `,
+      );
     return rows[0] ?? null;
   }
 
@@ -3706,11 +3987,14 @@ export class LoanService {
     amount: string;
     ledger_tx_id: string | null;
   } | null> {
-    const rows = await this.sql<
-      Array<{ loan_id: string; sequence: number; direction: string; amount: string; ledger_tx_id: string | null }>
-    >`
+    const rows = z
+      .object({ loan_id: z.string(), sequence: z.number(), direction: z.string(), amount: z.string(), ledger_tx_id: z.string().nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT loan_id, sequence, direction, amount, ledger_tx_id FROM bank.loan_collateral_events WHERE id = ${eventId}
-    `;
+    `,
+      );
     return rows[0] ?? null;
   }
 

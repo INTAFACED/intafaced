@@ -3,6 +3,13 @@ import { isExplicitDevOrTest } from '@intafaced/config';
 import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { CONSOLE_READ_ONLY } from '@intafaced/contracts/ops-console-mode';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import { loadConsoleMode } from '@/lib/console-mode/read';
 import { staffReadAreasOf, type OperatorAccess } from '@/lib/operator-access';
 
@@ -282,6 +289,34 @@ export async function founderEdgeCall(
     throw new AdminSessionError('admin.upstream_invalid', 502);
   const data = result.data;
   return data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data;
+}
+
+type EdgeRecord = ProcedureRecord & TrpcTransport & { readonly module: 'identity' | 'ops' | 'trade' | 'pay' };
+
+/**
+ * `founderEdgeCall` through the call's record: the module, path and method come from the record, the input leaves exactly
+ * as given (the service checks it, and refuses as before), and the answer is parsed by `record.output` and the record's
+ * `accept` checks. An answer the record refuses throws as an unreadable one does (`admin.upstream_invalid`, 502).
+ */
+export async function founderEdgeRecordCall<R extends EdgeRecord>(
+  config: AdminSessionConfig,
+  record: R,
+  input: ProcedureInput<R>,
+  accessToken?: string,
+  signIn?: { userAgent: string | null },
+): Promise<ProcedureOutput<R>> {
+  const raw = await founderEdgeCall(
+    config,
+    record.module,
+    record.path,
+    record.kind === 'query' ? 'GET' : 'POST',
+    input,
+    accessToken,
+    signIn,
+  );
+  const parsed = record.output.safeParse(raw);
+  if (!parsed.success || !replyAccepted(record, parsed.data)) throw new AdminSessionError('admin.upstream_invalid', 502);
+  return parsed.data as ProcedureOutput<R>;
 }
 
 /**

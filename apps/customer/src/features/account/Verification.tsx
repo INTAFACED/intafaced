@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusTag } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -13,12 +13,16 @@ import { VerificationAttempts } from './VerificationAttempts';
 import { VerificationGuided } from './VerificationGuided';
 import { VerificationProofOfAddress } from './VerificationProofOfAddress';
 import { VerificationSelfie } from './VerificationSelfie';
+import { VerificationTradingChecks } from './VerificationTradingChecks';
+import { verificationTradingCopy } from './verification-trading-copy';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
+import { IDENTITY_KYC_PROFILE_READ } from '@intafaced/contracts/identity-kyc-profile-procedures';
 import {
   finishVerification,
   readVerification,
   requestedTier,
   saveVerification,
+  bankStepsOpen,
   verificationBlocked,
   verificationKey,
   verificationLock,
@@ -29,10 +33,13 @@ import {
   type VerificationJournal,
   type VerificationOriginal,
   type VerificationRecord,
+  type VerificationStatus,
 } from './verification-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './verification.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_KYC_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Original = { owner: string; client: ApiClient; token: string; tier: RequestedTier; country: string; mount: object; path: string };
 type Known = {
@@ -48,6 +55,12 @@ type Known = {
   finalized?: boolean;
 };
 type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
+/**
+ * Whether the ID and selfie steps show before the person asks for the bank's verification. They do not: trading asks for
+ * no ID document or selfie (J-cex-spot-01 #3, OWNER 258 (4)), so /verification leads with the trading checks and the
+ * bank's steps open on "Start verification for the bank".
+ */
+const BANK_ROUTE_OPEN = false;
 const emptyJournal: VerificationJournal = { records: [], failed: false };
 
 export function Verification() {
@@ -60,6 +73,16 @@ export function Verification() {
   const [review, setReview] = useState<Original | null>(null),
     [active, setActive] = useState<Original | null>(null),
     [known, setKnown] = useState<Known[]>([]);
+  // The ID and selfie steps are for the bank, never for trading (OWNER 258 (4)).
+  const [bankRoute, setBankRoute] = useState(BANK_ROUTE_OPEN);
+  const trading = verificationTradingCopy.useCopy();
+  // A guided draft the person left (J-identity-08 #2): its steps open on their own when they return.
+  const guidedDraft = useResource(
+    (signal) => (userId ? api.call(IDENTITY_KYC_PROFILE_READ, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
+    `verification-bank-draft:${userId}`,
+  );
+  const [openedSearch] = useState(() => window.location.search);
+  const bankOpen = bankStepsOpen(bankRoute, openedSearch, guidedDraft.resource.status === 'ready' ? guidedDraft.resource.data : null);
   const [problem, setProblem] = useState<Problem | null>(null),
     [selected, setSelected] = useState<VerificationRecord | null>(null);
   // At the owner's limit on rejected requests the form holds until the lockout ends (I-kyc-compliance-10).
@@ -81,7 +104,7 @@ export function Verification() {
   const privateVisible = privateContext.current.api === api && privateContext.current.userId === userId;
   const clientVersion = useRef({ api, value: 0 });
   if (clientVersion.current.api !== api) clientVersion.current = { api, value: clientVersion.current.value + 1 };
-  const { resource, reload } = useResource(
+  const { resource, reload } = useResource<VerificationStatus>(
     (signal) =>
       userId
         ? api.query('identity', 'kyc.status', { limit }, verificationStatus(userId, limit), { signal })
@@ -122,6 +145,7 @@ export function Verification() {
     setCountry('');
     setTier('basic');
     setProblem(null);
+    setBankRoute(BANK_ROUTE_OPEN);
     setLimit(50);
     setStored({ owner: userId, value: userId ? readVerification(userId) : emptyJournal });
   }, [api, userId]);
@@ -219,9 +243,9 @@ export function Verification() {
         }
         sync(intent.owner);
         if (!same(intent)) return;
-        const answer = await intent.client.mutate(
-          'identity',
-          'kyc.submit',
+        const answer = await callAs(
+          intent.client,
+          IDENTITY_KYC_SUBMIT,
           { tier: intent.tier, jurisdiction: intent.country },
           verificationReply(intent.owner, intent.tier),
           { signal: controller.signal },
@@ -336,7 +360,7 @@ export function Verification() {
         <EmptyState
           title={t('signIn')}
           action={
-            <a data-testid="text-link" className="text-link" href="/login?redirect=%2Fverification">
+            <a data-testid="text-link" className="lt-link" href="/login?redirect=%2Fverification">
               <Copy k="signIn" />
             </a>
           }
@@ -387,7 +411,7 @@ export function Verification() {
                   <p>
                     <Copy k="paused" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="privacy" />
                   </p>
                   <a className="button button--secondary" href="/support">
@@ -409,7 +433,7 @@ export function Verification() {
                       <Copy k="returned" />
                     </h3>
                     {record(receipt.row)}
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="replyBoundary" />
                     </p>
                   </>
@@ -441,7 +465,7 @@ export function Verification() {
                     <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                       <Copy k="finish" />
                     </Button>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="finishBody" />
                     </p>
                   </div>
@@ -460,6 +484,7 @@ export function Verification() {
             <Copy k={problem ?? 'storage'} />
           </p>
         )}
+        <VerificationTradingChecks disabled={!userId || !api.canWrite()} onDone={reload} />
         <div className="verification__columns">
           <section data-testid="verification__list" className="verification__list" aria-label={t('records')}>
             {resource.status === 'loading' ? (
@@ -469,7 +494,7 @@ export function Verification() {
                 <div lang="und">
                   <Failure result={resource.failure} retry={reload} />
                 </div>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="readBoundary" />
                 </p>
               </>
@@ -487,7 +512,7 @@ export function Verification() {
                       label={t(resource.data.tier)}
                     />
                   </h2>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="currentBody" />
                   </p>
                 </div>
@@ -500,7 +525,7 @@ export function Verification() {
                       <Copy k="refresh" />
                     </Button>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="window" params={{ limit }} />
                   </p>
                   {offeredTiers.length > 0 && (
@@ -542,7 +567,7 @@ export function Verification() {
                     </Button>
                   )}
                   {limit === 200 && (
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="maximum" />
                     </p>
                   )}
@@ -557,7 +582,7 @@ export function Verification() {
                         </p>
                       )}
                       {record(selected)}
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="recordBoundary" />
                       </p>
                     </section>
@@ -570,20 +595,20 @@ export function Verification() {
             <h2>
               <Copy k="requestTitle" />
             </h2>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="requestBody" />
             </p>
             {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
             {offeredTiers.length > 0 ? (
               <form
                 ref={form}
-                className="form-stack"
+                className="lt-stack"
                 onSubmit={(event) => {
                   event.preventDefault();
                   open();
                 }}
               >
-                <label className="field">
+                <label className="lt-field">
                   <span>
                     <Copy k="tier" />
                   </span>
@@ -623,7 +648,7 @@ export function Verification() {
                 <Copy k="topLevel" />
               </p>
             )}
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="documentBoundary" />
             </p>
             <a data-testid="text-link" className="text-link" href="/support">
@@ -646,9 +671,25 @@ export function Verification() {
           <Loading />
         ) : (
           <>
-            {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
-            {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
-            <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+            {bankOpen ? (
+              <>
+                {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
+                {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
+                <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+              </>
+            ) : (
+              <section className="verification__bank" aria-label={trading.t('bankTitle')} data-testid="verification__bank">
+                <h2>
+                  <trading.Copy k="bankTitle" />
+                </h2>
+                <p className="lt-muted">
+                  <trading.Copy k="bankBody" />
+                </p>
+                <Button variant="secondary" onClick={() => setBankRoute(true)}>
+                  <trading.Copy k="bankOpen" />
+                </Button>
+              </section>
+            )}
             {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
             <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
             <VerificationCapabilities recordsKey={casesKey} />
@@ -681,7 +722,7 @@ export function Verification() {
               <p>
                 <Copy k="consequence" />
               </p>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="permissionBoundary" />
               </p>
               <Button disabled={busy} onClick={() => void dispatch(review)}>

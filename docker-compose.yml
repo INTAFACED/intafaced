@@ -147,8 +147,7 @@ services:
   #
   # Run `docker compose restart evm` before `chain:deploy`. The TEST suites do
   # not need it — they derive their own senders and deploy their own factories;
-  # see `services/svc-protocol/scripts/dev-chain.ts` and
-  # `docs/decisions/local-dev-chain.md`.
+  # see `services/svc-protocol/scripts/dev-chain.ts`.
   #
   # ── What it does NOT provide ──────────────────────────────────────────────
   #

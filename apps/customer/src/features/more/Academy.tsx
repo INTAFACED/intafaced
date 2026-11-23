@@ -1,70 +1,55 @@
 import { copy as moreCopy, t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, Panel, Tabs } from '../../shared/ui';
 import { Details, Read, Select, presentActionFailure } from './common';
 import { useAcademyAction, type AcademyAction } from './academy-action';
 import { AcademyGrantRecords } from './AcademyGrantRecords';
-import { AcademyRooms } from './AcademyRooms';
-import { AcademyProgrammes } from './AcademyProgrammes';
-import { AcademyVideos } from './AcademyVideos';
-import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
 import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
+import { replyAccepted } from '@intafaced/contracts/procedure';
 import {
-  AcademyLearning,
-  certificateDefinitions,
-  progressFor,
-  lessonHref,
-  selectedCertificate,
-  rememberCertificate,
-} from './AcademyLearning';
+  ACADEMY_CERT_DEFINITIONS,
+  ACADEMY_CERT_PROGRESS,
+  ACADEMY_ENROLL_CERT_PATH,
+  ACADEMY_GRANT_CERT,
+  academyCertGrantSchema,
+  type AcademyCertGrant,
+} from '@intafaced/contracts/academy-learner-procedures';
+import { definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './academy-learning-state';
 import { academyLearningCopy } from './academy-learning-copy';
-import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
-import { AcademyProgrammePage } from './AcademyCourseProgrammes';
-import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
-import { AcademyCourseConversation, AcademyCourseInbox, AcademyCourseMessagesLink } from './AcademyCourseMessages';
-import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
-import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
-import { AcademyCourseOutline } from './AcademyCourseOutline';
+import { AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
+import { AcademyCourseConversation } from './AcademyCourseMessages';
+import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
+// Certificates and progress keep the Learning panels' styles (academy-learning-link, the read-next link).
+import './academy-learning.css';
 
 /** `/academy` and everything under it. An old `?section=` link is replaced by the tab's own address before anything reads. */
-export function AcademyRoom({
-  pathname,
-  search,
-  route,
-  slug,
-  initialPath,
-}: {
-  pathname: string;
-  search: string;
-  route: AcademyRoute;
-  slug?: string;
-  initialPath?: string;
-}) {
+export function AcademyRoom({ pathname, search, route }: { pathname: string; search: string; route: AcademyRoute }) {
   const redirect = academySectionRedirect(pathname, search);
   useEffect(() => {
     if (redirect) navigate(redirect, true);
   }, [redirect]);
-  const { userId, restoring } = useSession();
+  const { userId } = useSession();
   if (redirect) return null;
   // A shared certificate link opens the same public check for everyone, signed in or not.
   if (route.kind === 'verify') return <CertificateVerifyPage code={route.code} />;
-  // A visitor with no account gets the signed-out Academy; while the boot refresh is still answering, nothing is guessed.
-  if (!userId) return restoring ? <Loading /> : <AcademyPublic route={route} />;
-  return <Academy route={route} slug={route.kind === 'reader' ? route.slug : slug} initialPath={initialPath} />;
+  // A visitor with no account gets the signed-out Academy.
+  if (!userId) return <AcademyPublic route={route} />;
+  return <Academy route={route} />;
 }
 
-function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: string; initialPath?: string }) {
+/**
+ * The Academy's pages not yet on their Volt template: Certificates, progress, an assignment, a course discussion and a
+ * conversation with a course team. Learning, Rooms, Videos and Programmes are their own rooms (academy-catalogue/).
+ */
+function Academy({ route }: { route: AcademyRoute }) {
   const { userId } = useSession(),
     action = useAcademyAction();
-  // A finished quiz or a watched video can meet an item's course rule: the outline beside it reads itself again.
-  const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
   const tab =
     route.kind === 'tab'
@@ -86,6 +71,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     rememberCertificate(userId, id);
     setSelection({ owner: userId, id });
   }
+  // The course-team inbox is a record list on its Volt template: it draws its own title row and the Academy's tabs.
+  if (route.kind === 'messages' && !route.conversationId) return <AcademyInboxRoom />;
   return (
     <div className="more-grid">
       <Tabs
@@ -106,10 +93,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         }}
         label={copyText('academy.academy.sections')}
       />
-      {route.kind === 'tab' && route.hub && <AcademyHub />}
-      {route.kind === 'course' ? (
-        <AcademyCoursePage slug={route.slug} signedIn />
-      ) : route.kind === 'assignment' ? (
+      {route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'discussion' ? (
         route.postId ? (
@@ -120,67 +104,18 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'messages' ? (
         route.conversationId ? (
           <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
-        ) : (
-          <AcademyCourseInbox />
-        )
-      ) : route.kind === 'programme' ? (
-        <AcademyProgrammePage key={route.slug} slug={route.slug} />
-      ) : route.kind === 'progress' ? (
-        <AcademyProgress action={action} />
-      ) : tab === 'Learning' ? (
-        <>
-          {!slug && <AcademyMyLearning />}
-          {slug && <AcademyCourseOutline key={slug} itemSlug={slug} refresh={action.result} progress={progressMade} />}
-          <AcademyLearning
-            slug={slug}
-            initialPath={initialPath}
-            certId={selected}
-            chooseCertificate={chooseCertificate}
-            action={action}
-            onProgress={() => setProgressMade((n) => n + 1)}
-          />
-        </>
+        ) : null
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
-      ) : tab === 'Rooms' ? (
-        <>
-          <AcademyDiscussionCourses />
-          <AcademyCourseMessagesLink />
-          <AcademyRooms action={action} />
-        </>
-      ) : tab === 'Videos' ? (
-        <AcademyVideos />
-      ) : (
-        <AcademyProgrammes action={action} />
-      )}
+      ) : null}
       {action.feedback}
       {action.dialog}
     </div>
   );
 }
-const uuid = z.string().guid();
-const grantReceipt = z
-  .object({
-    grant: z.object({
-      userId: uuid,
-      certId: z.string(),
-      grantedAt: z
-        .string()
-        .datetime({ offset: true })
-        .refine((value) => Number.isFinite(Date.parse(value))),
-      idempotencyKey: z.string(),
-    }),
-    alreadyGranted: z.boolean(),
-    xp: z.discriminatedUnion('emitted', [
-      z.object({ emitted: z.literal(true), idempotencyKey: z.string(), xpDelta: z.number().int().safe().positive() }),
-      z.object({ emitted: z.literal(false), reason: z.string() }),
-    ]),
-    perks: z.discriminatedUnion('status', [
-      z.object({ status: z.literal('real'), sot: z.literal('svc-identity'), academyHoldsPerkMoney: z.literal(false) }),
-      z.object({ status: z.literal('refuse'), message: z.string(), code: z.string() }),
-    ]),
-  })
-  .refine((r) => !r.xp.emitted || r.xp.idempotencyKey === `academy.cert:${r.grant.idempotencyKey}`);
+/** The grant this screen asked for: this account's, for the certificate chosen, under its one grant key. */
+const grantIsMine = (userId: string | null | undefined, certId: string) => (r: AcademyCertGrant) =>
+  r.grant.userId === userId && r.grant.certId === certId && r.grant.idempotencyKey === `cert:${userId}:${certId}`;
 function Certificates({ action, selected, setSelected }: { action: AcademyAction; selected: string; setSelected: (id: string) => void }) {
   const api = useApi(),
     { userId } = useSession();
@@ -213,12 +148,12 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
       },
     );
   const receipt = action.result?.ok
-    ? grantReceipt
-        .refine((r) => r.grant.userId === userId && r.grant.certId === selected && r.grant.idempotencyKey === `cert:${userId}:${selected}`)
+    ? academyCertGrantSchema
+        .refine((r) => replyAccepted(ACADEMY_GRANT_CERT, r) && grantIsMine(userId, selected)(r))
         .safeParse(action.result.data)
     : null;
   const definitions = useResource(
-    (signal) => api.query('academy', 'certDefinitions', undefined, certificateDefinitions, { signal }),
+    (signal) => api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal, accept: definitionsHold }),
     `cert-defs:${userId}`,
   );
   const selectedDefinition = definitions.resource.status === 'ready' ? definitions.resource.data.find((c) => c.id === selected) : undefined;
@@ -230,9 +165,14 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
   const detail = useResource(
     (signal) =>
       selectedDefinition
-        ? api.query('academy', 'certProgress', { certId: selected }, progressFor(userId, selected, selectedDefinition.requiredItemSlugs), {
-            signal,
-          })
+        ? api.call(
+            ACADEMY_CERT_PROGRESS,
+            { certId: selected },
+            {
+              signal,
+              accept: progressFits(userId, selected, selectedDefinition.requiredItemSlugs),
+            },
+          )
         : Promise.resolve({ ok: true as const, data: null }),
     `cert-progress:${userId}:${selected}:${currentDefinition.current ?? ''}`,
   );
@@ -271,13 +211,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                 ),
                 run: async (canDispatch) => {
                   if (!canDispatch() || !unchanged(expected)) return changed();
-                  return api.mutate(
-                    'academy',
-                    'enrollCertPath',
+                  return api.call(
+                    ACADEMY_ENROLL_CERT_PATH,
                     { pathSlug: expected.enrolPath },
-                    z
-                      .object({ userId: uuid, pathSlug: z.string(), enrolledAt: z.string().datetime({ offset: true }) })
-                      .refine((r) => r.userId === expected.userId && r.pathSlug === expected.enrolPath),
+                    { accept: (r) => r.userId === expected.userId && r.pathSlug === expected.enrolPath },
                   );
                 },
                 done: () => {
@@ -332,7 +269,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                   <ul>
                     {p.missingItemSlugs.map((s) => (
                       <li key={s}>
-                        <a className="text-link" href={lessonHref(s, selected)} lang="zxx">
+                        <a className="lt-link" href={lessonHref(s, selected)} lang="zxx">
                           {s}
                         </a>
                       </li>
@@ -360,11 +297,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                         grant: { certId: expected.selected, dispatched: () => dispatched },
                         run: async (canDispatch) => {
                           if (!canDispatch() || !grantUnchanged()) return changed();
-                          const fresh = await api.query(
-                            'academy',
-                            'certProgress',
+                          const fresh = await api.call(
+                            ACADEMY_CERT_PROGRESS,
                             { certId: expected.selected },
-                            progressFor(expected.userId, expected.selected, required),
+                            { accept: progressFits(expected.userId, expected.selected, required) },
                           );
                           if (!canDispatch() || !grantUnchanged()) return changed();
                           if (!fresh.ok) return fresh;
@@ -377,16 +313,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                               },
                             );
                           dispatched = true;
-                          return api.mutate(
-                            'academy',
-                            'grantCert',
+                          return api.call(
+                            ACADEMY_GRANT_CERT,
                             { certId: expected.selected },
-                            grantReceipt.refine(
-                              (r) =>
-                                r.grant.userId === expected.userId &&
-                                r.grant.certId === expected.selected &&
-                                r.grant.idempotencyKey === `cert:${expected.userId}:${expected.selected}`,
-                            ),
+                            { accept: grantIsMine(expected.userId, expected.selected) },
                           );
                         },
                         done: () => {
@@ -438,39 +368,13 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                   ],
                 ]}
               />
-              <p className="muted">
+              <p className="lt-muted">
                 <academyLearningCopy.Copy k="xpPublishedBoundary" />
               </p>
             </section>
           )}
         </Panel>
       </div>
-    </div>
-  );
-}
-
-/**
- * `/academy/progress`: course progress, grades and the planner (AC-progress-02), then the access records and certificate
- * grant records (AC-order-01), on their own page outside the five tabs.
- */
-function AcademyProgress({ action }: { action: AcademyAction }) {
-  const api = useApi(),
-    { userId } = useSession();
-  const definitions = useResource(
-    (signal) => api.query('academy', 'certDefinitions', undefined, certificateDefinitions, { signal }),
-    `cert-defs:${userId}`,
-  );
-  return (
-    <div className="academy-grant-certificates">
-      <AcademyCourseProgress />
-      <AcademyPlanner />
-      <AcademyAccessGrants />
-      {/* Without the definitions the records still list, by reference; the failure says why the titles are missing. */}
-      {definitions.resource.status === 'failed' && <AcademyRefusal failure={definitions.resource.failure} retry={definitions.reload} />}
-      <AcademyGrantRecords
-        action={action}
-        titles={new Map(definitions.resource.status === 'ready' ? definitions.resource.data.map((row) => [row.id, row.title]) : [])}
-      />
     </div>
   );
 }

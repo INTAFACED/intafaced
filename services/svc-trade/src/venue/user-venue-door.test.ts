@@ -205,6 +205,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
+      slippageCapBps: null,
       now: opts.now ?? (() => new Date()),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -290,6 +291,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       store,
       stepUp: stepUp('approve').check,
       builder: BUILDER,
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -446,6 +448,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     let t = Date.UTC(2026, 10, 9, 12);
     const { d } = door({ builder: null, now: () => new Date(t) });
     const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
     const markets = vi.spyOn(venue, 'markets');
     // A sell: once its market is found, the blank builder fee refuses it, before the venue is asked.
     const unlisted = (n: number) => d.preview(principal, owner, order(n, { symbol: 'NEW-USDC', side: 'sell' }));
@@ -459,7 +462,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     // After 5 seconds a miss reads the list again, so a market the venue lists now is found.
     t += 1;
     markets.mockImplementationOnce(async (account) => {
-      const list = await HttpUserVenue.prototype.markets.call(venue, account);
+      const list = await listed(account);
       return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'NEW-USDC' }] };
     });
     await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
@@ -517,6 +520,58 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     // A key still trades: an order from the same key is prepared as usual.
     const order1 = await d.prepare(keyPrincipal, { owner, signer, intent: order(1) });
     expect(order1.actionKey).toBe(order(1).clientOrderKey);
+  });
+
+  it('an order below the trading level is refused tier.insufficient before anything is stored; a cancel and a withdrawal stay open (J-cex-spot-01 #3)', async () => {
+    const { d, store, connects } = door();
+    const unverified = { ...principal, tier: 'none' } as Principal;
+    await expect(d.prepare(unverified, { owner, signer, intent: order(7) })).rejects.toMatchObject({ code: 'tier.insufficient' });
+    expect(await store.find(USER, order(7).clientOrderKey)).toBeNull();
+    expect(connects()).toBe(0);
+    // A cancel only takes risk off the venue, so a held account can still make one.
+    const cancel = await d.prepare(unverified, {
+      owner,
+      signer,
+      intent: { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: order(7).clientOrderKey } as VenueIntent,
+    });
+    expect(cancel.actionKey).toBeTruthy();
+    // The same order at the trading level is prepared.
+    expect((await d.prepare(principal, { owner, signer, intent: order(7) })).actionKey).toBe(order(7).clientOrderKey);
+    // The trading checks' clear (`trd`, no approved level) opens a venue order too (OWNER 258 (4)).
+    const cleared = { ...principal, tier: 'none', trd: true } as Principal;
+    expect((await d.prepare(cleared, { owner, signer, intent: order(8) })).actionKey).toBe(order(8).clientOrderKey);
+  });
+
+  it('a person cleared by the trading checks alone withdraws only to their own wallet; elsewhere is refused before anything is stored (OWNER 298)', async () => {
+    const { d, store, connects } = door();
+    const cleared = { ...principal, tier: 'none', trd: true } as Principal;
+    const elsewhere: VenueIntent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: '0x00000000000000000000000000000000000000e1',
+      withdrawalKey: `withdraw:${USER}:elsewhere`,
+    };
+    await expect(d.prepare(cleared, { owner, signer, intent: elsewhere, stepUpApprovalId: 'appr-1' })).rejects.toMatchObject({
+      code: 'trade.venue.withdraw_own_wallet_only',
+      status: 403,
+    });
+    expect(await store.find(USER, elsewhere.withdrawalKey)).toBeNull();
+    expect(connects()).toBe(0);
+    // To their own wallet, the account's owner (any case), it is prepared.
+    const own: VenueIntent = { ...elsewhere, destination: owner.toUpperCase().replace('0X', '0x'), withdrawalKey: `withdraw:${USER}:own` };
+    expect((await d.prepare(cleared, { owner, signer, intent: own, stepUpApprovalId: 'appr-1' })).actionKey).toBe(own.withdrawalKey);
+    // An approved level keeps the door's other rules for any destination: this check does not refuse it.
+    expect(
+      (
+        await d.prepare(principal, {
+          owner,
+          signer,
+          intent: { ...elsewhere, withdrawalKey: `withdraw:${USER}:lvl` },
+          stepUpApprovalId: 'appr-1',
+        })
+      ).actionKey,
+    ).toBe(`withdraw:${USER}:lvl`);
   });
 
   it('a withdrawal prepared in the session cannot be submitted from an API key', async () => {
@@ -600,6 +655,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     minimum: '5',
     confirmations: 3,
     network: 'TEST chain',
+    // The venue's own warning for any other chain (J-wallet-24 #1).
+    warning: 'TEST: send only TEST USDC on TEST chain.',
   };
   let server: http.Server;
   let sim: TestVenueSimulator;
@@ -615,6 +672,7 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       store: new InMemoryPreparedActionStore(),
       stepUp: stepUp('approve').check,
       builder: BUILDER,
+      slippageCapBps: null,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
@@ -645,6 +703,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       status: 'pending',
       fee: { known: true, value: a('1') },
       networkFee: { known: false },
+      // When the venue took it (J-cex-spot-07 #5: a statement places the withdrawal by this time).
+      requestedAt: expect.any(Date),
     });
     sim.settleWithdrawals();
     expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');
@@ -685,12 +745,13 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       address: ROUTE.address,
       asset: ROUTE.asset,
     };
-    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null });
-    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ' })).toEqual({
+    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null, warning: null });
+    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ', warning: 7 })).toEqual({
       ...bare,
       minimum: null,
       confirmations: null,
       network: null,
+      warning: null,
     });
     expect(readDepositRoute(null)).toBeNull();
     expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();

@@ -21,9 +21,9 @@ import { parseColumns, PayerEmailCell, viewFiltersOf } from './PaymentViews';
 
 // TEST DATA written for these tests. None of it is a real payer, payment or amount.
 const portal = {} as PortalApi;
-const payment = (customerEmail: string | null) => ({ id: 'aa000001-0000-4000-8000-000000000001', customerEmail }) as unknown as p.Payment;
+const payment = (customerEmail: string | null) => ({ id: 'aa000001-0000-4000-8000-000000000001', customerEmail }) as p.Payment;
 const filters = (patch: Partial<ListFilters>) =>
-  ({ search: '', status: '', date: '', from: '', to: '', asset: '', ...patch }) as unknown as ListFilters;
+  ({ search: '', status: '', date: '', from: '', to: '', asset: '', ...patch }) as ListFilters;
 
 describe('saved payment views and the payer email (M-adv-payments-core-01)', () => {
   it('reads columns from the address in list order, drops unknown names and falls back to the default set', () => {

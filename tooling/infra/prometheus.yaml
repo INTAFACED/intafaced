@@ -71,11 +71,11 @@ scrape_configs:
   #
   # Why this address resolves: `svc-matching` is started by
   # `docker-compose.apps.yml`, which `include:`s the compose file this config
-  # belongs to. `HTTP_PORT: '4005'` is the CONTAINER port — not the env.ts
+  # belongs to. `HTTP_PORT: '4005'` is the CONTAINER port — not the env.rs
   # default of 4004, and never a published host port. `/metrics` is
-  # `METRICS_PATH` in `services/svc-matching/src/metrics.ts`.
+  # `METRICS_PATH` in `crates/service-kit/src/metrics.rs`.
   #
-  # All three are asserted by `services/svc-matching/src/observability-wiring.test.ts`
+  # All three are asserted by `crates/svc-matching/tests/boot.rs`
   # against THIS FILE and the real compose block. A scrape config pointing at
   # the code default (4004) would miss the container entirely.
   #
@@ -104,9 +104,9 @@ scrape_configs:
   # `docker-compose.apps.yml`, which `include:`s the compose file this config
   # belongs to. `HTTP_PORT: '4001'` is the CONTAINER port — not a published
   # host port. `/metrics` is `METRICS_PATH` in
-  # `services/svc-ledger/src/metrics.ts`.
+  # `crates/svc-ledger/src/metrics.rs`.
   #
-  # All three are asserted by `services/svc-ledger/src/observability-wiring.test.ts`
+  # All three are asserted by `crates/svc-ledger/tests/metrics.rs`
   # against THIS FILE and the real compose block. A scrape config pointing at
   # localhost would miss the container entirely.
   #

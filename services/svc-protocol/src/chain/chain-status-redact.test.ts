@@ -2,7 +2,6 @@ import { createServer } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Address } from 'viem';
 import { createEdgeContext } from '@intafaced/contracts';
-import { AccountRegistry, MemoryAccountStore } from '../accounts/registry.js';
 import { createProtocolRouter } from '../router.js';
 import { SessionRelay } from '../session/relay.js';
 import { DEV_CHAIN_ID } from '../../scripts/dev-chain.js';
@@ -66,8 +65,7 @@ describe('public chainStatus redacts the RPC URL', () => {
     });
     const caller = createProtocolRouter({
       chain,
-      registry: new AccountRegistry(new MemoryAccountStore(), { chainId: DEV_CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION }),
-      relay: new SessionRelay(chain),
+      relay: new SessionRelay(),
       relayEnabled: () => true,
       ammFactoryAddress: () => ZERO,
       swapSlippageBps: () => null,

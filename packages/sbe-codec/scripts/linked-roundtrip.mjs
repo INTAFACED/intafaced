@@ -4,7 +4,6 @@
  * spawnSync Java here cannot block birpc — this is a plain Node process.
  * Unlinked: print sbe_unavailable and exit 0 (same honesty as the old it()).
  */
-import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,13 +15,8 @@ function fail(message) {
   process.exit(1);
 }
 
-function tscBin() {
-  const candidates = [join(ROOT, 'node_modules/typescript/bin/tsc'), join(ROOT, '../../node_modules/typescript/bin/tsc')];
-  return candidates.find((p) => existsSync(p));
-}
-
-const tsc = tscBin();
-if (tsc === undefined) fail('typescript tsc not found — cannot compile sbe-codec for linked roundtrip');
+// The repo's one compiler entry (tsrs off CI, tsc in CI; tooling/scripts/tsc.mjs).
+const tsc = join(ROOT, '..', '..', 'tooling', 'scripts', 'tsc.mjs');
 const compiled = spawnSync(process.execPath, [tsc, '-p', join(ROOT, 'tsconfig.json')], { cwd: ROOT, stdio: 'inherit' });
 if (compiled.status !== 0) process.exit(compiled.status === null ? 1 : compiled.status);
 

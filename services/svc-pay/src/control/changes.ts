@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { FounderPendingChange, FounderPendingChangeListInput, MerchantControlChange, PayCap } from '@intafaced/contracts';
 import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { writeAudit } from './audit.js';
@@ -61,7 +61,7 @@ interface Plan {
   readonly before: unknown;
   readonly after: unknown;
   readonly noop: boolean;
-  readonly apply: (tx: Sql) => Promise<void>;
+  readonly apply: (tx: Queryable) => Promise<void>;
 }
 
 class Refused extends Error {}
@@ -151,7 +151,7 @@ export class ChangeService {
 
   // ── planning ──────────────────────────────────────────────────────────────
 
-  private async pricingVersion(tx: Sql, layer: string, scopeId: string): Promise<bigint> {
+  private async pricingVersion(tx: Queryable, layer: string, scopeId: string): Promise<bigint> {
     if (layer === 'merchant') {
       const rows = await tx<Array<{ version: string }>>`SELECT version FROM pay.control_merchant_profiles WHERE merchant_id = ${scopeId}`;
       return BigInt(rows[0]?.version ?? '0');
@@ -162,13 +162,13 @@ export class ChangeService {
     return BigInt(rows[0]!.v);
   }
 
-  private async plan(tx: Sql, target: ChangeTarget, actor: string): Promise<Plan> {
+  private async plan(tx: Queryable, target: ChangeTarget, actor: string): Promise<Plan> {
     if (target.scope === 'merchant') return this.planMerchant(tx, target, actor);
     if (target.scope === 'tier') return this.planTier(tx, target.change.tier, actor);
     return this.planPricing(tx, target.change, actor);
   }
 
-  private async planMerchant(tx: Sql, target: Extract<ChangeTarget, { scope: 'merchant' }>, actor: string): Promise<Plan> {
+  private async planMerchant(tx: Queryable, target: Extract<ChangeTarget, { scope: 'merchant' }>, actor: string): Promise<Plan> {
     const { merchantId, change } = target;
     const merchant = await tx`SELECT 1 FROM pay.merchants WHERE id = ${merchantId}`;
     if (merchant.length === 0) throw new Refused('merchant not found');
@@ -179,11 +179,11 @@ export class ChangeService {
     `;
     const cur = rows[0];
     const version = BigInt(cur?.version ?? '0');
-    const ensure = async (q: Sql) => {
+    const ensure = async (q: Queryable) => {
       await q`INSERT INTO pay.control_merchant_profiles (merchant_id) VALUES (${merchantId}) ON CONFLICT DO NOTHING`;
       await q`SELECT 1 FROM pay.control_merchant_profiles WHERE merchant_id = ${merchantId} FOR UPDATE`;
     };
-    const bump = (q: Sql) =>
+    const bump = (q: Queryable) =>
       q`UPDATE pay.control_merchant_profiles SET version = version + 1, updated_by = ${actor}, updated_at = now() WHERE merchant_id = ${merchantId}`;
 
     if (change.kind === 'set_tier') {
@@ -259,7 +259,7 @@ export class ChangeService {
   }
 
   private async planRules(
-    tx: Sql,
+    tx: Queryable,
     layer: 'global' | 'tier' | 'merchant',
     scopeId: string,
     inputs: readonly PricingRuleBody[],
@@ -321,13 +321,13 @@ export class ChangeService {
     };
   }
 
-  private async planPricing(tx: Sql, change: Extract<ChangeTarget, { scope: 'pricing' }>['change'], actor: string): Promise<Plan> {
+  private async planPricing(tx: Queryable, change: Extract<ChangeTarget, { scope: 'pricing' }>['change'], actor: string): Promise<Plan> {
     if (change.layer === 'global' && change.scopeId !== null) throw new Refused('the global layer has no scope id');
     if (change.layer !== 'global' && !change.scopeId) throw new Refused('this layer needs a scope id');
     return this.planRules(tx, change.layer, change.scopeId ?? '', change.rules, actor, change.layer === 'merchant' ? change.scopeId : null);
   }
 
-  private async planTier(tx: Sql, tier: TierDefinitionInput, actor: string): Promise<Plan> {
+  private async planTier(tx: Queryable, tier: TierDefinitionInput, actor: string): Promise<Plan> {
     const caps = assertCaps(tier.caps);
     const approval = thresholdJson(tier.approvalThresholds);
     const founder = thresholdJson(tier.founderThresholds);

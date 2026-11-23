@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
@@ -31,7 +31,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_portal_gap_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -514,6 +514,67 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     const visible = (await as(viewer).merchantOps.invoices.list({ limit: 20 })) as { items: Array<{ id: string }> };
     expect(visible.items.map((i) => i.id)).toContain(draft.id);
     expect(visible.items.map((i) => i.id)).not.toContain(foreignInvoice.id);
+  });
+
+  it('refuses a payment that no longer covers the invoice', async () => {
+    const caller = as(owner);
+    const invoice = (await caller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '10',
+    })) as { id: string };
+    const paymentId = await payment('captured', '10');
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${paymentId}, 'captured', ${sql.json({ amount: '10' })}),
+             (${paymentId}, 'refunded', ${sql.json({ amount: '4', refundId: 'partial' })})`;
+
+    expect(
+      (
+        await refusal(() =>
+          caller.merchantOps.invoices.markPaidByPayment({
+            requestId: nid(),
+            invoiceId: invoice.id,
+            paymentId,
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_payment_mismatch');
+  });
+
+  it('refuses a payment with a refund in flight, and takes one whose refund was reversed', async () => {
+    const caller = as(owner);
+    const invoice = (await caller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '10',
+    })) as { id: string };
+    const paymentId = await payment('captured', '10');
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${paymentId}, 'captured', ${sql.json({ amount: '10' })}),
+             (${paymentId}, 'refund.posted', ${sql.json({ amount: '4', refundId: 'pending' })})`;
+    expect(
+      (
+        await refusal(() =>
+          caller.merchantOps.invoices.markPaidByPayment({
+            requestId: nid(),
+            invoiceId: invoice.id,
+            paymentId,
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_payment_mismatch');
+
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (${paymentId}, 'refund.reversed', ${sql.json({ amount: '4', refundId: 'pending' })})`;
+    const paid = (await caller.merchantOps.invoices.markPaidByPayment({
+      requestId: nid(),
+      invoiceId: invoice.id,
+      paymentId,
+    })) as { status: string; paymentId: string | null };
+    expect(paid).toMatchObject({ status: 'paid', paymentId });
   });
 
   it('stores a due date, a customer email and line items whose total is the header amount', async () => {

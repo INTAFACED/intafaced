@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { StatusTag, Button } from '@intafaced/ui';
 import { Field } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
@@ -12,7 +12,7 @@ export function Arrives({ reason, children }: { reason: string; children: ReactN
 }
 export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
   return (
-    <a className="text-link" href={href}>
+    <a className="lt-link" href={href}>
       {children ?? c.t('backHome')}
     </a>
   );

@@ -4,6 +4,8 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, json, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-27, in the running app (docs/roadmap/journeys.json): I handle card disputes (support), on the founder console at
 // /bank-ops/cards/disputes. The card and its money are the partner's (OWNER 226); no partner is named, so the stack runs the
@@ -22,8 +24,15 @@ import { signIn, signUp, verify } from './desk.mjs';
 //      stays open. For one restart the partner reports its TEST terms (the programme bears the loss) and the cap is blank:
 //      case A closes for the merchant with the programme recorded under the partner's terms and the partner's credit
 //      reversed, and case C is refused by name, the cap not published.
+// #3 and #4 compare what the app shows with the TEST card partner's own book: its record of the cardholder's available,
+// its provisional credits and its loss terms, read on loopback straight from the simulator (svc-bank
+// src/cards/test-card-partner-record.ts) through the outside record read (venue.mjs venueRecord and venueBalance), never
+// through the app's own doors. The simulator keeps its credits in its process, so its book of credits starts empty after
+// #4's restart.
 // Step 5 (the regulatory clock) is deferred until launch prep (owner decision 2026-10-27).
 const J = 'J-bank-27';
+/** The TEST card partner's own record, on loopback (svc-bank src/cards/test-card-partner-record.ts). */
+const CARD_PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-card-partner`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -130,6 +139,19 @@ async function partnerAvailable(who) {
   const row = res?.body?.result?.data?.assets?.find((a) => a.assetId === 'USDC');
   expect(row, JSON.stringify(res?.body ?? {}).slice(0, 300)).toBeTruthy();
   return row.partnerBalance;
+}
+
+/** What the card partner's own book says the cardholder can spend in USDC. */
+async function partnerBookAvailable(userId) {
+  return (await venueBalance(userId, 'USDC', CARD_PARTNER_RECORD)).total;
+}
+/** The provisional credits the card partner's own book holds for the cardholder. */
+async function partnerBookCredits(userId) {
+  return (await venueRecord(userId, '/credits', {}, CARD_PARTNER_RECORD, null)).value;
+}
+/** Who bears a loss, as the card partner's own terms say; null when it reports nothing. */
+async function partnerBookLoss(userId) {
+  return (await venueRecord(userId, '/terms', {}, CARD_PARTNER_RECORD, null)).value.lossLiability;
 }
 
 async function desk(browser, path, key = 'a') {
@@ -331,6 +353,9 @@ test(`${J} #3 grants provisional credit: recorded as the partner's credit: the c
   expect(before).toMatch(/^\d+(\.\d+)?$/);
   const cardholder = (await disputeRead(cases.a)).userId;
   const ledgerBefore = await ledgerBalances(cardholder);
+  // The app's figure is the partner's own: what its book says the cardholder can spend, before any credit.
+  expect(before).toBe(await partnerBookAvailable(cardholder));
+  const creditsBefore = await partnerBookCredits(cardholder);
 
   const { page } = await desk(browser, `/bank-ops/cards/disputes/${cases.a}`);
   await expect(fact(page, 'dispute-credit')).toHaveText('None');
@@ -350,11 +375,23 @@ test(`${J} #3 grants provisional credit: recorded as the partner's credit: the c
   // The cardholder's available, as the partner reports it, rose by exactly the amount.
   const after = await partnerAvailable(who);
   expect(units(after) - units(before)).toBe(units(stored.provisionalCredit.amount));
+  expect(units(stored.provisionalCredit.amount)).toBe(units('50'));
+  // The partner's own book: the cardholder's available is the app's figure, risen by exactly 50, and it holds one more
+  // credit, of 50 USDC, under the reference the case shows.
+  expect(await partnerBookAvailable(cardholder)).toBe(after);
+  expect(units(await partnerBookAvailable(cardholder)) - units(before)).toBe(units('50'));
+  const credits = await partnerBookCredits(cardholder);
+  expect(credits).toHaveLength(creditsBefore.length + 1);
+  expect(credits.filter((c) => c.partnerRef === stored.provisionalCredit.partnerRef)).toEqual([
+    { partnerRef: stored.provisionalCredit.partnerRef, assetId: 'USDC', amount: '50', reversed: false },
+  ]);
   // Once: a second grant is the same credit and the same reference, and the figure does not move again.
   const again = await bankOps('mutate', 'ops.cardDisputeCredit', { disputeId: cases.a });
   expect(again.status, again.text.slice(0, 300)).toBe(200);
   expect(again.json.result.data.provisionalCredit.partnerRef).toBe(stored.provisionalCredit.partnerRef);
   expect(await partnerAvailable(who)).toBe(after);
+  expect(await partnerBookAvailable(cardholder)).toBe(after);
+  expect(await partnerBookCredits(cardholder)).toEqual(credits);
   expect((await disputeRead(cases.a)).events.filter((e) => e.kind === 'provisional_credit')).toHaveLength(1);
   // The cardholder sees it in Pay from, as the partner reports it.
   const customer = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
@@ -371,6 +408,9 @@ test(`${J} #4 decides loss liability and closes: who bears the fraud loss record
 }) => {
   test.setTimeout(600_000);
   const { cases } = world();
+  const cardholder = (await disputeRead(cases.b)).userId;
+  // The partner's own terms, read from its book, say nothing about who bears a loss.
+  expect(await partnerBookLoss(cardholder)).toBeNull();
 
   // The profile's TEST partner has not reported who bears a loss: case B closes with "not known", never the partner.
   let { page } = await desk(browser, `/bank-ops/cards/disputes/${cases.b}`);
@@ -425,6 +465,9 @@ test(`${J} #4 decides loss liability and closes: who bears the fraud loss record
     expect((await disputeRead(cases.c)).state).toBe('opened');
     await page.context().close();
 
+    // The partner's own terms now say who bears a loss: the programme, in these words.
+    const reported = await partnerBookLoss(cardholder);
+    expect(reported).toEqual({ bearer: 'programme', terms: 'TEST terms: the programme bears card fraud and lost chargebacks' });
     // Case A (in arbitration, credited): decided for the merchant. The loss is recorded as the partner's terms say: the
     // programme, with the terms' words; the partner's provisional credit is reversed with its reference.
     ({ page } = await desk(browser, `/bank-ops/cards/disputes/${cases.a}`));
@@ -442,6 +485,9 @@ test(`${J} #4 decides loss liability and closes: who bears the fraud loss record
       lossTerms: 'TEST terms: the programme bears card fraud and lost chargebacks',
       creditSettlement: 'reversed',
     });
+    // Recorded as the partner's own terms say, word for word, and never assumed to be the partner.
+    expect({ bearer: a.decision.lossBearer, terms: a.decision.lossTerms }).toEqual(reported);
+    await expect(fact(page, 'dispute-loss')).toContainText(reported.terms);
     expect(a.decision.creditSettlementPartnerRef).toMatch(/^TEST-card-sim-reversed-[0-9a-f]{16}$/);
     await expect(fact(page, 'dispute-credit-settlement')).toHaveText(
       `Reversed by the partner, reference ${a.decision.creditSettlementPartnerRef}`,
@@ -451,6 +497,8 @@ test(`${J} #4 decides loss liability and closes: who bears the fraud loss record
     expect(other.text).toContain('bank.card_dispute_state');
     // Case B, closed before the restart, keeps the "not known" it was decided under: a later answer does not rewrite it.
     expect((await disputeRead(cases.b)).decision).toMatchObject({ lossStatus: 'not_known', lossBearer: null });
+    // And the partner's own terms after the restart again, unchanged by the decisions.
+    expect(await partnerBookLoss(cardholder)).toEqual(reported);
     await page.context().close();
   } finally {
     restartBank({ LOCAL_STACK_BANK_CARD_PARTNER: undefined, LOCAL_STACK_BANK_CARD_DISPUTE_CAP: undefined });

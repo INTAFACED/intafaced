@@ -1,12 +1,12 @@
 import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import type { StepUpBegin } from '../account/security-step-up';
+import type { StepUpBegin } from '../account';
 import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
-import type { transferQuoteSchema } from '../pay/schemas';
+import type { transferQuoteSchema } from './contracts-payments';
 import { termsVerdict } from '../../screens/pay/send-terms';
 import { amount } from './components';
-import { bankReads } from './contracts';
 import { transferDepthCopy } from './transfer-depth-copy';
+import { BANK_TRANSFERS_QUOTE } from '@intafaced/contracts/bank-transfers-procedures';
 
 export type PersonSendQuote = z.infer<typeof transferQuoteSchema>;
 
@@ -68,7 +68,7 @@ export function personSendReview(answer: ApiResult<PersonSendQuote>, sent: strin
 /** Asks the bank for the fee and limits of this send, for the review. */
 export async function readPersonSendTerms(api: ApiClient, assetId: string, sent: string, signal?: AbortSignal): Promise<ReviewTerms> {
   const value = sent.trim();
-  const answer = await api.query('bank', 'transfers.quote', { assetId, amount: value }, bankReads['transfers.quote'], { signal });
+  const answer = await api.call(BANK_TRANSFERS_QUOTE, { assetId, amount: value }, { signal });
   return personSendReview(answer, value, assetId);
 }
 

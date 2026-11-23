@@ -17,9 +17,8 @@
 //   Profiles: phone = 390x844, 4x CPU throttle; desktop = 1440x900, no throttle.
 //   Headless GPU is whatever the host provides, so absolute GPU numbers are indicative, not a device lab.
 import { createRequire } from 'node:module';
-import { existsSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, resolve, dirname } from 'node:path';
+import { findChromiumExecutable } from '../../../tooling/uiproof/playwright-browsers.mjs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -31,22 +30,6 @@ const { chromium } = require('@playwright/test');
 
 const labBase = process.argv[2] || process.env.BACKDROP_URL || '';
 const SECONDS = Number(process.env.BACKDROP_SECONDS || 10);
-
-function findBrowser() {
-  if (process.env.BACKDROP_BROWSER) return process.env.BACKDROP_BROWSER;
-  const cache = join(homedir(), 'Library', 'Caches', 'ms-playwright');
-  if (!existsSync(cache)) return undefined;
-  const dirs = readdirSync(cache)
-    .filter((n) => /^chromium-\d+$/.test(n))
-    .sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)));
-  for (const d of dirs) {
-    for (const arch of ['chrome-mac-arm64', 'chrome-mac']) {
-      const p = join(cache, d, arch, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
-      if (existsSync(p)) return p;
-    }
-  }
-  return undefined;
-}
 
 const profiles = [
   { name: 'phone 390x844 4x', w: 390, h: 844, throttle: 4 },
@@ -99,7 +82,10 @@ const server = createServer(async (request, response) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const appBase = `http://127.0.0.1:${server.address().port}/invest`;
 
-const browser = await chromium.launch({ executablePath: findBrowser(), args: ['--headless=new'] });
+const browser = await chromium.launch({
+  executablePath: process.env.BACKDROP_BROWSER || findChromiumExecutable({ full: true }),
+  args: ['--headless=new'],
+});
 const browserCdp = await browser.newBrowserCDPSession();
 const gpuCpu = async () => {
   try {

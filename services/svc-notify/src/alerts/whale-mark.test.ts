@@ -70,7 +70,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
         return new Response(JSON.stringify({ quoteVolume: '2500', last: '101', timestamp: now.getTime() }), { status: 200 });
       }
       return new Response('nope', { status: 404 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test/',
@@ -93,7 +93,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify({ bid: '100', ask: '102', last: '101', timestamp: now.getTime() }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test',
@@ -115,7 +115,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify(null), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test',
@@ -134,7 +134,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
   it('omit marketsLimit refuses notify.markets_list_limit_unset — never invent 50 or fetch', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test',
@@ -154,7 +154,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
     const fetchImpl = vi.fn(async (url: string) => {
       expect(String(url)).toBe('http://trade.test/api/v1/markets?limit=500');
       return new Response(JSON.stringify([]), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test',
@@ -168,7 +168,7 @@ describe('createTradeHttpWhaleMarkSource', () => {
   });
 
   it('markets HTTP 400 stays failure — never invents flow', async () => {
-    const fetchImpl = vi.fn(async () => new Response('limit required', { status: 400 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => new Response('limit required', { status: 400 })) as typeof fetch;
     const marks = createTradeHttpWhaleMarkSource({
       baseUrl: 'http://trade.test',
       allowlist: [MARKET_ID],

@@ -7,7 +7,24 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 const session = {
   userId: null as string | null,
-  api: { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined) },
+  api: {
+    query: () => new Promise(() => undefined),
+    mutate: () => new Promise(() => undefined),
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  },
 };
 vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => session.api }));
 import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';
@@ -79,7 +96,7 @@ describe('Tokens room', () => {
   it('opens on Trending with every tab, the window, the formula and a token table that is reading, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokensRoom />);
-    expect(html).toContain('<h1>Tokens</h1>');
+    expect(html).toMatch(/<h1[^>]*>Tokens<\/h1>/);
     for (const tab of ['Trending', 'Top traded', 'New listings', 'Market brief', 'Stablecoins', 'Leaderboard', 'Stocks'])
       expect(html).toMatch(new RegExp(`role="tab"[^>]*>${tab}</button>`));
     expect(html).toContain('aria-selected="true"');
@@ -156,16 +173,21 @@ describe('Token page', () => {
   it('reads the token before it shows any fact, with no figure before data', () => {
     vi.stubGlobal('window', { localStorage: memoryStorage() });
     const html = renderToStaticMarkup(<TokenPage address={TOKEN} />);
-    expect(html).toContain(`<h1>Token ${TOKEN}</h1>`);
+    expect(html).toMatch(new RegExp(`<h1[^>]*>Token ${TOKEN}</h1>`));
     expect(html).toContain('Reading the pools');
     expect(html).toContain('Add to watchlist');
     expect(html).not.toContain('data-testid="token-price"');
     expect(html).not.toMatch(/\$\d/);
+    // The scam report count reads on its own and shows no number before its read lands.
+    expect(html).toContain('Scam reports');
+    expect(html).toContain('Reading the reports');
+    expect(html).not.toContain('data-testid="scam-reports"');
   });
   it('answers a malformed address with not found and looks nothing up', () => {
     const html = renderToStaticMarkup(<TokenPage address="0x1234" />);
     expect(html).toContain('data-code="protocol.not_found"');
     expect(html).not.toContain('Token facts');
+    expect(html).not.toContain('Scam reports');
   });
   it('says the watchlist cannot be kept when the browser keeps no site data', () => {
     vi.stubGlobal('window', {

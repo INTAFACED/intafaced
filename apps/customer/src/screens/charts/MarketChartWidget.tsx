@@ -5,7 +5,7 @@ import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type 
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import { dataStatus as computeStatus, tradeRefusal } from './data-status';
-import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
+import { rememberLastTrade, useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
 import { ownerValue, useChartOwnerValues } from './owner-values';
 import { refusalText, StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
@@ -106,6 +106,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const bookHalt = useBookHalt(market.symbol);
   const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
+  // The newest trade this tab has read for the market, kept once the tape stops answering, so a down feed names its last
+  // tick even on a chart opened during the outage. Module memory, not state: keeping it never causes a render of its own.
+  const lastTradeSeenMs = rememberLastTrade(market.symbol, lastTrade);
   const owner = useChartOwnerValues(market.symbol);
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
@@ -119,6 +122,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     bookHalt,
     candles: polled,
     lastTrade,
+    lastTradeSeenMs,
     pollIntervalMs: CANDLE_POLL_MS,
   });
   // Settings and price lines are this device's own display choices.

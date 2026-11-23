@@ -1,8 +1,5 @@
 import 'server-only';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
 import { readReleaseAnswer, readWaitAnswer, travelRuleDetail, type TravelRuleRequest } from './model';
 
 /**

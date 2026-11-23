@@ -5,7 +5,8 @@
  *
  * Blank means the owner has not configured push delivery: the key is withheld unless the gateway URL and token are set
  * too, because a device registered with no gateway behind it could never be reached. The app then shows the permission
- * state and the `vendor.push` notice instead of registering.
+ * state and the `vendor.push` notice instead of registering. On a dev or test stack the TEST push stand-in
+ * (`NOTIFY_PUSH_TEST_OUTBOX`, channels/test-outbox.ts) takes the gateway's place, so a TEST device can register there.
  */
 export const PUSH_KEY_UNSET = 'notify.push_key_unset' as const;
 
@@ -16,7 +17,8 @@ export type PushKeyPolicy = { publicKey: string; unsetCode: null } | { publicKey
 
 export function pushKeyPolicy(env: Record<string, string | undefined>): PushKeyPolicy {
   const key = env.NOTIFY_PUSH_PUBLIC_KEY?.trim();
-  const gateway = Boolean(env.NOTIFY_PUSH_GATEWAY_URL?.trim() && env.NOTIFY_PUSH_GATEWAY_TOKEN?.trim());
+  const testStandIn = Boolean(env.NOTIFY_PUSH_TEST_OUTBOX?.trim()) && (env.APP_ENV === 'dev' || env.APP_ENV === 'test');
+  const gateway = Boolean(env.NOTIFY_PUSH_GATEWAY_URL?.trim() && env.NOTIFY_PUSH_GATEWAY_TOKEN?.trim()) || testStandIn;
   if (!key || !gateway || !KEY_SHAPE.test(key)) return { publicKey: null, unsetCode: PUSH_KEY_UNSET };
   return { publicKey: key, unsetCode: null };
 }

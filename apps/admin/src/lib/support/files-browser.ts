@@ -1,12 +1,9 @@
 /** Browser hop for a ticket's files. Same-origin BFF only; no credential is held here. */
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { uploadKey, type TicketFile } from './files';
 import type { TicketFilesView } from './files-server';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchTicketFiles(ticketId: string, signal?: AbortSignal): Promise<TicketFilesView | null> {
   try {

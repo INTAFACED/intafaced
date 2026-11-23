@@ -9,7 +9,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { afterAll, beforeAll } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
@@ -44,7 +44,7 @@ const deadlines = {
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_saga_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -83,6 +83,8 @@ const releaseEscrow: MoneyDoorScenario = {
   name: 'svc-p2p escrow release (confirm, then settle)',
   secret: SECRET,
   verify: verifyServiceHeaders,
+  // Each replay's setup truncates and rebuilds the trade in Postgres; together they outran 5 s on a loaded CI runner (#7158).
+  timeoutMs: 30_000,
   async setup(ledger) {
     await database().truncateAll();
     const instruments = new InstrumentService(database().sql);

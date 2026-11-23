@@ -198,6 +198,29 @@ const schema = serviceEnvSchema
        * NOTIFY_STATUS_MAIL_OUTBOX and is allowed only when APP_ENV is exactly dev or test. Unset: the email gateway
        * channel sends, with NOTIFY_PUBLIC_ORIGIN for the links; without both, status mail waits with `vendor.email`.
        */
+      /**
+       * The TEST email stand-in (J-charts-desk-10 #5): an absolute file the email channel writes each message to, labelled TEST,
+       * while no email gateway is set. Refused at boot unless APP_ENV is exactly dev or test. Unset: email refuses honestly.
+       */
+      NOTIFY_EMAIL_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
+       * The TEST push stand-in (J-home-ia-05 #4): an absolute file the push channel writes each message to, labelled TEST, while
+       * no push gateway is set; with NOTIFY_PUSH_PUBLIC_KEY it lets a TEST device register. Refused at boot unless APP_ENV is
+       * exactly dev or test. Unset: push refuses honestly and no device registers.
+       */
+      NOTIFY_PUSH_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
+       * Ports an alert webhook may post to, comma separated (`443`). NO DEFAULT. Blank refuses every webhook save
+       * (`notify.alert_webhook_ports_unset`).
+       */
+      NOTIFY_ALERT_WEBHOOK_PORTS: blankAsAbsent(z.string().optional()),
+      /**
+       * Seconds to wait before each resend of a failed alert webhook, comma separated (`5,5,5` resends three times, 5 s apart).
+       * NO DEFAULT. Blank resends nothing, and each failed attempt says so.
+       */
+      NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS: blankAsAbsent(z.string().optional()),
+      /** LOCAL TEST only: `on` lets an alert webhook post to a loopback address. Refused at boot unless APP_ENV is dev or test. */
+      NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK: blankAsAbsent(z.string().optional()),
       NOTIFY_STATUS_MAIL_TRANSPORT: blankAsAbsent(z.string().optional()),
       NOTIFY_STATUS_MAIL_OUTBOX: blankAsAbsent(z.string().optional()),
       /** Signs the confirm, manage and unsubscribe links in status mail. Unset: subscribing refuses with status.challenge_unset. */
@@ -301,6 +324,14 @@ const schema = serviceEnvSchema
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */
       NOTIFY_ALERT_TRIGGER_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
+      /**
+       * The owner's account plan table (BK-acct-04): the one owner value svc-bank also reads, set once for both.
+       * `{ "defaultPlanId", "plans": [{ "id", "name", … }] }`. Alert quotas are set per plan on the charts settings page
+       * (J-charts-desk-18 #6). NO DEFAULT: blank or not in shape, no plan quota applies, the page says the plans are not set,
+       * and the deployment's NOTIFY_ALERT_MAX_ACTIVE_PRICE still holds.
+       */
+      BANK_PLANS_JSON: z.string().optional(),
 
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),

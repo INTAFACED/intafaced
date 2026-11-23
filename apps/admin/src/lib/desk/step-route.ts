@@ -3,7 +3,7 @@ import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { auditLine, parseStepBody, runStep, type ExecuteFn, type StepBody, type StepReply } from './approval-steps';
 import type { FounderCallContext } from './founder-call';
-import { explainRefusal, type RefusalView } from './refusal-copy';
+import { explainRefusal, type RefusalView } from '../refusal-copy';
 
 /**
  * The shared body of the two approval BFFs (`/api/kill-switch`, `/api/ledger-freeze`). Each route supplies the

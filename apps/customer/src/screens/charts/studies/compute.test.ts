@@ -199,11 +199,70 @@ describe('higher-timeframe and levels', () => {
       reason: 'notServed',
       params: { series: 'Open interest', symbol: 'BTC-USDT' },
     });
-    expect(run(study('funding'), context([bar(0, '1', '1', '1')]))).toMatchObject({
+    expect(run(study('on-chain'), context([bar(0, '1', '1', '1')]))).toEqual({
+      status: 'refused',
+      reason: 'notServed',
+      params: { series: 'On-chain series', symbol: 'BTC-USDT' },
+    });
+  });
+
+  it('funding waits for its read, and is refused by name where the venue publishes none', () => {
+    const bars = [bar(0, '1', '1', '1')];
+    expect(run(study('funding'), context(bars))).toEqual({ status: 'loading' });
+    for (const code of ['trade.venue.not_offered', 'trade.venue.unknown_market', 'trade.user_venue_off'])
+      expect(run(study('funding'), context(bars, { funding: { status: 'refused', code } }))).toEqual({
+        status: 'refused',
+        reason: 'notServed',
+        params: { series: 'Funding rate', symbol: 'BTC-USDT' },
+      });
+    const none = ready({ perpetual: 'BTC-PERP', intervalSeconds: 3600, test: true, rows: [] });
+    expect(run(study('funding'), context(bars, { funding: none }))).toMatchObject({
       reason: 'notServed',
       params: { series: 'Funding rate' },
     });
-    expect(run(study('on-chain'), context([bar(0, '1', '1', '1')]))).toMatchObject({ reason: 'notServed' });
+    // Any other refusal is not "not published": it says the read was refused.
+    expect(run(study('funding'), context(bars, { funding: { status: 'refused', code: 'trade.venue_request_invalid' } }))).toMatchObject({
+      reason: 'feedRefused',
+    });
+  });
+
+  it('funding where published: each bar draws the newest rate settled by its close, in percent, and none before the first', () => {
+    const hour = 3_600_000;
+    // 15m bars from 00:00 to 02:45; rates settle at 01:00 (0.0000125) and 02:00 (-0.00003).
+    const bars = Array.from({ length: 12 }, (_, i) => bar(i * 15 * MIN, '1', '1', '1'));
+    const funding = ready({
+      perpetual: 'BTC-PERP',
+      intervalSeconds: 3600,
+      test: true,
+      rows: [
+        { t: 1 * hour, rate: '0.0000125' },
+        { t: 2 * hour, rate: '-0.00003' },
+      ],
+    });
+    const result = run(study('funding'), context(bars, { interval: '15m' as ChartInterval, funding }));
+    const line = seriesNamed(result, 'TEST Funding rate BTC-PERP (% per 1h)');
+    expect(line.pane).toBe('sub');
+    // The bar 00:45 closes at 01:00, when the first rate settled; the bar 01:45 closes at 02:00.
+    expect(line.points.map((p) => p.text)).toEqual([
+      null,
+      null,
+      null,
+      '0.00125',
+      '0.00125',
+      '0.00125',
+      '0.00125',
+      '-0.00300',
+      '-0.00300',
+      '-0.00300',
+      '-0.00300',
+      '-0.00300',
+    ]);
+    expect(line.points[3]!.value).toBe(0.00125);
+    expect(result.status === 'ready' && result.facts).toEqual([
+      { name: 'Perpetual', text: 'BTC-PERP' },
+      { name: 'Settled rates read', text: '2' },
+      { name: 'Latest settled', text: '-0.00300% at 1970-01-01 02:00 UTC' },
+    ]);
   });
 
   it('pivots on the day after a whole prior day use that day’s high, low and close', () => {

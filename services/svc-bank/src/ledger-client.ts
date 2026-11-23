@@ -7,16 +7,10 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import {
-  assetsListOutputSchema,
-  ledgerHoldingsHistoryInputSchema,
-  ledgerHoldingsHistorySchema,
-  serviceCallSigner,
-  type LedgerHoldingsHistory,
-  type LedgerHoldingsHistoryInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { LedgerHoldingsHistory, LedgerHoldingsHistoryInput, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { assetsListOutputSchema } from '@intafaced/contracts/asset-registry';
+import { ledgerHoldingsHistoryInputSchema, ledgerHoldingsHistorySchema } from '@intafaced/contracts/ledger-holdings-history';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 import type { WithdrawNetworkSource } from './ramps/withdraw-networks.js';
@@ -166,6 +160,7 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           product?: string | null;
           orderId?: string | null;
           withdrawalId?: string | null;
+          fee?: string | null;
         }>;
         nextCursor: string | null;
       }>('/trpc/historyPage', body);
@@ -189,6 +184,9 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           ...(typeof e.orderId === 'string' && e.orderId !== '' ? { orderId: e.orderId } : {}),
           // A withdrawal line's own withdrawal id and attempt (`<id>:<n>`), allow-listed by svc-ledger. Absent elsewhere.
           ...(typeof e.withdrawalId === 'string' && e.withdrawalId !== '' ? { withdrawalId: e.withdrawalId } : {}),
+          // On the receiving line of a fill, the fee the ledger booked from it (svc-ledger history.ts "ON A FILL, THE FEE"),
+          // round-tripped like the amount so a malformed one is refused. Null or absent on every other line.
+          ...(typeof e.fee === 'string' ? { fee: formatAmount(parseAmount(e.fee)) } : e.fee === null ? { fee: null } : {}),
         })),
         nextCursor: result.nextCursor,
       };

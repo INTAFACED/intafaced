@@ -63,8 +63,9 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, MoneyError, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
@@ -410,98 +411,157 @@ interface TierContext {
   readonly depthNotional?: Amount | undefined;
 }
 
-export interface OrderRow {
-  id: string;
-  user_id: string;
-  market_id: string;
-  client_order_id: string;
-  side: OrderSide;
-  order_type: 'limit' | 'market';
-  qty: string;
-  limit_price: string;
-  mark_price: string;
-  band_low: string;
-  band_high: string;
-  leverage: string;
-  hold_asset: string;
-  filled_qty: string;
-  adverse_num: string;
-  applied_amount: string;
-  released_amount: string;
-  engine_filled_qty: string | null;
-  status: MatchedOrderStatus;
-  refusal_code: string | null;
-  reduce_only: boolean;
-  position_id: string | null;
-  bankruptcy_price: string | null;
+/**
+ * The rows this file reads, parsed where they are read (migrations 0003, 0045, 0052, 0095-0099 and 20261106005604):
+ * numeric and int8 come back as decimal strings, uuid and text as strings, timestamptz as a Date.
+ */
+export const OrderRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  market_id: z.string(),
+  client_order_id: z.string(),
+  side: z.enum(['buy', 'sell']),
+  order_type: z.enum(['limit', 'market']),
+  qty: z.string(),
+  limit_price: z.string(),
+  mark_price: z.string(),
+  band_low: z.string(),
+  band_high: z.string(),
+  leverage: z.string(),
+  hold_asset: z.string(),
+  filled_qty: z.string(),
+  adverse_num: z.string(),
+  applied_amount: z.string(),
+  released_amount: z.string(),
+  engine_filled_qty: z.string().nullable(),
+  status: z.enum(MATCHED_ORDER_STATUSES),
+  refusal_code: z.string().nullable(),
+  reduce_only: z.boolean(),
+  position_id: z.string().nullable(),
+  bankruptcy_price: z.string().nullable(),
   /** The matched liquidation rung this order works for (slice 7); null for every trader's order. */
-  liquidation_rung_id: string | null;
-  origin: FuturesOrderOrigin;
-  origin_ref: string | null;
-  order_label: string | null;
+  liquidation_rung_id: z.string().nullable(),
+  origin: z.enum(FUTURES_ORDER_ORIGINS),
+  origin_ref: z.string().nullable(),
+  order_label: z.string().nullable(),
   /** The listing's published rates when the order was accepted (migration 0099). Zero on an older order. */
-  maker_fee_bps: string;
-  taker_fee_bps: string;
+  maker_fee_bps: z.string(),
+  taker_fee_bps: z.string(),
   /** What this opening order's fills have paid in fees from its hold so far. Zero on a reduce-only order. */
-  fee_charged: string;
-}
+  fee_charged: z.string(),
+});
+export type OrderRow = z.infer<typeof OrderRow>;
 
-interface FillRow {
-  fill_key: string;
-  order_id: string;
-  market_id: string;
-  engine_sequence: string;
-  position_id: string;
-  qty: string;
-  price: string;
-  amount: string;
-  new_filled: string;
-  new_adverse: string;
-  new_applied: string;
-  state: 'pending' | 'applied';
-  kind: 'open' | 'reduce';
-  realized_pnl: string | null;
-  loss_from_margin: string | null;
-  loss_from_insurance: string | null;
-  loss_unbooked: string | null;
-  profit: string | null;
-  margin_release: string | null;
-  pot_out: string | null;
-  initial_out: string | null;
-  closes_position: boolean | null;
+/** An order row with its market's symbol and its own creation time, as the caller's order list reads it. */
+const ListedOrderRow = OrderRow.extend({ symbol: z.string(), created_at: z.date() });
+
+const FillRow = z.object({
+  fill_key: z.string(),
+  order_id: z.string(),
+  market_id: z.string(),
+  engine_sequence: z.string(),
+  position_id: z.string(),
+  qty: z.string(),
+  price: z.string(),
+  amount: z.string(),
+  new_filled: z.string(),
+  new_adverse: z.string(),
+  new_applied: z.string(),
+  state: z.enum(['pending', 'applied']),
+  kind: z.enum(['open', 'reduce']),
+  realized_pnl: z.string().nullable(),
+  loss_from_margin: z.string().nullable(),
+  loss_from_insurance: z.string().nullable(),
+  loss_unbooked: z.string().nullable(),
+  profit: z.string().nullable(),
+  margin_release: z.string().nullable(),
+  pot_out: z.string().nullable(),
+  initial_out: z.string().nullable(),
+  closes_position: z.boolean().nullable(),
   /** The fee this fill paid, and the part its source could not cover (recorded, never posted). */
-  fee: string;
-  fee_waived: string;
-  fee_role: FeeRole | null;
+  fee: z.string(),
+  fee_waived: z.string(),
+  fee_role: z.enum(['maker', 'taker']).nullable(),
+});
+type FillRow = z.infer<typeof FillRow>;
+
+/** A position as this file reads it. `leverage` is null on a legacy row (migration 0052): read it with `leverageOf`. */
+const PositionRowLite = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  market_id: z.string(),
+  side: z.enum(['long', 'short']),
+  status: z.string(),
+  size: z.string(),
+  entry_price: z.string(),
+  leverage: z.string().nullable(),
+  margin_initial: z.string(),
+  margin_current: z.string(),
+  margin_asset: z.string(),
+  margin_adjust_request: z.string().nullable(),
+});
+type PositionRowLite = z.infer<typeof PositionRowLite>;
+
+/**
+ * A position's leverage as an amount. A legacy row with none throws exactly as `parseAmount` always did on it, so a
+ * row the database holds without leverage refuses here as it did before the read was parsed.
+ */
+function leverageOf(row: { leverage: string | null }): Amount {
+  if (row.leverage === null) throw new MoneyError('Amount must be a decimal string, got object');
+  return parseAmount(row.leverage);
 }
 
-interface PositionRowLite {
-  id: string;
-  user_id: string;
-  market_id: string;
-  side: PositionSide;
-  status: string;
-  size: string;
-  entry_price: string;
-  leverage: string;
-  margin_initial: string;
-  margin_current: string;
-  margin_asset: string;
-  margin_adjust_request: string | null;
-}
+const MarketRow = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  kind: z.string(),
+  status: z.string(),
+  base_asset: z.string(),
+  quote_asset: z.string(),
+  lot_size: z.string().nullable(),
+  futures_contract_style: z.enum(['perpetual', 'dated']).nullable(),
+  futures_expiry_at: z.date().nullable(),
+  futures_settlement_fixing: z.string().nullable(),
+});
+type MarketRow = z.infer<typeof MarketRow>;
 
-interface MarketRow {
-  id: string;
-  symbol: string;
-  kind: string;
-  status: string;
-  base_asset: string;
-  quote_asset: string;
-  lot_size: string | null;
-  futures_contract_style: 'perpetual' | 'dated' | null;
-  futures_expiry_at: Date | null;
-  futures_settlement_fixing: string | null;
-}
+/** Shapes of the narrower reads below. */
+const IdRow = z.object({ id: z.string() });
+const OneRow = z.object({ n: z.number() });
+const CountTextRow = z.object({ n: z.string() });
+const ReduceOnlyRow = z.object({ reduce_only: z.boolean() });
+const StateRow = z.object({ state: z.string() });
+const StatusSizeRow = z.object({ status: z.string(), size: z.string() });
+const IntRow = z.object({ n: z.number() });
+const ModeRow = z.object({ mode: z.string() });
+const WhatRow = z.object({ what: z.string() });
+const StatusRow = z.object({ status: z.string() });
+const PositionIdRow = z.object({ position_id: z.string() });
+const LiquidationIdRow = z.object({ liquidation_id: z.string() });
+const LotSizeRow = z.object({ lot_size: z.string().nullable() });
+const MarketSymbolRow = z.object({ market_id: z.string(), symbol: z.string() });
+const PositionHoldRow = z.object({ live_rung: z.boolean(), adl_planned: z.boolean(), parked: z.boolean(), adjusting: z.boolean() });
+const LiquidationSumsRow = z.object({ qty: z.string(), pnl: z.string(), from_margin: z.string() });
+const ReduceClaimRow = z.object({
+  id: z.string(),
+  origin: z.string(),
+  qty: z.string(),
+  filled_qty: z.string(),
+  engine_filled_qty: z.string().nullable(),
+  status: z.string(),
+});
+/** An open slot's leverage; null on a legacy row (migration 0052), read with `leverageOf`. */
+const SlotRow = z.object({ id: z.string(), leverage: z.string().nullable() });
+const PositionSizeRow = z.object({ id: z.string(), status: z.string(), size: z.string() });
+const PositionMarginRow = z.object({
+  id: z.string(),
+  size: z.string(),
+  entry_price: z.string(),
+  margin_initial: z.string(),
+  margin_current: z.string(),
+  status: z.string(),
+});
+const IncreasingOrderRow = z.object({ id: z.string(), side: z.enum(['buy', 'sell']), reduce_only: z.boolean() });
 
 const ORDER_TERMINAL = ['filled', 'cancelled', 'rejected'] as const;
 
@@ -671,7 +731,8 @@ function refuse(code: string, message: string, status = 400): never {
  * and since a position has at most one live rung, nothing else is let through.
  */
 async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string, ownRungId: string | null = null): Promise<void> {
-  const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean; adjusting: boolean }[]>`
+  const [hold] = PositionHoldRow.array().parse(
+    await sql`
     SELECT
       EXISTS (SELECT 1 FROM trade.positions p
                WHERE p.id = ${positionId} AND p.margin_adjust_request IS NOT NULL) AS adjusting,
@@ -683,7 +744,8 @@ async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: strin
       (COALESCE((SELECT r.state FROM trade.liquidation_rungs r WHERE r.position_id = ${positionId}
                   ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') = 'abandoned'
         OR EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)})) AS parked
-  `;
+  `,
+  );
   if (hold?.live_rung || hold?.adl_planned) {
     refuse('trade.liquidation_in_progress', `position ${positionId} is being liquidated or deleveraged — the fill waits for it`, 409);
   }
@@ -706,22 +768,26 @@ async function liquidationFillsSoFar(
   sql: Sql | TransactionSql,
   orderId: string,
 ): Promise<{ qty: Amount; pnl: Amount; fromMargin: Amount }> {
-  const [row] = await sql<{ qty: string; pnl: string; from_margin: string }[]>`
+  const [row] = LiquidationSumsRow.array().parse(
+    await sql`
     SELECT COALESCE(sum(qty), 0)::text AS qty, COALESCE(sum(realized_pnl), 0)::text AS pnl,
            COALESCE(sum(loss_from_margin), 0)::text AS from_margin
       FROM trade.futures_order_fills
      WHERE order_id = ${orderId} AND kind = 'reduce' AND state = 'applied'
-  `;
+  `,
+  );
   return { qty: parseAmount(row!.qty), pnl: parseAmount(row!.pnl), fromMargin: parseAmount(row!.from_margin) };
 }
 
 /** Any fill intent on this position still being recorded. A reduce waits for every one; an opening fill waits for a reduce. */
 async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, positionId: string, kind: 'any' | 'reduce'): Promise<void> {
-  const [pending] = await tx<{ n: number }[]>`
+  const [pending] = OneRow.array().parse(
+    await tx`
     SELECT 1 AS n FROM trade.futures_order_fills
      WHERE position_id = ${positionId} AND state = 'pending' AND (${kind} = 'any' OR kind = 'reduce')
      LIMIT 1
-  `;
+  `,
+  );
   if (pending) {
     refuse('trade.futures_fill_in_progress', `another fill on position ${positionId} is still being recorded — retry in a moment`, 409);
   }
@@ -744,13 +810,13 @@ export async function reducingClaims(
   tx: Sql | TransactionSql,
   positionId: string,
 ): Promise<{ reserved: Amount; claims: { id: string; origin: string; status: string; left: Amount }[] }> {
-  const rows = await tx<
-    { id: string; origin: string; qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]
-  >`
+  const rows = ReduceClaimRow.array().parse(
+    await tx`
     SELECT id, origin, qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
      WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
      ORDER BY created_at, id
-  `;
+  `,
+  );
   let reserved = 0n;
   const claims: { id: string; origin: string; status: string; left: Amount }[] = [];
   for (const r of rows) {
@@ -770,7 +836,7 @@ export async function reducingClaims(
  * that is not known). A fill printed before a cancel can still be settling, so the two agree only once it has landed.
  */
 export async function orderFills(tx: Sql | TransactionSql, orderId: string): Promise<{ settled: Amount; engine: Amount | null } | null> {
-  const [row] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+  const [row] = OrderRow.array().parse(await tx`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`);
   return row ? { settled: parseAmount(row.filled_qty), engine: engineFilled(row) } : null;
 }
 
@@ -778,14 +844,16 @@ function oppositeSide(side: PositionSide): PositionSide {
   return side === 'long' ? 'short' : 'long';
 }
 
-interface WaitRow {
-  market_id: string;
-  engine_sequence: string;
-  maker_order_id: string;
-  taker_order_id: string;
-  price: string;
-  qty: string;
-}
+/** A fill waiting to be retried; its int8 and numeric columns are read as `::text`. */
+const WaitRow = z.object({
+  market_id: z.string(),
+  engine_sequence: z.string(),
+  maker_order_id: z.string(),
+  taker_order_id: z.string(),
+  price: z.string(),
+  qty: z.string(),
+});
+type WaitRow = z.infer<typeof WaitRow>;
 
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
 
@@ -993,10 +1061,12 @@ export class MatchedFuturesOrders {
   /** The children of a split already written under `base` on this market, with the request tag their key carries. */
   private async findSplitChildren(userId: string, marketId: string, base: string): Promise<{ row: OrderRow; tag: string }[]> {
     const prefix = `${base.replace(/[\\%_]/g, (c) => `\\${c}`)}:%`;
-    const rows = await this.deps.sql<OrderRow[]>`
+    const rows = OrderRow.array().parse(
+      await this.deps.sql`
       SELECT * FROM trade.futures_orders
        WHERE user_id = ${userId} AND market_id = ${marketId} AND client_order_id LIKE ${prefix} ESCAPE '\\'
-    `;
+    `,
+    );
     const out: { row: OrderRow; tag: string }[] = [];
     for (const row of rows) {
       // Only `<base>:<n>:<tag>` is a child of this base; `<base>:x:...` is some other key that shares the prefix.
@@ -1089,14 +1159,16 @@ export class MatchedFuturesOrders {
     const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
     const { bandAt, limit } = await this.openingLimit(input, market.id, mark, inForce);
 
-    const slot = await this.deps.sql<{ id: string; leverage: string }[]>`
+    const slot = SlotRow.array().parse(
+      await this.deps.sql`
       SELECT id, leverage FROM trade.positions
        WHERE user_id = ${input.userId} AND market_id = ${market.id} AND side = ${positionSideOf(input.side)}
          AND margin_mode = 'isolated' AND status = 'open'
        LIMIT 1
-    `;
+    `,
+    );
     if (slot[0]) {
-      if (parseAmount(slot[0].leverage) !== input.leverage) {
+      if (leverageOf(slot[0]) !== input.leverage) {
         refuse('trade.futures_leverage_mismatch', 'an order that grows this position must use its current leverage', 409);
       }
       await this.deps.assertPositionIdle(slot[0].id);
@@ -1145,7 +1217,8 @@ export class MatchedFuturesOrders {
       at: at.toISOString(),
     });
 
-    const inserted = await this.deps.sql<{ id: string }[]>`
+    const inserted = IdRow.array().parse(
+      await this.deps.sql`
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
         band_low, band_high, leverage, hold_asset, status, maker_fee_bps, taker_fee_bps, origin, origin_ref, order_label
@@ -1156,9 +1229,12 @@ export class MatchedFuturesOrders {
         ${market.quote_asset}, 'pending', ${rates.makerBps}, ${rates.takerBps},
         ${input.origin?.kind ?? 'user'}, ${input.origin?.ref ?? null}, ${input.orderLabel ?? null}
       )
-      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+      -- No target: the id is a hash of (user, market, clientOrderId), so the key and the primary key name one row, and
+      -- a caller that loses the insert race reaches the replay below instead of a 23505 on futures_orders_pkey (#8877).
+      ON CONFLICT DO NOTHING
       RETURNING id
-    `;
+    `,
+    );
     if (inserted.length === 0) {
       const raced = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
       if (!raced || !sameRequest(raced, input)) refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
@@ -1271,12 +1347,15 @@ export class MatchedFuturesOrders {
    * the at-mark open treats it (`resolveOpenPositionMode`); nothing is stored by reading it.
    */
   private async refuseOneWayFlip(userId: string, marketId: string, side: PositionSide): Promise<void> {
-    const [mode] = await this.deps.sql<{ mode: string }[]>`
+    const [mode] = ModeRow.array().parse(
+      await this.deps.sql`
       SELECT mode FROM trade.account_position_modes WHERE user_id = ${userId}
-    `;
+    `,
+    );
     if (mode?.mode === 'hedge') return;
     const opposite = oppositeSide(side);
-    const [conflict] = await this.deps.sql<{ what: string }[]>`
+    const [conflict] = WhatRow.array().parse(
+      await this.deps.sql`
       SELECT 'position' AS what FROM trade.positions
        WHERE user_id = ${userId} AND market_id = ${marketId} AND side = ${opposite} AND status IN ('open', 'closing')
       UNION ALL
@@ -1285,7 +1364,8 @@ export class MatchedFuturesOrders {
          AND side = ${opposite === 'long' ? 'buy' : 'sell'}
          AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
       LIMIT 1
-    `;
+    `,
+    );
     if (!conflict) return;
     refuse(
       FUTURES_ONE_WAY_FLIP_REFUSED,
@@ -1387,12 +1467,14 @@ export class MatchedFuturesOrders {
     const target = oppositeSide(positionSideOf(input.side));
     // A reduce pays its fee from the margin share each fill returns, at the rates the order keeps from now on.
     const reduceRates = await this.reducingFeeRates(input.userId);
-    const [open] = await this.deps.sql<{ id: string }[]>`
+    const [open] = IdRow.array().parse(
+      await this.deps.sql`
       SELECT id FROM trade.positions
        WHERE user_id = ${input.userId} AND market_id = ${market.id} AND side = ${target}
          AND margin_mode = 'isolated' AND status = 'open'
        LIMIT 1
-    `;
+    `,
+    );
     if (!open) {
       refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
     }
@@ -1409,20 +1491,24 @@ export class MatchedFuturesOrders {
     const orderId = matchedOrderIdFor(input.userId, market.id, clientOrderId);
 
     const placed = await this.deps.sql.begin(async (tx) => {
-      const [position] = await tx<PositionRowLite[]>`
+      const [position] = PositionRowLite.array().parse(
+        await tx`
         SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
                margin_asset, margin_adjust_request
           FROM trade.positions WHERE id = ${open.id} FOR UPDATE
-      `;
+      `,
+      );
       if (!position || position.status !== 'open') {
         refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
       }
       // The same request placed at once twice: the one that wrote its row first holds the room, and this one is its
       // replay (below), not a second claim on the same size refused as too large.
-      const [same] = await tx<{ id: string }[]>`
+      const [same] = IdRow.array().parse(
+        await tx`
         SELECT id FROM trade.futures_orders
          WHERE user_id = ${input.userId} AND market_id = ${market.id} AND client_order_id = ${clientOrderId}
-      `;
+      `,
+      );
       if (same) return false;
       // The bound below is priced from the margin; one that is mid-change would price it from a figure about to move.
       if (position.margin_adjust_request != null) {
@@ -1505,7 +1591,7 @@ export class MatchedFuturesOrders {
         qty: formatAmount(input.qty),
         limitPrice: formatAmount(limit),
         markPrice: formatAmount(mark),
-        leverage: formatAmount(parseAmount(position.leverage)),
+        leverage: formatAmount(leverageOf(position)),
         holdAmount: '0',
         reduceOnly: true,
         positionId: position.id,
@@ -1513,7 +1599,8 @@ export class MatchedFuturesOrders {
         at: at.toISOString(),
       });
 
-      const inserted = await tx<{ id: string }[]>`
+      const inserted = IdRow.array().parse(
+        await tx`
         INSERT INTO trade.futures_orders (
           id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
           band_low, band_high, leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price,
@@ -1521,14 +1608,15 @@ export class MatchedFuturesOrders {
         ) VALUES (
           ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
           ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
-          ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
+          ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(leverageOf(position))},
           ${position.margin_asset}, 'pending', true, ${position.id}, ${formatAmount(bankruptcy)},
           ${reduceRates.makerBps}, ${reduceRates.takerBps},
           ${input.origin?.kind ?? 'user'}, ${input.origin?.ref ?? null}, ${input.orderLabel ?? null}
         )
         ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
         RETURNING id
-      `;
+      `,
+      );
       return inserted.length > 0;
     });
     if (!placed) {
@@ -1628,11 +1716,13 @@ export class MatchedFuturesOrders {
     if (current.status !== 'held') return presentOrder(current);
     // The attempt is recorded before the engine sees the order. A crash after the engine accepted it leaves
     // `submitting`, which a retry never sends again: the engine may hold the order, and its fills still settle.
-    const claimed = await this.deps.sql<{ id: string }[]>`
+    const claimed = IdRow.array().parse(
+      await this.deps.sql`
       UPDATE trade.futures_orders SET status = 'submitting', updated_at = now()
        WHERE id = ${current.id} AND status = 'held'
        RETURNING id
-    `;
+    `,
+    );
     if (claimed.length === 0) return presentOrder(await this.loadOrder(current.id));
 
     if (!this.deps.matching) refuse('trade.futures_matching_unconfigured', 'the matching engine is not configured', 503);
@@ -1774,24 +1864,28 @@ export class MatchedFuturesOrders {
    * for another reason stays waiting and is reported, never dropped.
    */
   async retryWaitingFills(limit: number): Promise<{ settled: number; waiting: number; failed: { sequence: number; message: string }[] }> {
-    const rows = await this.deps.sql<WaitRow[]>`
+    const rows = WaitRow.array().parse(
+      await this.deps.sql`
       SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
         FROM trade.futures_fill_waits
        WHERE settled_at IS NULL
        ORDER BY retried_at NULLS FIRST, created_at, engine_sequence
        LIMIT ${limit}
-    `;
+    `,
+    );
     return this.retryWaitRows(rows);
   }
 
   /** Retry the waiting fills of one order (a liquidation's IOC), oldest first. Same rules as `retryWaitingFills`. */
   private async retryWaitingFillsOf(orderId: string) {
-    const rows = await this.deps.sql<WaitRow[]>`
+    const rows = WaitRow.array().parse(
+      await this.deps.sql`
       SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
         FROM trade.futures_fill_waits
        WHERE settled_at IS NULL AND (maker_order_id = ${orderId} OR taker_order_id = ${orderId})
        ORDER BY engine_sequence
-    `;
+    `,
+    );
     return this.retryWaitRows(rows);
   }
 
@@ -1840,9 +1934,11 @@ export class MatchedFuturesOrders {
   ): Promise<void> {
     for (const orderId of [fill.takerOrderId, fill.makerOrderId]) {
       const order = await this.loadOrder(orderId);
-      const [prior] = await this.deps.sql<{ n: number }[]>`
+      const [prior] = OneRow.array().parse(
+        await this.deps.sql`
         SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${orderId} AND engine_sequence = ${fill.sequence}
-      `;
+      `,
+      );
       if (prior) continue;
       if (order.market_id !== fill.marketId) refuse('trade.futures_market_mismatch', 'a fill names an order on another market', 500);
       if (!fillWithinLimit(order.side, price, parseAmount(order.limit_price))) {
@@ -1851,21 +1947,25 @@ export class MatchedFuturesOrders {
       assertFillFits(order, fill.sequence, qty);
       if (order.reduce_only) {
         // Repeated under the lock in recordReduceIntent; checked here too so the usual case refuses the fill whole.
-        const [position] = await this.deps.sql<{ id: string; status: string; size: string }[]>`
+        const [position] = PositionSizeRow.array().parse(
+          await this.deps.sql`
           SELECT id, status, size FROM trade.positions WHERE id = ${order.position_id}
-        `;
+        `,
+        );
         assertReduceFillFits(order, position, fill.sequence, qty);
         await refuseIfPositionBusy(this.deps.sql, position.id, order.liquidation_rung_id);
         await refuseIfPositionHasPendingFill(this.deps.sql, position.id, 'any');
         continue;
       }
       // Repeated under the lock in recordIntent; checked here too so that the usual case refuses the fill whole.
-      const [open] = await this.deps.sql<{ id: string }[]>`
+      const [open] = IdRow.array().parse(
+        await this.deps.sql`
         SELECT id FROM trade.positions
          WHERE user_id = ${order.user_id} AND market_id = ${order.market_id} AND side = ${positionSideOf(order.side)}
            AND margin_mode = 'isolated' AND status = 'open'
          LIMIT 1
-      `;
+      `,
+      );
       if (open) {
         await refuseIfPositionBusy(this.deps.sql, open.id);
         await refuseIfPositionHasPendingFill(this.deps.sql, open.id, 'reduce');
@@ -1881,9 +1981,11 @@ export class MatchedFuturesOrders {
    * TX2 (apply): lock the position and the order, mark the intent applied, move the row, count the fee, commit.
    */
   private async applyFill(input: FillShare): Promise<void> {
-    const [kind] = await this.deps.sql<{ reduce_only: boolean }[]>`
+    const [kind] = ReduceOnlyRow.array().parse(
+      await this.deps.sql`
       SELECT reduce_only FROM trade.futures_orders WHERE id = ${input.orderId}
-    `;
+    `,
+    );
     if (kind?.reduce_only) {
       await this.applyReduceFill(input);
       return;
@@ -1934,15 +2036,17 @@ export class MatchedFuturesOrders {
     state: 'pending' | 'applied';
     order: OrderRow;
   }> {
-    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`;
+    const [order] = OrderRow.array().parse(await tx`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`);
     if (!order) refuse('trade.futures_order_not_found', `futures order ${input.orderId} is not known`, 404);
     if (order.market_id !== input.marketId) {
       refuse('trade.futures_market_mismatch', 'a fill names an order on another market', 500);
     }
 
-    const [prior] = await tx<FillRow[]>`
+    const [prior] = FillRow.array().parse(
+      await tx`
       SELECT * FROM trade.futures_order_fills WHERE order_id = ${order.id} AND engine_sequence = ${input.sequence}
-    `;
+    `,
+    );
     if (prior) {
       return {
         fill_key: prior.fill_key,
@@ -1956,9 +2060,11 @@ export class MatchedFuturesOrders {
     }
 
     assertFillFits(order, input.sequence, input.qty);
-    const [pendingOnOrder] = await tx<{ n: number }[]>`
+    const [pendingOnOrder] = OneRow.array().parse(
+      await tx`
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${order.id} AND state = 'pending' LIMIT 1
-    `;
+    `,
+    );
     if (pendingOnOrder) {
       refuse('trade.futures_fill_in_progress', 'an earlier fill of this order is still being recorded — retry in a moment', 409);
     }
@@ -1975,13 +2081,15 @@ export class MatchedFuturesOrders {
 
     const filledBefore = parseAmount(order.filled_qty);
 
-    const [open] = await tx<{ id: string }[]>`
+    const [open] = IdRow.array().parse(
+      await tx`
       SELECT id FROM trade.positions
        WHERE user_id = ${order.user_id} AND market_id = ${order.market_id} AND side = ${positionSideOf(side)}
          AND margin_mode = 'isolated' AND status = 'open'
        LIMIT 1
        FOR UPDATE
-    `;
+    `,
+    );
     let positionId: string;
     if (open) {
       // Checked under the position's lock, the same lock a rung or an ADL pair takes before it moves the row. A fill
@@ -1991,11 +2099,13 @@ export class MatchedFuturesOrders {
       await refuseIfPositionHasPendingFill(tx, open.id, 'reduce');
       positionId = open.id;
     } else {
-      const [count] = await tx<{ n: number }[]>`
+      const [count] = IntRow.array().parse(
+        await tx`
         SELECT count(*)::int AS n FROM trade.positions
          WHERE user_id = ${order.user_id} AND market_id = ${order.market_id} AND side = ${positionSideOf(side)}
            AND margin_mode = 'isolated'
-      `;
+      `,
+      );
       positionId = matchedSlotPositionIdFor(order.user_id, order.market_id, positionSideOf(side), count?.n ?? 0);
     }
 
@@ -2033,23 +2143,23 @@ export class MatchedFuturesOrders {
     tx: TransactionSql,
     intent: { fill_key: string; position_id: string; user_id: string; amount: Amount; order: OrderRow },
   ): Promise<string> {
-    const [fill] = await tx<FillRow[]>`SELECT * FROM trade.futures_order_fills WHERE fill_key = ${intent.fill_key} FOR UPDATE`;
+    const [fill] = FillRow.array().parse(await tx`SELECT * FROM trade.futures_order_fills WHERE fill_key = ${intent.fill_key} FOR UPDATE`);
     if (!fill) refuse('trade.futures_fill_missing', `fill ${intent.fill_key} has no intent`, 500);
     if (fill.state === 'applied') return fill.position_id;
 
-    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id} FOR UPDATE`;
+    const [order] = OrderRow.array().parse(await tx`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id} FOR UPDATE`);
     if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
 
     const qty = parseAmount(fill.qty);
     const price = parseAmount(fill.price);
     const amount = parseAmount(fill.amount);
     const side = order.side;
-    const [row] = await tx<
-      { id: string; size: string; entry_price: string; margin_initial: string; margin_current: string; status: string }[]
-    >`
+    const [row] = PositionMarginRow.array().parse(
+      await tx`
       SELECT id, size, entry_price, margin_initial, margin_current, status
         FROM trade.positions WHERE id = ${fill.position_id} FOR UPDATE
-    `;
+    `,
+    );
     if (row) {
       if (row.status !== 'open') {
         refuse(
@@ -2122,7 +2232,7 @@ export class MatchedFuturesOrders {
   private async applyReduceFill(input: FillShare): Promise<void> {
     const fill = await this.deps.sql.begin(async (tx) => this.recordReduceIntent(tx, input));
     if (fill.state === 'applied') return;
-    const [order] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id}`;
+    const [order] = OrderRow.array().parse(await this.deps.sql`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id}`);
     if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
 
     const profit = parseAmount(fill.profit ?? '0');
@@ -2164,19 +2274,23 @@ export class MatchedFuturesOrders {
   }
 
   private async recordReduceIntent(tx: TransactionSql, input: FillShare): Promise<FillRow> {
-    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`;
+    const [order] = OrderRow.array().parse(await tx`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`);
     if (!order) refuse('trade.futures_order_not_found', `futures order ${input.orderId} is not known`, 404);
     if (order.market_id !== input.marketId) refuse('trade.futures_market_mismatch', 'a fill names an order on another market', 500);
 
-    const [prior] = await tx<FillRow[]>`
+    const [prior] = FillRow.array().parse(
+      await tx`
       SELECT * FROM trade.futures_order_fills WHERE order_id = ${order.id} AND engine_sequence = ${input.sequence}
-    `;
+    `,
+    );
     if (prior) return prior;
 
     assertFillFits(order, input.sequence, input.qty);
-    const [pendingOnOrder] = await tx<{ n: number }[]>`
+    const [pendingOnOrder] = OneRow.array().parse(
+      await tx`
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${order.id} AND state = 'pending' LIMIT 1
-    `;
+    `,
+    );
     if (pendingOnOrder) {
       refuse('trade.futures_fill_in_progress', 'an earlier fill of this order is still being recorded — retry in a moment', 409);
     }
@@ -2184,21 +2298,25 @@ export class MatchedFuturesOrders {
       refuse('trade.futures_fill_outside_limit', `fill ${input.sequence} prices outside order ${order.id}'s limit`, 500);
     }
 
-    const [position] = await tx<PositionRowLite[]>`
+    const [position] = PositionRowLite.array().parse(
+      await tx`
       SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
              margin_asset, margin_adjust_request
         FROM trade.positions WHERE id = ${order.position_id} FOR UPDATE
-    `;
+    `,
+    );
     assertReduceFillFits(order, position, input.sequence, input.qty);
     // The same holds an opening fill waits for, under the same lock a rung or an ADL pair takes. A liquidation order's
     // own rung does not hold it back (slice 7).
     await refuseIfPositionBusy(tx, position.id, order.liquidation_rung_id);
     await refuseIfPositionHasPendingFill(tx, position.id, 'any');
 
-    const [earlier] = await tx<{ n: string }[]>`
+    const [earlier] = CountTextRow.array().parse(
+      await tx`
       SELECT count(*)::text AS n FROM trade.futures_order_fills
        WHERE position_id = ${position.id} AND kind = 'reduce' AND state = 'applied'
-    `;
+    `,
+    );
     const figures = {
       side: (position as PositionRowLite).side,
       size: parseAmount(position.size),
@@ -2236,7 +2354,8 @@ export class MatchedFuturesOrders {
     const split = feeSplit(fee, plan.release);
     const fillKey = `${input.marketId}:${input.sequence}:${position.id}`;
     const filledNow = parseAmount(order.filled_qty) + input.qty;
-    const [inserted] = await tx<FillRow[]>`
+    const [inserted] = FillRow.array().parse(
+      await tx`
       INSERT INTO trade.futures_order_fills (
         fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount,
         new_filled, new_adverse, new_applied, state, kind,
@@ -2252,7 +2371,8 @@ export class MatchedFuturesOrders {
         ${formatAmount(split.charged)}, ${formatAmount(split.waived)}, ${input.role}
       )
       RETURNING *
-    `;
+    `,
+    );
     if (plan.profit > 0n) {
       // The payout intent is committed with the fill's, so a profit the fill realised is never lost to a crash: if
       // this process never comes back, the payout tick pays it under the same key.
@@ -2270,10 +2390,10 @@ export class MatchedFuturesOrders {
   }
 
   private async applyReduceIntent(tx: TransactionSql, fillKey: string): Promise<void> {
-    const [fill] = await tx<FillRow[]>`SELECT * FROM trade.futures_order_fills WHERE fill_key = ${fillKey} FOR UPDATE`;
+    const [fill] = FillRow.array().parse(await tx`SELECT * FROM trade.futures_order_fills WHERE fill_key = ${fillKey} FOR UPDATE`);
     if (!fill) refuse('trade.futures_fill_missing', `fill ${fillKey} has no intent`, 500);
     if (fill.state === 'applied') return;
-    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id} FOR UPDATE`;
+    const [order] = OrderRow.array().parse(await tx`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id} FOR UPDATE`);
     if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
 
     const qty = formatAmount(parseAmount(fill.qty));
@@ -2311,11 +2431,13 @@ export class MatchedFuturesOrders {
       // The liquidation's closing fill finishes its rung in the same transaction. The fill may arrive through the
       // engine's events after a crash, when the closed position is no longer in the liquidation scan: without this
       // the rung would stay live on a closed row for good. The tick's own finish is then a no-op.
-      const [rung] = await tx<{ liquidation_id: string }[]>`
+      const [rung] = LiquidationIdRow.array().parse(
+        await tx`
         UPDATE trade.liquidation_rungs SET state = 'applied', updated_at = now()
          WHERE rung_id = ${order.liquidation_rung_id} AND kind = 'matched' AND state IN ('planned', 'posted')
         RETURNING liquidation_id
-      `;
+      `,
+      );
       if (rung) {
         await tx`
           INSERT INTO trade.liquidation_attempts (liquidation_id) VALUES (${rung.liquidation_id})
@@ -2348,17 +2470,21 @@ export class MatchedFuturesOrders {
   private async cancelReduceOrdersPastBound(positionId: string): Promise<string[]> {
     const matching = this.deps.matching;
     if (!matching) return [];
-    const resting = await this.deps.sql<OrderRow[]>`
+    const resting = OrderRow.array().parse(
+      await this.deps.sql`
       SELECT * FROM trade.futures_orders
        WHERE position_id = ${positionId} AND reduce_only AND status = 'open'
        ORDER BY created_at, id
-    `;
+    `,
+    );
     if (resting.length === 0) return [];
-    const [position] = await this.deps.sql<PositionRowLite[]>`
+    const [position] = PositionRowLite.array().parse(
+      await this.deps.sql`
       SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
              margin_asset, margin_adjust_request
         FROM trade.positions WHERE id = ${positionId}
-    `;
+    `,
+    );
     const out: { order: OrderRow; code: string }[] = [];
     if (!position || position.status !== 'open') {
       for (const order of resting) out.push({ order, code: FUTURES_REDUCE_ONLY_NO_POSITION });
@@ -2407,9 +2533,11 @@ export class MatchedFuturesOrders {
       driveBook: (input) => this.driveLiquidationBook(input),
       increasingOrders: this.increasingOrderBook,
       openSize: async (positionId) => {
-        const [row] = await this.deps.sql<{ status: string; size: string }[]>`
+        const [row] = StatusSizeRow.array().parse(
+          await this.deps.sql`
           SELECT status, size FROM trade.positions WHERE id = ${positionId}
-        `;
+        `,
+        );
         return row && row.status === 'open' ? parseAmount(row.size) : null;
       },
     };
@@ -2427,9 +2555,11 @@ export class MatchedFuturesOrders {
    * than what restores the position, and capped at the position, so it never asks for more than there is.
    */
   private async liquidationTranche(input: { marketId: string; positionSize: Amount; sizeClosed: Amount }): Promise<Amount> {
-    const [market] = await this.deps.sql<{ lot_size: string | null }[]>`
+    const [market] = LotSizeRow.array().parse(
+      await this.deps.sql`
       SELECT lot_size FROM trade.markets WHERE id = ${input.marketId}
-    `;
+    `,
+    );
     const lot = market?.lot_size == null ? 0n : parseAmount(market.lot_size);
     let size = input.sizeClosed;
     if (lot > 0n && size % lot !== 0n) size = (size / lot + 1n) * lot;
@@ -2448,16 +2578,18 @@ export class MatchedFuturesOrders {
    *   refused   (no price in the band is inside the bound: nothing is sent, the book takes none of it)
    */
   private async driveLiquidationBook(input: LiquidationBookInput): Promise<LiquidationBookResult> {
-    const [position] = await this.deps.sql<PositionRowLite[]>`
+    const [position] = PositionRowLite.array().parse(
+      await this.deps.sql`
       SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
              margin_asset, margin_adjust_request
         FROM trade.positions WHERE id = ${input.positionId}
-    `;
+    `,
+    );
     if (!position) refuse('trade.futures_position_not_found', `position ${input.positionId} is not known`, 404);
     const clientOrderId = liquidationClientOrderId(input.liquidationId, input.rungId);
     const orderId = matchedOrderIdFor(position.user_id, position.market_id, clientOrderId);
 
-    let [order] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+    let [order] = OrderRow.array().parse(await this.deps.sql`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`);
     if (position.margin_adjust_request != null && (!order || order.status === 'pending' || order.status === 'held')) {
       // A leverage change or margin add or release is between its ledger post and its row write. Its fills would only
       // wait behind it (refuseIfPositionBusy), so nothing is stored or sent until it has finished: the rung waits and
@@ -2525,21 +2657,25 @@ export class MatchedFuturesOrders {
    */
   private async settleLiquidationBook(orderId: string, rungId: string): Promise<LiquidationBookResult | null> {
     const order = await this.loadOrder(orderId);
-    const [position] = await this.deps.sql<PositionRowLite[]>`
+    const [position] = PositionRowLite.array().parse(
+      await this.deps.sql`
       SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
              margin_asset, margin_adjust_request
         FROM trade.positions WHERE id = ${order.position_id}
-    `;
+    `,
+    );
     // Closed by the IOC's last fill, which settled the whole tranche and finished the rung itself.
     if (!position || position.status !== 'open') return null;
-    const [rung] = await this.deps.sql<{ state: string }[]>`SELECT state FROM trade.liquidation_rungs WHERE rung_id = ${rungId}`;
+    const [rung] = StateRow.array().parse(await this.deps.sql`SELECT state FROM trade.liquidation_rungs WHERE rung_id = ${rungId}`);
     if (!rung || rung.state !== 'planned') return null;
 
     const prior = await liquidationFillsSoFar(this.deps.sql, orderId);
-    const [earlier] = await this.deps.sql<{ n: string }[]>`
+    const [earlier] = CountTextRow.array().parse(
+      await this.deps.sql`
       SELECT count(*)::text AS n FROM trade.futures_order_fills
        WHERE position_id = ${position.id} AND kind = 'reduce' AND state = 'applied'
-    `;
+    `,
+    );
     const margin = parseAmount(position.margin_current);
     const plan = planLiquidationSettlement({
       size: parseAmount(position.size),
@@ -2597,9 +2733,11 @@ export class MatchedFuturesOrders {
     }
     await this.deps.sql.begin(async (tx) => {
       await tx`SELECT id FROM trade.positions WHERE id = ${position.id} FOR UPDATE`;
-      const [live] = await tx<{ state: string }[]>`
+      const [live] = StateRow.array().parse(
+        await tx`
         SELECT state FROM trade.liquidation_rungs WHERE rung_id = ${rungId} FOR UPDATE
-      `;
+      `,
+      );
       if (!live || live.state !== 'planned') return;
       const moved = await tx`
         UPDATE trade.positions
@@ -2629,12 +2767,14 @@ export class MatchedFuturesOrders {
     return {
       list: async (marketId, accountId) => {
         if (!this.deps.matching) return [];
-        const rows = await this.deps.sql<{ id: string; side: OrderSide; reduce_only: boolean }[]>`
+        const rows = IncreasingOrderRow.array().parse(
+          await this.deps.sql`
           SELECT id, side, reduce_only FROM trade.futures_orders
            WHERE market_id = ${marketId} AND user_id = ${accountId} AND NOT reduce_only
              AND status IN ('held', 'submitting', 'open', 'submit_unknown')
            ORDER BY created_at, id
-        `;
+        `,
+        );
         return rows.map((r) => ({ orderId: r.id, side: r.side, reduceOnly: r.reduce_only }));
       },
       cancelAndRelease: async (_marketId, orderId) => {
@@ -2653,13 +2793,15 @@ export class MatchedFuturesOrders {
    * resting is left as it is; a later tick sees it again if it arrives.
    */
   private async cancelForLiquidation(orderId: string): Promise<'cancelled' | 'not_resting' | 'timeout'> {
-    const unsent = await this.deps.sql<{ reduce_only: boolean }[]>`
+    const unsent = ReduceOnlyRow.array().parse(
+      await this.deps.sql`
       UPDATE trade.futures_orders
          SET status = 'cancelled', engine_filled_qty = 0, refusal_code = COALESCE(refusal_code, 'trade.liquidation_in_progress'),
              updated_at = now()
        WHERE id = ${orderId} AND status = 'held'
        RETURNING reduce_only
-    `;
+    `,
+    );
     if (unsent[0]) {
       if (!unsent[0].reduce_only) await this.releaseWhenDone(orderId);
       return 'cancelled';
@@ -2690,13 +2832,15 @@ export class MatchedFuturesOrders {
    */
   private async cancelTraderOrdersForLiquidation(position: PositionRowLite): Promise<void> {
     const growing: OrderSide = position.side === 'long' ? 'buy' : 'sell';
-    const resting = await this.deps.sql<{ id: string }[]>`
+    const resting = IdRow.array().parse(
+      await this.deps.sql`
       SELECT id FROM trade.futures_orders
        WHERE status IN ('held', 'submitting', 'open', 'submit_unknown') AND liquidation_rung_id IS NULL
          AND ((reduce_only AND position_id = ${position.id})
               OR (NOT reduce_only AND user_id = ${position.user_id} AND market_id = ${position.market_id} AND side = ${growing}))
        ORDER BY created_at, id
-    `;
+    `,
+    );
     for (const { id } of resting) {
       if ((await this.cancelForLiquidation(id)) === 'timeout') {
         refuse(
@@ -2758,12 +2902,15 @@ export class MatchedFuturesOrders {
       ) VALUES (
         ${orderId}, ${position.user_id}, ${position.market_id}, ${clientOrderId}, ${reducingSide(position.side)}, 'market',
         ${formatAmount(input.sizeClosed)}, ${formatAmount(limit ?? widened)}, ${formatAmount(input.mark)},
-        ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
+        ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(leverageOf(position))},
         ${position.margin_asset}, ${limit === null ? 'refused' : 'pending'},
         ${limit === null ? FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND : null}, ${limit === null ? '0' : null},
         true, ${position.id}, ${formatAmount(bankruptcy)}, ${input.rungId}, 'liquidation', ${input.rungId}
       )
-      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+      -- No target: the id, the client id and liquidation_rung_id all come from the rung, so every unique key names one
+      -- row, and a second process storing the same rung reads the row that won instead of a 23505 (#8877). A row that
+      -- is not this rung's IOC is refused by the identity check after the load.
+      ON CONFLICT DO NOTHING
     `;
     return this.loadOrder(orderId);
   }
@@ -2829,11 +2976,12 @@ export class MatchedFuturesOrders {
     const before = input.before ?? null;
     if (before) {
       const [row] = mayBeMatchedOrderId(before)
-        ? await sql<{ id: string }[]>`SELECT id FROM trade.futures_orders WHERE id = ${before} AND user_id = ${userId}`
+        ? IdRow.array().parse(await sql`SELECT id FROM trade.futures_orders WHERE id = ${before} AND user_id = ${userId}`)
         : [];
       if (!row) refuse('trade.invalid_cursor', 'before names no order of yours');
     }
-    const rows = await sql<(OrderRow & { symbol: string; created_at: Date })[]>`
+    const rows = ListedOrderRow.array().parse(
+      await sql`
       SELECT o.*, m.symbol FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
        WHERE o.user_id = ${userId}
          ${input.scope === 'open' ? sql`AND o.status IN ${sql(live)}` : sql``}
@@ -2848,17 +2996,20 @@ export class MatchedFuturesOrders {
          }
        ORDER BY o.created_at DESC, o.id DESC
        LIMIT ${input.limit}
-    `;
+    `,
+    );
     return rows.map((row) => ({ ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() }));
   }
 
   /** One of the caller's own futures orders; null when it is not theirs or not a futures order. */
   async getForUser(userId: string, orderId: string): Promise<FuturesOrderListed | null> {
     if (!mayBeMatchedOrderId(orderId)) return null;
-    const [row] = await this.deps.sql<(OrderRow & { symbol: string; created_at: Date })[]>`
+    const [row] = ListedOrderRow.array().parse(
+      await this.deps.sql`
       SELECT o.*, m.symbol FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
        WHERE o.id = ${orderId} AND o.user_id = ${userId}
-    `;
+    `,
+    );
     return row ? { ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() } : null;
   }
 
@@ -2894,7 +3045,7 @@ export class MatchedFuturesOrders {
    */
   async releaseEngineCancellation(orderId: string, remainingQty: string): Promise<boolean> {
     if (!mayBeMatchedOrderId(orderId)) return false;
-    const rows = await this.deps.sql<{ status: string }[]>`SELECT status FROM trade.futures_orders WHERE id = ${orderId}`;
+    const rows = StatusRow.array().parse(await this.deps.sql`SELECT status FROM trade.futures_orders WHERE id = ${orderId}`);
     if (!rows[0]) return false;
     await this.markLeftBook(orderId, parseAmount(remainingQty));
     await this.releaseWhenDone(orderId);
@@ -2930,16 +3081,20 @@ export class MatchedFuturesOrders {
     const matching = this.deps.matching;
     // Resting reduce orders follow their position first: no mark is needed to see that a position has gone, that its
     // reduce orders claim more than it holds, or that a limit is past the bankruptcy price after a margin change.
-    const reducing = await this.deps.sql<{ position_id: string }[]>`
+    const reducing = PositionIdRow.array().parse(
+      await this.deps.sql`
       SELECT DISTINCT position_id FROM trade.futures_orders WHERE reduce_only AND status = 'open' ORDER BY position_id
-    `;
+    `,
+    );
     for (const { position_id } of reducing) cancelled.push(...(await this.cancelReduceOrdersPastBound(position_id)));
-    const markets = await this.deps.sql<{ market_id: string; symbol: string }[]>`
+    const markets = MarketSymbolRow.array().parse(
+      await this.deps.sql`
       SELECT DISTINCT o.market_id, m.symbol
         FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
        WHERE o.status = 'open'
        ORDER BY o.market_id
-    `;
+    `,
+    );
     if (markets.length === 0) return { cancelled, skipped };
     if (band === null || !matching) {
       const reason = band === null ? FUTURES_PRICE_BAND_UNSET : 'trade.futures_matching_unconfigured';
@@ -2956,9 +3111,11 @@ export class MatchedFuturesOrders {
         continue;
       }
       const bandAt = priceBandAround(mark, band);
-      const resting = await this.deps.sql<OrderRow[]>`
+      const resting = OrderRow.array().parse(
+        await this.deps.sql`
         SELECT * FROM trade.futures_orders WHERE market_id = ${market.market_id} AND status = 'open' ORDER BY id
-      `;
+      `,
+      );
       for (const order of resting) {
         // An order answers to the wider of the static band and the band it was accepted under (D-instruments-08): a band
         // narrowing again, or the dynamic range being cleared, never cancels an order its band accepted.
@@ -2987,7 +3144,9 @@ export class MatchedFuturesOrders {
   async ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean> {
     const ids = [fill.makerOrderId, fill.takerOrderId].filter(mayBeMatchedOrderId);
     const rows =
-      ids.length === 0 ? [] : await this.deps.sql<{ id: string }[]>`SELECT id FROM trade.futures_orders WHERE id IN ${this.deps.sql(ids)}`;
+      ids.length === 0
+        ? []
+        : IdRow.array().parse(await this.deps.sql`SELECT id FROM trade.futures_orders WHERE id IN ${this.deps.sql(ids)}`);
     const known = new Set(rows.map((r) => r.id));
     const maker = known.has(fill.makerOrderId);
     const taker = known.has(fill.takerOrderId);
@@ -3013,9 +3172,11 @@ export class MatchedFuturesOrders {
     // has, no further fill fits the order (`assertFillFits`), so what is left can go back.
     const final = engineFilled(order);
     if (final == null || parseAmount(order.filled_qty) !== final) return;
-    const [pending] = await this.deps.sql<{ n: number }[]>`
+    const [pending] = OneRow.array().parse(
+      await this.deps.sql`
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${orderId} AND state = 'pending' LIMIT 1
-    `;
+    `,
+    );
     if (pending) return;
     const applied = parseAmount(order.applied_amount);
     const feeCharged = parseAmount(order.fee_charged);
@@ -3040,26 +3201,30 @@ export class MatchedFuturesOrders {
   // ── reads and loads ───────────────────────────────────────────────────────
 
   private async loadOrder(orderId: string): Promise<OrderRow> {
-    const [row] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+    const [row] = OrderRow.array().parse(await this.deps.sql`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`);
     if (!row) refuse('trade.futures_order_not_found', `futures order ${orderId} not found`, 404);
     return row;
   }
 
   private async findOrderByClientId(userId: string, symbol: string, clientOrderId: string): Promise<OrderRow | null> {
-    const [row] = await this.deps.sql<OrderRow[]>`
+    const [row] = OrderRow.array().parse(
+      await this.deps.sql`
       SELECT o.* FROM trade.futures_orders o
         JOIN trade.markets m ON m.id = o.market_id
        WHERE o.user_id = ${userId} AND m.symbol = ${symbol} AND o.client_order_id = ${clientOrderId}
-    `;
+    `,
+    );
     return row ?? null;
   }
 
   private async loadMarket(symbol: string): Promise<MarketRow> {
-    const [m] = await this.deps.sql<MarketRow[]>`
+    const [m] = MarketRow.array().parse(
+      await this.deps.sql`
       SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE symbol = ${symbol} LIMIT 1
-    `;
+    `,
+    );
     if (!m) refuse('trade.market_not_found', `unknown market ${symbol}`, 404);
     if (m.kind !== 'futures') refuse('trade.not_futures_market', `market ${symbol} is ${m.kind}, not futures`, 400);
     if (m.status !== 'active') refuse('trade.market_not_tradable', `market ${symbol} is ${m.status}`, 400);
@@ -3082,11 +3247,13 @@ export class MatchedFuturesOrders {
   }
 
   private async loadMarketById(marketId: string): Promise<MarketRow> {
-    const [m] = await this.deps.sql<MarketRow[]>`
+    const [m] = MarketRow.array().parse(
+      await this.deps.sql`
       SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE id = ${marketId} LIMIT 1
-    `;
+    `,
+    );
     if (!m) refuse('trade.market_not_found', `market ${marketId} not found`, 404);
     return m;
   }

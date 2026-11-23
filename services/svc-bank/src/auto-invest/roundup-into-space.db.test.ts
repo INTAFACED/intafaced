@@ -27,6 +27,7 @@ import {
 import type { LedgerPageEntry, LedgerPageRequest } from '../activity/activity-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
+import { testPartner } from '../partner/test-partner.js';
 import { createBankRouter } from '../router.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +111,7 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
       scopes: ['bank:read', 'bank:write'],
       tier: 'full',
       mfa: true,
-    } as unknown as Principal;
+    } as Principal;
     const raw = encodePrincipal({ ...principal, expiresAt: new Date(Date.now() + 60_000) } as Principal);
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
     return createBankRouter(bank).createCaller(
@@ -256,6 +257,103 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
     expect(await run()).toEqual(['settled']);
     expect(await balanceOf(holiday.id)).toBe('0.7');
     expect(await mainOf()).toBe('9.3');
+  });
+
+  it('where the partner bank holds the money, moves the spare change as one partner move, once, and posts nothing (J-bank-07 #3)', async () => {
+    const partner = testPartner();
+    const held = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+      spaceLimit: '5',
+      testPartner: partner,
+      postingFreeze: { postingEnabled: async () => true },
+    });
+    partner.set(ADA, { custody: 'off' });
+    partner.fund(ADA, { fundId: `fund-${ADA}`, assetId: 'USDT', amount: parseAmount('10') });
+    const holiday = await held.spaces.create({ userId: ADA, assetId: 'USDT', name: 'TEST holiday', lockedUntil: null });
+    const rule = await held.autoInvest.createCardRoundUp({
+      userId: ADA,
+      assetId: 'USDT',
+      granularity: parseAmount('1'),
+      targetSpaceId: holiday.id,
+    });
+    const atPartner = async (spaceId: string | null) =>
+      formatAmount((await partner.bank.balance({ userId: ADA, assetId: 'USDT', spaceId })).amount!);
+    const auth = randomUUID();
+    const input = { userId: ADA, assetId: 'USDT', authorizationId: auth, captured: parseAmount('4.30'), partnerHeld: true };
+
+    const first = await held.autoInvest.applyRoundUp(input);
+    expect(first).toMatchObject({ status: 'settled', amount: parseAmount('0.7'), spaceId: holiday.id, ledgerTxId: null });
+    const moveId = (first as { partnerMoveId: string }).partnerMoveId;
+    const move = await partner.bank.moveByKey(`bank.transfer.own:roundup:${rule.id}:${auth}:0`);
+    expect(move).toMatchObject({ id: moveId, amount: parseAmount('0.7'), from: { spaceId: null }, to: { spaceId: holiday.id } });
+    expect(await atPartner(holiday.id)).toBe('0.7');
+    expect(await atPartner(null)).toBe('9.3');
+
+    // The same capture re-driven answers with the same move, and nothing moves again.
+    expect(await held.autoInvest.applyRoundUp(input)).toEqual(first);
+    expect(await atPartner(holiday.id)).toBe('0.7');
+    const runs = await sql<{ status: string; ledger_tx_id: string | null; partner_move_id: string | null }[]>`
+      SELECT status, ledger_tx_id, partner_move_id FROM bank.auto_invest_runs WHERE rule_id = ${rule.id}
+    `;
+    expect(runs).toEqual([{ status: 'settled', ledger_tx_id: null, partner_move_id: moveId }]);
+    // Nothing of it is on the ledger.
+    expect(ledger.journal()).toHaveLength(0);
+
+    // Another capture is its own run and its own move.
+    const big = await held.autoInvest.applyRoundUp({
+      ...input,
+      authorizationId: randomUUID(),
+      captured: parseAmount('0.5'),
+      partnerHeld: true,
+    });
+    expect(big).toMatchObject({ status: 'settled', amount: parseAmount('0.5') });
+    expect(await atPartner(null)).toBe('8.8');
+
+    // A capture the card partner made for a person whose bank money is on the ledger, and a ledger capture for a person
+    // the partner holds: the two books disagree, so neither rounds up, and nothing moves anywhere.
+    const mismatch = await held.autoInvest.applyRoundUp({ ...input, authorizationId: randomUUID(), partnerHeld: false });
+    expect(mismatch).toMatchObject({ status: 'refused', reason: 'bank.partner_custody_mismatch' });
+    partner.set(ADA, { custody: 'on' });
+    const other = await held.autoInvest.applyRoundUp({ ...input, authorizationId: randomUUID() });
+    expect(other).toMatchObject({ status: 'refused', reason: 'bank.partner_custody_mismatch' });
+    partner.set(ADA, { custody: 'off' });
+    expect(await atPartner(holiday.id)).toBe('1.2');
+    expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('where the partner bank holds the money, an account short of the spare change is refused by the partner and moves nothing', async () => {
+    const partner = testPartner();
+    const held = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+      spaceLimit: '5',
+      testPartner: partner,
+      postingFreeze: { postingEnabled: async () => true },
+    });
+    partner.set(ADA, { custody: 'off' });
+    partner.fund(ADA, { fundId: `fund-${ADA}-small`, assetId: 'USDT', amount: parseAmount('0.2') });
+    const holiday = await held.spaces.create({ userId: ADA, assetId: 'USDT', name: 'TEST holiday', lockedUntil: null });
+    const rule = await held.autoInvest.createCardRoundUp({
+      userId: ADA,
+      assetId: 'USDT',
+      granularity: parseAmount('1'),
+      targetSpaceId: holiday.id,
+    });
+    const refused = await held.autoInvest.applyRoundUp({
+      userId: ADA,
+      assetId: 'USDT',
+      authorizationId: randomUUID(),
+      captured: parseAmount('4.30'),
+      partnerHeld: true,
+    });
+    expect(refused).toMatchObject({ status: 'refused', reason: 'bank.partner_insufficient_funds' });
+    const [run] = await sql<{ status: string; rejection_code: string; partner_move_id: string | null }[]>`
+      SELECT status, rejection_code, partner_move_id FROM bank.auto_invest_runs WHERE rule_id = ${rule.id}
+    `;
+    expect(run).toEqual({ status: 'rejected', rejection_code: 'bank.partner_insufficient_funds', partner_move_id: null });
+    expect(formatAmount((await partner.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: holiday.id })).amount!)).toBe('0');
+    expect(ledger.journal()).toHaveLength(0);
   });
 
   it('lists the space a standing order pays into only when that space is the caller’s own', async () => {

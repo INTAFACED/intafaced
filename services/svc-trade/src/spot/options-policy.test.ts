@@ -2,15 +2,18 @@
  * Unit card — consolidated trade.options policy honesty door
  * 1. Promise: default refuse, constants from options-listing, no invented assets
  * 2. Break: describeOptionsPolicy omits socket or refuse codes
- * 3. Done bar: router mounts options.policy → describeOptionsPolicy()
+ * 3. Done bar: options.policy answers describeOptionsPolicy()
  * 4. Class N
  * 5. Paths: svc-trade/src/spot/options-policy.ts, router.ts
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MemoryEventBus } from '@intafaced/events';
+import { MemoryLedger } from '@intafaced/ledger-client';
+import type { Sql } from 'postgres';
+import { TradeService } from '../controls/test-admission.js';
+import { createTradeRouter } from '../router.js';
+import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from './testing.js';
 import {
   OPTIONS_FIXING_UNCONFIGURED,
   OPTIONS_SETTLEMENT_LAW_UNSET,
@@ -19,9 +22,6 @@ import {
   OPTIONS_TERMS_INCOMPLETE,
   describeOptionsPolicy,
 } from './options-policy.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const routerSource = readFileSync(join(here, '..', 'router.ts'), 'utf8');
 
 describe('describeOptionsPolicy — trade.options honesty door', () => {
   it('states settlement law gate without inventing assets', () => {
@@ -71,7 +71,15 @@ describe('describeOptionsPolicy — trade.options honesty door', () => {
 });
 
 describe('options.policy route (trade.options honesty door)', () => {
-  it('router mounts describeOptionsPolicy on options.policy', () => {
-    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeOptionsPolicy\(\)\)/);
+  it('router mounts describeOptionsPolicy on options.policy', async () => {
+    const trade = new TradeService({} as Sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+      marketLifecycle: READY_MARKET_LIFECYCLE,
+    });
+    const answer = await createTradeRouter(trade)
+      .createCaller({ principal: null } as never)
+      .options.policy();
+    // Byte for byte: the answer is describeOptionsPolicy() itself, key order included.
+    expect(JSON.stringify(answer)).toBe(JSON.stringify(describeOptionsPolicy()));
   });
 });

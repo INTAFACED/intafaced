@@ -5,25 +5,35 @@
  * asset. Adding one makes that label (once: the primary index allows one per customer and asset) and removing one hides
  * it. Neither writes to the ledger and neither moves value.
  *
+ * For a person the partner holds money for, adding one also opens the partner's currency account, once.
+ *
  * Which assets may be added is the owner's list (`BANK_ACCOUNT_CURRENCIES`). A blank list refuses an add with
  * `bank.account_currencies_unset`, and the list read says so instead of inventing one. Removing needs no list.
  *
  * A currency is in use, and removing it refuses `bank.currency_in_use`, while any of the customer's ledger accounts in
  * that asset is not zero (the available balance, a hold, money reserved for an open order or an earn position) or a
- * named space uses the asset. The customer is offered Send and Convert to empty it first.
+ * named space uses the asset. For a person the partner holds money for, it is in use too while the partner reports, in
+ * that asset, a balance, a card hold still open, a purchase hold not yet released, or an open order (J-bank-01 #3). The
+ * customer is offered Send and Convert to empty it first.
  */
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
-import { accountKey, formatAmount, userAvailable } from '@intafaced/ledger-client';
+import { accountKey, formatAmount, parseAmount, userAvailable } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { SpaceService } from '../spaces/space-service.js';
-import { reportedAmount } from '../partner/partner-bank.js';
+import { reportedAmount, type PartnerBank } from '../partner/partner-bank.js';
+import type { PartnerCardHolds } from '../cards/partner-card-holds.js';
+import type { PartnerPurchaseCustody } from '../partner/partner-purchases.js';
 
 const ASSET = /^[A-Z0-9]{2,16}$/;
 
 export interface CurrenciesOptions {
   /** Owner-published, comma separated asset ids. Blank or unset refuses an add. */
   readonly currencies?: string | undefined;
+  /** The partner card's holds, for a person the partner holds money for; null or absent when there is no partner card. */
+  readonly cardHolds?: Pick<PartnerCardHolds, 'figures'> | null;
+  /** The partner's purchase holds (Add money), for a person the partner holds money for; null or absent when none. */
+  readonly purchases?: PartnerPurchaseCustody | null;
 }
 
 export interface AccountCurrency {
@@ -103,6 +113,9 @@ export class CurrencyService {
   async add(userId: string, assetId: string): Promise<AccountCurrency> {
     const id = assetId.trim().toUpperCase();
     if (!this.allowed().includes(id)) throw new BankError(`${id} is not a currency an account can hold`, 'bank.asset_unknown');
+    // For a person the partner holds money for, the currency account is the partner's: it opens it first (once, however
+    // often asked), so a refusal there leaves no label here (J-bank-01 #3).
+    await this.spaces.custody.bankFor(userId)?.openCurrency?.(userId, id);
     const space = await this.spaces.ensurePrimary(userId, id);
     await this.spaces.restoreCurrency(userId, id);
     return { assetId: id, spaceId: space.id, balance: formatAmount(await this.spaces.balanceOf(space)) };
@@ -127,6 +140,7 @@ export class CurrencyService {
         for (const b of await partner.balances(userId)) if (b.account.assetId === id) amounts.push(reportedAmount(b));
       }
       if (amounts.some((amount) => amount !== 0n)) throw inUse(id);
+      if (partner && (await this.partnerCommits(userId, id, partner))) throw inUse(id);
       const named = await tx<Array<{ id: string; archived: boolean }>>`
         SELECT id, archived_at IS NOT NULL AS archived FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'named'
       `;
@@ -140,6 +154,20 @@ export class CurrencyService {
       `;
       return { assetId: id, removed: true as const };
     });
+  }
+
+  /**
+   * Whether the partner reports anything else held in this asset for the person: a card hold still open, a purchase hold
+   * not yet released, or an open order. A card figure the partner does not give is an asset it cannot hold in (no card
+   * hold can be asked there); a purchase hold the partner does not report sits inside the balance it does report.
+   */
+  private async partnerCommits(userId: string, assetId: string, partner: PartnerBank): Promise<boolean> {
+    const card = await this.options.cardHolds?.figures({ userId, assetId });
+    if (card?.held != null && parseAmount(card.held) !== 0n) return true;
+    const purchases = await this.options.purchases?.purchasesFor(userId)?.holds(userId);
+    if (purchases?.reported && purchases.holds.some((h) => h.assetId === assetId && h.amount !== 0n)) return true;
+    const orders = (await partner.openOrders?.(userId)) ?? [];
+    return orders.some((o) => o.assetId === assetId);
   }
 }
 

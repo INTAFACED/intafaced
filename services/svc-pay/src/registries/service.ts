@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { requireDualControl } from '../dual-control.js';
 import { consumePayApproval, payActionPayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { registryChangeFields } from '../approval-bindings.js';
@@ -327,9 +327,9 @@ export class RegistryService {
     approverId: string | null,
     reason: string,
     ops: {
-      get: (tx: Sql) => Promise<store.Stamp | null>;
-      insert: (tx: Sql) => Promise<R>;
-      update: (tx: Sql) => Promise<R>;
+      get: (tx: Queryable) => Promise<store.Stamp | null>;
+      insert: (tx: Queryable) => Promise<R>;
+      update: (tx: Queryable) => Promise<R>;
     },
   ): Promise<R> {
     try {

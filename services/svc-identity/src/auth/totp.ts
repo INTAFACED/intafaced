@@ -105,11 +105,18 @@ export function totp(secretBase32: string, options: TotpOptions & { at?: Date } 
  * Returns the matching counter (not a boolean) so callers can refuse a step that
  * was already consumed — a captured code must not replay inside the validity
  * window (login + step-up; README historically named this a known gap).
+ *
+ * `after` is the last step already consumed: steps up to it are never matched.
+ * Six digits collide about once in a million steps, so a fresh code can equal a
+ * spent step's code inside the window; matching the spent step first refused a
+ * genuine code (intafaced #8482, J-bank-05 #2 on main). A replay still fails: its
+ * step is spent, and an unspent step it happens to equal is a code anyone holding
+ * the authenticator could type.
  */
 export function matchTotpStep(
   secretBase32: string,
   code: string,
-  options: TotpOptions & { at?: Date; window?: number } = {},
+  options: TotpOptions & { at?: Date; window?: number; after?: bigint | null } = {},
 ): bigint | null {
   const { step } = { ...DEFAULTS, ...options };
   const window = options.window ?? 1;
@@ -123,6 +130,7 @@ export function matchTotpStep(
 
   for (let drift = -window; drift <= window; drift++) {
     const candidateStep = counter + BigInt(drift);
+    if (options.after !== undefined && options.after !== null && candidateStep <= options.after) continue;
     const candidate = hotp(secret, candidateStep, options);
     if (candidate.length === submitted.length && timingSafeEqual(Buffer.from(candidate), Buffer.from(submitted))) {
       return candidateStep;

@@ -1,6 +1,7 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import type { RestoreStep } from '@intafaced/contracts';
+import type { RestoreStep, RestoreStepDetail } from '@intafaced/contracts';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { OPS_LIST_LIMIT_CAP } from '../list-limit.js';
 
@@ -16,7 +17,7 @@ export interface RestoreStepRow {
   readonly step: RestoreStep;
   readonly actor: string;
   readonly approverId: string | null;
-  readonly detail: Record<string, unknown>;
+  readonly detail: RestoreStepDetail;
   readonly at: string;
 }
 
@@ -114,7 +115,7 @@ interface StepRow {
   step: RestoreStep;
   actor: string;
   approver_id: string | null;
-  detail: Record<string, unknown>;
+  detail: RestoreStepDetail;
   at: Date;
   fingerprint?: string;
 }
@@ -136,7 +137,7 @@ const toStep = (r: StepRow): RestoreStepRow => ({
 
 /** Runs and steps live in `ops.restore_runs` and `ops.restore_steps` (append-only), with `ops.restore_outbox` beside them. */
 export function createPgRestoreRunStore(sql: Sql): RestoreRunStore {
-  const queue = (tx: Sql, e: RestoreOutboxEntry) => tx`INSERT INTO ops.restore_outbox (event,idempotency_key,payload,created_at)
+  const queue = (tx: Queryable, e: RestoreOutboxEntry) => tx`INSERT INTO ops.restore_outbox (event,idempotency_key,payload,created_at)
     VALUES (${e.event},${e.idempotencyKey},${tx.json(e.payload as never)},${e.createdAt}) ON CONFLICT (idempotency_key) DO NOTHING`;
   return {
     async start(key, fingerprint, run, event) {
@@ -151,7 +152,7 @@ export function createPgRestoreRunStore(sql: Sql): RestoreRunStore {
           VALUES (${run.restoreNo},${key},${fingerprint},${run.cutOff},${run.startedBy},${run.startedAt})
           ON CONFLICT (restore_no) DO NOTHING RETURNING restore_no,cut_off,started_by,started_at`;
         if (!row) throw conflict();
-        await queue(tx as unknown as Sql, event);
+        await queue(tx, event);
         return toRun(row);
       });
     },
@@ -190,7 +191,7 @@ export function createPgRestoreRunStore(sql: Sql): RestoreRunStore {
           if (!first) throw new Error('ops.restore_step_vanished');
           return toStep(first);
         }
-        if (event) await queue(tx as unknown as Sql, event);
+        if (event) await queue(tx, event);
         return toStep(inserted);
       });
     },

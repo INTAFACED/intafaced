@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import type { PostRequest } from '../types.js';
+import { parseAmount } from '../money.js';
 import { recipes, type RecipeName } from './index.js';
-import { RECIPE_MATRIX } from './live-path-inventory.js';
+import { RECIPE_SOCKETS } from './live-path-inventory.js';
 
 /**
  * THE RECIPE REGISTRY IS THE PRODUCT SURFACE.
@@ -44,11 +46,76 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * chargeEarn + chargeCollect (a charge a customer owes us, earned and collected into one of our own-funds places, own accounts only, launch money model rule 1) → 99.
  * partnerFeeEarn + partnerFeeSettle (our fee on a partner-processed payment, earned and settled by the partner into our own funds, own accounts only, launch money model rule 1) → 101.
  * feeGiveBackOwe + feeGiveBackPayOut (a fee a customer paid on a fill, given back from our own funds to their own wallet with two approvers, own accounts only, launch money model rule 1) → 103.
+ * merchantFeeEarn (our fee on a payment paid straight to the business's own wallet, owed to us by the business, own accounts only, launch money model rule 1, J-merchant-04) → 104.
+ * academyPurchase + academyPurchaseRefund (a paid Academy course bought from the buyer's own wallet into one of our own-funds places, and its staff refund, own accounts only, J-academy-07) → 106.
+ * rewardReclaim (a reward we owe and have not paid, cancelled by a risk decision back to the rewards engine, own accounts only, J-campaigns-18) → 107.
  */
+const CHARGEBACK_OPEN = {
+  disputeId: 'dsp-registry',
+  paymentId: 'pay-registry',
+  merchantId: '33333333-3333-4333-8333-333333333333',
+  merchantUserId: '44444444-4444-4444-8444-444444444444',
+  assetId: 'USDT',
+  rail: 'card-sandbox',
+  fromClearing: parseAmount('10'),
+  fromMerchantBalance: parseAmount('2.5'),
+};
+const CHARGEBACK_SHORTFALL = {
+  disputeId: 'dsp-registry',
+  paymentId: 'pay-registry',
+  merchantId: CHARGEBACK_OPEN.merchantId,
+  assetId: 'USDT',
+  rail: 'card-sandbox',
+  amount: parseAmount('3'),
+};
+
+type ChargebackPost = (ledger: unknown, input: unknown) => Promise<{ txId: string }>;
+
+/**
+ * Calls svc-pay's own chargeback posts (the production caller) against a ledger that records each request it is
+ * handed, and returns what each one posted. Imported at run time by URL so this package's type program does not pull
+ * a services/ file under its rootDir; the functions are svc-pay's real exports.
+ */
+async function svcPayChargebackPosts(): Promise<Record<string, PostRequest>> {
+  const pay = (await import(new URL('../../../../services/svc-pay/src/chargeback-ledger.ts', import.meta.url).href)) as Record<
+    'postDisputeOpening' | 'postDisputeShortfall' | 'postDisputeWon' | 'postDisputeShortfallRecovered',
+    ChargebackPost
+  >;
+  const posted: PostRequest[] = [];
+  const ledger = {
+    async post(request: PostRequest) {
+      posted.push(request);
+      const { idempotencyKey, module, reason, meta } = request;
+      return {
+        id: `tx-${posted.length}`,
+        hash: `h-${posted.length}`,
+        postedAt: new Date(),
+        idempotencyKey,
+        module,
+        reason,
+        meta,
+        entries: [],
+      };
+    },
+  };
+  const only = async (post: ChargebackPost, input: unknown): Promise<PostRequest> => {
+    posted.length = 0;
+    await post(ledger, input);
+    expect(posted, 'each svc-pay chargeback door posts exactly one ledger request').toHaveLength(1);
+    return posted[0]!;
+  };
+  return {
+    chargebackOpen: await only(pay.postDisputeOpening, CHARGEBACK_OPEN),
+    chargebackShortfall: await only(pay.postDisputeShortfall, CHARGEBACK_SHORTFALL),
+    chargebackWon: await only(pay.postDisputeWon, CHARGEBACK_OPEN),
+    chargebackShortfallRecovered: await only(pay.postDisputeShortfallRecovered, CHARGEBACK_SHORTFALL),
+  };
+}
+
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(103);
+    expect(names.length).toBe(107);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -65,27 +132,26 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('103');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('107');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();
     expect(rowNames.sort()).toEqual(registry);
   });
 
-  it('RECIPES.md states the chargeback four as live and names the svc-pay post', () => {
+  it('RECIPES.md states the chargeback four as live and names the svc-pay post', async () => {
     const recipesDir = dirname(fileURLToPath(import.meta.url));
     const md = readFileSync(join(recipesDir, '..', '..', 'RECIPES.md'), 'utf8');
-    const paySrc = readFileSync(join(recipesDir, '..', '..', '..', '..', 'services/svc-pay/src/chargeback-ledger.ts'), 'utf8');
-    expect(paySrc).toMatch(/\brecipes\.chargebackOpen\b/);
-    expect(paySrc).toMatch(/\brecipes\.chargebackShortfall\b/);
-    expect(paySrc).toMatch(/\brecipes\.chargebackWon\b/);
-    expect(paySrc).toMatch(/\brecipes\.chargebackShortfallRecovered\b/);
+    expect(await svcPayChargebackPosts()).toEqual({
+      chargebackOpen: recipes.chargebackOpen(CHARGEBACK_OPEN),
+      chargebackShortfall: recipes.chargebackShortfall(CHARGEBACK_SHORTFALL),
+      chargebackWon: recipes.chargebackWon(CHARGEBACK_OPEN),
+      chargebackShortfallRecovered: recipes.chargebackShortfallRecovered(CHARGEBACK_SHORTFALL),
+    });
 
+    // Live: no §13 socket row (svc-pay's posts above are the production caller).
     for (const name of ['chargebackOpen', 'chargebackShortfall', 'chargebackWon', 'chargebackShortfallRecovered'] as const) {
-      const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('live');
-      if (row.kind !== 'live') continue;
-      expect(row.proof).toBe('services/svc-pay/src/chargeback-ledger.ts');
+      expect(Object.keys(RECIPE_SOCKETS)).not.toContain(name);
     }
 
     const closure = md.split('\n').find((line) => line.includes('D26-P2-11 live-path closure'));

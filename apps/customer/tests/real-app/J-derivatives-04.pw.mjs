@@ -6,7 +6,8 @@ import { parseShift, shiftQuoted as makerShiftQuoted } from './market.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-04, in the running app (docs/roadmap/journeys.json): manage futures orders in the orders room. One test
-// per step, titled "J-derivatives-04 #<n>", run in order on one TEST account. The contract is the TEST perpetual
+// per step, titled "J-derivatives-04 #<n>", run in order on one TEST account. #3 to #6 are on the person's own venue
+// account, in J-derivatives-04-venue.pw.mjs. The contract is the TEST perpetual
 // `local-test-gates.mjs futures` lists; its mark follows the stack's TEST book, which the TEST market maker walks a few
 // basis points at a time. Every figure is read back through the customer's own API.
 const J = 'J-derivatives-04';
@@ -267,7 +268,7 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
 // index hold too, so a step that failed while it held leaves the next step's BTC/USDT book quoted.
 test.afterEach(() => {
   const title = test.info().title;
-  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J} #6 `)) release();
+  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J}, the custodial Later branch`)) release();
   if (title.startsWith(`${J} #1 `)) releaseIndex();
 });
 
@@ -403,7 +404,11 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });
 
-test(`${J} #6 tries a second closing order on a closing position: refused, one closing order per position`, async ({ page }) => {
+// The custodial Later branch, kept on our own book: a second closing order is refused there. It is no step's
+// proof: #6's words changed on 17 Nov 2026, and #6 is proven on the venue in J-derivatives-04-venue.pw.mjs.
+test(`${J}, the custodial Later branch, checked on our own book: a second closing order on a closing position is refused`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   // Its own TEST account, so the position and orders it reads are only its own.
   const who = await fundedTrader(page, 'jd4f', '1000');

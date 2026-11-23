@@ -1,4 +1,6 @@
-import type { BroadcastStore } from './broadcast-store.js';
+import { BroadcastClosedError, type BroadcastStore } from './broadcast-store.js';
+
+export { BroadcastClosedError };
 
 /**
  * Class M outbound broadcast with DIRECTION §3.1 durability:
@@ -22,6 +24,7 @@ export async function runDurableBroadcast(opts: {
 }): Promise<string> {
   const claimed = await opts.store.claim(opts.idempotencyKey);
   if (claimed.kind === 'done') return claimed.txHash;
+  if (claimed.kind === 'closed') throw new BroadcastClosedError(opts.idempotencyKey);
 
   let signedRaw: string;
   if (claimed.kind === 'resume') {

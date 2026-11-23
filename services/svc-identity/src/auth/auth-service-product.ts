@@ -3,8 +3,8 @@
  * Exchange wrap: a bound key cannot mint a JWT for a product outside the list.
  * Empty list stays unset (full grantor intersection, no default product).
  */
+import type { Queryable } from '@intafaced/db';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Sql } from 'postgres';
 import { AuthError, type AuthService } from './auth-service.js';
 import {
   ApiKeyProductError,
@@ -20,7 +20,7 @@ export { ApiKeyProductError } from './api-key-product.js';
 export const requestProductAls = new AsyncLocalStorage<string | undefined>();
 
 export async function bindApiKeyProductScope(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   products: string[],
@@ -56,7 +56,7 @@ export async function bindApiKeyProductScope(
 }
 
 /** Wrap exchange so a bound key cannot mint a JWT for a foreign / missing product. */
-export function installApiKeyProductExchange(auth: AuthService, sql: Sql): void {
+export function installApiKeyProductExchange(auth: AuthService, sql: Queryable): void {
   const orig = auth.exchangeApiKey.bind(auth);
   auth.exchangeApiKey = async (key: string, requestOrigin?: string | null) => {
     const rows = await sql<Array<{ product_scopes: string[] | null }>>`

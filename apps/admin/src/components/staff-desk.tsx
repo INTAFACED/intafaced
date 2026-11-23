@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { StaffEntry } from '@intafaced/contracts/identity-staff';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import './desk.css';
 
 /**
