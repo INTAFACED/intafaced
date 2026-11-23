@@ -697,7 +697,9 @@ export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: 
       if (sawMfa) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'A second factor is required' });
       }
-      throw new TRPCError({ code: 'FORBIDDEN', message: `One of ${scopes.join(', ')} is required` });
+      // The same typed code a single-scope refusal carries, so a client branches on `scope.denied` either way.
+      const message = `One of ${scopes.join(', ')} is required`;
+      throw new TRPCError({ code: 'FORBIDDEN', message, cause: new AuthError(message, 'scope.denied') });
     }
     refuseJurisdiction(ctx, guards);
     if (guards.check) await guards.check(ctx);

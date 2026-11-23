@@ -509,7 +509,7 @@ const bankSections: readonly DeskSection[] = [
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
-      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. It needs the treasury permission on your session; a session without it is refused in words. The support view of the same figures waits on the customer consent grant (PF-ops-01) and is not here.',
+      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. The balances need the operator read permission (admin:read) or the treasury permission; the entries behind them need the treasury permission. A session without them is refused in words.',
     reads: [],
     unavailable: [],
     disabledActions: [],
@@ -915,7 +915,8 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
     amount('collateral', 'Collateral'),
   ],
   emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
-  forbiddenText: FORBID_BANK_TREASURY,
+  forbiddenText:
+    'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read or the treasury permission admin:treasury).',
   refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 
