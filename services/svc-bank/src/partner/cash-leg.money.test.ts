@@ -72,7 +72,9 @@ describe('the partner cash leg', () => {
     const { legs, paid, eur, moves } = world();
     const [a, b] = await Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]);
     const c = await legs.carry('u1', ask());
-    expect(a).toEqual(b);
+    // A concurrent caller of one key reads the stored leg, never a delivery of its own.
+    expect(b).toBe(a);
+    expect(c).toBe(a);
     expect(c.moveId).toBe(a.moveId);
     expect(a.state).toBe('delivered');
     expect(a.paid).toBe(parseAmount('20'));
