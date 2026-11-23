@@ -204,7 +204,7 @@ impl Registry {
 
 impl Ledger for Registry {
     fn balance(&self, _account: &LedgerAccount) -> Result<Amount, String> {
-        Ok(0)
+        Ok(Amount::ZERO)
     }
     fn balances(&self, _owner_type: &str, _owner_id: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())

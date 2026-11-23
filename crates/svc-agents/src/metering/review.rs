@@ -221,7 +221,7 @@ pub fn analytics_summary(
         total.failed += acc.failed;
         total.test_runs += acc.test_runs;
         for (asset, amount) in &acc.spend {
-            *total.spend.entry(asset.clone()).or_default() += amount;
+            *total.spend.entry(asset.clone()).or_default() += *amount;
         }
         days.push(figures(Some(day), acc, include_test));
     }

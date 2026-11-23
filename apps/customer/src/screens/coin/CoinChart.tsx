@@ -115,8 +115,9 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
-      // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
-      if (!c.panel) return;
+      // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+      // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so the frame stays empty.
+      if (Object.values(c).some((value) => value === '')) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         handleScroll: false,

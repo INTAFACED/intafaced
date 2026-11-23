@@ -10,6 +10,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     DATABASE_URL: dbUrl('svc_quant', secrets),
     TRADE_URL: urlOf('trade'),
     ...profileEnvFor('quant', 'dev'),
+    // A stack no journey runs on (the beta link) captures the lake less often: every 2 s, its reads of trade's public
+    // routes kept svc-trade and svc-matching busy with nobody on the stack (project-state #3857).
+    ...(process.env.LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS
+      ? { QUANT_LAKE_CAPTURE_SECONDS: process.env.LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS }
+      : {}),
     // TEST: the only site that may frame a shared result is this stack's own customer app. `off` leaves the list blank,
     // so a journey can see the embed snippet refused while the link still opens (J-algo-dev-02 #7).
     QUANT_EMBED_ORIGINS: process.env.LOCAL_STACK_QUANT_EMBED_ORIGINS === 'off' ? '' : CUSTOMER_ORIGIN,
