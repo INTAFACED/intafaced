@@ -29,6 +29,8 @@ import { STACK_PORTS } from './local-test-facts.mjs';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
 export const VENUE_SIM_DIST = path.join(REPO, 'packages', 'venue-sim', 'dist', 'index.js');
+/** The built Hyperliquid test network adapter, built with svc-trade too (a dev dependency there). */
+const VENUE_HL_DIST = path.join(REPO, 'packages', 'venue-hyperliquid', 'dist', 'index.js');
 
 /** The stack's TEST app chain (local-test-chain.mjs; the same id as eip1193.ts APP_CHAIN_ID). */
 export const TEST_APP_CHAIN_ID = TEST_CHAIN_ID;
@@ -70,9 +72,20 @@ export function userVenueSwitchOn(raw) {
 export function userVenueCount(raw) {
   const text = (raw ?? '').trim();
   if (text === '' || text === 'off') return 0;
-  if (text === 'on') return 1;
+  if (text === 'on' || text === 'hl-recorded' || text === 'hl-testnet') return 1;
   if (text === 'two') return 2;
-  throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off, on or two (got ${JSON.stringify(raw)})`);
+  throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off, on, two, hl-recorded or hl-testnet (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * Which venue the first TEST venue is (#10203): `sim`, the TEST venue simulator (`on`, `two`); `hl-recorded`, the
+ * Hyperliquid test network adapter answering from its recording (packages/venue-hyperliquid recordings/, no network);
+ * `hl-testnet`, the same adapter on the live Hyperliquid test network. Null when the switch is off. Anything else throws.
+ */
+export function userVenueKind(raw) {
+  if (userVenueCount(raw) === 0) return null;
+  const text = (raw ?? '').trim();
+  return text === 'hl-recorded' || text === 'hl-testnet' ? text : 'sim';
 }
 
 /**
@@ -146,7 +159,9 @@ export async function serveTestVenue({
   depositToken = '',
   second = false,
   id = null,
+  kind = 'sim',
 }) {
+  if (!second && (kind === 'hl-recorded' || kind === 'hl-testnet')) return serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind });
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
@@ -171,6 +186,36 @@ export async function serveTestVenue({
   return started;
 }
 
+/**
+ * `TEST_VENUE_KIND`, as the stack hands it to the venue process (`userVenueKind` of the switch): blank or `sim` is the
+ * simulator, `hl-recorded` and `hl-testnet` the Hyperliquid test network adapter. Anything else throws.
+ */
+export function testVenueKind(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '' || text === 'sim') return 'sim';
+  if (text === 'hl-recorded' || text === 'hl-testnet') return text;
+  throw new Error(`TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * The Hyperliquid test network as the stack's venue (#10203), behind the same HTTP venue protocol svc-trade reaches every
+ * venue over. `hl-recorded` answers from the adapter's recording with no network: an order the recording does not hold
+ * gets the recorded answer of its kind, and a read it has no kind for is the venue down. `hl-testnet` reaches the live
+ * test network (api.hyperliquid-testnet.xyz); the customer's own wallet signs, so the venue holds no key.
+ */
+async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind }) {
+  if (!fs.existsSync(VENUE_HL_DIST)) {
+    throw new Error(`${path.relative(REPO, VENUE_HL_DIST)} is not built: pnpm --filter @intafaced/venue-hyperliquid... build`);
+  }
+  const hl = await import(pathToFileURL(VENUE_HL_DIST).href);
+  const fetch = kind === 'hl-recorded' ? hl.replayRecording(hl.loadOrderRecording()) : undefined;
+  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, ...(fetch ? { fetch } : {}) });
+  process.stdout.write(
+    `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind })}\n`,
+  );
+  return started;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
@@ -183,6 +228,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     id: testVenueId(process.env.TEST_VENUE_ID),
+    kind: testVenueKind(process.env.TEST_VENUE_KIND),
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
