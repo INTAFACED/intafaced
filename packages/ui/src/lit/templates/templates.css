@@ -1037,8 +1037,8 @@
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   /* Room for a tab's focus ring inside the scrolling box, which would clip it, without moving the row. */
-  padding: 4px;
-  margin: -4px;
+  padding: 0.25rem;
+  margin: -0.25rem;
   animation: lt-tabs-more linear both;
   animation-timeline: scroll(self inline);
 }
