@@ -126,6 +126,26 @@ export function newFindings(before, after) {
 }
 
 /**
+ * main-bisect's proven revert of X (revert.mjs revertParent) is judged against X^ too, the state it restores: of the
+ * head's new findings (`fresh`, newFindings), those X^'s own rows (`parentRows`, the same page, viewport, kind and
+ * finding) already had are `restored` and block nobody; the rest are `kept` and are judged as on any pull request. A
+ * page X^ never drew keeps all its findings (project-state#3697: the reverts of #9717, #9828 and #9960 each blocked on
+ * findings their culprit had removed).
+ */
+export function restoredFindings(fresh, parentRows) {
+  const kept = newFindings(
+    parentRows,
+    fresh.map((f) => ({ target: f.target, viewport: f.viewport, findings: { [f.kind]: f.items } })),
+  );
+  const left = new Map(kept.map((f) => [`${f.target}|${f.viewport}|${f.kind}`, new Set(f.items)]));
+  const restored = fresh.flatMap((f) => {
+    const items = f.items.filter((i) => !left.get(`${f.target}|${f.viewport}|${f.kind}`)?.has(i));
+    return items.length ? [{ ...f, items }] : [];
+  });
+  return { kept, restored };
+}
+
+/**
  * The pull request's verdict: it blocks when the head adds a finding on a page drawn in the new look (`litTargets`, as
  * the daily gate's isBlockable), once BLOCKING_FROM has passed. An old-look page's new finding is reported only.
  */
