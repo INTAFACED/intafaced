@@ -3,6 +3,7 @@
  * key, the partner's own refusals, its hold time, and "not known" never read as 0. No database, no ledger: the partner
  * holds the money, so nothing here can post.
  */
+import { parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import { BankError } from '../errors.js';
 import { TEST_PARTNER_UNLISTED_DECLINE, moneyHeldBy, partnerUnset, testPartner } from '../partner/test-partner.js';
@@ -178,5 +179,108 @@ describe('capture, release, expiry and refund are the partner’s, each once', (
     const card = partnerCard();
     expect(await card.holdState({ holdKey: HOLD })).toBeNull();
     expect(await codeOf(card.release({ key: partnerCardKey('release', AUTH), holdKey: HOLD }))).toBe('bank.card_partner_hold_not_found');
+  });
+});
+
+describe('the TEST card draws on the person’s own partner account (#10227)', () => {
+  const at = new Date('2026-11-09T00:00:00Z');
+  const units = parseAmount;
+  function drawnCard(switches: Partial<TestPartnerSwitches> = {}, now = () => at) {
+    const partner = testPartner();
+    const card = testPartnerCardHolds({
+      terms: () => terms({ rates: { in: 'USDC', perUnit: {} }, spendFrom: ['USDC'] }),
+      switches: () => ({ ...SWITCHES_OFF, ...switches }),
+      funds: partner.cardFunds,
+      clock: now,
+    });
+    const main = { userId: ADA, assetId: 'USDC', spaceId: null };
+    const balance = async () => {
+      const b = await partner.bank.balance(main);
+      return b.amount;
+    };
+    return { partner, card, main, balance };
+  }
+
+  it('a card payment lowers the partner balance the person reads, once per key, and the statement counts it', async () => {
+    const { partner, card, main, balance } = drawnCard();
+    partner.fund(ADA, { fundId: 'f-400', assetId: 'USDC', amount: units('400') });
+    expect(await card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '400', held: '0' });
+
+    const held = await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '20' });
+    expect(held).toMatchObject({ approved: true, figures: { available: '380', held: '20' } });
+    expect(await balance()).toBe(units('380'));
+    // The same key again moves nothing more at the partner.
+    expect(await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '20' })).toEqual(held);
+    expect(await balance()).toBe(units('380'));
+
+    const captured = await card.capture({ key: partnerCardKey('capture', AUTH), holdKey: HOLD, amount: '20' });
+    expect(captured.figures).toMatchObject({ available: '380', held: '0' });
+    expect(await balance()).toBe(units('380'));
+
+    await card.refund({ key: partnerCardKey('refund', AUTH), holdKey: HOLD, amount: '5' });
+    await card.refund({ key: partnerCardKey('refund', AUTH), holdKey: HOLD, amount: '5' });
+    expect(await balance()).toBe(units('385'));
+    expect(await card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '385', held: '0' });
+
+    // The card's own list is where a payment is read: no card move is a bank move, and none counts as a send.
+    expect(await partner.bank.moves(ADA, { limit: 50 })).toEqual([]);
+    expect((await partner.bank.limits(ADA, 'USDC')).usedToday).toBe(0n);
+    // The partner's statement of the account still adds up: 400 paid in, 20 held, 5 refunded.
+    const statement = await partner.bank.statement!(main, { from: new Date(0), to: new Date(Date.now() + 60_000) });
+    expect(statement).toMatchObject({ opening: 0n, closing: units('385') });
+    expect(partner.record(ADA).accounts).toEqual([{ account: main, amount: units('385') }]);
+  });
+
+  it('a released hold and a hold whose time ran out each come back to the account, once', async () => {
+    const { partner, card, balance } = drawnCard();
+    partner.fund(ADA, { fundId: 'f-50', assetId: 'USDC', amount: units('50') });
+    await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '30' });
+    expect(await balance()).toBe(units('20'));
+    await card.release({ key: partnerCardKey('release', AUTH), holdKey: HOLD });
+    await card.release({ key: partnerCardKey('release', AUTH), holdKey: HOLD });
+    expect(await balance()).toBe(units('50'));
+
+    const expiring = drawnCard({ cardHold: 'expired' });
+    expiring.partner.fund(ADA, { fundId: 'f-50', assetId: 'USDC', amount: units('50') });
+    const second = partnerCardKey('hold', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    await expiring.card.hold({ key: second, userId: ADA, assetId: 'USDC', amount: '30' });
+    expect(await expiring.card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '50', held: '0' });
+    expect(await expiring.card.holdState({ holdKey: second })).toMatchObject({ status: 'expired' });
+    expect(await expiring.balance()).toBe(units('50'));
+  });
+
+  it('above what the account holds, the partner declines and nothing moves; an empty account declines too', async () => {
+    const { partner, card, balance } = drawnCard();
+    await partner.bank.openCurrency(ADA, 'USDC');
+    expect(await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '5' })).toMatchObject({
+      approved: false,
+      reason: 'bank.card_partner_insufficient_funds',
+      figures: { available: '0' },
+    });
+    partner.fund(ADA, { fundId: 'f-10', assetId: 'USDC', amount: units('10') });
+    const other = partnerCardKey('hold', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    expect(await card.hold({ key: other, userId: ADA, assetId: 'USDC', amount: '10.01' })).toMatchObject({ approved: false });
+    expect(await balance()).toBe(units('10'));
+    expect(partner.record(ADA).moves.filter((m) => m.key.startsWith('card.partner'))).toEqual([]);
+  });
+
+  it('a hold by the person’s pay-from order draws on the account too', async () => {
+    const { partner, card, balance } = drawnCard();
+    partner.fund(ADA, { fundId: 'f-100', assetId: 'USDC', amount: units('100') });
+    const answer = await card.holdInOrder!({ key: HOLD, userId: ADA, order: ['USDC'], settlementAssetId: 'USDC', amount: '12.5' });
+    expect(answer).toMatchObject({ approved: true, figures: { available: '87.5', held: '12.5' } });
+    expect(await balance()).toBe(units('87.5'));
+  });
+
+  it('with no account at the partner the card holds from the TEST figure; an open hold goes back where it came from', async () => {
+    const { partner, card, balance } = drawnCard();
+    expect(await card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '100' });
+    await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '10' });
+    // The account opens while the TEST figure's hold is open: the book keeps to the figure until it holds nothing.
+    partner.fund(ADA, { fundId: 'f-40', assetId: 'USDC', amount: units('40') });
+    expect(await card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '90', held: '10' });
+    await card.release({ key: partnerCardKey('release', AUTH), holdKey: HOLD });
+    expect(await balance()).toBe(units('40'));
+    expect(await card.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '40', held: '0' });
   });
 });
