@@ -243,6 +243,12 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
   await expect(page.getByTestId('venue-header')).toContainText(listedWords);
   const ledgerBefore = await ledgerOf(s);
   const coinBefore = await balanceOf(s.owner, market.base);
+  // Every read of the market list from here on: a review that took its rates from a list read again as it opens would
+  // show the venue's new rates too, so the list must not be read at all while the reviews are drawn.
+  const listReads = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/markets') listReads.push(r.url());
+  });
 
   // Then the venue changes this market's TEST rates (its own control, as a venue publishes a new schedule): the list the
   // page holds is now out of date, and only a preview of this order can carry the rates the venue charges now.
@@ -285,7 +291,8 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
     await expect(line(sheet, 'builder-fee')).toContainText('USDC');
     await expect.poll(async () => sameDecimal(await shown(sheet, 'venue-fee'), maker.value.venueFee.value.amount)).toBe(true);
     await expect.poll(async () => sameDecimal(await shown(sheet, 'builder-fee'), builderOn('150'))).toBe(true);
-    // Not the list: the header still names the rates the page read as it opened.
+    // Not the list: the page read no market list since it opened, and its header still names the rates it read then.
+    expect(listReads).toEqual([]);
     await expect(page.getByTestId('venue-header')).toContainText(listedWords);
     await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(sheet).toHaveCount(0);
@@ -312,6 +319,7 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
     await expect(line(sheet, 'builder-fee')).toContainText('USDC');
     await expect.poll(async () => sameDecimal(await shown(sheet, 'venue-fee'), taker.value.venueFee.value.amount)).toBe(true);
     await expect.poll(async () => sameDecimal(await shown(sheet, 'builder-fee'), builderOn('99.8'))).toBe(true);
+    expect(listReads).toEqual([]);
     await expect(page.getByTestId('venue-header')).toContainText(listedWords);
     // The step's picture: the taker's review open, its rates, role and both fees named.
     await stepPicture();
