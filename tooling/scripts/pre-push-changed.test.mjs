@@ -90,6 +90,10 @@ test('the test checks run only on the changes they read, and none without the in
   assert.deepEqual(ids(['services/svc-quant/src/routes/health.ts']), ['format', 'dead-code', 'ops-desk catalog']);
   assert.deepEqual(ids(['services/svc-quant/src/engine.ts']), ['format', 'dead-code']);
   assert.deepEqual(ids(['crates/svc-ledger/src/lib.rs']), []);
+  // A journey test reaches none of the Customer app's test checks; the routes file its render sweep reads does.
+  assert.deepEqual(ids(['apps/customer/tests/real-app/J-pay-01.pw.mjs']), ['format', 'dead-code']);
+  assert.deepEqual(ids(['apps/customer/tests/real-app/routes.mjs']), ['format', 'dead-code', 'render record']);
+  assert.deepEqual(ids(['apps/customer/render-record/root.html']), ['volt count', 'recorded calls', 'render record']);
   assert.deepEqual(
     ids(['apps/customer/src/screens/pay/index.tsx'], (f) => !f.startsWith('node_modules/')),
     [],
