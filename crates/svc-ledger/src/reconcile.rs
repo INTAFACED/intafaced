@@ -25,7 +25,7 @@
 
 use postgres::{Client, GenericClient, IsolationLevel, NoTls};
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::money::{Amount, format_amount, format_difference, parse_amount};
 use service_kit::time::Instant;
 
 use crate::chain::{HashEntry, HashTx, hash_tx};
@@ -420,7 +420,7 @@ pub fn reconcile_balances(c: &mut impl GenericClient) -> Result<Balances, ProofE
                 asset_id: row.try_get(1)?,
                 cached: format_amount(cached),
                 replayed: format_amount(replayed),
-                difference: format_amount(cached.saturating_sub(replayed)),
+                difference: format_difference(cached, replayed),
             });
         }
     }

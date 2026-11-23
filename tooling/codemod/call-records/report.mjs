@@ -8,7 +8,8 @@
 // service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
 // before it was deleted), refused (its port in flight, or its plan failed: the reason and the count), or named by why it
 // has no service run (no service of that name; no service named at all). The totals add up to the rule's count, with
-// `wrapperSenders` for a wrapper whose sender the rule counts once where the codemod finds each caller.
+// `wrapperSenders` for a wrapper whose sender the rule counts once where the codemod finds each caller, and
+// `helperCallers` for the callers of a helper given the call's name that the rule counts inside one site of the codemod's.
 //
 // Without --deep it only plans (index.mjs without --write): `planned` is what the plan rewrites, before the run's own
 // export, samples and type checks, so it is not what a run moves. With --deep each planned service is run for real
@@ -78,26 +79,47 @@ function exportReason(why) {
 }
 
 /**
- * What the rule counts beyond the sites for wrappers that take their call name (wrapper.mjs): the codemod finds one site
- * per caller, while the rule counts the wrapper's sender once, and a caller only where it names the call in a property
- * (`procedure: 'x.y'`). The sum over wrappers of (rule findings - sites), negative when callers pass plain strings.
+ * The rule's findings at a helper given the call's name (`useBank('x.y', …)`), keyed `file:line` → count in `found`,
+ * matched to the sites the codemod finds there: `counted`, the wrapper and tool sites the rule now counts too, and
+ * `helperCallers`, the findings that are no site of the codemod's (it sees the helper's one sender, as a template or a
+ * caller it does not follow).
  */
-export function wrapperSenders(sites) {
+export function helperFindings(sites, found = new Map(), key = (s) => `${s.file}:${s.line}`) {
+  const left = new Map(found);
+  const counted = new Set();
+  for (const s of sites) {
+    if ((!s.wrapper && !toolShape(s)) || s.node?.type === 'Property') continue;
+    const n = left.get(key(s)) ?? 0;
+    if (n === 0) continue;
+    left.set(key(s), n - 1);
+    counted.add(s);
+  }
+  return { counted, helperCallers: [...left.values()].reduce((a, b) => a + b, 0) };
+}
+
+/**
+ * What the rule counts beyond the sites for wrappers that take their call name (wrapper.mjs): the codemod finds one site
+ * per caller, while the rule counts the wrapper's sender once, and a caller where it names the call in a property
+ * (`procedure: 'x.y'`) or hands the wrapper a string (`counted`, helperFindings). The sum over wrappers of (rule findings
+ * - sites), negative when callers the rule does not follow pass plain strings.
+ */
+export function wrapperSenders(sites, counted = new Set()) {
   const by = new Map();
   for (const s of sites) {
     if (!s.wrapper) continue;
     const w = by.get(s.wrapper.key) ?? by.set(s.wrapper.key, { sites: 0, findings: 1 }).get(s.wrapper.key);
     w.sites += 1;
-    if (s.node?.type === 'Property') w.findings += 1;
+    if (s.node?.type === 'Property' || counted.has(s)) w.findings += 1;
   }
   return [...by.values()].reduce((a, w) => a + w.findings - w.sites, 0);
 }
 
 /**
  * The sites the rule does not count: a tool's caller that names its call bare (`query('x.y', ...)` taken from the portal's
- * tools, `validatedMutation(pay, 'x.y', ...)`; tool-forms.mjs). The rule counts the tool's own sender, its caller none.
+ * tools, `validatedMutation(pay, 'x.y', ...)`; tool-forms.mjs). The rule counts the tool's own sender, and a caller only
+ * where it sees the tool as a helper given the call's name (`counted`, helperFindings).
  */
-const toolCallers = (sites) => [...sites].filter((s) => toolShape(s)).length;
+const toolCallers = (sites, counted) => [...sites].filter((s) => toolShape(s) && !counted.has(s)).length;
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
 const deletedAt = (service) => git('log', '--diff-filter=D', '-1', '--format=%H', '--', `services/${service}/src/router.ts`).trim();
@@ -296,20 +318,31 @@ function main() {
     process.exit(1);
   }
   const shapes = {};
+  const found = new Map();
   for (const d of JSON.parse(ox.stdout || '{"diagnostics":[]}').diagnostics ?? []) {
     if (!/no-call-by-name/.test(d.code ?? '')) continue;
-    const k =
-      /^`([^`]+)`/.exec(d.message)?.[1] ?? (/keyed by the call's name/.test(d.message) ? 'hand schema keyed by a call name' : 'other');
+    const helper = d.message.startsWith("a helper given the call's name");
+    if (helper) {
+      const at = `${join(REPO, d.filename)}:${d.labels?.[0]?.span?.line}`;
+      found.set(at, (found.get(at) ?? 0) + 1);
+    }
+    const k = helper
+      ? 'helper given the call name'
+      : (/^`([^`]+)`/.exec(d.message)?.[1] ?? (/keyed by the call's name/.test(d.message) ? 'hand schema keyed by a call name' : 'other'));
     shapes[k] = (shapes[k] ?? 0) + 1;
   }
   totals.ruleFindings = Object.values(shapes).reduce((a, b) => a + b, 0);
   totals.byShape = shapes;
   const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
   const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
-  totals.wrapperSenders = wrapperSenders(nodes.values());
-  totals.toolCallers = toolCallers(nodes.values());
+  const sites = [...nodes.values()];
+  const { counted, helperCallers } = helperFindings(sites, found);
+  totals.wrapperSenders = wrapperSenders(sites, counted);
+  totals.toolCallers = toolCallers(sites, counted);
+  totals.helperCallers = helperCallers;
   // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
-  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders + totals.toolCallers;
+  totals.unnamed =
+    totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders + totals.toolCallers - totals.helperCallers;
   const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ totals }, null, 2));
