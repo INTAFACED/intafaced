@@ -13,7 +13,7 @@ The shell every slice builds on:
 
 ## What the shell holds, and how it is proved
 
-- `tests/wire_replay.rs` sends every request of `tests/fixtures/wire-replay.golden/` (what the TypeScript service answered before it was deleted: 531 calls and the REST doors, five callers, 38,376 answers) to the door, and every answer must match byte for byte, status and body.
+- `tests/wire_replay.rs` sends every request of `tests/fixtures/wire-replay.golden/` (what the TypeScript service answered before it was deleted: 531 calls and the REST doors, five callers, 38,448 answers) to the door, and every answer must match byte for byte, status and body.
 - `tests/guard_grid.rs`: each guarded call's middlewares before its input, run by the recorder on 198 callers (no one, or a person with no scope or every scope, at each tier, with and without a second factor, on a session, a key or a sub-account, in a served and an unserved region, with and without a signing service): 103,950 answers, each the door's first refusal word for word or its pass. The wire replay's callers are all fully verified; this is where a call's tier and its module's KYC rule are held.
 - `tests/input_parity.rs`: 18,255 inputs over the 531 calls and the two REST doors with a contract schema, each against zod's own verdict (`tests/fixtures/input-parity/<slice>.golden.json`).
 - `tests/closure_body.rs`: `parseClosureCheckBody`'s verdicts, held to the TypeScript's.
