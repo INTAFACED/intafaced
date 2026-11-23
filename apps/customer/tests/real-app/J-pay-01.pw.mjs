@@ -642,14 +642,19 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
     await signOutBrowser(page.context());
   }
 
-  // A held send: with the owner's review rule on (a TEST line of 50 USDT), A sends TEST 60 USDT. The bank holds it for a
-  // review before any money moves, and its status page reads In review with the reason class.
+  // A held send: with the owner's review rule on (a TEST line of 50 USDT), A sends TEST 60 USDT, confirming it with a
+  // fresh code as the money-out rule asks. The bank holds it for a review before any money moves, and its status page
+  // reads In review with the reason class.
   const held = '60';
   const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
   await signInA(page);
   await sendForm(page, { amount: held, note: null, signedIn: true });
   await page.getByTestId('pay-review').click();
   await page.getByTestId('pay-send').click();
+  const stepUp = page.getByTestId('pay-step-up');
+  await expect(stepUp).toBeVisible();
+  await stepUp.getByLabel('Authenticator code', { exact: true }).fill(await aCode());
+  await page.getByTestId('pay-step-up-confirm').click();
   const notice = page.getByTestId('pay-held');
   await expect(notice).toContainText('In review: this payment is checked before it is sent. Nothing has left your account.');
   await notice.getByRole('link', { name: 'See its status' }).click();
