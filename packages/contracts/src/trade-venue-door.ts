@@ -337,7 +337,7 @@ export const venueOrderSchema = z.object({
     })
     .nullable()
     .optional(),
-  /** Why the venue cancelled it, where it says (`position_closed`, `linked`). */
+  /** Why the venue cancelled it, where it says (`position_closed`, `linked`, `scheduled_cancel`, `self_trade`). */
   cancelReason: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;

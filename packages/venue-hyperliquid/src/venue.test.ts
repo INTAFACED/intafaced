@@ -28,6 +28,7 @@ import {
   InMemoryNonceSource,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
+  withCancelReason,
   type FetchLike,
   type HyperliquidNonceSource,
 } from './venue.js';
@@ -683,6 +684,14 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(mapOrderStatus('perpMarginRejected')).toBe('rejected');
     expect(mapOrderStatus('triggered')).toBe('open');
     expect(() => mapOrderStatus('somethingNew')).toThrow();
+  });
+
+  it('a self-trade cancel is named as one; any other cancel word leaves the reason unsaid (J-derivatives-04 #7)', () => {
+    const order = { venueClientOrderId: '0x1', status: 'canceled', cancelReason: null };
+    expect(mapOrderStatus('selfTradeCanceled')).toBe('canceled');
+    expect(withCancelReason(order, 'selfTradeCanceled').cancelReason).toBe('self_trade');
+    expect(withCancelReason(order, 'marginCanceled')).toBe(order);
+    expect(withCancelReason(order, 'canceled')).toBe(order);
   });
 
   it('order history: every state the venue reports, newest placed first, with when it was placed (J-cex-spot-06 #1)', async () => {

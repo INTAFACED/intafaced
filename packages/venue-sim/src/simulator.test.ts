@@ -662,7 +662,10 @@ describe('TEST venue simulator: review regressions', () => {
     w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:r9b');
     const sell = await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:r9s'));
     await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.01', 'order:t:r9b'));
-    expect((await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value?.status).toBe('canceled');
+    const cancelled = (await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value;
+    expect(cancelled?.status).toBe('canceled');
+    // The venue says why: its self-trade rule, so the orders room can name it (J-derivatives-04 #7).
+    expect(cancelled?.cancelReason).toBe('self_trade');
     expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'BTC')).toMatchObject({ free: a('1'), locked: ZERO });
   });

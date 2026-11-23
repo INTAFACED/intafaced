@@ -4076,7 +4076,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `free ${lockAsset}${marginAccount === SPOT_POCKET ? ' in spot' : marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
-    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
+    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled', 'self_trade');
     balance.free = sub(balance.free, lockAmount);
     balance.locked = add(balance.locked, lockAmount);
 
@@ -4775,7 +4775,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private release(
     order: OrderState,
     status: UserVenueOrder['status'],
-    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | null = null,
+    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null = null,
   ): void {
     const o = order.order;
     if (o.locked !== ZERO) {

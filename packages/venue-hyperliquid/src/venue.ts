@@ -99,7 +99,7 @@ export {
   type HyperliquidNonceSource,
   type HyperliquidTestnetOptions,
 } from './core.js';
-export { mapOrderStatus } from './reads.js';
+export { mapOrderStatus, withCancelReason } from './reads.js';
 
 interface BuiltAction {
   readonly action: Record<string, MsgpackValue>;

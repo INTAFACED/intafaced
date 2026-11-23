@@ -60,7 +60,10 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
-import { slippageLimit } from '../desk/venue-desk';
+import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
+import { useApi } from '../../../features/session';
+import { readRateCosts } from '../../../features/developers';
+import { useResource } from '../../../shared/resource';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
@@ -333,6 +336,43 @@ export function percentOf(fraction: string): string {
 }
 
 /**
+ * The order rate that applies on a venue market (J-derivatives-04 #7). The venue publishes none to this desk, so the
+ * limit in force is the INTAFACED edge's own per-address limit, read from the edge as it enforces it, and the row says
+ * so; an edge with its limiter off says that no limit of ours applies. Never "unlimited", never a typed figure.
+ */
+function OrderRate() {
+  const { t } = futuresVenueCopy.useCopy();
+  const api = useApi();
+  const read = useResource((signal) => readRateCosts(api, signal), 'edge-rate-costs').resource;
+  if (read.status === 'loading')
+    return (
+      <dd data-testid="venue-order-rate" data-state="loading">
+        {t('rate_loading')}
+      </dd>
+    );
+  const limit = read.status === 'ready' ? read.data.edgeLimit : undefined;
+  if (limit === undefined)
+    return (
+      <dd data-testid="venue-order-rate" data-state="unknown">
+        {t('rate_edge_unknown')}
+      </dd>
+    );
+  if (limit === null)
+    return (
+      <dd data-testid="venue-order-rate" data-state="edge-off">
+        {t('rate_edge_off')}
+      </dd>
+    );
+  const window =
+    limit.windowMs % 1000 === 0 ? t('window_seconds', { n: String(limit.windowMs / 1000) }) : t('window_ms', { n: String(limit.windowMs) });
+  return (
+    <dd data-testid="venue-order-rate" data-state="edge" data-max={limit.max} data-window-ms={limit.windowMs}>
+      {t('rate_edge', { max: String(limit.max), window })}
+    </dd>
+  );
+}
+
+/**
  * The market's own published rules, read from the venue (J-derivatives-21 #1, #4): who lists it, the oracle and mark
  * rules it is priced by, its trading hours, and its price feed's state with the venue's rule while it is stale. Each is
  * the venue's text as published, or "not published by this venue"; nothing here is ours, and nothing claims a
@@ -340,8 +380,10 @@ export function percentOf(fraction: string): string {
  */
 function MarketRules({ market, venueName, test }: { market: VenueMarket; venueName: string; test: boolean }) {
   const { t } = futuresVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
   const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
   const feed = market.feed.known ? market.feed.value : null;
+  const selfTrade = venueSelfTrade(market);
   return (
     <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
       <h2 className="dk-tab-title">
@@ -393,6 +435,16 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
         <div>
           <dt>{t('Stale rule')}</dt>
           <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
+        </div>
+        <div>
+          <dt>{t('Self trade rule')}</dt>
+          <dd data-testid="venue-self-trade-rule" data-mode={selfTrade ?? 'unknown'}>
+            {selfTrade ? word(v, 'stp', selfTrade) : t('Not published')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Order rate')}</dt>
+          <OrderRate />
         </div>
         {market.openInterest?.known ? (
           <>
