@@ -3,6 +3,7 @@
  * then loosened. tooling-tests.mjs runs it with every other tooling test.
  */
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import {
   DECLARED,
   UNDECLARED_HINT,
@@ -14,6 +15,7 @@ import {
   judge,
   judgeBaselines,
   sourceFor,
+  restReader,
 } from './test-diff-guard.mjs';
 import { autoRevert } from './exact-revert.mjs';
 
@@ -450,4 +452,43 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
 test('an undeclared finding says to re-run the job after adding the Test-change line: an edited description starts no run', () => {
   eq(/line starting "Test-change:"/.test(UNDECLARED_HINT), true, 'names the line');
   eq(/then re-run the Doctrine gates job/.test(UNDECLARED_HINT), true, 'says to re-run');
+});
+
+test('check 7: the reader tries a GitHub server error again, and never a refusal or a limit', async () => {
+  const reply = (status) => ({
+    ok: status < 400,
+    status,
+    statusText: String(status),
+    headers: new Headers(),
+    json: async () => ({ status }),
+    text: async () => String(status),
+  });
+  const scripted = (statuses) => {
+    const calls = [];
+    return { calls, fetchImpl: async (url) => (calls.push(url), reply(statuses[calls.length - 1])) };
+  };
+  const waited = [];
+  const sleep = async (ms) => void waited.push(ms);
+
+  // A 502, then a 200: the read succeeds after one wait.
+  let s = scripted([502, 200]);
+  assert.deepEqual(await restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), { status: 200 });
+  assert.equal(s.calls.length, 2);
+  assert.deepEqual(waited, [5]);
+
+  // Three 5xx in a row: it throws with the last status, after both waits.
+  waited.length = 0;
+  s = scripted([502, 503, 504]);
+  await assert.rejects(restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), /GitHub 504 504 on \/x/);
+  assert.equal(s.calls.length, 3);
+  assert.deepEqual(waited, [5, 7]);
+
+  // A refusal and a limit throw at once, never retried.
+  for (const status of [403, 429, 404]) {
+    waited.length = 0;
+    s = scripted([status, 200]);
+    await assert.rejects(restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), new RegExp(`GitHub ${status}`));
+    assert.equal(s.calls.length, 1);
+    assert.deepEqual(waited, []);
+  }
 });
