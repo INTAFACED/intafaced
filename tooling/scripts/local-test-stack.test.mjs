@@ -1167,7 +1167,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against. The TEST
@@ -1179,7 +1179,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
-  assert.match(source, /async function cmdRestart\(names, \{[^}]*start = cmdStart \}[\s\S]*?await start\(\[\]\);/);
+  assert.match(source, /async function cmdRestart\(\s*names,\s*\{[^}]*start = cmdStart,[^}]*\}[\s\S]*?await start\(/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
   assert.match(source, /local-test-market\.mjs'\), cmd\]/);
   console.log('local-test-stack: market supervision checks passed');
@@ -1594,6 +1594,51 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: a halted indexer reads HALTED in the health table');
 }
 
+// 22b. The founder console is left out (neither built nor started) after `start --no-admin`, through every later
+// `--only` start of a running stack (a journey restarting one service), until a start names it or names nothing
+// (project-state #3674: its Next build alone peaks near 1.6 GB, and most journeys never open it).
+{
+  const { adminWantedBy, consoleRows, healthAllOk } = await import('./local-test-stack.mjs');
+  assert.equal(adminWantedBy([], null, null), true, 'a plain start brings the console');
+  assert.equal(adminWantedBy([], null, 'off'), true, 'a plain start brings it back');
+  assert.equal(adminWantedBy(['--no-admin'], null, null), false);
+  assert.equal(adminWantedBy(['--only', 'trade', '--no-admin'], ['trade'], 'on'), false);
+  assert.equal(adminWantedBy(['--only', 'ledger'], ['ledger'], 'off'), false, 'a mid-run --only start keeps it out');
+  assert.equal(adminWantedBy(['--only', 'ledger'], ['ledger'], null), true);
+  assert.equal(adminWantedBy(['--only', 'admin'], ['admin'], 'off'), true, 'naming it brings it in');
+  assert.equal(adminWantedBy(['--only', 'team-tls'], ['team-tls'], 'off'), true);
+  const rows = (adminWanted, status, ok) =>
+    consoleRows({ adminWanted, admin: { port: 3100, pid: undefined, status }, teamTls: { port: 3110, pid: undefined, ok } });
+  const market = ['market-maker', '-', '-', 'ok'];
+  assert.deepEqual(
+    rows(false, 0, false).map((r) => r[3]),
+    ['off (--no-admin; bring it up: pnpm local:stack restart admin)', 'off (--no-admin; bring it up: pnpm local:stack restart admin)'],
+  );
+  assert.equal(healthAllOk([...rows(false, 0, false), market]), true, 'left out on purpose does not fail the start');
+  assert.deepEqual(
+    rows(true, 0, false).map((r) => r[3]),
+    ['DOWN (0)', 'DOWN'],
+  );
+  assert.equal(healthAllOk([...rows(true, 0, false), market]), false, 'wanted and down still fails');
+  assert.deepEqual(
+    rows(false, 200, true).map((r) => r[3]),
+    ['ok', 'ok'],
+    'one still running reads ok',
+  );
+  // The start reads the wish before it builds, and leaves both processes out when the console is not wanted.
+  const source = readFileSync(new URL('./local-test-stack.mjs', import.meta.url), 'utf8');
+  assert.match(
+    source,
+    /const admin = adminWantedBy\(flags, only, readText\(P\.adminWanted\)\);[\s\S]{0,200}ensureBuilt\(flags\.includes\('--rebuild'\), \{ admin \}\);/,
+  );
+  assert.match(source, /if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);/);
+  assert.match(
+    source,
+    /if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);/,
+  );
+  console.log('local-test-stack: --no-admin leaves the console out until a start names it');
+}
+
 // 23. A running service on another build is restarted onto the new one, so the start migrates it first (a new
 // migration would otherwise be missing: svc-protocol refused to boot without protocol.listing_challenges).
 {
@@ -1716,6 +1761,25 @@ console.log('local-test-stack: customer folder override checks passed');
       start: async (flags) => did.push(['start', flags]),
     });
     assert.deepEqual(did, ['take', 'refuse', ['stop', ['ledger']], ['start', []]]);
+  }
+  // A stack started with --no-admin keeps its console out across a restart, unless the restart names the console.
+  {
+    const startsOf = async (names, wanted) => {
+      const flags = [];
+      await cmdRestart(names, {
+        take: async () => {},
+        refuse: async () => {},
+        stop: async () => {},
+        start: async (f) => flags.push(f),
+        adminWanted: () => wanted,
+      });
+      return flags;
+    };
+    assert.deepEqual(await startsOf(['support'], 'off'), [['--no-admin']]);
+    assert.deepEqual(await startsOf(['support'], 'on'), [[]]);
+    assert.deepEqual(await startsOf(['support'], null), [[]]);
+    assert.deepEqual(await startsOf(['admin'], 'off'), [[]]);
+    assert.deepEqual(await startsOf(['team-tls'], 'off'), [[]]);
   }
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
 }
