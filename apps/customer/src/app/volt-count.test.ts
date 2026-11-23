@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { intoVoltLayer, offKitFindings, ratchet, voltCount, type VoltSource } from './volt-count';
+import { intoVoltLayer, offKitFindings, placeholderOnly, ratchet, voltCount, type VoltSource } from './volt-count';
 import allowedOffKit from './volt-off-kit.json';
 
 const count = voltCount();
@@ -31,6 +31,13 @@ describe('customer rooms in Volt', () => {
         `A batch into ${process.env.GITHUB_BASE_REF}: ${count.rooms.filter((r) => r.state === 'volt' && allowedOffKit.includes(r.key)).length} listed rooms now in Volt, tightened on the layer's PR into main`,
       );
     expect(stale).toEqual([]);
+  });
+
+  it('counts no room that shows only a placeholder: the three stubs counted on 22 Nov 2026', () => {
+    const placeholders = count.rooms.filter((r) => r.state === 'placeholder').map((r) => r.key);
+    for (const key of ['/mining/workers/:workerId', '/token/governance/:proposalId', '/chain/validators/:validatorId'])
+      expect(placeholders, key).toContain(key);
+    console.info(`Rooms on the kit that show only a placeholder: ${placeholders.length} (${placeholders.join(', ')})`);
   });
 
   it('names every reason a room is out', () => {
@@ -119,6 +126,77 @@ describe('the off-kit rule', () => {
     const found = offKitFindings(join(dir, 'room/Room.tsx'));
     expect(found.map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual(['outside-component Room.tsx:3']);
     expect(found[0]!.text).toMatch(/^Dirty from \.\.\/parts\/Dirty, which draws off the kit: own-class at .*Helper\.tsx:1$/);
+  });
+});
+
+describe('a room that shows only a placeholder', () => {
+  const plant = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'volt-placeholder-'));
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(join(dir, name, '..'), { recursive: true });
+      writeFileSync(join(dir, name), text);
+    }
+    return join(dir, 'room/Room.tsx');
+  };
+  const head = `import { MonitorTemplate } from '@intafaced/ui/lit/templates';\nimport { EmptyState } from '@intafaced/ui/lit';\nimport { roomCopy } from './copy';\n`;
+  const copy = { 'room/copy.ts': `export const roomCopy = { useCopy: () => ({ t: (k) => k }) };\n` };
+
+  it("names a room whose template state is always empty, or whose only panel is the kit's EmptyState", () => {
+    const always = plant({
+      ...copy,
+      'room/Room.tsx': `${head}export const Room = () => { const { t } = roomCopy.useCopy(); return <MonitorTemplate title={t('a')} state={{ kind: 'empty', title: t('b') }} figures={[]} />; };\n`,
+    });
+    expect(placeholderOnly(always)).toMatch(/shows only a placeholder/);
+    const blocker = plant({
+      'room/Room.tsx': `${head}export const Room = ({ ok }) => <MonitorTemplate state={{ kind: 'ready' }} panels={ok ? <EmptyState title="parked" /> : <EmptyState title="not found" />} />;\n`,
+    });
+    expect(placeholderOnly(blocker)).toMatch(/shows only a placeholder/);
+    // Reached inside its folder: the empty state drawn by a part of its own still counts.
+    const part = plant({
+      'room/Room.tsx': `${head}import { Part } from './Part';\nexport const Room = () => <MonitorTemplate state={{ kind: 'ready' }} panels={<Part />} />;\n`,
+      'room/Part.tsx': `import { EmptyState } from '@intafaced/ui/lit';\nexport const Part = () => <EmptyState title="nothing" />;\n`,
+    });
+    expect(placeholderOnly(part)).toMatch(/shows only a placeholder/);
+  });
+
+  it('passes a room that reads its records, lists something, or draws no empty state', () => {
+    const reads = plant({
+      'room/Room.tsx': `${head}import { useWorker } from '../reads';\nexport const Room = () => { const w = useWorker(); return <MonitorTemplate state={w ? { kind: 'ready' } : { kind: 'empty', title: 'none' }} />; };\n`,
+    });
+    expect(placeholderOnly(reads)).toBeNull();
+    const lists = plant({
+      'room/Room.tsx': `${head}const ITEMS = ['a'];\nexport const Room = () => <MonitorTemplate state={{ kind: 'ready' }} panels={ITEMS.length ? ITEMS.map((i) => <p key={i}>{i}</p>) : <EmptyState title="none" />} />;\n`,
+    });
+    expect(placeholderOnly(lists)).toBeNull();
+    const content = plant({
+      ...copy,
+      'room/Room.tsx': `${head}export const Room = () => { const { t } = roomCopy.useCopy(); return <MonitorTemplate state={{ kind: 'ready' }} panels={<p>{t('about')}</p>} />; };\n`,
+    });
+    expect(placeholderOnly(content)).toBeNull();
+  });
+
+  it('leaves a placeholder out of n, in a batch, and off the list of rooms allowed off the kit', () => {
+    const src = mkdtempSync(join(tmpdir(), 'volt-placeholder-count-'));
+    const files: Record<string, string> = {
+      'features/m/a/A.tsx': `// volt-room: /m/a\nimport { FlowTemplate } from '@intafaced/ui/lit/templates';\nexport const A = () => <FlowTemplate />;\n`,
+      'features/m/b/B.tsx': `// volt-room: /m/b\nimport { FlowTemplate } from '@intafaced/ui/lit/templates';\nexport const B = () => <FlowTemplate state={{ kind: 'empty', title: 'soon' }} />;\n`,
+    };
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(join(src, name, '..'), { recursive: true });
+      writeFileSync(join(src, name), text);
+    }
+    const c = voltCount({
+      src,
+      rooms: ['/m/a', '/m/b'].map((path) => ({ path, title: path, area: 'm' })),
+      routeTemplates: { '/m/a': { template: 'flow' }, '/m/b': { template: 'flow' } },
+      portalRooms: [],
+      portalTemplates: {},
+    });
+    expect([c.n, c.N]).toEqual([1, 2]);
+    expect(c.rooms.find((r) => r.key === '/m/b')?.state).toBe('placeholder');
+    expect(c.batches).toEqual([{ batch: 'm · flow', size: 1, rooms: ['/m/b'] }]);
+    expect(ratchet(c, [], false)).toEqual([]);
+    expect(ratchet(c, ['/m/b'], false)[0]).toMatch(/^stale: \/m\/b/);
   });
 });
 

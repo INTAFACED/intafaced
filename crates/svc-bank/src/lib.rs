@@ -5,12 +5,13 @@
 //! register function: who may call each, and its input check, held to the TypeScript's recorded answers by
 //! `tests/wire_replay.rs`. Past those checks a call is owed by its slice (`door::Slice`). `env` is the environment,
 //! `errors` the refusals and how the router's guard answers them. Each ported slice is its own module
-//! (`credit_previews`, `partner`, `spaces`, `transfers`, `earn`, `loans`, `activity`, `cards`, `card_programme`, `ramps`, `automations`, `bills`; the TEST age door, `test_age`, is the partner slice's). The store: `db` (the pool and the schema check), `migrate` (the `bank` schema's migrations),
+//! (`credit_previews`, `partner`, `spaces`, `transfers`, `earn`, `loans`, `activity`, `cards`, `card_programme`, `ramps`, `automations`, `bills`, `global`, `bank_api`; the TEST age door, `test_age`, is the partner slice's). The store: `db` (the pool and the schema check), `migrate` (the `bank` schema's migrations),
 //! `ready` (`/ready`), `restore_watermark` (svc-ops' restore position), `recovery` (the recovery jobs' lock and pass)
 //! and `timers` (what else `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
 pub mod activity;
 pub mod automations;
+pub mod bank_api;
 pub mod bills;
 pub mod card_ops_desk;
 pub mod card_programme;

@@ -1367,6 +1367,7 @@ name = "svc-bank"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.3.4",
  "hmac 0.12.1",
  "icu_normalizer",
  "k256",
@@ -1376,6 +1377,7 @@ dependencies = [
  "sha3",
  "signal-hook",
  "tiny_http",
+ "ureq",
  "url",
 ]
 

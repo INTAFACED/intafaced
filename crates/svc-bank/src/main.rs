@@ -23,6 +23,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
 use svc_bank::automations;
+use svc_bank::bank_api;
 use svc_bank::bills;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
@@ -328,6 +329,14 @@ fn recovery_jobs<'a>(
             "bank.recovery.sweep_received_holds",
             Box::new(move |batch| {
                 door.transfers_deps(|d| Ok(outcomes(transfers::holds::sweep(d, i64::from(batch)))))
+            }),
+        ),
+        (
+            "bank.recovery.deliver_bank_api_webhooks",
+            Box::new(move |batch| {
+                door.bank_api_deps(door.now(), |d| {
+                    bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
+                })
             }),
         ),
     ]
@@ -800,6 +809,9 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_activity(activity_wiring(env)?)
     .with_global(global_wiring(env)?)
     .with_card_programme(card_programme_wiring(env))
+    .with_bank_api(bank_api::Wiring::new(
+        matches!(raw("APP_ENV"), Some("dev" | "test")) && raw("NODE_ENV") != Some("production"),
+    ))
     .with_automations(automations_wiring(env)?)
     .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
@@ -993,6 +1005,12 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
                     );
                 });
             });
+        }
+        // Slice `bank-api`: a recorded state change's webhook deliveries, posted after the request that recorded it.
+        {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || bank_api::run_kicked(door, stop));
         }
         server::serve(&server, &app, log, telemetry, &stop);
     });

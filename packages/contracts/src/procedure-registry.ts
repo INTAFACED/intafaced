@@ -1302,7 +1302,11 @@ import {
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
 
+import { OPS_ALERT_RULES_STATES } from './ops-alert-rules-procedures.js';
+
 import { OPS_ALERTS_LIST, OPS_ALERTS_PERIODS, OPS_ALERTS_PLATFORM_INCIDENTS, OPS_ALERTS_GET } from './ops-alerts-procedures.js';
+
+import { OPS_ANNOUNCEMENTS_ACTIVE, OPS_ANNOUNCEMENTS_LIST, OPS_ANNOUNCEMENTS_CHANGE } from './ops-announcements-procedures.js';
 
 import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD } from './ops-capital-procedures.js';
 
@@ -1317,6 +1321,8 @@ import {
 } from './ops-compliance-procedures.js';
 
 import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
+
+import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from './ops-incidents-procedures.js';
 
 import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
 
@@ -1337,6 +1343,8 @@ import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } f
 import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
 
 import { OPS_RESTORE_WATERMARKS, OPS_RESTORE_BACKUPS, OPS_RESTORE_RUNS, OPS_RESTORE_RUN } from './ops-restore-procedures.js';
+
+import { OPS_SERVICES_GET, OPS_SERVICES_SET } from './ops-services-procedures.js';
 
 import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
 
@@ -3530,11 +3538,19 @@ const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_CONFIGURE,
 ];
 
+const part_ops_alert_rules_procedures: readonly ProcedureRecord[] = [OPS_ALERT_RULES_STATES];
+
 const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
   OPS_ALERTS_LIST,
   OPS_ALERTS_PERIODS,
   OPS_ALERTS_PLATFORM_INCIDENTS,
   OPS_ALERTS_GET,
+];
+
+const part_ops_announcements_procedures: readonly ProcedureRecord[] = [
+  OPS_ANNOUNCEMENTS_ACTIVE,
+  OPS_ANNOUNCEMENTS_LIST,
+  OPS_ANNOUNCEMENTS_CHANGE,
 ];
 
 const part_ops_capital_procedures: readonly ProcedureRecord[] = [OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO, OPS_CAPITAL_SET_THRESHOLD];
@@ -3550,6 +3566,8 @@ const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
 ];
 
 const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
+
+const part_ops_incidents_procedures: readonly ProcedureRecord[] = [OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET];
 
 const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
   OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
@@ -3579,6 +3597,8 @@ const part_ops_restore_procedures: readonly ProcedureRecord[] = [
   OPS_RESTORE_RUNS,
   OPS_RESTORE_RUN,
 ];
+
+const part_ops_services_procedures: readonly ProcedureRecord[] = [OPS_SERVICES_GET, OPS_SERVICES_SET];
 
 const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
 
@@ -4641,16 +4661,20 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_notify_procedures,
   ...part_notify_reconciliation_alert_feed_procedures,
   ...part_notify_status_page_procedures,
+  ...part_ops_alert_rules_procedures,
   ...part_ops_alerts_procedures,
+  ...part_ops_announcements_procedures,
   ...part_ops_capital_procedures,
   ...part_ops_compliance_procedures,
   ...part_ops_console_mode_procedures,
+  ...part_ops_incidents_procedures,
   ...part_ops_outreach_procedures,
   ...part_ops_preferences_procedures,
   ...part_ops_protocol_listing_procedures,
   ...part_ops_public_procedures,
   ...part_ops_record_venue_cost_procedures,
   ...part_ops_restore_procedures,
+  ...part_ops_services_procedures,
   ...part_ops_staff_holds_procedures,
   ...part_ops_venue_economics_procedures,
   ...part_p2p_disputes_procedures,

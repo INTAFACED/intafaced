@@ -24,6 +24,8 @@ mod automations_pay_yourself_db;
 mod automations_rules_db;
 #[path = "automations_sorter_db.rs"]
 mod automations_sorter_db;
+#[path = "bank_api_db.rs"]
+mod bank_api_db;
 #[path = "bills_direct_debits_db.rs"]
 mod bills_direct_debits_db;
 #[path = "bills_pay_db.rs"]
