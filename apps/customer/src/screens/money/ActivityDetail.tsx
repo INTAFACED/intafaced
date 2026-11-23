@@ -173,7 +173,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           </p>
           {holding && <p className="lt-hint">{t('Set aside note')}</p>}
         </header>
-        <section data-testid="money-card" data-record={item.id} className="money-card money-detail__card" aria-label={t('Details')}>
+        <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Details')}>
           <h2 className="money-detail__h">{t('Details')}</h2>
           <dl className="money-facts">
             <Fact label={t('Type')}>{title}</Fact>
