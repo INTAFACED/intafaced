@@ -1046,12 +1046,15 @@ export class AuthService {
     device?: string;
     ip?: string;
     deviceKey?: string | null;
+    /** Throws to refuse the draft's address before any account is made (the invited-list gate). */
+    admit?: (email: string) => void;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
     // A code asked for before the list was switched off makes no account while it is off (J-identity-22 #1).
     this.assertCountryListSet();
-    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
-      this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
-    );
+    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) => {
+      input.admit?.(d.email);
+      return this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash);
+    });
     const session = await this.finishRegistration(userId, {
       handle: draft.handle,
       email: draft.email,

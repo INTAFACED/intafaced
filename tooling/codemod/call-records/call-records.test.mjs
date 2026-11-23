@@ -9,6 +9,7 @@ import {
   answerChecks,
   Changes,
   checkedCall,
+  checkedToolCall,
   importedFrom,
   importsFile,
   holdCallersOnly,
@@ -842,6 +843,74 @@ test("the portal's tools and validatedMutation, each caller naming its call alon
   assert.equal(reasonOf(sender.problem), 'tool kept while a caller is left (each caller named under its own reason)');
 });
 
+test('a portal caller whose schema only refines the answer keeps it in queryRecordAs/listRecordAs; a built or changing schema, or the settings tools, stay', async () => {
+  const { toolFormsIn } = await import('./tool-forms.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const portal = 'apps/customer/src/features/pay/portal';
+  put(`${portal}/api-tools.ts`, [
+    'export function portalTools(api, userId) { return { userId }; }',
+    'export type PortalTools = ReturnType<typeof portalTools>;',
+  ]);
+  put(`${portal}/settings/b-client.ts`, ['export type SettingsBTools = {};']);
+  // The very calls the weed found in payments/api.ts: a row tied to the merchant asked for, by .refine().
+  put(`${portal}/payments/api.ts`, [
+    "import type { PortalTools } from '../api-tools';",
+    'export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({',
+    "  one: (merchantId: string, id: string, signal?: AbortSignal) => query('subscription.get', { subscriptionId: id }, subscriptionSchema.refine((row) => row.merchantId === merchantId), signal),",
+    "  page: (merchantId: string, signal?: AbortSignal) => list('subscription.list', subscriptionSchema.refine((row) => row.merchantId === merchantId), { merchantId }, signal),",
+    "  built: (merchantId: string) => query('merchant.x', {}, tolerantPage(rowSchema)),",
+    "  changed: () => query('merchant.y', {}, rowSchema.transform((r) => r.id)),",
+    "  stop: (id: string) => mutate('subscription.cancel', { id }, s),",
+    '});',
+  ]);
+  put(`${portal}/settings/reports/client.ts`, [
+    "import type { SettingsBTools } from '../b-client';",
+    "export const reportsApi = ({ query }: SettingsBTools) => ({ r: (m: string) => query('reports.get', {}, rowSchema.refine((x) => x.m === m)) });",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).filter((s) => String(s.shape).startsWith('tool:'));
+  const of = (path) => sites.find((s) => s.path === path);
+  const checksOf = (s) => {
+    const p = load(s.file);
+    return answerChecks(p, s.node.arguments[s.tool.schema ?? s.tool.item]);
+  };
+  assert.equal(checkedToolCall(of('subscription.get'), checksOf(of('subscription.get'))), true);
+  assert.equal(checkedToolCall(of('subscription.list'), checksOf(of('subscription.list'))), true);
+  assert.match(checksOf(of('merchant.x'))[0], /^tolerantPage\(\) builds the schema/);
+  assert.equal(checkedToolCall(of('merchant.x'), checksOf(of('merchant.x'))), false);
+  assert.equal(checkedToolCall(of('merchant.y'), checksOf(of('merchant.y'))), false);
+  assert.equal(checkedToolCall(of('reports.get'), checksOf(of('reports.get'))), false);
+
+  const changes = new Changes();
+  for (const [path, name] of [
+    ['subscription.get', 'PAY_SUBSCRIPTION_GET'],
+    ['subscription.list', 'PAY_SUBSCRIPTION_LIST'],
+    ['subscription.cancel', 'PAY_SUBSCRIPTION_CANCEL'],
+  ]) {
+    const s = of(path);
+    if (path !== 'subscription.cancel') s.checked = text(load(s.file), s.node.arguments[s.tool.schema ?? s.tool.item]);
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+  }
+  toolFormsIn(changes);
+  const file = of('subscription.get').file;
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(out, /^export const paymentsApi = \(\{ query, queryRecordAs, listRecordAs, mutateRecord \}: PortalTools\) => \(\{$/m);
+  assert.match(
+    out,
+    /queryRecordAs\(PAY_SUBSCRIPTION_GET, \{ subscriptionId: id \}, subscriptionSchema\.refine\(\(row\) => row\.merchantId === merchantId\), signal\)/,
+  );
+  assert.match(
+    out,
+    /listRecordAs\(PAY_SUBSCRIPTION_LIST, \{ merchantId \}, subscriptionSchema\.refine\(\(row\) => row\.merchantId === merchantId\), signal\)/,
+  );
+  assert.match(out, /mutateRecord\(PAY_SUBSCRIPTION_CANCEL, \{ id \}\)/);
+});
+
 test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
   const put = (path, lines) => {
@@ -1643,6 +1712,47 @@ test('portable: an answer refinement with a message is named in the record, once
   assert.deepEqual(
     [...edits.get(record).edits.values()].map((e) => e.text),
     [', outputChecks: { view_cap_holds: { at: ["output.personalCap", "output.sharedCap"], says: "a cap is never zero" } }'],
+  );
+});
+
+test("portable: a refinement under .nullable() is the wrapped schema's, named once however many findings sit there", async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'state.ts'),
+    [
+      "import { z } from 'zod';",
+      "export const stateSchema = z.object({ a: z.string().nullable(), b: z.string().nullable() }).strict().refine((s) => (s.a === null) === (s.b === null), 'a and b come together').refine((s) => s.a !== '', 'a is never empty');",
+      "export const amountSchema = z.string().refine((v) => v !== '0', 'a figure is above zero');",
+      'export const rowSchema = z.object({ current: stateSchema.nullable(), cap: amountSchema.nullable().optional() });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'state-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { stateSchema, rowSchema } from './state.js';",
+      "export const S = defineProcedure({ name: 'x.state', input: NO_INPUT, output: stateSchema.nullable(), samples: [] });",
+      "export const H = defineProcedure({ name: 'x.history', input: NO_INPUT, output: z.array(rowSchema), samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      s: `x.state.output cannot be exported without losing meaning: x.state.output ${refine}; x.state.output ${refine}`,
+      h: `x.history.output cannot be exported without losing meaning: x.history.output[].current ${refine}; x.history.output[].cap ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, []);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', outputChecks: { state_holds: { at: "output", says: "a is never empty; a and b come together" } }',
+      ', outputChecks: { state_holds: { at: "output[].current", says: "a is never empty; a and b come together" }, amount_holds: { at: "output[].cap", says: "a figure is above zero" } }',
+    ],
   );
 });
 
