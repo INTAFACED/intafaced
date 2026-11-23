@@ -12,8 +12,9 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 One copy of the local test stack (`tooling/scripts/local-test-stack.mjs`) runs on the Linux box, in its own checkout of
 `origin/main` (`~/.intafaced/beta/checkout`), its own state folder (`~/.intafaced/beta/state`) and slot 3, so its ports
 never move. The systemd user service `intafaced-beta.service` runs `tooling/beta/beta-host.mjs serve`, which every 30
-minutes fetches main, moves the checkout to it, installs, and runs `verify launch`, which rebuilds what changed and
-readies the stack the way a journeys shard is readied. A merge to main is on the link within the hour.
+minutes fetches main and runs `verify launch`, which readies the stack the way a journeys shard is readied and restarts
+what is down. At most once every 2 hours it first moves the checkout to main and installs, so the launch rebuilds what
+changed: a merge to main is on the link within about two and a half hours. The mailbox page names the commit served.
 
 **Who can open it (the allow list):** the stack listens only on the box's own loopback. Nothing on the internet or the
 home network can reach it. It opens only through T3 Connect's preview tunnel, on a device signed in to the owner's T3
