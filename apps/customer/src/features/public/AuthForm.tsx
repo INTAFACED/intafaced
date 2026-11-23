@@ -48,6 +48,7 @@ import {
   type AuthRecord,
 } from './public-auth-guards';
 import './public-auth.css';
+import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
 
 type Original = {
   api: ApiClient;
@@ -299,10 +300,13 @@ export function AuthForm({ register }: { register: boolean }) {
       target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
     };
     // Private inputs are captured in this invocation only. No request body enters the browser journal.
-    const input =
-      kind === 'register'
-        ? { handle: handle.trim(), email: identifierForRequest, password, ...(region ? { region: region.toUpperCase() } : {}) }
-        : { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
+    const registerInput = {
+      handle: handle.trim(),
+      email: identifierForRequest,
+      password,
+      ...(region ? { region: region.toUpperCase() } : {}),
+    };
+    const loginInput = { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
     const identifierForPasskey = identifierForRequest;
     const controller = new AbortController();
     abort.current = controller;
@@ -416,13 +420,10 @@ export function AuthForm({ register }: { register: boolean }) {
           });
         } else {
           if (!same(original)) return;
-          answer = await original.api.mutate(
-            'identity',
-            kind === 'register' ? 'auth.register' : 'auth.login',
-            input,
-            kind === 'register' ? sessionSchema : signInAnswerSchema,
-            { signal: controller.signal },
-          );
+          answer =
+            kind === 'register'
+              ? await original.api.call(IDENTITY_AUTH_REGISTER, registerInput, { signal: controller.signal })
+              : await original.api.call(IDENTITY_AUTH_LOGIN, loginInput, { signal: controller.signal });
           // Too many failed sign-ins came from this address: solve the service's challenge here, then send once more.
           if (kind !== 'register' && !answer.ok && answer.code === 'auth.challenge_required') {
             setChallengeTries(0);
@@ -435,9 +436,13 @@ export function AuthForm({ register }: { register: boolean }) {
                   if (same(original)) setChallengeTries(tries);
                 });
                 if (!same(original)) return;
-                answer = await original.api.mutate('identity', 'auth.login', { ...input, challenge: proof }, signInAnswerSchema, {
-                  signal: controller.signal,
-                });
+                answer = await original.api.call(
+                  IDENTITY_AUTH_LOGIN,
+                  { ...loginInput, challenge: proof },
+                  {
+                    signal: controller.signal,
+                  },
+                );
               }
             } finally {
               setChallengeTries(null);

@@ -94,5 +94,4 @@ export const earnWrites = {
   'autoInvest.createRoundUp': ruleSchema,
   'autoInvest.pause': ruleSchema,
   'autoInvest.resume': ruleSchema,
-  'autoInvest.cancel': z.object({ ok: z.literal(true) }),
 } as const;

@@ -130,7 +130,9 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await openCoin(page);
   const pills = page.getByTestId('coin-ranges').locator('button');
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
-  expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
+  // report (ALL); the words the page holds are what the step's order is about.
+  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
   const asked = page.waitForResponse(
     (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
@@ -154,7 +156,9 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   // Drawn: two or more candles draw the chart (fewer fall back to finer candles, which the page then draws).
   await expect(page.getByTestId('coin-chart')).toBeVisible();
   await expect(page.getByTestId('chart-empty')).toHaveCount(0);
-  expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
+  // report (ALL); the words the page holds are what the step's order is about.
+  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
   await page.keyboard.press('ArrowRight');

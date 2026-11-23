@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -8,7 +7,6 @@ import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/par
 import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy';
 import {
   OWN_AGENT_RULE_CHOICES,
-  ownAgentApprovalRequestSchema,
   ownAgentToolCallSchema,
   type OwnAgent,
   type OwnAgentApprovalRequest,
@@ -27,6 +25,7 @@ import {
   AGENTS_OWN_CONSENTS_LIST,
   AGENTS_OWN_CONSENTS_REVOKE,
   AGENTS_OWN_CONSENTS_GRANT,
+  AGENTS_OWN_APPROVALS,
 } from '@intafaced/contracts/agents-own-procedures';
 
 /**
@@ -114,8 +113,6 @@ function actionWords(t: Words, tool: string): string {
 const classWords = (t: Words, dataClass: OwnAgentDataClass) => t(`class_${dataClass}`);
 const ruleWords = (t: Words, rule: Pick<OwnAgentRule, 'tool' | 'choice'>) =>
   t(`rule_${rule.choice}`, { action: actionWords(t, rule.tool) });
-
-const requestsSchema = z.array(ownAgentApprovalRequestSchema);
 
 /** The Rules page: the person's standing rules for this agent, one per tool. */
 export function RulesPage({ agent }: { agent: OwnAgent }) {
@@ -430,7 +427,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
   const requests = useResource(
-    (signal) => api.query('agents', 'own.approvals', { id: agent.id, limit: 50 }, requestsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_APPROVALS, { id: agent.id, limit: 50 }, { signal }),
     `own-approvals:${agent.id}:${version}`,
   );
   return (

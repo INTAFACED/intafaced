@@ -126,6 +126,8 @@ pub struct DebitReport {
     pub mandates: Vec<(String, String, Option<Instant>, Instant)>,
     /// (owner, mandate, collection, code), in the order refused.
     pub failures: Vec<(String, String, String, String)>,
+    /// When each of `failures` was refused, in the same order (`PartnerDirectDebitFailure.at`).
+    pub failed_at: Vec<Instant>,
     pub refunds: Vec<Refund>,
 }
 
@@ -163,6 +165,7 @@ pub struct DirectDebitDesk {
     known: Vec<(String, String, Instant)>,
     known_at: HashMap<String, usize>,
     failures: Vec<(String, String, String, String)>,
+    failed_at: Vec<Instant>,
     failure_keys: HashMap<String, usize>,
     refunds: Vec<Refund>,
     refund_at: HashMap<String, usize>,
@@ -196,6 +199,7 @@ impl DirectDebitDesk {
                 collection_id.to_owned(),
                 code.to_owned(),
             ));
+            self.failed_at.push(now);
         }
     }
 
@@ -452,6 +456,7 @@ impl State {
                 })
                 .collect(),
             failures: self.debits.failures.clone(),
+            failed_at: self.debits.failed_at.clone(),
             refunds: self.debits.refunds.clone(),
         }
     }

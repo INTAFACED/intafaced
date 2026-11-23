@@ -24,6 +24,12 @@ mod automations_pay_yourself_db;
 mod automations_rules_db;
 #[path = "automations_sorter_db.rs"]
 mod automations_sorter_db;
+#[path = "bills_direct_debits_db.rs"]
+mod bills_direct_debits_db;
+#[path = "bills_pay_db.rs"]
+mod bills_pay_db;
+#[path = "bills_rail_sends_db.rs"]
+mod bills_rail_sends_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
@@ -42,6 +48,10 @@ mod credit_previews;
 mod earn_db;
 #[path = "env_parity.rs"]
 mod env_parity;
+#[path = "global_send_db.rs"]
+mod global_send_db;
+#[path = "global_sim_db.rs"]
+mod global_sim_db;
 #[path = "guard_grid.rs"]
 mod guard_grid;
 #[path = "input_parity.rs"]

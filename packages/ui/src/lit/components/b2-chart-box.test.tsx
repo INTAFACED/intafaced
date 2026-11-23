@@ -19,7 +19,7 @@ describe('ChartBox', () => {
       </ChartBox>,
     );
     expect(out).toBe(
-      '<div class="lt-chart-box" data-testid="chart-area"><div class="lt-chart-canvas" role="img" aria-label="Bitcoin price, past day" data-testid="coin-chart"><div class="lt-chart-canvas-host" data-testid="coin-chart__host"></div></div></div>',
+      '<div class="lt-chart-box" data-testid="chart-area"><div class="lt-chart-canvas" role="figure" aria-label="Bitcoin price, past day" data-testid="coin-chart"><div class="lt-chart-canvas-host" data-testid="coin-chart__host"></div></div></div>',
     );
   });
 

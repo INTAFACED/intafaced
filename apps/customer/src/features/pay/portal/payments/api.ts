@@ -8,12 +8,11 @@ import {
 } from '@intafaced/contracts/pay-payment-views';
 import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../../schemas';
-import { cycleSchema } from './billing-schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
 import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
-import { PAY_SUBSCRIPTION_PRODUCT_READY } from '@intafaced/contracts/pay-subscription-procedures';
+import { PAY_SUBSCRIPTION_PRODUCT_READY, PAY_SUBSCRIPTION_CYCLES } from '@intafaced/contracts/pay-subscription-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 
 const REFUND_PAGES = 5;
@@ -65,12 +64,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
       signal,
     ),
   subscriptionCycles: (subscriptionId: string, signal?: AbortSignal) =>
-    query(
-      'subscription.cycles',
-      { subscriptionId, limit: 200 },
-      z.object({ subscriptionId: z.literal(subscriptionId), cycles: z.array(cycleSchema) }),
-      signal,
-    ),
+    queryRecord(PAY_SUBSCRIPTION_CYCLES, { subscriptionId, limit: 200 }, signal),
   links: (merchantId: string, limit: number, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_LIST_LINKS, { merchantId, limit }, signal).then(listed),
   disputePage: (
