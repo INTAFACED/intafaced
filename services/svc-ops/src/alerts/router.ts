@@ -27,6 +27,10 @@ import { assertIdempotencyKey } from '../operator-desks.js';
 import { assertOpsListLimit } from '../list-limit.js';
 import type { Actor, AlertRules, RuleCursor } from './rules.js';
 import type { AlertStateStore } from './state-store.js';
+import { cursorSchema, rule, stateSchema } from '@intafaced/contracts/ops-call-schemas';
+import { OPS_ALERT_RULES_STATES } from '@intafaced/contracts/ops-alert-rules-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -34,7 +38,6 @@ const keyField = z.string();
 const reasonField = z.string().trim().min(1).max(500);
 const versionField = z.number().int().min(1);
 
-const cursorSchema = z.string().min(1).max(600);
 const encodeCursor = (c: RuleCursor) => Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
 function decodeCursor(raw: string): RuleCursor {
   try {
@@ -46,20 +49,6 @@ function decodeCursor(raw: string): RuleCursor {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'cursor is not one this list returned' });
   }
 }
-
-const stateSchema = z.object({
-  instance: z.string(),
-  state: z.enum(OPS_ALERT_STATES),
-  health: z.enum(OPS_ALERT_HEALTH),
-  epoch: z.number().int(),
-  pendingSince: z.string().nullable(),
-  firingSince: z.string().nullable(),
-  lastEvaluatedAt: z.string(),
-  lastValue: z.string().nullable(),
-  lastCode: z.string().nullable(),
-  /** The rule says keep last and the latest check was unhealthy: the state is the earlier one. */
-  kept: z.boolean(),
-});
 
 const historyRowSchema = z.object({
   id: z.number().int(),
@@ -120,7 +109,6 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       return alertError(err);
     }
   };
-  const rule = opsAlertRuleSchema;
 
   return router({
     list: scopedProcedure('admin:read', guards)
@@ -160,21 +148,9 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     /** Rules with their stored state and health. A rule that has not been evaluated yet says so; no state is invented. */
-    states: scopedProcedure('admin:read', guards)
-      .input(
-        z.object({
-          limit: z.number().int().min(1).max(200).optional(),
-          folder: z.string().optional(),
-          group: z.string().optional(),
-          name: z.string().max(120).optional(),
-          label: z.object({ key: z.string(), value: z.string() }).optional(),
-          state: z.enum(OPS_ALERT_STATES).optional(),
-          health: z.enum(OPS_ALERT_HEALTH).optional(),
-          cursor: cursorSchema.optional(),
-        }),
-      )
-      .output(z.object({ items: z.array(z.object({ rule, status: stateSchema.nullable() })), nextCursor: z.string().nullable() }))
-      .query(({ input }) =>
+    states: mountRecord(
+      OPS_ALERT_RULES_STATES,
+      ({ input }) =>
         guarded(async () => {
           const store = need();
           const states = stateStore;
@@ -220,7 +196,8 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
                 : null,
           };
         }),
-      ),
+      opsRefusal,
+    ),
 
     /** State changes, newest first, capped at the page size you pass; a cut page says so and the filters narrow it. */
     history: scopedProcedure('admin:read', guards)

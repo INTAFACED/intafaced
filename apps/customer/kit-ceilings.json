@@ -174,8 +174,6 @@
     "apps/customer/src/screens/charts/studies/StudyDialogs.tsx": 7,
     "apps/customer/src/screens/charts/TemplatesMenu.tsx": 8,
     "apps/customer/src/screens/charts/trading/ChartTrading.tsx": 17,
-    "apps/customer/src/screens/coin/CoinBar.tsx": 3,
-    "apps/customer/src/screens/coin/KeyStats.tsx": 1,
     "apps/customer/src/screens/home/PayYourself.tsx": 1,
     "apps/customer/src/screens/money/Activity.tsx": 10,
     "apps/customer/src/screens/money/ActivityNote.tsx": 1,
@@ -239,7 +237,6 @@
   "garden/no-raw-type-class": {
     "apps/customer/src/features/account/Verification.tsx": 2,
     "apps/customer/src/features/pay/ui-kit.tsx": 6,
-    "apps/customer/src/screens/coin/PriceCard.tsx": 2,
     "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 12,
     "apps/customer/src/screens/trade/execution/AlgoForm.tsx": 6,
     "apps/customer/src/screens/trade/execution/AlgoList.tsx": 6,

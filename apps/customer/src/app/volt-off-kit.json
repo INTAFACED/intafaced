@@ -16,7 +16,6 @@
   "/money/activity",
   "/money/activity/:id",
   "/money/balance/:asset",
-  "/coin/:asset",
   "/portfolio/:asset/repeat-buy",
   "/uc/recharge",
   "/uc/withdraw",

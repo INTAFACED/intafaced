@@ -7,10 +7,12 @@ import {
   type ServiceGetOutput,
   type ServiceSetInput,
 } from '@intafaced/contracts/ops-console-services';
-import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView } from '@/lib/desk';
+import { opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView, founderRecordRead } from '@/lib/desk';
 import { HEALTH_ROWS, boardReads, buildBoard } from '@/lib/module-health';
 import { loadReads } from '@/lib/ops-desk';
 import { MODULE_ALERTS_PAGE, MODULE_ALERT_LABEL, UNWIRED_PANELS, panelOf, readModuleAlerts, type ServicePageView } from './model';
+import { OPS_SERVICES_GET, OPS_SERVICES_SET } from '@intafaced/contracts/ops-services-procedures';
+import { OPS_ALERT_RULES_STATES } from '@intafaced/contracts/ops-alert-rules-procedures';
 
 const parseRecord = (raw: unknown): ServiceGetOutput | null => {
   const parsed = serviceGetOutputSchema.safeParse(raw);
@@ -18,14 +20,14 @@ const parseRecord = (raw: unknown): ServiceGetOutput | null => {
 };
 
 export async function loadServiceRecord(ctx: FounderCallContext, module: ModuleId) {
-  const result = await founderCall(ctx, 'ops', 'services.get', 'GET', { module }, parseRecord);
+  const result = await founderRecordRead(ctx, OPS_SERVICES_GET, { module }, parseRecord);
   return opsReadOf(result, SERVICE_STORAGE_UNCONFIGURED, 'service records');
 }
 
 /** svc-ops' alert rules labelled with this module, with their stored state. */
 async function loadModuleAlerts(ctx: FounderCallContext, module: ModuleId) {
   const input = { label: { key: MODULE_ALERT_LABEL, value: module }, limit: MODULE_ALERTS_PAGE };
-  const result = await founderCall(ctx, 'ops', 'alertRules.states', 'GET', input, readModuleAlerts);
+  const result = await founderRecordRead(ctx, OPS_ALERT_RULES_STATES, input, readModuleAlerts);
   return opsReadOf(result, 'ops.alert_storage_unconfigured', 'alert rules');
 }
 
@@ -57,7 +59,7 @@ export async function saveServiceRecord(
   ctx: FounderCallContext,
   input: ServiceSetInput,
 ): Promise<{ status: number; reply: { ok: true; record: ServiceGetOutput['record'] } | ({ ok: false } & RefusalView) }> {
-  const result = await founderCall(ctx, 'ops', 'services.set', 'POST', input, parseRecord);
+  const result = await founderRecordRead(ctx, OPS_SERVICES_SET, input, parseRecord);
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, record: result.data.record } };
   const out = writeRefusalOf(result);
   // svc-ops names the fields it refused ("… takes: ownerTeam, runbook"); say which, in the form's words.
