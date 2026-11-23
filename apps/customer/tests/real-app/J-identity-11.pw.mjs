@@ -1,10 +1,15 @@
-// World: gates, stack
+// World: gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
+import { OWN_AGENT, createOwnAgent } from './agents.mjs';
+import { body200 } from './answers.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import { openVenueDesk, sameDecimal, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-11, in the running app (docs/roadmap/journeys.json): I freeze my own account and later reactivate it.
@@ -13,6 +18,47 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 const J = 'J-identity-11';
 
 test.describe.configure({ mode: 'default' });
+// Each person holds TEST USDC in their own venue account on the stack's TEST venue, under their own TEST wallet: the
+// Money line says a freeze moves none of it. Every step reads the TEST venue's own record of that account.
+venueForThisFile(test);
+
+/** What the person is told about their funds, the same sentence wherever INTAFACED says it. */
+const FUNDS = 'Your funds stay in your own wallet and venue account, which only your wallet controls.';
+const HELD = '500';
+
+/** The person's own TEST wallet and its venue account, funded with TEST USDC by the TEST venue's deposit control. */
+async function ownVenueAccount() {
+  const walletKey = testWalletKey();
+  const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+  await testDeposit(owner, 'USDC', HELD, `deposit:${J}:${owner}`);
+  return { walletKey, owner };
+}
+
+/**
+ * The USDC the desk shows for the person's connected wallet, read on a device of its own, and the TEST venue's own record
+ * of the same account: they must agree. Returns the venue's figure.
+ */
+async function deskAgreesWithVenue(browser, who, venueAcct) {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await openVenueDesk(page, who, '/trade/futures', own.walletKey);
+    const venue = await venueBalance(own.owner, 'USDC');
+    await expect.poll(async () => sameDecimal((await shownBalance(page, 'USDC')).total, venue.total), { timeout: 15_000 }).toBe(true);
+    return venue;
+  } finally {
+    await context.close();
+  }
+}
+
+/** The account as the TEST venue itself records it: still exactly what the person put in, with no order resting on it. */
+async function venueUntouched(venueAcct) {
+  const venue = await venueBalance(own.owner, 'USDC');
+  expect(sameDecimal(venue.total, HELD), JSON.stringify(venue)).toBe(true);
+  expect(sameDecimal(venue.locked, '0'), JSON.stringify(venue)).toBe(true);
+  expect((await venueRecord(own.owner, '/open-orders')).value).toEqual([]);
+  return venue;
+}
 
 function person(prefix = 'jf') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -73,8 +119,13 @@ const ACTIONS = [
   'Start a send to a withdrawal address',
 ];
 
-test(`${J} #1 Account status lists what I can still do and what I cannot; an active account blocks nothing`, async ({ page }) => {
-  await signUpInBrowser(page, person());
+test(`${J} #1 Account status lists what I can still do and what I cannot; an active account blocks nothing`, async ({ page, browser }) => {
+  test.setTimeout(180_000);
+  const who = person();
+  await signUpInBrowser(page, who);
+  // The person's own venue account: the desk shows what the TEST venue records for it.
+  const venueAcct = await ownVenueAccount();
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   await page.goto('/uc/account');
   const status = page.getByTestId('account-status');
   await expect(status.getByRole('heading', { name: 'Account status' })).toBeVisible();
@@ -97,6 +148,9 @@ test(`${J} #1 Account status lists what I can still do and what I cannot; an act
   await expect(lock).toContainText('It holds until you ask to unlock it in Security.');
   await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(ACTIONS.slice(3));
   await expect(status.getByTestId('account-status__can').locator('li')).toHaveText(['Sign in', 'Trade', 'Create API keys']);
+  // The lock moved nothing: the venue account holds what it held, and the desk still shows the venue's own figure.
+  await venueUntouched(venueAcct);
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
 });
 
 /** The freeze link on the newest security notice mailed to `email`, as the path the mail links to. */
@@ -141,6 +195,15 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   const { page, who } = await keyHolder(browser, 'jl');
   const key = await makeKey(page, { name: 'freeze-me', preset: 'Read only' });
   const session = await api(who);
+  // Their own venue account, which the desk shows as the TEST venue records it.
+  const venueAcct = await ownVenueAccount();
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
+  // An agent permission stored for the person: their own agent, allowed to use their own data.
+  await createOwnAgent(page);
+  const agents = body200(await session.get(query('/api/agents/trpc/own.list', { limit: 50 })));
+  const agentId = agents.result.data.find((row) => row.name === OWN_AGENT).id;
+  body200(await session.post('/api/agents/trpc/own.consents.grant', { id: agentId, dataClass: 'own_data' }));
+  expect((await consentsOf(who, agentId)).map((c) => c.state)).toEqual(['granted']);
   const STATUS = '/api/identity/trpc/accountStatus.mine';
   expect((await session.get(STATUS)).status).toBe(200);
   expect((await withKey(key, { path: STATUS })).status).toBe(200);
@@ -219,14 +282,39 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   const refused = await withdrawalCheck(again);
   expect(refused.status).toBe(412);
   expect(refusalOf(refused)).toBe('bank.account_frozen_self');
+
+  // Every agent permission stored for the person is revoked, and an agent order is refused with the freeze.
+  await expect
+    .poll(async () => (await consentsOf(who, agentId)).map((c) => c.state), { timeout: 10_000, message: 'the agent kept its permission' })
+    .toEqual(['withdrawn']);
+  const agentOrder = await again.post('/api/v1/quant/live-runs', { runId: crypto.randomUUID(), owner: venueAcct.owner });
+  expect(agentOrder.status, JSON.stringify(agentOrder.body).slice(0, 300)).toBe(423);
+  expect(agentOrder.body?.intafacedCode ?? codeOn(agentOrder), JSON.stringify(agentOrder.body)).toBe('quant.account_frozen');
+  // Nothing reached the venue: the person's own account holds what it held, with no order on it.
+  await venueUntouched(venueAcct);
+
+  // Signed in again to the freeze, the wallet room tells the person their funds stay in their own wallet and venue account.
+  const wallet = await (await browser.newContext()).newPage();
+  await signInFrozen(wallet, who);
+  await wallet.goto('/wallet/venue');
+  const notice = wallet.getByTestId('own-freeze-notice');
+  await expect(notice).toContainText(FUNDS);
 });
+
+/** The person's own agent's consents, as svc-agents holds them, read on a sign-in of its own. */
+async function consentsOf(who, agentId) {
+  return body200(await (await api(who)).get(query('/api/agents/trpc/own.consents.list', { id: agentId }))).result.data;
+}
 
 test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" page with the lift path, not a generic error`, async ({
   page,
+  browser,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const who = person('jg');
   await signUpInBrowser(page, who);
+  const venueAcct = await ownVenueAccount();
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   await freezeOwn(page, who);
 
   // The sign-in succeeds and lands on the person's own freeze, typed from identity's account status, with no refusal.
@@ -254,6 +342,8 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
     .evaluateAll((items) => items.map((li) => li.getAttribute('data-action')));
   expect(stops).toEqual(read.body.result.data.restrictions[0].blocks);
   expect(stops.length).toBeGreaterThan(0);
+  // Frozen and signed in again, the person's own venue account holds what the desk showed before the freeze.
+  await venueUntouched(venueAcct);
 
   // The lift path: Security holds the reactivation for this freeze.
   await frozen.getByRole('button', { name: 'Reactivate in Security' }).click();
@@ -264,12 +354,15 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
 
 test(`${J} #4 Asking to reactivate before the wait is over is refused with the seconds left; after it, step-up lifts the freeze`, async ({
   page,
+  browser,
 }) => {
   // The stack's waiting time is the TEST owner value IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS=20; a blank one refuses
   // (svc-identity self-freeze-lift tests). The lift needs a second factor, so the person adds an authenticator app.
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const who = person('jr');
   await signUpInBrowser(page, who);
+  const venueAcct = await ownVenueAccount();
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
 
   // The person freezes their own account from Security; every session ends.
   const frozenAt = await freezeOwn(page, who);
@@ -316,15 +409,20 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await page.goto('/uc/account');
   await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
   await expect(status.getByTestId('account-status__restrictions')).toHaveCount(0);
+  // Through the freeze and the lift the venue account was never touched, and the desk shows the venue's own figure again.
+  await venueUntouched(venueAcct);
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
 });
 
 // A staff freeze refuses signing in, so the customer path (sign in, then reactivate) stops at the sign-in page, which
 // names the freeze, says only support lifts it and points to the appeal. The appeal is filed signed out with the
 // password, as the page says, and identity's appeal door holds it (I-account-lifecycle-12).
-test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, async ({ page }) => {
-  test.setTimeout(240_000);
+test(`${J} #5 A staff freeze shows its own page that only staff can lift, with the appeal path`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
   const who = person('js');
   await signUpInBrowser(page, who);
+  const venueAcct = await ownVenueAccount();
+  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   const userId = await staffFreeze(who);
   let lifted = false;
   try {
@@ -344,6 +442,8 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
     // Not the person's own freeze: no reactivation is offered, only the appeal.
     await expect(page.getByTestId('frozen-by-you')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Reactivate in Security' })).toHaveCount(0);
+    // The staff freeze moved nothing on the person's own venue account.
+    await venueUntouched(venueAcct);
     await failure.getByRole('link', { name: 'Appeal this freeze' }).click();
     await expect(page).toHaveURL(/\/appeal$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Appeal a freeze');
@@ -399,6 +499,9 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
       decision: { outcome: 'lifted', reason: LIFT_REASON },
     });
     await expect.poll(() => mailedLines(who.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
+    // Lifted, the desk shows the venue account's own figure, unchanged through the freeze.
+    await venueUntouched(venueAcct);
+    expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
   } finally {
     if (!lifted) {
       try {
