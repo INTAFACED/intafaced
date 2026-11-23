@@ -150,9 +150,17 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   const { me } = people();
   await signIn(page, me);
   // The handle settings as svc-identity answers handle.get on a load of Receive: the handle, the cap and the count.
+  // Only a read this load starts counts: Receive re-reads the settings on its own (a dialog closing), and a reply to that
+  // earlier read is gone once the page reloads.
   const settingsOn = async (load) => {
+    const since = Date.now();
     const [answer] = await Promise.all([
-      page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/handle.get') && res.request().method() === 'GET'),
+      page.waitForResponse(
+        (res) =>
+          new URL(res.url()).pathname.endsWith('/handle.get') &&
+          res.request().method() === 'GET' &&
+          res.request().timing().startTime >= since,
+      ),
       load(),
     ]);
     expect(answer.ok(), 'handle.get answers').toBe(true);
