@@ -35,6 +35,7 @@ const prettier = (files) => files.length && sh(join(REPO, 'node_modules/.bin/pre
 /** Each app's type errors now, keyed without the line (a moved file's lines shift). */
 export function appTypeErrors(repo = REPO) {
   const errors = [];
+  if (!existsSync(join(repo, 'apps'))) return errors;
   for (const app of readdirSync(join(repo, 'apps'))) {
     if (!existsSync(join(repo, 'apps', app, 'tsconfig.json'))) continue;
     const r = spawnSync('node', [join(repo, 'tooling', 'scripts', 'tsc.mjs'), '--noEmit', '-p', '.'], {
