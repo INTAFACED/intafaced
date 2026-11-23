@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+// volt-room: /quant/live/:runId
+import { useEffect, useState, type ReactNode } from 'react';
+import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field } from '../../shared/ui';
+import { Button, Field, Select } from '@intafaced/ui/lit';
 import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
-import { Read, Select } from '../more';
+import { ReadView } from '../../shared/record/record-parts';
 import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
 
@@ -119,7 +121,8 @@ function Refused({ refusal }: { refusal: Refusal }) {
   );
 }
 
-/** `/quant/live/:runId`: one run. */
+/** `/quant/live/:runId`: one run, on the monitor template: its state as the key figure, Stop and Liquidate as the room's
+ * actions, and the safeguards, manual order, venue record, orders and log as its panels. */
 export function LiveRun({ runId }: { runId: string }) {
   const api = useApi();
   const { t } = liveRunCopy.useCopy();
@@ -137,33 +140,51 @@ export function LiveRun({ runId }: { runId: string }) {
     if (ready) setShown(ready);
   }, [ready]);
   const current = ready ?? (detail.resource.status === 'loading' ? shown : null);
+  const intro = <p className="lt-hint">{t('intro')}</p>;
   return (
     <section aria-label={t('roomTitle')} data-testid="live-run">
-      <p className="lt-muted">{t('intro')}</p>
       {current ? (
-        <RunBody d={current} onChange={reload} />
+        <MonitorTemplate
+          title={t('roomTitle')}
+          description={t('description')}
+          state={{ kind: 'ready' }}
+          figures={[<RunStatus key="status" d={current} />]}
+          actions={<Controls d={current} onChange={reload} />}
+          panels={<RunPanels d={current} onChange={reload} />}
+          explain={intro}
+        />
       ) : (
-        <Read resource={detail.resource} retry={detail.reload}>
-          {(d) => <RunBody d={d} onChange={reload} />}
-        </Read>
+        <MonitorTemplate
+          title={t('roomTitle')}
+          description={t('description')}
+          state={{ kind: 'ready' }}
+          figures={[]}
+          panels={
+            <ReadView resource={detail.resource} retry={detail.reload}>
+              {() => null}
+            </ReadView>
+          }
+          explain={intro}
+        />
       )}
     </section>
   );
 }
 
-function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
+/** The run's name and version, and its state, why it ended and its permission, as the room's key figure. */
+function RunStatus({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   return (
-    <>
+    <div className="lt-stack">
       {d.test ? (
-        <p className="lt-muted" data-testid="live-run-test">
+        <p className="lt-hint" data-testid="live-run-test">
           {t('testLabel')}
         </p>
       ) : null}
-      <h3>
+      <h2>
         {d.strategyName} · {t('version', { version: d.strategyVersion })}
-      </h3>
-      <dl className="protocol-facts" data-testid="live-run-status">
+      </h2>
+      <dl className="lt-kv" data-testid="live-run-status">
         <div>
           <dt>{t('stateLabel')}</dt>
           <dd data-testid="live-run-state" data-state={d.state}>
@@ -193,26 +214,34 @@ function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
           {t('frozenNotice')}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** The run's panels, each under its own heading, one section apart. */
+function RunPanels({ d, onChange }: { d: Detail; onChange: () => void }) {
+  const { t } = liveRunCopy.useCopy();
+  return (
+    <div className="lt-sections">
       <Safeguards d={d} />
-      <Controls d={d} onChange={onChange} />
       <ManualOrder d={d} onChange={onChange} />
       <VenueRecord d={d} />
       <RunOrders d={d} />
       <section aria-label={t('logTitle')} data-testid="live-run-log">
-        <h4>{t('logTitle')}</h4>
+        <h2>{t('logTitle')}</h2>
         {d.log.length === 0 ? (
-          <p className="lt-muted">{t('logNone')}</p>
+          <p className="lt-hint">{t('logNone')}</p>
         ) : (
-          <ol>
+          <ol className="lt-list">
             {d.log.map((e) => (
               <li key={e.n} data-kind={e.kind}>
-                <span className="lt-num">{timeText(e.at)}</span> {e.detail}
+                <span className="lt-num lt-muted">{timeText(e.at)}</span> {e.detail}
               </li>
             ))}
           </ol>
         )}
       </section>
-    </>
+    </div>
   );
 }
 
@@ -221,8 +250,8 @@ function Safeguards({ d }: { d: Detail }) {
   const h = d.health;
   return (
     <section aria-label={t('safeguards')} data-testid="live-run-health">
-      <h4>{t('safeguards')}</h4>
-      <dl className="protocol-facts">
+      <h2>{t('safeguards')}</h2>
+      <dl className="lt-kv">
         <div>
           <dt>{t('restarts')}</dt>
           <dd data-testid="live-run-restarts" data-restarts={h.restarts} data-attempts={h.restartAttempts}>
@@ -287,27 +316,31 @@ function Controls({ d, onChange }: { d: Detail; onChange: () => void }) {
     onChange();
   }
   return (
-    <section aria-label={t('controls')} data-testid="live-run-controls">
-      <h4>{t('controls')}</h4>
-      <p className="lt-muted">{t('stopWhat')}</p>
-      <Button variant="secondary" disabled={busy} onClick={() => void stop()}>
-        {busy ? t('stopping') : t('stop')}
-      </Button>
-      <p className="lt-muted">{t('liquidateWhat')}</p>
-      {confirming ? (
-        <>
-          <Button variant="danger" disabled={busy} onClick={() => void liquidate()}>
-            {t('liquidateConfirm')}
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>
-            {t('liquidateCancel')}
-          </Button>
-        </>
-      ) : (
-        <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>
-          {t('liquidate')}
+    <section aria-label={t('controls')} data-testid="live-run-controls" className="lt-stack">
+      <h2>{t('controls')}</h2>
+      <p className="lt-hint">{t('stopWhat')}</p>
+      <div className="lt-toolbar">
+        <Button tone="secondary" disabled={busy} onClick={() => void stop()}>
+          {busy ? t('stopping') : t('stop')}
         </Button>
-      )}
+      </div>
+      <p className="lt-hint">{t('liquidateWhat')}</p>
+      <div className="lt-toolbar">
+        {confirming ? (
+          <>
+            <Button tone="secondary" disabled={busy} onClick={() => void liquidate()}>
+              {t('liquidateConfirm')}
+            </Button>
+            <Button tone="quiet" disabled={busy} onClick={() => setConfirming(false)}>
+              {t('liquidateCancel')}
+            </Button>
+          </>
+        ) : (
+          <Button tone="secondary" disabled={busy} onClick={() => setConfirming(true)}>
+            {t('liquidate')}
+          </Button>
+        )}
+      </div>
       {note ? (
         <p role="status" data-testid="live-run-note">
           {note}
@@ -344,10 +377,11 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
     onChange();
   }
   return (
-    <section aria-label={t('manualTitle')} data-testid="live-run-manual">
-      <h4>{t('manualTitle')}</h4>
-      <p className="lt-muted">{t('manualWhat')}</p>
+    <section aria-label={t('manualTitle')} data-testid="live-run-manual" className="lt-stack">
+      <h2>{t('manualTitle')}</h2>
+      <p className="lt-hint">{t('manualWhat')}</p>
       <form
+        className="lt-stack"
         aria-label={t('manualTitle')}
         onSubmit={(event) => {
           event.preventDefault();
@@ -378,7 +412,7 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
         {type === 'limit' ? (
           <Field label={t('price')} inputMode="decimal" value={price} disabled={busy} onChange={(e) => setPrice(e.target.value)} />
         ) : null}
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" tone="primary" disabled={busy}>
           {t('send')}
         </Button>
       </form>
@@ -396,16 +430,16 @@ function VenueRecord({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   const v = d.venue;
   return (
-    <section aria-label={t('venueTitle')} data-testid="live-run-venue">
-      <h4>{t('venueTitle')}</h4>
+    <section aria-label={t('venueTitle')} data-testid="live-run-venue" className="lt-stack">
+      <h2>{t('venueTitle')}</h2>
       {!v ? (
         <p role="alert">{d.venueError ?? t('venueUnread')}</p>
       ) : (
         <>
-          <p className="lt-muted" data-testid="live-run-as-of">
+          <p className="lt-hint" data-testid="live-run-as-of">
             {t('asOf', { time: timeText(v.asOf) })}
           </p>
-          <DataTable label={t('cash')} headers={[t('colAsset'), t('colFree'), t('colLocked'), t('colTotal')]}>
+          <LitTable label={t('cash')} headers={[t('colAsset'), t('colFree'), t('colLocked'), t('colTotal')]}>
             {v.balances.map((b) => (
               <tr key={b.asset} data-testid="live-run-cash" data-asset={b.asset}>
                 <td>{b.asset}</td>
@@ -416,14 +450,14 @@ function VenueRecord({ d }: { d: Detail }) {
                 </td>
               </tr>
             ))}
-          </DataTable>
-          <h5>{t('positions')}</h5>
+          </LitTable>
+          <h3>{t('positions')}</h3>
           {v.positions.length === 0 ? (
-            <p className="lt-muted" data-testid="live-run-no-position">
+            <p className="lt-hint" data-testid="live-run-no-position">
               {t('positionsNone')}
             </p>
           ) : (
-            <DataTable label={t('positions')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colEntry'), t('colMark')]}>
+            <LitTable label={t('positions')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colEntry'), t('colMark')]}>
               {v.positions.map((p) => (
                 <tr key={p.symbol} data-testid="live-run-position" data-symbol={p.symbol} data-size={p.size}>
                   <td>{p.symbol}</td>
@@ -433,15 +467,15 @@ function VenueRecord({ d }: { d: Detail }) {
                   <td className="lt-num">{p.markPrice}</td>
                 </tr>
               ))}
-            </DataTable>
+            </LitTable>
           )}
-          <h5>{t('openOrders')}</h5>
+          <h3>{t('openOrders')}</h3>
           {v.openOrders.length === 0 ? (
-            <p className="lt-muted" data-testid="live-run-no-open-order">
+            <p className="lt-hint" data-testid="live-run-no-open-order">
               {t('openNone')}
             </p>
           ) : (
-            <DataTable label={t('openOrders')} headers={[t('colMarket'), t('colSide'), t('colPrice'), t('colRemaining')]}>
+            <LitTable label={t('openOrders')} headers={[t('colMarket'), t('colSide'), t('colPrice'), t('colRemaining')]}>
               {v.openOrders.map((o, i) => (
                 <tr key={o.venueClientOrderId ?? i} data-testid="live-run-open-order">
                   <td>{o.symbol}</td>
@@ -450,13 +484,13 @@ function VenueRecord({ d }: { d: Detail }) {
                   <td className="lt-num">{o.remaining}</td>
                 </tr>
               ))}
-            </DataTable>
+            </LitTable>
           )}
-          <h5>{t('fills')}</h5>
+          <h3>{t('fills')}</h3>
           {v.fills.length === 0 ? (
-            <p className="lt-muted">{t('fillsNone')}</p>
+            <p className="lt-hint">{t('fillsNone')}</p>
           ) : (
-            <DataTable label={t('fills')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colFee'), t('colTime')]}>
+            <LitTable label={t('fills')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colFee'), t('colTime')]}>
               {v.fills.map((f) => (
                 <tr key={f.fillId} data-testid="live-run-fill" data-side={f.side} data-amount={f.amount}>
                   <td>{f.symbol}</td>
@@ -469,7 +503,7 @@ function VenueRecord({ d }: { d: Detail }) {
                   <td className="lt-num">{timeText(f.filledAt)}</td>
                 </tr>
               ))}
-            </DataTable>
+            </LitTable>
           )}
         </>
       )}
@@ -481,32 +515,55 @@ function RunOrders({ d }: { d: Detail }) {
   const { t } = liveRunCopy.useCopy();
   if (d.orders.length === 0) return null;
   return (
-    <DataTable
-      label={t('ordersTitle')}
-      headers={[t('colSeq'), t('colKind'), t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colRecorded'), t('colVenue')]}
-    >
-      {d.orders.map((o) => (
-        <tr
-          key={o.seq}
-          data-testid="live-run-order"
-          data-seq={o.seq}
-          data-kind={o.kind}
-          data-key={o.actionKey}
-          data-reduce-only={String(o.reduceOnly)}
-        >
-          <td className="lt-num">{o.seq}</td>
-          <td>{t(`kind_${o.kind}`)}</td>
-          <td>{o.symbol}</td>
-          <td>
-            {o.side}
-            {o.reduceOnly ? ` · ${t('reduceOnly')}` : ''}
-          </td>
-          <td className="lt-num">{o.size}</td>
-          <td className="lt-num">{o.price}</td>
-          <td>{t(`order_${o.state}`)}</td>
-          <td>{o.order ? o.order.status : '—'}</td>
-        </tr>
-      ))}
-    </DataTable>
+    <section aria-label={t('ordersTitle')} className="lt-stack">
+      <h2>{t('ordersTitle')}</h2>
+      <LitTable
+        label={t('ordersTitle')}
+        headers={[t('colSeq'), t('colKind'), t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colRecorded'), t('colVenue')]}
+      >
+        {d.orders.map((o) => (
+          <tr
+            key={o.seq}
+            data-testid="live-run-order"
+            data-seq={o.seq}
+            data-kind={o.kind}
+            data-key={o.actionKey}
+            data-reduce-only={String(o.reduceOnly)}
+          >
+            <td className="lt-num">{o.seq}</td>
+            <td>{t(`kind_${o.kind}`)}</td>
+            <td>{o.symbol}</td>
+            <td>
+              {o.side}
+              {o.reduceOnly ? ` · ${t('reduceOnly')}` : ''}
+            </td>
+            <td className="lt-num">{o.size}</td>
+            <td className="lt-num">{o.price}</td>
+            <td>{t(`order_${o.state}`)}</td>
+            <td>{o.order ? o.order.status : '—'}</td>
+          </tr>
+        ))}
+      </LitTable>
+    </section>
+  );
+}
+
+/** A table the room fills with its own rows, in a named region that scrolls on its own. */
+function LitTable({ headers, children, label }: { headers: readonly ReactNode[]; children: ReactNode; label: string }) {
+  return (
+    <div className="lt-scroll-row" tabIndex={0} role="region" aria-label={label}>
+      <table className="lt-table">
+        <thead>
+          <tr>
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
   );
 }

@@ -304,6 +304,7 @@ test(`${J} #6 asks to deploy a strategy by key: no such endpoint and the referen
 
 test(`${J} #7 stops a live strategy with and without the trade scope: refused without it; works under the same rules as the screen with it`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(6 * 60_000);
   const s = state('runKey', 'tradeKey');
@@ -345,6 +346,8 @@ test(`${J} #7 stops a live strategy with and without the trade scope: refused wi
   await expect(room.getByTestId('live-run-reason')).toHaveAttribute('data-reason', 'user_stop');
   await expect(room.getByTestId('live-run-no-open-order')).toBeVisible();
   await expect(room.getByTestId('live-run-position')).toHaveAttribute('data-size', BLOCK);
+  // The step's picture: the stopped run on the screen, taken before its page closes.
+  await stepPicture(page);
   await page.context().close();
 });
 

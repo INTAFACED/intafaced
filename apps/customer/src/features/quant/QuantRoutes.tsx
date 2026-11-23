@@ -123,6 +123,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: liveRunCopy.t('roomTitle'),
       description: liveRunCopy.t('description'),
       content: <LiveRun key={`${userId ?? 'anonymous'}:${live[1]}`} runId={live[1]!.toLowerCase()} />,
+      bare: true,
     };
   }
   // The Preview rooms (AL-order-01): full layouts on TEST sample data; every engine action is refused by name.
