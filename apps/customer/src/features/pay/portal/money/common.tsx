@@ -1,11 +1,9 @@
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
-import { EmptyState } from '../../ui-kit';
 import { useTestMode } from './test-mode';
-import { PortalFailure, PortalLoading, TestTag } from '../components';
+import { PortalFailure, TestTag } from '../components';
 import type { ListState } from '../hooks';
-import { isNotLive, refusalText } from '../refusal';
-import { EntityList, type EntityCard, type EntityColumn } from '../ui/EntityList';
+import { refusalText } from '../refusal';
 import type { ApiResult } from '../../../../shared/api';
 import { NotLiveCard } from '../chrome/NotLiveCard';
 import { reason, type ReasonKey } from '../chrome/copy';
