@@ -156,3 +156,31 @@
 .preview-code code {
   font-family: var(--lit-font-mono);
 }
+
+/* The tester's controls: the link to the real backtest keeps its own space after the two buttons. */
+.preview-controls {
+  align-items: center;
+}
+.preview-controls > .lt-link {
+  margin-inline-start: var(--if-space-2);
+}
+
+/* The optimiser's sample passes fit a phone: headers may wrap, cells keep a small inline gap, figures end-aligned
+   under their headers. */
+table.preview-passes {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.preview-passes :is(th, td) {
+  padding-inline: var(--if-space-1);
+  white-space: normal;
+  text-align: end;
+}
+.preview-passes :is(th, td):first-child {
+  padding-inline-start: 0;
+  text-align: start;
+}
+.preview-passes :is(th, td):last-child {
+  padding-inline-end: 0;
+}
