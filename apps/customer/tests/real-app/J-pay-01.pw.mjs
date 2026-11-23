@@ -471,6 +471,17 @@ test(`${J} #4 presses Review and sees amount, recipient identity, source, note, 
 }) => {
   const { sender, recipient } = people();
   const expected = await terms(sender);
+  // The fees this payment will carry, as its activity row words them (#8 reads them there): our fee, then the network's.
+  run.write({
+    fees: [
+      expected.reviewFee === 'No fee' ? 'No fee' : `Fee ${expected.reviewFee}`,
+      expected.networkFee === null
+        ? 'Network fee not known'
+        : toUnits(expected.networkFee) === 0n
+          ? 'No network fee'
+          : `Network fee ${shown(expected.networkFee)} USDT`,
+    ].join(' · '),
+  });
   await sendForm(page);
   await page.getByTestId('pay-review').click();
   const dialog = page.getByTestId('pay-dialog');
@@ -777,19 +788,10 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
   test.setTimeout(180_000);
   const { sender, recipient } = people();
   run.write({ lastStepRan: true });
-  const { reference, before, second } = run.read();
+  const { reference, before, second, fees } = run.read();
+  if (!fees) throw new Error(`${J} #4 kept no quote, so there are no fees to read`);
   if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
   const moved = toUnits(AMOUNT) + toUnits(second);
-  // The payment's fees as the row words them, from the sender's own quote: our fee, then the network's.
-  const quote = await terms(sender);
-  const fees = [
-    quote.fee === 'No fee' ? 'No fee' : quote.fee.replace('Fee: ', 'Fee '),
-    quote.networkFee === null
-      ? 'Network fee not known'
-      : toUnits(quote.networkFee) === 0n
-        ? 'No network fee'
-        : `Network fee ${shown(quote.networkFee)} USDT`,
-  ].join(' · ');
   for (const side of [
     { who: sender, signIn: () => signInA(page), expected: toUnits(before.sender) - moved, direction: 'out' },
     { who: recipient, signIn: () => signIn(page, recipient), expected: toUnits(before.recipient) + moved, direction: 'in' },
