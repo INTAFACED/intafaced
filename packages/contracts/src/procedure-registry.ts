@@ -658,6 +658,7 @@ import {
   BANK_OPS_CARD_PARTNER_TERMS,
   BANK_OPS_RAMP_HEALTH,
   BANK_OPS_TRANSFER_HEALTH,
+  BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
@@ -2069,7 +2070,7 @@ import {
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
 } from './support-desk-settings-procedures.js';
 
-import { SUPPORT_LIST_QUEUE } from './support-list-queue-procedures.js';
+import { SUPPORT_LIST_QUEUE, SUPPORT_LIST_ALL } from './support-list-queue-procedures.js';
 
 import { SUPPORT_OFFICIAL_CHANNELS } from './support-official-channels-procedures.js';
 
@@ -2155,6 +2156,7 @@ import {
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_CUSTOMER_ORDERS,
 } from './trade-admin-procedures.js';
 
 import {
@@ -2925,6 +2927,7 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_CARD_PARTNER_TERMS,
   BANK_OPS_RAMP_HEALTH,
   BANK_OPS_TRANSFER_HEALTH,
+  BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
@@ -4409,7 +4412,7 @@ const part_support_desk_settings_procedures: readonly ProcedureRecord[] = [
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
 ];
 
-const part_support_list_queue_procedures: readonly ProcedureRecord[] = [SUPPORT_LIST_QUEUE];
+const part_support_list_queue_procedures: readonly ProcedureRecord[] = [SUPPORT_LIST_QUEUE, SUPPORT_LIST_ALL];
 
 const part_support_official_channels_procedures: readonly ProcedureRecord[] = [SUPPORT_OFFICIAL_CHANNELS];
 
@@ -4495,6 +4498,7 @@ const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_CUSTOMER_ORDERS,
 ];
 
 const part_trade_algo_procedures: readonly ProcedureRecord[] = [
