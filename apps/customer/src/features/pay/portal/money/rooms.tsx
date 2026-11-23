@@ -7,7 +7,8 @@ import type { RoomDef, RoomTable } from '../rooms-model';
 import { Approvals } from './Approvals';
 import { LinkButton } from './common';
 import { mc } from './copy';
-import { Conversion, ConversionDetail, ConversionNew } from './Conversion';
+import { ConversionNew } from './Conversion';
+import { ConversionOrderRoom, ConversionRoom } from './ConversionOrders';
 import { DestinationsRoom } from './Destinations';
 import { LimitsRoom } from './Limits';
 import { MerchantMoney } from './Money';
@@ -26,27 +27,16 @@ const go = (href: string, label: string, primary = false): ReactNode => (
   </LinkButton>
 );
 
-const conversion: RoomDef = {
-  header: (route) =>
-    route.room === 'conversion-new'
-      ? { title: t('pageConvertNew'), purpose: t('purposeConvertNew'), action: go('/pay/conversion', t('pageConversion')) }
-      : route.room === 'conversion-order'
-        ? { title: t('pageConversionOrder'), purpose: t('purposeConversionOrder') }
-        : { title: t('pageConversion'), purpose: t('purposeConversion'), action: go('/pay/conversion/new', t('actConvert'), true) },
+const conversionNew: RoomDef = {
+  header: () => ({ title: t('pageConvertNew'), purpose: t('purposeConvertNew'), action: go('/pay/conversion', t('pageConversion')) }),
   here: '/pay/conversion',
-  render: (route, { portal }) => (
+  render: (_route, { portal }) => (
     <WithAccount>
-      {({ merchantId }) =>
-        route.room === 'conversion-new' ? (
-          <Requires need="payout.approve">
-            <ConversionNew portal={portal} merchantId={merchantId} />
-          </Requires>
-        ) : route.room === 'conversion-order' ? (
-          <ConversionDetail portal={portal} orderId={route.param!} />
-        ) : (
-          <Conversion portal={portal} merchantId={merchantId} />
-        )
-      }
+      {({ merchantId }) => (
+        <Requires need="payout.approve">
+          <ConversionNew portal={portal} merchantId={merchantId} />
+        </Requires>
+      )}
     </WithAccount>
   ),
 };
@@ -81,9 +71,22 @@ const refunds: RoomDef = {
 };
 
 export const moneyRooms: RoomTable = {
-  conversion,
-  'conversion-new': conversion,
-  'conversion-order': conversion,
+  conversion: {
+    header: () => ({
+      title: t('pageConversion'),
+      purpose: t('purposeConversion'),
+      action: go('/pay/conversion/new', t('actConvert'), true),
+    }),
+    ownTitle: true,
+    render: (_route, { portal }) => <ConversionRoom portal={portal} />,
+  },
+  'conversion-new': conversionNew,
+  'conversion-order': {
+    header: () => ({ title: t('pageConversionOrder'), purpose: t('purposeConversionOrder') }),
+    here: '/pay/conversion',
+    ownTitle: true,
+    render: (route, { portal }) => <ConversionOrderRoom portal={portal} orderId={route.param!} />,
+  },
   money: {
     header: () => ({ title: t('pageMoney'), purpose: t('purposeMoney'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
     ownTitle: true,
