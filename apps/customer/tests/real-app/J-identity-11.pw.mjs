@@ -8,8 +8,8 @@ import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { signIn, verify } from './desk.mjs';
 import { OWN_AGENT, createOwnAgent } from './agents.mjs';
 import { body200 } from './answers.mjs';
-import { testWalletKey } from './test-wallet.mjs';
-import { openVenueDesk, sameDecimal, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { openVenueDesk, sameDecimal, venueInfo, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -56,6 +56,22 @@ async function deskAgreesWithVenue(browser, who, own) {
   } finally {
     await context.close();
   }
+}
+
+/**
+ * The same comparison on a page the person is already signed in on (a fresh sign-in would ask for the second factor the
+ * person added): the TEST wallet is installed in it and connected on the desk.
+ */
+async function signedInDeskAgrees(page, own) {
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(page, { chainId, privateKey: own.walletKey });
+  await page.goto('/trade/futures');
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+  await expect(page.getByTestId('venue-wallet-address')).toHaveText(wallet.address.toLowerCase());
+  const venue = await venueBalance(own.owner, 'USDC');
+  await expect.poll(async () => sameDecimal((await shownBalance(page, 'USDC')).total, venue.total), { timeout: 15_000 }).toBe(true);
+  return venue;
 }
 
 /** The account as the TEST venue itself records it: still exactly what the person put in, with no order resting on it. */
@@ -421,7 +437,7 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await expect(status.getByTestId('account-status__restrictions')).toHaveCount(0);
   // Through the freeze and the lift the venue account was never touched, and the desk shows the venue's own figure again.
   await venueUntouched(venueAcct);
-  expect(sameDecimal((await deskAgreesWithVenue(browser, who, venueAcct)).total, HELD)).toBe(true);
+  expect(sameDecimal((await signedInDeskAgrees(page, venueAcct)).total, HELD)).toBe(true);
 });
 
 // A staff freeze refuses signing in, so the customer path (sign in, then reactivate) stops at the sign-in page, which
