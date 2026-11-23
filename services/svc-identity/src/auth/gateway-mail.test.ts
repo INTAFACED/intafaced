@@ -100,6 +100,20 @@ describe('http-gateway mail transport', () => {
     expect(reset.text).toContain('Open: https://app.example.com/completePasswordReset?code=tok%2Fen');
   });
 
+  it('keeps a username’s underscores as written, and turns only word-joining underscores into spaces', () => {
+    const app = { app: new URL('https://app.example.com'), console: undefined };
+    const recovery = gatewayMailContent(
+      { email: 'p@example.com', code: '', expiresAt: new Date(), purpose: 'handle-recovery', handle: 'john_doe' },
+      app,
+    );
+    expect(recovery.text).toContain('Your username: john_doe\n');
+    const factor = gatewayMailContent(
+      { email: 'p@example.com', code: '', expiresAt: new Date(), purpose: 'factor-changed', detail: 'totp_added' },
+      app,
+    );
+    expect(factor.text).toContain('change: totp added\n');
+  });
+
   it('refuses a staff invite with no console address rather than linking to the app', () => {
     expect(() =>
       gatewayMailContent(

@@ -82,6 +82,9 @@ const LABELS: Readonly<Record<string, string>> = {
   anti_phishing: 'Your anti-phishing code',
 };
 
+/** Fields whose `_` stands for a space (`localMailLine` joins their words with it). */
+const WORDS_FIELDS: ReadonlySet<string> = new Set(['change', 'detail', 'part', 'outcome', 'notice']);
+
 type Message = Parameters<PasswordResetMail['send']>[0];
 
 /** The subject and plain text of one mail. Exported for its test; the transport is the only caller. */
@@ -97,7 +100,9 @@ export function gatewayMailContent(
       if (!base) throw new MailTransportRefused('IDENTITY_MAIL_CONSOLE_LINK_BASE', 'must be set to send a staff invite');
       return `${LABELS[name]}: ${new URL(value, base.href.endsWith('/') ? base : `${base.href}/`).href}`;
     }
-    return `${LABELS[name] ?? name.replace(/_/g, ' ')}: ${value.replace(/_/g, ' ')}`;
+    // Only these fields use `_` between words; a username, code or address keeps its underscores as written.
+    const shown = WORDS_FIELDS.has(name) ? value.replace(/_/g, ' ') : value;
+    return `${LABELS[name] ?? name.replace(/_/g, ' ')}: ${shown}`;
   });
   return { subject, text: `${lines.join('\n')}\n\nIf you did not ask for this, you can ignore this mail.\n` };
 }
