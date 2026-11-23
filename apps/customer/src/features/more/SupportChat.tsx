@@ -300,7 +300,7 @@ export function SupportChatRoom() {
                 {busy === 'send' ? t('sending') : t('send')}
               </Button>
             </form>
-            <div className="support-chat__actions">
+            <div className="lt-actions">
               <Button variant="secondary" onClick={() => void continueByEmail()} disabled={busy !== null}>
                 {t('continueEmail')}
               </Button>

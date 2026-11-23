@@ -179,7 +179,7 @@ export function QuotesTable({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="lt-stack">
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
@@ -212,7 +212,7 @@ export function QuotesTable({
         onRowActivate={(r) => onSelect(r.id)}
         emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('No quotes')}</p>}
       />
-      <p className="m-0 text-xs text-fg-2">{t('Quotes table note')}</p>
+      <p className="lt-hint">{t('Quotes table note')}</p>
     </div>
   );
 }

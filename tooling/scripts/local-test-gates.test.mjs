@@ -539,14 +539,14 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
   assert.equal(payEnv.PAY_TEST_CHAIN_SEND_DELAY_MS, '6000');
   assert.equal(payEnv.PAY_TEST_CHAIN_REFUSE_AMOUNT, '13');
 }
-// The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
+// The TEST custody policy allows only wallet transfers on the TEST withdrawal networks (chain networks, not the rail id), labelled TEST, with no approval group, and
 // asks one approval of the second founder for its own config task.
 assert.equal(TEST_CUSTODY_POLICY_RULES.length, 1);
 assert.match(TEST_CUSTODY_POLICY_RULES[0].id, /^TEST-/);
 assert.deepEqual(JSON.parse(JSON.stringify(TEST_CUSTODY_POLICY_RULES[0])), {
   id: 'TEST-allow-wallet-sends',
   action: 'allow',
-  match: { networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
+  match: { networks: ['ethereum', 'base'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
 });
 assert.deepEqual({ ...TEST_CUSTODY_CONFIG_QUORUM }, { kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {

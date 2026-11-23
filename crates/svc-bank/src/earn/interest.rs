@@ -9,7 +9,7 @@ use service_kit::time::Instant;
 /// `DAYS_PER_YEAR`: simple daily accrual.
 pub const DAYS_PER_YEAR: i64 = 365;
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::whole(1);
 
 /// One UTC day in milliseconds.
 pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -18,20 +18,26 @@ pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// `div(.., parseAmount(daysPerYear), 'floor')`. `None` is the TypeScript's `RangeError` for a rate that is not a
 /// non-negative whole number.
 pub fn daily_interest(principal: Amount, apr_bps: i64, days_per_year: i64) -> Option<Amount> {
-    if principal <= 0 {
-        return Some(0);
+    if principal <= Amount::ZERO {
+        return Some(Amount::ZERO);
     }
     if apr_bps < 0 {
         return None;
     }
     if apr_bps == 0 {
-        return Some(0);
+        return Some(Amount::ZERO);
     }
-    let annual = mul_div(principal, Amount::from(apr_bps), 10_000, Rounding::Floor);
+    // `principal * apr_bps / 10_000`: the rate is a count of basis points, carried as a scaled factor.
+    let annual = mul_div(
+        principal,
+        Amount::from_scaled(i128::from(apr_bps)),
+        Amount::from_scaled(10_000),
+        Rounding::Floor,
+    );
     Some(mul_div(
         annual,
         SCALE,
-        Amount::from(days_per_year) * SCALE,
+        SCALE * i128::from(days_per_year),
         Rounding::Floor,
     ))
 }
@@ -66,13 +72,13 @@ pub fn plan_accrual(positions: &[Accruing], apr_bps: i64, days_per_year: i64) ->
     let mut dust = 0;
     for p in positions {
         let interest = daily_interest(p.principal, apr_bps, days_per_year)?;
-        if interest <= 0 {
+        if interest <= Amount::ZERO {
             dust += 1;
             continue;
         }
         let slot = per_user
             .entry(p.user_id.encode_utf16().collect())
-            .or_insert_with(|| (p.user_id.clone(), 0));
+            .or_insert_with(|| (p.user_id.clone(), Amount::ZERO));
         slot.1 += interest;
     }
     let payouts: Vec<Payout> = per_user
@@ -120,11 +126,20 @@ mod tests {
             daily_interest(a("1000"), 500, DAYS_PER_YEAR),
             Some(a("0.136986301369863013"))
         );
-        assert_eq!(daily_interest(a("1000"), 0, DAYS_PER_YEAR), Some(0));
-        assert_eq!(daily_interest(0, 500, DAYS_PER_YEAR), Some(0));
+        assert_eq!(
+            daily_interest(a("1000"), 0, DAYS_PER_YEAR),
+            Some(Amount::ZERO)
+        );
+        assert_eq!(
+            daily_interest(Amount::ZERO, 500, DAYS_PER_YEAR),
+            Some(Amount::ZERO)
+        );
         assert_eq!(daily_interest(a("1000"), -1, DAYS_PER_YEAR), None);
         // The smallest unit at a small rate earns nothing.
-        assert_eq!(daily_interest(1, 1, DAYS_PER_YEAR), Some(0));
+        assert_eq!(
+            daily_interest(Amount::from_scaled(1), 1, DAYS_PER_YEAR),
+            Some(Amount::ZERO)
+        );
     }
 
     #[test]

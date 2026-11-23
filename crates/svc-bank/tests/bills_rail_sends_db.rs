@@ -89,7 +89,7 @@ impl Ledger for Book {
             .unwrap()
             .get(&(a.owner_id.clone(), a.asset_id.clone(), a.kind.to_owned()))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, _owner_type: &str, owner: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(self

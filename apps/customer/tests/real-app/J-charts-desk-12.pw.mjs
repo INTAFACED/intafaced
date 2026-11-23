@@ -30,9 +30,12 @@ async function openRoom(page) {
   await page.goto(ROOM);
   await expect(filters(page)).toBeVisible();
   await expect(page.getByTestId('screener-room')).toHaveAttribute('data-status', /^(ready|error)$/);
-  expect(await page.getByTestId('screener-room').getAttribute('data-status'), 'the markets, tickers and saved screens were read').toBe(
-    'ready',
-  );
+  await expect
+    .poll(
+      async () => await page.getByTestId('screener-room').getAttribute('data-status'),
+      'the markets, tickers and saved screens were read',
+    )
+    .toBe('ready');
 }
 
 /** Set the filter form as a person would and press Apply. A key left out is cleared (blank: not set). */
@@ -139,7 +142,9 @@ test(`${J} #1 applies "change above 5 percent and quote USDT": the rows match bo
     for (const symbol of five.shown) {
       const row = results(page).locator(`tr[data-symbol="${symbol}"]`);
       expect(symbol.split('/')[1], `${symbol} is quoted in USDT`).toBe('USDT');
-      expect(percentPoints(await row.locator('td[data-column="change"]').innerText()), `${symbol} change`).toBeGreaterThan(4.95);
+      await expect
+        .poll(async () => percentPoints(await row.locator('td[data-column="change"]').innerText()), `${symbol} change`)
+        .toBeGreaterThan(4.95);
     }
   } else {
     await expect(page.getByText('No market fits this screen', { exact: true })).toBeVisible();

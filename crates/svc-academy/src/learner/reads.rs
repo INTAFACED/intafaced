@@ -29,7 +29,7 @@ fn tenths_of(part: i128, whole: i128) -> String {
 /// `hundredths(level)`.
 fn hundredths(level: &str) -> Result<i128, Refusal> {
     parse_amount(level)
-        .map(|a| a / 10i128.pow(16))
+        .map(|a| a.scaled() / 10i128.pow(16))
         .map_err(|e| Refusal::Internal {
             message: e,
             code: None,

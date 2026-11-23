@@ -727,8 +727,8 @@ fn fee_of(fill: &Fill) -> (BookFee, Option<Amount>) {
         Some(fee)
     } else {
         match &fill.paid {
-            Some(paid) if is_par(&paid.asset_id) => Some(if fee == 0 {
-                0
+            Some(paid) if is_par(&paid.asset_id) => Some(if fee == Amount::ZERO {
+                Amount::ZERO
             } else {
                 crate::money::mul_div(
                     fee,
@@ -906,7 +906,9 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
     }
     if !include {
         let open_unknown = run.lots.iter().any(|l| {
-            l.remaining > 0 && l.remaining_cost_usd.is_none() && counted_lot(&l.id) == Some(true)
+            l.remaining > Amount::ZERO
+                && l.remaining_cost_usd.is_none()
+                && counted_lot(&l.id) == Some(true)
         });
         let part_unknown = run.sales.iter().any(|s| {
             !s.moved_out
@@ -921,13 +923,13 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
 
     let mut open_by_asset: HashMap<&str, Open> = HashMap::new();
     for lot in &run.lots {
-        if lot.remaining == 0 || lot.space.is_some() {
+        if lot.remaining == Amount::ZERO || lot.space.is_some() {
             continue;
         }
         let entry = open_by_asset.entry(&lot.asset_id).or_insert(Open {
-            qty: 0,
-            counted_qty: 0,
-            cost: Some(0),
+            qty: Amount::ZERO,
+            counted_qty: Amount::ZERO,
+            cost: Some(Amount::ZERO),
         });
         entry.qty += lot.remaining;
         if counted_lot(&lot.id) == Some(true) {
@@ -958,19 +960,20 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
     let mut outside: BTreeSet<String> = BTreeSet::new();
     for asset_id in &asset_ids {
         let open = open_by_asset.get(asset_id.as_str()).copied();
-        let held = input.held.get(asset_id).copied().unwrap_or(0);
+        let held = input.held.get(asset_id).copied().unwrap_or(Amount::ZERO);
         let par = is_par(asset_id);
         let came_from_outside = outside_in(asset_id) && !par;
         if came_from_outside
-            && (sold_assets.contains(&asset_id.as_str()) || open.is_some() || held > 0)
+            && (sold_assets.contains(&asset_id.as_str()) || open.is_some() || held > Amount::ZERO)
         {
             residuals.insert(TAX_LOT_BOOK_UNRECONCILED);
             outside.insert(asset_id.clone());
         }
-        if open.is_none() && held == 0 {
+        if open.is_none() && held == Amount::ZERO {
             continue;
         }
-        let reconciled = !came_from_outside && (open.map_or(0, |o| o.qty) == held || par);
+        let reconciled =
+            !came_from_outside && (open.map_or(Amount::ZERO, |o| o.qty) == held || par);
         if !reconciled {
             residuals.insert(TAX_LOT_BOOK_UNRECONCILED);
             outside.insert(asset_id.clone());
@@ -980,13 +983,13 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
         }
         assets.push(BookAsset {
             asset_id: asset_id.clone(),
-            open_qty: open.map_or(0, |o| o.counted_qty),
+            open_qty: open.map_or(Amount::ZERO, |o| o.counted_qty),
             open_cost_usd: match open {
                 Some(o) if reconciled && !input.truncated => o.cost,
                 _ => None,
             },
             held,
-            uncounted_qty: open.map_or(0, |o| o.qty - o.counted_qty),
+            uncounted_qty: open.map_or(Amount::ZERO, |o| o.qty - o.counted_qty),
             venue_account: None,
         });
     }
@@ -1013,9 +1016,13 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
             held_here
                 .iter()
                 .find(|(x, _)| x == a)
-                .map_or(0, |(_, q)| *q)
+                .map_or(Amount::ZERO, |(_, q)| *q)
         };
-        let open_of = |a: &str| open.iter().find(|(x, _)| *x == a).map_or(0, |(_, q)| *q);
+        let open_of = |a: &str| {
+            open.iter()
+                .find(|(x, _)| *x == a)
+                .map_or(Amount::ZERO, |(_, q)| *q)
+        };
         let keys: Vec<&str> = open
             .iter()
             .map(|(a, _)| *a)
@@ -1072,7 +1079,7 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
                 Counted::None
             } else if counted_parts.len() == sale.matches.len() {
                 Counted::All
-            } else if counted_parts.is_empty() && sale.unmatched_qty == 0 {
+            } else if counted_parts.is_empty() && sale.unmatched_qty == Amount::ZERO {
                 Counted::None
             } else {
                 Counted::Part
@@ -1080,9 +1087,9 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
             let sum_of = |f: &dyn Fn(&crate::lot_engine::LotMatch) -> Option<Amount>| {
                 counted_parts
                     .iter()
-                    .try_fold(0, |t: Amount, m| f(m).map(|v| t + v))
+                    .try_fold(Amount::ZERO, |t: Amount, m| f(m).map(|v| t + v))
             };
-            let part_cost = if sale.unmatched_qty > 0 {
+            let part_cost = if sale.unmatched_qty > Amount::ZERO {
                 None
             } else {
                 sum_of(&|m| m.cost_usd)
@@ -1160,7 +1167,7 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
                     lot.remaining_cost_usd
                 },
                 valued_at: lot.valued_at.clone(),
-                days_held: (lot.remaining != 0)
+                days_held: (lot.remaining != Amount::ZERO)
                     .then(|| (now.0 - lot.acquired_at.0).div_euclid(DAY_MS).max(0)),
                 customer_entered: shows_customer,
                 space_id: lot.space.clone(),
@@ -1185,7 +1192,7 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
         .iter()
         .map(|s| (format!("{}|{}", s.tx_id, s.asset_id), s))
         .collect();
-    let mut fees_usd: Option<Amount> = Some(0);
+    let mut fees_usd: Option<Amount> = Some(Amount::ZERO);
     for part in &fee_parts {
         let sale = part.sale_key.as_ref().and_then(|k| sale_by_key.get(k));
         if !part.makes_lot && sale.is_some_and(|s| s.counted == Counted::None) {
@@ -1203,7 +1210,7 @@ pub fn build_lot_book(input: BookInput<'_>) -> LotBook {
     let realized_total = sales
         .iter()
         .filter(|s| s.counted != Counted::None)
-        .try_fold(0, |t: Amount, s| s.realized_usd.map(|r| t + r));
+        .try_fold(Amount::ZERO, |t: Amount, s| s.realized_usd.map(|r| t + r));
 
     LotBook {
         method: input.method,

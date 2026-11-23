@@ -15,6 +15,9 @@
  * SIGTERM, SIGHUP). A stack this checkout already had running is reused and left running.
  *
  *   --only a,b   start only these services beside the journeys' core ones (the start's own --only); default: all, as CI
+ * The founder console (apps/admin, a Next build that peaks near 1.6 GB) is built and started only when a file it runs
+ * reaches it (consoleNeeded); otherwise the start gets --no-admin (project-state #3674: every builder process under 1.5 GB).
+ *
  *   --keep       leave the stack running after the run and print `Open:` with its address, to look at the pages live
  *
  * Every test that opens a page leaves a picture of its end (the journeys config's `screenshot: 'on'`), so `Pictures:`
@@ -71,6 +74,44 @@ export function journeyFiles(ids, dir = JOURNEY_DIR, exists = fs.existsSync) {
     files.push(name);
   }
   return { files };
+}
+
+/**
+ * What reaches the founder console from a journey file: its helper (admin.mjs, which holds the console's address), the
+ * `founders.console(...)` fixture (journey.mjs), or the console's or its TLS front's address read straight from stack.mjs.
+ */
+const CONSOLE_REACH = [
+  /\.console\(/,
+  /stackUrl\(\s*['"](admin|team-tls)['"]\s*\)/,
+  /STACK_PORTS(\.admin\b|\[\s*['"](admin|team-tls)['"]\s*\])/,
+  /JOURNEY_ADMIN_URL/,
+  /['"]scoped-session['"]/, // the gates' TEST console session, sealed for the console's origin
+];
+const LOCAL_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"](\.\/[A-Za-z0-9_.-]+\.mjs)['"]/g;
+
+/**
+ * Whether any of `files` (journey files in `dir`) reaches the founder console, following each file's local imports in
+ * `dir`. journey.mjs offers the console only through its `founders.console` fixture, so its own text and its import of
+ * admin.mjs do not count: a file that calls the fixture is caught by CONSOLE_REACH. `read(file)` returns a file's text or null.
+ */
+export function consoleNeeded(files, dir = JOURNEY_DIR, read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null)) {
+  const seen = new Set();
+  const todo = [...files];
+  while (todo.length) {
+    const name = todo.pop();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (name === 'admin.mjs') return true;
+    const text = read(path.join(dir, name));
+    if (text === null) continue;
+    // stack.mjs and journey.mjs define the addresses and the fixture; only their callers reach the console.
+    if (name !== 'stack.mjs' && name !== 'journey.mjs' && CONSOLE_REACH.some((re) => re.test(text))) return true;
+    for (const m of text.matchAll(LOCAL_IMPORT)) {
+      const dep = m[1].slice(2);
+      if (!(name === 'journey.mjs' && dep === 'admin.mjs')) todo.push(dep);
+    }
+  }
+  return false;
 }
 
 /** The GitHub run that proves a journey, for a builder who cannot run it here. */
@@ -216,7 +257,11 @@ export async function journeyLocal(opts, io) {
     const say = (line) => interrupted || io.say(line); // an interrupted run says only that it was
     // 1. The stack: a free slot, started (or this checkout's own, already running).
     started = true;
-    const start = await io.run(['node', STACK, 'start', ...(only ? ['--only', only] : [])], { capture: true });
+    const needsConsole = io.consoleNeeded(files);
+    if (!needsConsole) say('local:stack journey: no file here reaches the founder console, so it is neither built nor started');
+    const start = await io.run(['node', STACK, 'start', ...(only ? ['--only', only] : []), ...(needsConsole ? [] : ['--no-admin'])], {
+      capture: true,
+    });
     const why = refusal(start.text);
     const ready = start.code === 0 || (only && start.code === 1 && !why && onlyReady(start.text, only).ready);
     if (!ready) {
@@ -283,6 +328,7 @@ export function realIo() {
   return {
     dir: JOURNEY_DIR,
     exists: fs.existsSync,
+    consoleNeeded: (files) => consoleNeeded(files),
     out: OUT,
     say: (l) => process.stdout.write(`${l}\n`),
     branch: gitBranch(),

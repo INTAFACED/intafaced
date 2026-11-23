@@ -774,6 +774,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity refused because you, or a founder on the approval, are the person this verification belongs to. Nothing was decided.',
     next: 'Two other founders ask for and approve the decision.',
   },
+  'auth.kyc_not_pending': {
+    title: 'This verification no longer waits for review',
+    body: 'Identity approves only a verification that is still pending; this one was already decided or has lapsed. Nothing was approved.',
+    next: 'Read the person’s verification cases again to see its state.',
+  },
   'action_approval.consume_failed': {
     title: 'Identity refused to release the approval',
     body: 'Most often the second founder has not approved yet, or the approval expired. The command was not run.',

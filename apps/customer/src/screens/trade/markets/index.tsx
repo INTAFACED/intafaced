@@ -1,28 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+// volt-room: /trade
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import './markets.css';
+import { Button, FreshnessTag, SearchField, Segmented, StatusNote, ToggleChips } from '@intafaced/ui/lit';
+import { CatalogueTemplate, TabList, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
-import {
-  Button,
-  EmptyState,
-  Input,
-  refusalCopy,
-  SegmentedControl,
-  StateBlock,
-  StatusChip,
-  Tabs,
-  TabsList,
-  TabsTab,
-  ToggleGroup,
-  ToggleGroupItem,
-  useFavorites,
-  useMarkets,
-  useTickers,
-  type Loadable,
-  type MarketData,
-  type SortState,
-  type TickerRow,
-} from './deps';
+import { refusalCopy, useFavorites, useMarkets, useTickers, type Loadable, type MarketData, type TickerRow } from './deps';
+import { KitState } from '../kit-parts';
 import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
@@ -68,7 +51,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const [view, setView] = useState<ViewState>(() => applyAddress(readView(browserStorage(), storageKey), search));
   const [query, setQuery] = useState(() => queryFromAddress(search));
   const tableTop = useRef<HTMLDivElement>(null);
-  const searchInput = useRef<HTMLInputElement>(null);
+  const searchId = useId();
 
   /** A change the person made: kept for next time. */
   const change = (patch: Partial<ViewState>) => {
@@ -84,11 +67,11 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
       event.preventDefault();
-      searchInput.current?.focus();
+      document.getElementById(searchId)?.focus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [searchId]);
 
   const tickerMap = tickers.status === 'ready' ? tickers.data : undefined;
   const everyEntry = useMemo(
@@ -156,21 +139,27 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   if (markets.status === 'error')
     return (
       <Frame meta={meta}>
-        <StateBlock kind="error" title={t('Couldn’t load markets')} onRetry={markets.retry} retryLabel={t('Try again')} />
+        <KitState kind="error" title={t('Couldn’t load markets')} onRetry={markets.retry} retryLabel={t('Try again')} />
       </Frame>
     );
   if (markets.status === 'refused') {
     const refused = refusalCopy(markets.code);
     return (
       <Frame meta={meta}>
-        <EmptyState variant="refused" title={refused.title} reason={refused.body} code={markets.code} action={refused.action} size="page" />
+        <KitState
+          kind="refused"
+          title={refused.title}
+          body={refused.body}
+          code={markets.code}
+          action={refused.action ? { label: refused.action.label, href: refused.action.href } : undefined}
+        />
       </Frame>
     );
   }
   if (markets.status === 'empty')
     return (
       <Frame meta={meta}>
-        <EmptyState title={t('No markets are open right now.')} size="page" />
+        <KitState kind="empty" title={t('No markets are open right now.')} />
       </Frame>
     );
 
@@ -179,141 +168,142 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   const empty = (() => {
     if (view.tab === 'favorites' && favorites.length === 0)
       return signedIn ? (
-        <EmptyState
+        <KitState
+          kind="empty"
           title={t('Star a market to keep it here.')}
           action={{ label: t('Browse markets'), onClick: () => change({ tab: 'spot' }) }}
         />
       ) : (
-        <EmptyState title={t('Log in to keep your favorites here.')} action={{ label: t('Log in'), href: signIn }} />
+        <KitState kind="empty" title={t('Log in to keep your favorites here.')} action={{ label: t('Log in'), href: signIn }} />
       );
     if (query.trim())
       return (
-        <EmptyState
+        <KitState
+          kind="empty"
           title={t('No markets match “{query}”.', { query: query.trim() })}
           action={{ label: t('Clear search'), onClick: () => setQuery('') }}
         />
       );
-    if (chip === 'gainers') return <EmptyState title={t('Nothing is gaining right now.')} />;
-    if (chip === 'losers') return <EmptyState title={t('Nothing is falling right now.')} />;
-    if (chip === 'new') return <EmptyState title={t('No new listings.')} />;
+    if (chip === 'gainers') return <KitState kind="empty" title={t('Nothing is gaining right now.')} />;
+    if (chip === 'losers') return <KitState kind="empty" title={t('Nothing is falling right now.')} />;
+    if (chip === 'new') return <KitState kind="empty" title={t('No new listings.')} />;
     return (
-      <EmptyState
+      <KitState
+        kind="empty"
         title={view.tab === 'favorites' ? t('Star a market to keep it here.') : t('No markets are open right now.')}
         action={showPaused}
       />
     );
   })();
 
+  const featured = marketsLoading ? (
+    <TopCardsSkeleton />
+  ) : cards.length > 0 ? (
+    <TopCards cards={cards} mode={layoutMode} onSeeAll={seeAll} />
+  ) : null;
+
   return (
-    <Frame meta={meta}>
-      {marketsLoading ? <TopCardsSkeleton /> : cards.length > 0 ? <TopCards cards={cards} mode={layoutMode} onSeeAll={seeAll} /> : null}
+    <Frame meta={meta} featured={featured}>
+      <div className="lt-stack" ref={tableTop}>
+        <div data-testid="mkt-tabs" className="lt-toolbar">
+          <TabList
+            label={t('Markets')}
+            items={[
+              { value: 'favorites', label: t('Favorites') },
+              { value: 'spot', label: t('Spot') },
+            ]}
+            value={view.tab}
+            onChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}
+          />
+          <SearchField
+            id={searchId}
+            label={t('Search markets')}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('Search by coin or name')}
+            icon={<Search size={16} aria-hidden="true" />}
+            onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
+          />
+        </div>
 
-      <div data-testid="mkt-tabs" className="mkt-tabs" ref={tableTop}>
-        <Tabs value={view.tab} onValueChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}>
-          <TabsList className="mkt-tabs__list">
-            <TabsTab value="favorites" className="mkt-tab">
-              {t('Favorites')}
-            </TabsTab>
-            <TabsTab value="spot" className="mkt-tab">
-              {t('Spot')}
-            </TabsTab>
-          </TabsList>
-        </Tabs>
-        <Input
-          ref={searchInput}
-          className="mkt-search"
-          value={query}
-          onValueChange={setQuery}
-          placeholder={t('Search by coin or name')}
-          aria-label={t('Search markets')}
-          leading={<Search size={16} aria-hidden="true" />}
-          onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-        />
-      </div>
-
-      <div data-testid="mkt-chips" className="mkt-chips">
-        <ToggleGroup
-          value={chip}
-          onValueChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
-          aria-label={t('Filter by change')}
-        >
-          {CHIPS.filter((value) => value !== 'new' || showNew).map((value) => (
-            <ToggleGroupItem key={value} value={value}>
-              {t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New')}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        {quotes.length > 1 ? (
-          <>
-            <span className="mkt-chips__divider" aria-hidden="true" />
-            <ToggleGroup value={quote ?? ''} onValueChange={(value) => change({ quote: value })} aria-label={t('Filter by currency')}>
-              {quotes.map((value) => (
-                // Pressing the chosen currency again turns the filter off.
-                <ToggleGroupItem key={value} value={value} onClick={() => quote === value && change({ quote: null })}>
-                  {value}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </>
-        ) : null}
-        <div className="mkt-chips__end">
+        <div data-testid="mkt-chips" className="lt-toolbar">
+          <ToggleChips
+            label={t('Filter by change')}
+            options={CHIPS.filter((value) => value !== 'new' || showNew).map((value) => ({
+              value,
+              label: t(value === 'all' ? 'All' : value === 'gainers' ? 'Gainers' : value === 'losers' ? 'Losers' : 'New'),
+            }))}
+            value={chip}
+            onChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
+          />
+          {quotes.length > 1 ? (
+            // Pressing the chosen currency again turns the filter off.
+            <ToggleChips
+              label={t('Filter by currency')}
+              options={quotes.map((value) => ({ value, label: value }))}
+              value={quote}
+              onChange={(value) => change({ quote: value })}
+              clearable
+            />
+          ) : null}
           {!isDefaultView(view, layoutMode === 'pro' ? 'compact' : 'comfortable') ? (
-            <Button variant="ghost" size={28} onClick={resetView}>
+            <Button tone="quiet" onClick={resetView}>
               {t('Reset view')}
             </Button>
           ) : null}
           {hasPaused || view.status === 'all' ? (
-            <SegmentedControl
-              aria-label={t('Filter by status')}
-              items={[
+            <Segmented
+              label={t('Filter by status')}
+              options={[
                 { value: 'open', label: t('Open only') },
                 { value: 'all', label: t('Include paused') },
               ]}
               value={view.status}
-              onValueChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
+              onChange={(value) => change({ status: value === 'all' ? 'all' : 'open' })}
             />
           ) : null}
-          <SegmentedControl
-            aria-label={t('Row size')}
-            items={[
+          <Segmented
+            label={t('Row size')}
+            options={[
               { value: 'comfortable', label: t('Comfortable') },
               { value: 'compact', label: t('Compact') },
             ]}
             value={density}
-            onValueChange={(value) => change({ density: value === 'compact' ? 'compact' : 'comfortable' })}
+            onChange={(value) => change({ density: value === 'compact' ? 'compact' : 'comfortable' })}
           />
         </div>
+
+        {tickers.status === 'error' ? (
+          <StatusNote
+            data-testid="mkt-notice"
+            tone="warn"
+            title={t('Couldn’t load prices')}
+            actions={
+              <Button tone="quiet" onClick={tickers.retry}>
+                {t('Try again')}
+              </Button>
+            }
+          />
+        ) : tickers.status === 'refused' ? (
+          <StatusNote data-testid="mkt-notice" tone="warn" title={t('Couldn’t load prices')}>
+            {refusalCopy(tickers.code).title}. {refusalCopy(tickers.code).body} <span className="lt-ref">{tickers.code}</span>
+          </StatusNote>
+        ) : null}
+
+        <MarketsList
+          label={t('Markets')}
+          entries={rows}
+          mode={layoutMode}
+          density={density}
+          sort={sort}
+          onSortChange={changeSort}
+          favorite={favorite}
+          signedIn={signedIn}
+          statuses={statuses}
+          loading={marketsLoading}
+          empty={empty}
+        />
       </div>
-
-      {tickers.status === 'error' ? (
-        <div data-testid="mkt-notice" className="mkt-notice" role="status">
-          <span>{t('Couldn’t load prices')}</span>
-          <Button variant="ghost" size={28} onClick={tickers.retry}>
-            {t('Try again')}
-          </Button>
-        </div>
-      ) : tickers.status === 'refused' ? (
-        <div data-testid="mkt-notice" className="mkt-notice" role="status">
-          <span>
-            {t('Couldn’t load prices')} {refusalCopy(tickers.code).title}. {refusalCopy(tickers.code).body}{' '}
-            <span className="mkt-muted">{tickers.code}</span>
-          </span>
-        </div>
-      ) : null}
-
-      <MarketsList
-        label={t('Markets')}
-        entries={rows}
-        mode={layoutMode}
-        density={density}
-        sort={sort}
-        onSortChange={changeSort}
-        favorite={favorite}
-        signedIn={signedIn}
-        statuses={statuses}
-        loading={marketsLoading}
-        empty={empty}
-      />
       <NotOffered />
     </Frame>
   );
@@ -327,15 +317,17 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
 function NotOffered() {
   const { t } = marketsCopy.useCopy();
   return (
-    <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" className="mkt-not-offered">
-      <h2 id="mkt-not-offered">{t('Not offered here')}</h2>
-      <ul>
+    <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" className="lt-stack">
+      <h2 id="mkt-not-offered" className="lt-empty-title">
+        {t('Not offered here')}
+      </h2>
+      <ul className="lt-rows">
         <li data-testid="mkt-not-offered-equity">
-          <strong>{t('Tokenized equities')}</strong> <span className="mkt-muted">{t('Not available: licence not named')}</span>
+          <strong>{t('Tokenized equities')}</strong> <span className="lt-hint">{t('Not available: licence not named')}</span>
         </li>
         <li data-testid="mkt-not-offered-rpi">
           <strong>{t('Retail price improvement')}</strong>{' '}
-          <span className="mkt-muted">{t('Not available: priority class not specified')}</span>
+          <span className="lt-hint">{t('Not available: priority class not specified')}</span>
         </li>
       </ul>
     </section>
@@ -346,28 +338,49 @@ function NotOffered() {
 function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }) {
   const { t } = marketsCopy.useCopy();
   const { timeZone } = usePreferences();
-  if (tickers.status === 'refused') return <StatusChip refused staleAfterMs={STALE_AFTER_MS} reason={refusalCopy(tickers.code).title} />;
+  const words = { live: t('Live'), stale: t('Stale'), unknown: t('Unknown'), refused: t('Refused') };
+  if (tickers.status === 'refused')
+    return (
+      <FreshnessTag
+        asOf={null}
+        staleAfterMs={STALE_AFTER_MS}
+        refused
+        words={words}
+        asOfLabel={t('as of')}
+        reason={refusalCopy(tickers.code).title}
+      />
+    );
   if (tickers.status === 'ready')
-    return <StatusChip asOf={tickers.asOf} staleAfterMs={STALE_AFTER_MS} showAsOf asOfLabel={t('as of')} timeZone={ianaZone(timeZone)} />;
+    return (
+      <FreshnessTag asOf={tickers.asOf} staleAfterMs={STALE_AFTER_MS} words={words} asOfLabel={t('as of')} timeZone={ianaZone(timeZone)} />
+    );
   return (
-    <StatusChip
+    <FreshnessTag
       asOf={null}
       staleAfterMs={STALE_AFTER_MS}
+      words={words}
+      asOfLabel={t('as of')}
       reason={tickers.status === 'error' ? t('Prices could not be loaded') : t('Prices have not arrived')}
     />
   );
 }
 
-function Frame({ children, meta }: { children: ReactNode; meta: ReactNode }) {
+/**
+ * The room on the catalogue template: the title with the prices' freshness, the person's trading access, the top cards
+ * (Popular, New listings, Top gainers) and the list with its tabs, search and filters.
+ */
+function Frame({ children, meta, featured }: { children: ReactNode; meta: ReactNode; featured?: ReactNode }) {
   const { t } = marketsCopy.useCopy();
   return (
-    <div data-testid="if-markets" className="if-markets">
-      <header className="mkt-page__head">
-        <h1>{t('Markets')}</h1>
-        {meta}
-      </header>
-      <TradeAccess />
-      {children}
+    <div data-testid="if-markets">
+      <CatalogueTemplate
+        title={t('Markets')}
+        roomAction={meta}
+        state={{ kind: 'ready' }}
+        filters={<TradeAccess />}
+        featured={featured}
+        items={<div className="lt-stack">{children}</div>}
+      />
     </div>
   );
 }
