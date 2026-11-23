@@ -1,9 +1,5 @@
 import {
-  founderChangeSubmitInputSchema,
-  founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
-  founderApprovalQueueInputSchema,
-  founderApprovalQueueSchema,
   founderApprovalDestinationInputSchema,
   founderApprovalDestinationSchema,
   founderControlAuditListInputSchema,
@@ -31,6 +27,9 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
+  PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
+  PAY_FOUNDER_ADMIN_APPROVALS_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -57,10 +56,9 @@ async function merchantResult(control: ControlService, outcome: ChangeOutcome) {
  */
 export function founderChangeProcedures(founder: Founder, control: ControlService | undefined) {
   return {
-    submit: founder
-      .input(founderChangeSubmitInputSchema)
-      .output(founderChangeSubmitResultSchema)
-      .mutation(({ ctx, input }) => {
+    submit: mountRecord(
+      PAY_FOUNDER_ADMIN_CHANGES_SUBMIT,
+      ({ ctx, input }) => {
         if (!control) return notBuilt('founderAdmin.changes.submit');
         return guarded(async () =>
           merchantResult(
@@ -73,18 +71,21 @@ export function founderChangeProcedures(founder: Founder, control: ControlServic
             }),
           ),
         );
-      }),
-    confirm: founder
-      .input(founderChangeConfirmInputSchema)
-      .output(founderChangeSubmitResultSchema)
-      .mutation(({ ctx, input }) => {
+      },
+      { refusalOf: payRefusal, founder },
+    ),
+    confirm: mountRecord(
+      PAY_FOUNDER_ADMIN_CHANGES_CONFIRM,
+      ({ ctx, input }) => {
         if (!control) return notBuilt('founderAdmin.changes.confirm');
         return guarded(async () => {
           // This procedure answers in the merchant shape; tier and pricing changes confirm under `control.configure`.
           if ((await control.changes.scopeOfRequest(input.requestId)) !== 'merchant') throw new ControlError('pay.change_not_found');
           return merchantResult(control, await control.changes.confirm(founderIdOf(ctx), input));
         });
-      }),
+      },
+      { refusalOf: payRefusal, founder },
+    ),
     pending: founder
       .input(founderPendingChangeListInputSchema)
       .output(founderPendingChangeListSchema)
@@ -95,10 +96,11 @@ export function founderChangeProcedures(founder: Founder, control: ControlServic
 /** `founderAdmin.approvals.*`: one procedure per path, refusing as not built with no control room. */
 export function founderApprovalProcedures(founder: Founder, control: ControlService | undefined) {
   return {
-    list: founder
-      .input(founderApprovalQueueInputSchema)
-      .output(founderApprovalQueueSchema)
-      .query(({ input }) => (control ? guarded(() => control.approvals.founderQueue(input)) : notBuilt('founderAdmin.approvals.list'))),
+    list: mountRecord(
+      PAY_FOUNDER_ADMIN_APPROVALS_LIST,
+      ({ input }) => (control ? guarded(() => control.approvals.founderQueue(input)) : notBuilt('founderAdmin.approvals.list')),
+      { refusalOf: payRefusal, founder },
+    ),
     /** Full destination of one queue row. A mutation so a reveal is never a cached GET: each call is one audit row. */
     destination: founder
       .input(founderApprovalDestinationInputSchema)
