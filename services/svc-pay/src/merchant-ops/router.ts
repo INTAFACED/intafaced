@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import { PAY_EXPORT_KINDS, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
+import { payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { anyScopeProcedure, router, signedInProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
