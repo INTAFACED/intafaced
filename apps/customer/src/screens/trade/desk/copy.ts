@@ -323,7 +323,7 @@ const messages = {
   'Self trade cancel maker help': 'Your resting order is cancelled and this order carries on against everyone else.',
   'Self trade cancel taker': 'Cancel this order',
   'Self trade cancel both': 'Cancel both orders',
-  'Self trade unavailable': 'The other two are off: the matching engine only cancels the resting order.',
+  'Self trade unavailable': 'Only this choice is offered here: your resting order is the one cancelled.',
   'Review self trade': 'If it meets your own order',
   'Ticket rules': '{pair} rules',
   'Rule price band': 'Price band',

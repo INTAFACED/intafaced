@@ -683,6 +683,7 @@ import {
   BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
 } from './bank-ops-procedures.js';
@@ -2193,6 +2194,7 @@ import {
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_VENUE_ACCOUNTS_GET,
   TRADE_ADMIN_CUSTOMER_ORDERS,
 } from './trade-admin-procedures.js';
 
@@ -2208,6 +2210,8 @@ import {
   TRADE_ALGO_CREATE_TWAP,
   TRADE_ALGO_LIST,
 } from './trade-algo-procedures.js';
+
+import { AUTO_TOP_UP_GET, AUTO_TOP_UP_SET, AUTO_TOP_UP_SUBMIT_PERMISSION, AUTO_TOP_UP_OFF } from './trade-auto-top-up-procedures.js';
 
 import {
   TRADE_BOTS_GRID_SETUP,
@@ -2989,6 +2993,7 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_TRANSFER_HEALTH,
   BANK_OPS_CUSTOMER_TRANSFERS,
   BANK_OPS_CUSTOMER_BALANCES,
+  BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
 ];
@@ -4572,6 +4577,7 @@ const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_AUDIT,
   TRADE_ADMIN_AGENT_DESK_CONNECTION,
   TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+  TRADE_ADMIN_VENUE_ACCOUNTS_GET,
   TRADE_ADMIN_CUSTOMER_ORDERS,
 ];
 
@@ -4586,6 +4592,13 @@ const part_trade_algo_procedures: readonly ProcedureRecord[] = [
   TRADE_ALGO_POLICY,
   TRADE_ALGO_CREATE_TWAP,
   TRADE_ALGO_LIST,
+];
+
+const part_trade_auto_top_up_procedures: readonly ProcedureRecord[] = [
+  AUTO_TOP_UP_GET,
+  AUTO_TOP_UP_SET,
+  AUTO_TOP_UP_SUBMIT_PERMISSION,
+  AUTO_TOP_UP_OFF,
 ];
 
 const part_trade_bots_procedures: readonly ProcedureRecord[] = [
@@ -4969,6 +4982,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_account_controls_procedures,
   ...part_trade_admin_procedures,
   ...part_trade_algo_procedures,
+  ...part_trade_auto_top_up_procedures,
   ...part_trade_bots_procedures,
   ...part_trade_builder_mode_procedures,
   ...part_trade_convert_procedures,
