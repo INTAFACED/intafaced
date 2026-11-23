@@ -43,7 +43,7 @@ fn invalid(message: &str) -> Refusal {
 }
 
 /// `wrongState`.
-fn wrong_state(what: &str, state: &str) -> Refusal {
+pub(crate) fn wrong_state(what: &str, state: &str) -> Refusal {
     refuse(
         "bank.card_dispute_state",
         format!("A case that is {state} cannot {what} (bank.card_dispute_state)"),
@@ -56,7 +56,7 @@ fn js_trim(s: &str) -> &str {
 }
 
 /// `text`: trimmed, and between `min` and `max` UTF-16 units, else `bank.card_dispute_invalid`.
-fn bounded(v: &str, min: usize, max: usize, what: &str) -> Result<String, Refusal> {
+pub(crate) fn bounded(v: &str, min: usize, max: usize, what: &str) -> Result<String, Refusal> {
     let s = js_trim(v);
     let n = s.encode_utf16().count();
     if n < min || n > max {
@@ -81,7 +81,7 @@ fn step_key(v: &str) -> Result<&str, Refusal> {
 }
 
 /// `/^\d+(\.\d{1,18})?$/` (ASCII digits: the pattern has no `u` flag).
-fn is_decimal(v: &str) -> bool {
+pub(crate) fn is_decimal(v: &str) -> bool {
     let (whole, frac) = match v.split_once('.') {
         Some((w, f)) => (w, Some(f)),
         None => (v, None),
@@ -90,12 +90,12 @@ fn is_decimal(v: &str) -> bool {
     digits(whole) && frac.is_none_or(|f| digits(f) && f.len() <= 18)
 }
 
-fn amount(s: &str) -> Result<Amount, Refusal> {
+pub(crate) fn amount(s: &str) -> Result<Amount, Refusal> {
     parse_amount(s).map_err(Refusal::Other)
 }
 
 /// `formatAmount(parseAmount(v))` of a stored numeric.
-fn dec(s: &str) -> Result<String, Refusal> {
+pub(crate) fn dec(s: &str) -> Result<String, Refusal> {
     Ok(format_amount(amount(s)?))
 }
 
@@ -113,11 +113,11 @@ pub fn case_id(case_key: &str) -> String {
 }
 
 /// `creditKey`.
-fn credit_key(id: &str) -> String {
+pub(crate) fn credit_key(id: &str) -> String {
     format!("card-dispute-credit:{id}")
 }
 
-fn at(t: Instant) -> String {
+pub(crate) fn at(t: Instant) -> String {
     format!(
         "'epoch'::timestamptz + ({}::int8 * interval '1 millisecond')",
         t.0
@@ -150,13 +150,16 @@ pub struct Case {
     pub closed_at: Option<Instant>,
     pub decision_requested_outcome: Option<String>,
     pub created_at: Instant,
+    /// Who bears the loss, and under which of the partner's terms, as the decision recorded them (support reads them).
+    pub loss_bearer: Option<String>,
+    pub loss_terms: Option<String>,
 }
 
-fn case_cols() -> String {
+pub(crate) fn case_cols() -> String {
     format!(
         "d.id::text, d.case_key, d.card_id::text, d.user_id::text, a.authorization_ref, d.asset_id, d.amount::text, \
          d.reason, d.state, d.test, {}, d.credit_amount::text, d.credit_partner_ref, {}, d.outcome, d.decision_reason, \
-         d.loss_status, d.credit_settlement, d.credit_settlement_partner_ref, {}, d.decision_requested_outcome, {}",
+         d.loss_status, d.credit_settlement, d.credit_settlement_partner_ref, {}, d.decision_requested_outcome, {}, d.loss_bearer, d.loss_terms",
         ms("d.credit_requested_at"),
         ms("d.credited_at"),
         ms("d.closed_at"),
@@ -164,11 +167,11 @@ fn case_cols() -> String {
     )
 }
 
-const CASE_FROM: &str =
+pub(crate) const CASE_FROM: &str =
     "FROM bank.card_disputes d JOIN bank.card_authorizations a ON a.id = d.authorization_id";
 
 impl Case {
-    fn from_row(r: &Row) -> Result<Case, Refusal> {
+    pub(crate) fn from_row(r: &Row) -> Result<Case, Refusal> {
         let g = |i: usize| -> Result<String, Refusal> { r.try_get(i).map_err(|e| pg(&e)) };
         let o = |i: usize| -> Result<Option<String>, Refusal> { r.try_get(i).map_err(|e| pg(&e)) };
         let t = |i: usize| -> Result<Option<Instant>, Refusal> {
@@ -199,6 +202,8 @@ impl Case {
             closed_at: t(19)?,
             decision_requested_outcome: o(20)?,
             created_at: t(21)?.unwrap_or(Instant(0)),
+            loss_bearer: o(22)?,
+            loss_terms: o(23)?,
         })
     }
 }
@@ -224,7 +229,7 @@ pub struct Dispute {
 }
 
 /// `row`: the case, optionally under its lock; an id that is no case's is not found.
-fn case_row(c: &mut impl GenericClient, id: &str, lock: bool) -> Result<Case, Refusal> {
+pub(crate) fn case_row(c: &mut impl GenericClient, id: &str, lock: bool) -> Result<Case, Refusal> {
     let shaped = id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
     if !shaped {
         return Err(not_found());
@@ -279,7 +284,7 @@ pub fn get(c: &mut impl GenericClient, id: &str) -> Result<Dispute, Refusal> {
     clippy::too_many_arguments,
     reason = "the TypeScript's one helper, with its own nine fields"
 )]
-fn event(
+pub(crate) fn event(
     tx: &mut impl GenericClient,
     now: Instant,
     id: &str,
@@ -320,7 +325,7 @@ pub struct OpenAsk<'a> {
 pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Dispute, Refusal> {
     let case_key = step_key(ask.case_key)?;
     let reason = bounded(ask.reason, 1, 500, "A dispute reason")?;
-    let positive = is_decimal(ask.amount) && amount(ask.amount)? > 0;
+    let positive = is_decimal(ask.amount) && amount(ask.amount)? > Amount::ZERO;
     if !positive {
         return Err(invalid(
             "A disputed amount is a positive decimal (bank.card_dispute_invalid)",
@@ -348,10 +353,10 @@ pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Dispute, Refusal> {
                 r.get::<_, String>(2),
                 amount(&r.get::<_, String>(3))?,
             ),
-            None => (String::new(), String::new(), String::new(), 0),
+            None => (String::new(), String::new(), String::new(), Amount::ZERO),
         };
         let (auth_id, user_id, asset_id, captured) = auth;
-        if auth_id.is_empty() || captured == 0 {
+        if auth_id.is_empty() || captured == Amount::ZERO {
             return Err(refuse(
                 "bank.card_dispute_not_disputable",
                 "That card payment has no settled capture to dispute (bank.card_dispute_not_disputable)",
@@ -428,7 +433,7 @@ pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Dispute, Refusal> {
 
 /// `step`: one step under its key. A retried key that already ran the same step on the same case returns without
 /// running again; the key on another case or another step refuses.
-fn step(
+pub(crate) fn step(
     d: &Deps<'_>,
     id: &str,
     key: &str,
@@ -723,7 +728,7 @@ impl Form {
                     ("captured", Json::str(format_amount(self.captured))),
                     (
                         "disputable",
-                        Json::str(format_amount(self.disputable.max(0))),
+                        Json::str(format_amount(self.disputable.max(Amount::ZERO))),
                     ),
                     ("settledAt", t(self.settled_at)),
                 ]),
@@ -793,16 +798,16 @@ pub fn form(d: &Deps<'_>, card_id: &str, authorization_ref: &str) -> Result<Form
     })?;
     let (asset_id, decision, merchant, decided_at, captured, settled, refunded, dispute_id) = row;
     let disputable = captured - refunded;
-    let settled_at = settled.or((captured > 0).then_some(decided_at));
+    let settled_at = settled.or((captured > Amount::ZERO).then_some(decided_at));
     let deadline = match (&rules, settled_at) {
         (Some(r), Some(s)) => Some(Instant(s.0 + r.window_days * DAY_MS)),
         _ => None,
     };
     let standing = if decision != "approved" {
         "declined"
-    } else if captured == 0 {
+    } else if captured == Amount::ZERO {
         "not_settled"
-    } else if disputable <= 0 {
+    } else if disputable <= Amount::ZERO {
         "refunded"
     } else if dispute_id.is_some() {
         "already_disputed"
@@ -871,8 +876,8 @@ pub fn cardholder_open(
             ),
         ));
     }
-    let shown = format_amount(form.disputable.max(0));
-    if is_decimal(disputed) && amount(disputed)? > form.disputable.max(0) {
+    let shown = format_amount(form.disputable.max(Amount::ZERO));
+    if is_decimal(disputed) && amount(disputed)? > form.disputable.max(Amount::ZERO) {
         return Err(refuse(
             "bank.card_dispute_not_disputable",
             format!(

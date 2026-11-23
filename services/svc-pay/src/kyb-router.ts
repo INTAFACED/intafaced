@@ -6,7 +6,6 @@ import {
   kybApplicationStartInputSchema,
   kybApplicationViewSchema,
 } from '@intafaced/contracts/kyb-application';
-import { kybDocumentReviewInputSchema, kybDocumentsUploadResultSchema } from '@intafaced/contracts/kyb-documents';
 import { kybRequirementsReadInputSchema, kybRequirementsViewSchema } from '@intafaced/contracts/kyb-entity-types';
 import {
   kybRequestAnswerInputSchema,
@@ -47,6 +46,7 @@ import {
   PAY_KYB_DOCUMENTS_CHECKLIST,
   PAY_KYB_DOCUMENTS_UPLOAD,
   PAY_KYB_REQUESTS_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW,
 } from '@intafaced/contracts/pay-kyb-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from './record-refusal.js';
@@ -343,10 +343,9 @@ export function createKybPspRouter(
          * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
          * with the reason given here. One reviewer is enough: a verdict unlocks nothing, `kyb.decide` stays two-person.
          */
-        review: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentReviewInputSchema)
-          .output(kybDocumentsUploadResultSchema)
-          .mutation(({ ctx, input }) =>
+        review: mountRecord(
+          PAY_KYB_DOCUMENTS_REVIEW,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return {
@@ -359,7 +358,8 @@ export function createKybPspRouter(
                 }),
               };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Compliance: the bytes of one upload, so the reviewer can read it. A mutation, because every read is recorded. */
         file: mountRecord(

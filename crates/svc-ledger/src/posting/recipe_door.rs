@@ -368,7 +368,7 @@ fn academy(
     if js_trim(asset_id).is_empty() || js_trim(asset_id) != asset_id {
         return Err("assetId is required, with no surrounding spaces".to_owned());
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("an academy purchase amount must be above zero".to_owned());
     }
     if !is_chain_tx(payment_id) {
@@ -518,7 +518,7 @@ fn house_fees(module: &str, asset_id: &str, direction: &'static str, amount: Amo
 /// pot up. Custodial: the custody switch refuses it while the layer is off.
 fn fee_charge(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("fee amount must be positive".to_owned());
     }
     let module = field(input, "module");
@@ -544,12 +544,13 @@ fn fee_charge(input: &Json) -> Result<Request, String> {
 fn charge_earn(input: &Json) -> Result<Request, String> {
     let per_unit = parse_amount(input.get("price").map_or("", |p| field(p, "perUnit")))?;
     let units_text = field(input, "units");
-    let units: Amount = units_text
+    // A count of units, not money.
+    let units: i128 = units_text
         .parse()
         .map_err(|_| "units must be a whole number, at least one".to_owned())?;
     // `parseAmount(perUnit * units)`: `fitsColumn`.
     let amount = per_unit
-        .checked_mul(units)
+        .checked_times(units)
         .filter(|a| (-MAX_AMOUNT..=MAX_AMOUNT).contains(a))
         .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
     let module = field(input, "module");
@@ -565,10 +566,10 @@ fn charge_earn(input: &Json) -> Result<Request, String> {
     if units < 1 {
         return Err("units must be a whole number, at least one".to_owned());
     }
-    if per_unit < 0 {
+    if per_unit < Amount::ZERO {
         return Err("the price must be an amount, zero or more".to_owned());
     }
-    if amount == 0 {
+    if amount == Amount::ZERO {
         return Err("a charge must be above zero; a free sale posts nothing".to_owned());
     }
     let member = match input.get("memberUserId") {
@@ -617,7 +618,7 @@ fn charge_collect(input: &Json) -> Result<Request, String> {
     if payment_id.encode_utf16().count() > 128 {
         return Err("paymentId must be at most 128 characters".to_owned());
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("a collected charge must be above zero".to_owned());
     }
     let place = place_owner(input.get("to"))?;
@@ -666,7 +667,7 @@ fn key_space_kind(space: &str) -> &'static str {
 /// legacy shared key is never built here.
 fn bank_transfer(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("transfer amount must be positive".to_owned());
     }
     let from = input.get("from").cloned().unwrap_or(Json::Null);
@@ -758,17 +759,17 @@ fn received_hold(named: &str, input: &Json) -> Result<Request, String> {
     };
     match action {
         None => {
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Err("received-funds hold amount must be positive".to_owned());
             }
         }
         // `requireWhole`: release and return each move the whole hold (RH-2).
         Some(action) => {
             let held = parse_amount(field(input, "heldAmount"))?;
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Err(format!("received-funds {action} amount must be positive"));
             }
-            if held <= 0 {
+            if held <= Amount::ZERO {
                 return Err("held amount must be positive".to_owned());
             }
             if amount != held {
@@ -852,7 +853,7 @@ fn earn_pool_reserve(pool_id: &str, asset_id: &str) -> Json {
 fn earn_position(named: &str, input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
     let withdraw = named == "earnWithdraw";
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(if withdraw {
             "earn withdrawal amount must be positive"
         } else {
@@ -905,7 +906,7 @@ fn earn_position(named: &str, input: &Json) -> Result<Request, String> {
 /// `earnPoolFund` with no `from` (the record has none): the bank's own fee revenue down, the pool's reserve up.
 fn earn_pool_fund(input: &Json) -> Result<Request, String> {
     let amount = parse_amount(field(input, "amount"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("pool funding amount must be positive".to_owned());
     }
     let pool_id = field(input, "poolId");
@@ -978,7 +979,7 @@ fn earn_interest(input: &Json) -> Result<Request, String> {
     // Every amount is zero or more, so a running total past the book's bound is a final total past it.
     let total = payouts
         .iter()
-        .try_fold(0 as Amount, |t, (_, a)| {
+        .try_fold(Amount::ZERO, |t, (_, a)| {
             t.checked_add(*a).filter(|t| *t <= MAX_AMOUNT)
         })
         .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
@@ -991,7 +992,7 @@ fn earn_interest(input: &Json) -> Result<Request, String> {
     if payouts.is_empty() {
         return Err("An interest accrual with no recipients is not a transaction".to_owned());
     }
-    if let Some((user_id, _)) = payouts.iter().find(|(_, a)| *a <= 0) {
+    if let Some((user_id, _)) = payouts.iter().find(|(_, a)| *a <= Amount::ZERO) {
         return Err(format!("interest for {user_id} must be positive"));
     }
     let mut entries = vec![Leg {

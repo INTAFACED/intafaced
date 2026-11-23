@@ -216,7 +216,7 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const boxes = block('chart-box').querySelectorAll('.lt-chart-box');
     expect(boxes, 'the chart box, drawn and holding a state').toHaveLength(2);
     expect(
-      boxes[0]!.querySelector('[role="img"][aria-label] > [data-testid="kit-chart-host"]'),
+      boxes[0]!.querySelector('[role="figure"][aria-label] > [data-testid="kit-chart-host"]'),
       'the named picture and its drawing element',
     ).not.toBeNull();
     expect(
@@ -365,6 +365,18 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const handle = block.querySelector('.lit-field-control [data-part="box"]')!;
     expect(handle.querySelector('[data-part="before"][aria-hidden="true"]')?.textContent, 'the handle box shows its @').toBe('@');
     expect(handle.querySelector('button')?.textContent, 'and its Paste key inside it').toBe('Paste');
+
+    const tabs = [...block.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
+    expect(
+      tabs.map((tab) => tab.getAttribute('aria-selected')),
+      'one tab chosen',
+    ).toEqual(['true', 'false', 'false']);
+    await act(async () => tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+    expect(
+      [...block.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('aria-selected')),
+      'an arrow key chooses the next tab',
+    ).toEqual(['false', 'true', 'false']);
+    expect(document.activeElement?.textContent, 'and moves focus to it').toBe('Receive');
 
     const payee = block.querySelector('[data-testid="kit-payee"]')!;
     expect(payee.querySelector('[data-part="face"]')?.textContent).toBe('M');

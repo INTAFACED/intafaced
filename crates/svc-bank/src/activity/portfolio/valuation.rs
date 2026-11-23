@@ -29,7 +29,7 @@ pub const PRICE_QUOTES: [&str; 2] = ["USDT", "USDC"];
 pub const LOCK_KINDS: [&str; 4] = ["hold", "escrow", "stake", "collateral"];
 
 const DAY_MS: i64 = 86_400_000;
-const CENT_UNIT: Amount = 10_000_000_000_000_000;
+const CENT_UNIT: Amount = Amount::from_scaled(10_000_000_000_000_000);
 /// The purpose prefix of an earn position's stake account (`earnStakeAccount`).
 const EARN_PURPOSE: &str = "bank:earn:";
 
@@ -160,11 +160,11 @@ pub fn holdings_from_balances(rows: &[LedgerBalance]) -> Vec<Holding> {
     for row in rows {
         let asset = row.asset_id.clone();
         if row.kind == "available" {
-            *free.entry(asset).or_insert(0) += row.amount;
+            *free.entry(asset).or_insert(Amount::ZERO) += row.amount;
         } else if LOCK_KINDS.contains(&row.kind.as_str()) {
-            *used.entry(asset.clone()).or_insert(0) += row.amount;
+            *used.entry(asset.clone()).or_insert(Amount::ZERO) += row.amount;
             if row.kind == "stake" && row.purpose.starts_with(EARN_PURPOSE) {
-                *earn.entry(asset).or_insert(0) += row.amount;
+                *earn.entry(asset).or_insert(Amount::ZERO) += row.amount;
             }
         }
     }
@@ -173,15 +173,15 @@ pub fn holdings_from_balances(rows: &[LedgerBalance]) -> Vec<Holding> {
     assets.dedup();
     let mut out = Vec::new();
     for asset in assets {
-        let f = free.get(asset).copied().unwrap_or(0);
-        let u = used.get(asset).copied().unwrap_or(0);
-        let e = earn.get(asset).copied().unwrap_or(0);
-        if f + u > 0 {
+        let f = free.get(asset).copied().unwrap_or(Amount::ZERO);
+        let u = used.get(asset).copied().unwrap_or(Amount::ZERO);
+        let e = earn.get(asset).copied().unwrap_or(Amount::ZERO);
+        if f + u > Amount::ZERO {
             out.push(Holding {
                 asset_id: asset.clone(),
                 free: f,
                 used: u,
-                earn: (e > 0).then_some(e),
+                earn: (e > Amount::ZERO).then_some(e),
                 total: f + u,
             });
         }
@@ -196,9 +196,9 @@ pub fn needs_prices(holdings: &[Holding]) -> bool {
 
 /// `formatUsd2`: 2 places, half away from zero.
 pub fn format_usd2(value: Amount) -> String {
-    let negative = value < 0;
-    let abs = value.unsigned_abs();
-    let unit = CENT_UNIT.unsigned_abs();
+    let negative = value < Amount::ZERO;
+    let abs = value.scaled().unsigned_abs();
+    let unit = CENT_UNIT.scaled().unsigned_abs();
     let mut cents = abs / unit;
     if (abs % unit) * 2 >= unit {
         cents += 1;
@@ -253,7 +253,7 @@ pub fn value_portfolio(
     let mut unpriced: Vec<UnpricedRow> = Vec::new();
     let mut partial: Vec<f64> = Vec::new();
     for h in holdings {
-        if h.total <= 0 {
+        if h.total <= Amount::ZERO {
             continue;
         }
         let asset = &h.asset_id;
@@ -269,7 +269,7 @@ pub fn value_portfolio(
                     pair: None,
                 },
                 value: h.total,
-                change: Some(0),
+                change: Some(Amount::ZERO),
                 cash: true,
             });
             continue;
@@ -283,10 +283,10 @@ pub fn value_portfolio(
                 market_exists = true;
             }
             let Some(t) = t else { continue };
-            let Some(last) = t.last.filter(|l| *l > 0) else {
+            let Some(last) = t.last.filter(|l| *l > Amount::ZERO) else {
                 continue;
             };
-            let open = t.open.filter(|o| *o > 0);
+            let open = t.open.filter(|o| *o > Amount::ZERO);
             let value = mul(h.total, last);
             let change = open.map(|o| mul(h.total, last - o));
             #[allow(
@@ -651,10 +651,10 @@ mod tests {
     fn ignores_zero_and_negative_holdings() {
         let neg = Holding {
             asset_id: "ETH".to_owned(),
-            free: -1,
-            used: 0,
+            free: -Amount::from_scaled(1),
+            used: Amount::ZERO,
             earn: None,
-            total: -1,
+            total: -Amount::from_scaled(1),
         };
         let s = value(&[h("BTC", "0", "0"), neg], &[]);
         assert!(s.priced.is_empty() && s.unpriced.is_empty());
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(format_usd2(amt("1.004999999999999999")), "1.00");
         assert_eq!(format_usd2(amt("-1.005")), "-1.01");
         assert_eq!(format_usd2(amt("-0.004")), "0.00");
-        assert_eq!(format_usd2(0), "0.00");
+        assert_eq!(format_usd2(Amount::ZERO), "0.00");
         assert_eq!(
             format_usd2(amt("12345678901234567890.999")),
             "12345678901234567891.00"
@@ -743,7 +743,7 @@ mod tests {
                 Holding {
                     asset_id: "USDT".to_owned(),
                     free: amt("10"),
-                    used: 0,
+                    used: Amount::ZERO,
                     earn: None,
                     total: amt("10"),
                 },
@@ -755,7 +755,7 @@ mod tests {
     fn counts_locked_only_holdings_and_needsprices_is_false_for_stable_only_books() {
         let locked = holdings_from_balances(&[bal("SOL", "stake", "4", "")]);
         assert_eq!(locked.len(), 1);
-        assert_eq!((locked[0].free, locked[0].used), (0, amt("4")));
+        assert_eq!((locked[0].free, locked[0].used), (Amount::ZERO, amt("4")));
         assert!(needs_prices(&locked));
         assert!(!needs_prices(&holdings_from_balances(&[
             bal("usdt", "available", "1", ""),

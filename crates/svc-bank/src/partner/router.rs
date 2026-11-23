@@ -2,9 +2,9 @@
 //! them ([`Wiring`]).
 //!
 //! `testPartner.*` is the person's own TEST partner: off the TEST stack every call refuses `bank.test_partner_off`,
-//! because there is no TEST partner to switch. Three of them stand in for another slice's work once the TEST partner
-//! is on: `settlePayment` records a bank API payment's state change and its webhooks (`bank-api`), and `cardRefund`
-//! gives back a partner-held card capture (`card-ops`, whose refund it is); each answers "not ported" for that slice until it is.
+//! because there is no TEST partner to switch. Two of them are another slice's work: `settlePayment` records a bank API
+//! payment's state change and its webhooks, and the door answers it in slice `bank-api` (`bank_api::router`); `cardRefund`
+//! gives back a partner-held card capture (`card-ops`, whose refund it is) and answers "not ported" until that slice is.
 //! `fundBusiness` and `businessStatement` read the business account's owner here (`bank.business_accounts`).
 
 use service_kit::json::Json;
@@ -180,10 +180,6 @@ pub fn answer(w: &Wiring, store: &Store, ctx: &Ctx<'_>) -> Option<Result<Option<
             drop(state);
             Ok(view(&set))
         }
-        "testPartner.settlePayment" => {
-            on(w)?;
-            Err(Refusal::Trpc(not_ported(Slice::BankApi)))
-        }
         "testPartner.fund" => {
             let p = on(w)?;
             let asset = text(input, "assetId");
@@ -309,6 +305,7 @@ pub fn answer(w: &Wiring, store: &Store, ctx: &Ctx<'_>) -> Option<Result<Option<
                 ("closedAt", Json::str(closed.closed_at.unwrap_or(now).iso())),
             ]))
         }
+        // With the TEST partner on, the door hands the refund to the card moves (`door::card_moves`) before this slice.
         "testPartner.cardRefund" => {
             on(w)?;
             Err(Refusal::Trpc(not_ported(Slice::CardOps)))

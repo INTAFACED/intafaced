@@ -5,7 +5,6 @@ import {
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
   isKnownCode,
   type Part,
@@ -13,7 +12,11 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import { readKeyState, type KeyState } from './keys-model';
-import { IDENTITY_AUTH_KEYS_STATE } from '@intafaced/contracts/identity-auth-keys-procedures';
+import {
+  IDENTITY_AUTH_KEYS_STATE,
+  IDENTITY_AUTH_KEYS_ROTATE,
+  IDENTITY_AUTH_KEYS_REMOVE_OLD,
+} from '@intafaced/contracts/identity-auth-keys-procedures';
 
 export interface KeysView {
   readonly asOf: string;
@@ -41,14 +44,9 @@ export function identityKeysExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
     }
     const rotate = request.kind === 'identity.auth_key.rotate';
-    const result = await founderCall(
-      ctx,
-      'identity',
-      rotate ? 'authKeys.rotate' : 'authKeys.removeOld',
-      'POST',
-      rotate ? { keyId: request.keyId, ...ids } : ids,
-      readKeyState,
-    );
+    const result = await (rotate
+      ? founderRecordRead(ctx, IDENTITY_AUTH_KEYS_ROTATE, { keyId: request.keyId, ...ids }, readKeyState)
+      : founderRecordRead(ctx, IDENTITY_AUTH_KEYS_REMOVE_OLD, ids, readKeyState));
     if (result.kind === 'refused') {
       // Identity sends the typed code as the whole message (`auth_key.invalid_id`), not in brackets.
       const fromMessage = /^auth_key\.[a-z_]+$/.test(result.refusal.message) ? result.refusal.message : null;

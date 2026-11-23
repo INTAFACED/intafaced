@@ -103,7 +103,7 @@ export const venueDepositSchema = z.object({
   // The venue's link to the transfer on its network's explorer: https, or a path on this app; null when it has none.
   explorerUrl: z
     .string()
-    .regex(/^(https:\/\/|\/(?!\/))/)
+    .regex(/^(https:\/\/|\/(?:[^/]|$))/)
     .nullable(),
 });
 export type VenueDeposit = z.infer<typeof venueDepositSchema>;

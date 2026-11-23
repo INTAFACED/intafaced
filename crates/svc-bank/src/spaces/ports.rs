@@ -637,11 +637,37 @@ impl Ledger for LedgerHttp {
     }
 }
 
-/// Why the directory could not answer (`BusinessDirectoryError`'s reason).
+/// Why the directory could not answer (`BusinessDirectoryError`): its reason (`unset`) and its sentence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirError {
+    /// No `IDENTITY_URL`.
     Unset,
+    /// svc-identity has not published the directory route (a 404).
+    Missing,
+    /// svc-identity did not answer.
     Unavailable,
+    /// svc-identity answered this non-2xx status.
+    Refused(u16),
+    /// svc-identity's answer was not a directory.
+    Unreadable,
+}
+
+impl DirError {
+    /// The reason is `unset`: the directory is not connected, rather than failing.
+    pub fn unset(self) -> bool {
+        matches!(self, DirError::Unset | DirError::Missing)
+    }
+
+    /// `BusinessDirectoryError`'s message.
+    pub fn sentence(self) -> String {
+        match self {
+            DirError::Unset => "IDENTITY_URL is unset, so svc-bank cannot read public handles from svc-identity. Team list, approval history and recipient lookup stay closed until that directory is connected (bank.business_directory_unset)".to_owned(),
+            DirError::Missing => format!("svc-identity has not published POST {HANDLES_PATH}. Handles, approval history and recipient lookup stay closed until that directory route exists (bank.business_directory_unset)"),
+            DirError::Unavailable => "svc-identity did not answer the business directory. Nothing was listed. Retry shortly (bank.business_directory_unavailable)".to_owned(),
+            DirError::Refused(status) => format!("svc-identity refused the business directory ({status}). Nothing was listed (bank.business_directory_unavailable)"),
+            DirError::Unreadable => "svc-identity returned an unreadable business directory. Nothing was listed (bank.business_directory_unavailable)".to_owned(),
+        }
+    }
 }
 
 /// One exact lookup: a handle or an email, already in shape.
@@ -657,6 +683,11 @@ pub trait Directory: Send + Sync {
     fn handles_of(&self, ids: &[String]) -> Result<BTreeMap<String, String>, DirError>;
     /// An active account, exact match: its id and handle, or none for unknown, frozen and closed.
     fn find_active(&self, query: &Lookup) -> Result<Option<(String, String)>, DirError>;
+    /// `publishedNames`: display names the owner chose to show; an id with no published choice is omitted. Identity
+    /// does not publish that choice, so the live client answers none.
+    fn published_names(&self, _ids: &[String]) -> Result<BTreeMap<String, String>, DirError> {
+        Ok(BTreeMap::new())
+    }
 }
 
 /// `unconfiguredBusinessDirectory`: no `IDENTITY_URL`, every read refuses as unset.
@@ -667,6 +698,9 @@ impl Directory for NoDirectory {
         Err(DirError::Unset)
     }
     fn find_active(&self, _: &Lookup) -> Result<Option<(String, String)>, DirError> {
+        Err(DirError::Unset)
+    }
+    fn published_names(&self, _: &[String]) -> Result<BTreeMap<String, String>, DirError> {
         Err(DirError::Unset)
     }
 }
@@ -711,12 +745,12 @@ impl DirectoryHttp {
             })
             .map_err(|_| DirError::Unavailable)?;
         if res.status == 404 {
-            return Err(DirError::Unset);
+            return Err(DirError::Missing);
         }
         if !res.ok() {
-            return Err(DirError::Unavailable);
+            return Err(DirError::Refused(res.status));
         }
-        json::parse(&res.body).map_err(|_| DirError::Unavailable)
+        json::parse(&res.body).map_err(|_| DirError::Unreadable)
     }
 }
 
@@ -745,16 +779,19 @@ impl Directory for DirectoryHttp {
         )]);
         let answer = self.post(HANDLES_PATH, &body)?;
         let Some(Json::Array(rows)) = answer.get("handles") else {
-            return Err(DirError::Unavailable);
+            return Err(DirError::Unreadable);
         };
         let mut out = BTreeMap::new();
         for r in rows {
             let (Some(id), Some(handle)) =
                 (bounded(r.get("userId"), 128), bounded(r.get("handle"), 64))
             else {
-                return Err(DirError::Unavailable);
+                return Err(DirError::Unreadable);
             };
-            out.insert(id, handle);
+            // Only the ids asked for: identity's answer names no one else.
+            if unique.contains(&id) {
+                out.insert(id, handle);
+            }
         }
         Ok(out)
     }
@@ -773,10 +810,10 @@ impl Directory for DirectoryHttp {
                     bounded(answer.get("handle"), 64),
                 ) {
                     (Some(id), Some(handle)) => Ok(Some((id, handle))),
-                    _ => Err(DirError::Unavailable),
+                    _ => Err(DirError::Unreadable),
                 }
             }
-            _ => Err(DirError::Unavailable),
+            _ => Err(DirError::Unreadable),
         }
     }
 }

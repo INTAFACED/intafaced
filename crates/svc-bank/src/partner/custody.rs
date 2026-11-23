@@ -260,6 +260,23 @@ impl Held<'_> {
         self.partner.lock().open_orders(user_id)
     }
 
+    /// `quoteMove`: the partner's quote for a move between the person's own accounts; asks no guard, as it moves
+    /// nothing.
+    pub fn quote_move(
+        &self,
+        from: &AccountRef,
+        to: &AccountRef,
+        amount: service_kit::money::Amount,
+        now: Instant,
+    ) -> Result<super::MoveQuote, Refusal> {
+        self.partner.lock().quote_move(from, to, amount, now)
+    }
+
+    /// `payments.paymentByKey`: a payment as the partner holds it now.
+    pub fn payment_by_key(&self, key: &str) -> Option<Payment> {
+        self.partner.lock().payment_by_key(key)
+    }
+
     /// `moveByKey`.
     pub fn move_by_key(&self, key: &str) -> Option<Move> {
         self.partner.lock().book.by_key(key).cloned()

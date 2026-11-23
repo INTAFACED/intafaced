@@ -113,7 +113,7 @@ pub fn held_count(
     Ok(row.get(0))
 }
 
-fn assert_under_count(
+pub(crate) fn assert_under_count(
     c: &mut impl GenericClient,
     user_id: &str,
     card_type: &str,
@@ -242,7 +242,7 @@ pub fn issue(d: &Deps<'_>, ask: &IssueAsk) -> Result<Card, Refusal> {
             ));
         }
     }
-    if ask.per_authorization_limit <= 0 {
+    if ask.per_authorization_limit <= Amount::ZERO {
         return Err(refuse(
             "bank.card_limit_exceeded",
             "A card needs a positive per-authorisation limit",
@@ -486,13 +486,13 @@ pub fn set_limits(
     l: &Limits,
 ) -> Result<Card, Refusal> {
     d.assert_module_enabled()?;
-    if l.per <= 0 {
+    if l.per <= Amount::ZERO {
         return Err(limit_exceeded(
             "A card needs a positive per-authorisation limit",
         ));
     }
     for v in [l.daily, l.monthly, l.cash] {
-        if matches!(v, Some(Some(a)) if a <= 0) {
+        if matches!(v, Some(Some(a)) if a <= Amount::ZERO) {
             return Err(limit_exceeded("A card limit must be a positive amount"));
         }
     }
@@ -718,27 +718,10 @@ fn replace_conflict(message: &str) -> Refusal {
     refuse("bank.card_replace_conflict", message)
 }
 
-/// `reverseOpenHolds`: every hold still open on a lost or stolen card goes back through `reverse`, which is slice
-/// `card-ops`' (the hold, capture and reversal are the issuer speaking). A card with no open hold needs nothing from it;
-/// one with an open hold is owed by that slice until it is ported, and nothing is closed.
+/// `reverseOpenHolds`: every hold still open on a lost or stolen card goes back through slice `card-ops`' `reverse`
+/// (`moves::settle::reverse_open_holds`).
 fn reverse_open_holds(d: &Deps<'_>, card: &Card) -> Result<(), Refusal> {
-    let open: i64 = with(d.store(), |c| {
-        Ok(c.query_one(
-            "SELECT count(*)::int8 FROM bank.card_authorizations a \
-              WHERE a.card_id = $1::text::uuid AND a.decision = 'approved' \
-                AND (a.hold_ledger_tx_id IS NOT NULL OR a.partner_hold_ref IS NOT NULL) \
-                AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0)",
-            &[&card.id],
-        )
-        .map_err(|e| pg(&e))?
-        .get(0))
-    })?;
-    if open == 0 {
-        return Ok(());
-    }
-    Err(Refusal::Trpc(crate::door::not_ported(
-        crate::door::Slice::CardOps,
-    )))
+    super::moves::settle::reverse_open_holds(&super::moves::Moves::bare(d), card)
 }
 
 fn close_replaced(

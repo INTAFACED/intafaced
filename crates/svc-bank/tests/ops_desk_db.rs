@@ -159,7 +159,7 @@ impl Ledger for Book {
         Ok(st
             .balances
             .get(&(account.owner_type.to_owned(), account.owner_id.clone()))
-            .map_or(0, |rows| {
+            .map_or(Amount::ZERO, |rows| {
                 rows.iter()
                     .filter(|r| r.asset_id == account.asset_id && r.kind == account.kind)
                     .map(|r| r.amount)

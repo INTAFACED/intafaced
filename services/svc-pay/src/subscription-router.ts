@@ -24,6 +24,7 @@ import {
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
   PAY_SUBSCRIPTION_CREATE,
+  PAY_SUBSCRIPTION_CYCLES,
 } from '@intafaced/contracts/pay-subscription-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from './record-refusal.js';
@@ -43,26 +44,6 @@ const mandateView = z.object({
   status: z.enum(['active', 'cancelled', 'expired']),
   cancelledAt: z.string().datetime({ offset: true }).nullable(),
   createdAt: z.string().datetime({ offset: true }),
-});
-
-/** One recorded period. The journal, not a status word. */
-const cycleView = z.object({
-  occurrence: z.number().int().nonnegative(),
-  amount: amountSchema,
-  status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
-  /**
-   * The business idempotency key of the PERIOD. Exposed deliberately: "was this
-   * period charged twice" is answerable by reading two keys, and a key that
-   * changed between attempts is visible rather than inferred.
-   */
-  idempotencyKey: z.string().nullable(),
-  attemptCount: z.number().int().positive(),
-  rejectionCode: z.string().nullable(),
-  paymentId: z.string().guid().nullable(),
-  exhausted: z.boolean(),
-  settledAt: z.string().datetime({ offset: true }).nullable(),
-  notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
-  notifyCode: z.string().nullable(),
 });
 
 function toMandateOut(m: Awaited<ReturnType<SubscriptionService['getMandate']>>) {
@@ -535,26 +516,17 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * The period journal. Read-only, and the honest answer to "did you charge
        * me twice" — two periods carry two keys, one period retried carries one.
        */
-      cycles: ownMerchantRead()
-        .input(
-          z.object({
-            subscriptionId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.subscription_cycle_list_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.object({ subscriptionId: z.string().guid(), cycles: z.array(cycleView) }))
-        .query(({ ctx, input }) =>
+      cycles: mountRecord(
+        PAY_SUBSCRIPTION_CYCLES,
+        ({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const cycles = await subscriptions.listCycles(input.subscriptionId, { limit: input.limit });
             return { subscriptionId: input.subscriptionId, cycles: cycles.map(toCycleOut) };
           }),
-        ),
+        payRefusal,
+      ),
     }),
   });
 }

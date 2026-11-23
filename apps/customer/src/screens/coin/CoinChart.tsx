@@ -12,6 +12,7 @@
  * coordinates (UI-SPEC principle 5). Every figure shown as text comes from the decimal strings.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChartCanvas } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { planUpdate, priceFormat, toLinePoint } from '../trade/chart/chart-data';
 import { axisTime, tickMark } from '../trade/chart/PriceChart';
@@ -114,6 +115,9 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
+      // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+      // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so the frame stays empty.
+      if (Object.values(c).some((value) => value === '')) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         handleScroll: false,
@@ -239,8 +243,6 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
   }, [candles, tickSize, ready]);
 
   return (
-    <div data-testid="coin-chart" className="coin-chart" role="img" aria-label={label}>
-      <div ref={host} data-testid="coin-chart__host" className="coin-chart__host" />
-    </div>
+    <ChartCanvas label={label} host={host} marks={{ 'data-testid': 'coin-chart' }} hostMarks={{ 'data-testid': 'coin-chart__host' }} />
   );
 }

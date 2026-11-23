@@ -16,7 +16,8 @@
 //
 //   - a `.refine(..., message)` stays as written and is named in the record, in its message's words: an answer's in
 //     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
-//     that check alone refuses. A `.superRefine`, or a refine with no message written in its chain, has no words to name.
+//     that check alone refuses. A `.superRefine` is named the same way, in the words of each issue it raises
+//     (`ctx.addIssue({ message })`); one that raises an issue with no message written, or a refine with none, is left.
 //
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
@@ -258,14 +259,19 @@ function fix(target, construct) {
 
 /**
  * The `.refine(..., message)` a refined schema carries where it is written: its words, and a name for the check (the
- * schema's own name when it has one, else the key it sits under). `.superRefine` says nothing a record can quote.
+ * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
  */
 function refinementOf(target) {
   const found = follow(target.q, target.n);
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];
   for (const m of chainOf(found.n).methods) {
-    if (m.name === 'superRefine') return { why: 'a .superRefine names no rule in words' };
+    if (m.name === 'superRefine') {
+      const r = superRefineWords(found.q, m.call.arguments[0]);
+      if (r.why) return r;
+      says.push(...r.says);
+      continue;
+    }
     if (m.name !== 'refine') continue;
     const msg = m.call.arguments[1];
     const words =
@@ -281,6 +287,47 @@ function refinementOf(target) {
     unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
   const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
+}
+
+/**
+ * The words of a `.superRefine`: the `message` of each `ctx.addIssue({ ..., message })` its function raises, written as
+ * a string. The function is written inline, or named (a function or const in its file, or imported). One issue raised
+ * without written words leaves the whole refinement, as a `.refine` with no message does: its rule has no words to name.
+ */
+function superRefineWords(q, fn) {
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') fn = b.declaration;
+    else if (b.kind === 'var' && b.declarator.init) fn = b.declarator.init;
+    else if (b.kind === 'import' && b.from.startsWith('.')) {
+      const file = resolveRelative(q.file, b.from);
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      fn = d.kind === 'function' ? d.declaration : d.kind === 'var' ? d.declarator.init : undefined;
+    } else break;
+  }
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type))
+    return { why: 'its .superRefine is not a function the codemod can read' };
+  const says = [];
+  let unnamed = false;
+  walk(fn.body, (n) => {
+    if (n.type !== 'CallExpression' || n.callee.type !== 'MemberExpression') return;
+    const prop = n.callee.property?.name;
+    if (prop === 'push' && n.callee.object.type === 'MemberExpression' && n.callee.object.property?.name === 'issues') unnamed = true;
+    if (prop !== 'addIssue') return;
+    const arg = unwrap(n.arguments[0]);
+    const words =
+      arg?.type === 'ObjectExpression'
+        ? literal(arg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : literal(arg);
+    if (words === undefined) unnamed = true;
+    else if (!says.includes(words)) says.push(words);
+  });
+  if (unnamed) return { why: 'its .superRefine raises an issue with no message written as a string' };
+  if (!says.length) return { why: 'its .superRefine raises no issue the codemod can read' };
+  return { says };
 }
 
 /** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits, and the names it gave. */

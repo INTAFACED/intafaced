@@ -109,7 +109,12 @@ impl Book {
     }
     fn available(&self, user: &str) -> String {
         let s = self.state.lock().unwrap();
-        format_amount(s.accounts.get(&available(user)).copied().unwrap_or(0))
+        format_amount(
+            s.accounts
+                .get(&available(user))
+                .copied()
+                .unwrap_or(Amount::ZERO),
+        )
     }
     fn held(&self, user: &str, hold: &str) -> String {
         let s = self.state.lock().unwrap();
@@ -117,7 +122,7 @@ impl Book {
             s.accounts
                 .get(&hold_account(user, hold))
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     fn posts(&self, prefix: &str) -> usize {
@@ -142,7 +147,9 @@ impl Book {
             return Ok(tx.clone());
         }
         for (from, _) in moves {
-            if from.2 == "available" && s.accounts.get(from).copied().unwrap_or(0) < amount {
+            if from.2 == "available"
+                && s.accounts.get(from).copied().unwrap_or(Amount::ZERO) < amount
+            {
                 return Err(PostFailure::Coded {
                     code: "ledger.insufficient_funds".to_owned(),
                     message: "Insufficient funds".to_owned(),
@@ -178,7 +185,7 @@ impl Ledger for Book {
         Ok(s.accounts
             .get(&(a.owner_id.clone(), a.asset_id.clone(), a.kind.to_owned()))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, _: &str, _: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())

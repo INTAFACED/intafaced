@@ -3950,6 +3950,602 @@
         }
       ]
     },
+    "agents.own.approval.approve": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.approval.approve",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:execute",
+        "module": "agents",
+        "person": true,
+        "ownSession": "agents.execute_person_only"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "sessionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": ["waiting", "approved", "rejected", "expired", "replaced", "failed"]
+              },
+              "refusalCode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["agents.approval.rejected", "agents.approval.expired", "agents.approval.replaced", "agents.approval.failed"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "failureCode": {
+                "type": ["string", "null"]
+              },
+              "ruleId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "decidedAt": {
+                "type": ["string", "null"]
+              },
+              "decidedBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["person", "reviewer"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "replacedBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "result": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/__schema0"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ranAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "sessionId",
+              "tool",
+              "input",
+              "status",
+              "refusalCode",
+              "failureCode",
+              "ruleId",
+              "createdAt",
+              "expiresAt",
+              "decidedAt",
+              "decidedBy",
+              "replacedBy",
+              "result",
+              "ranAt"
+            ],
+            "additionalProperties": false
+          },
+          "repeated": {
+            "type": "boolean"
+          }
+        },
+        "required": ["request", "repeated"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.approval.reject": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "own.approval.reject",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "input": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["waiting", "approved", "rejected", "expired", "replaced", "failed"]
+          },
+          "refusalCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["agents.approval.rejected", "agents.approval.expired", "agents.approval.replaced", "agents.approval.failed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failureCode": {
+            "type": ["string", "null"]
+          },
+          "ruleId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          },
+          "decidedBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["person", "reviewer"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replacedBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/__schema0"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "tool",
+          "input",
+          "status",
+          "refusalCode",
+          "failureCode",
+          "ruleId",
+          "createdAt",
+          "expiresAt",
+          "decidedAt",
+          "decidedBy",
+          "replacedBy",
+          "result",
+          "ranAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.approvals": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "own.approvals",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["id", "limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "input": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "status": {
+              "type": "string",
+              "enum": ["waiting", "approved", "rejected", "expired", "replaced", "failed"]
+            },
+            "refusalCode": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["agents.approval.rejected", "agents.approval.expired", "agents.approval.replaced", "agents.approval.failed"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "failureCode": {
+              "type": ["string", "null"]
+            },
+            "ruleId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "decidedAt": {
+              "type": ["string", "null"]
+            },
+            "decidedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["person", "reviewer"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "replacedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ranAt": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": [
+            "id",
+            "sessionId",
+            "tool",
+            "input",
+            "status",
+            "refusalCode",
+            "failureCode",
+            "ruleId",
+            "createdAt",
+            "expiresAt",
+            "decidedAt",
+            "decidedBy",
+            "replacedBy",
+            "result",
+            "ranAt"
+          ],
+          "additionalProperties": false
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "x",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "agents.own.assistant.accept": {
       "service": "svc-agents",
       "module": "agents",
@@ -5833,6 +6429,211 @@
           "verdict": "accept",
           "input": {
             "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "agents.own.inbox": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "own.inbox",
+      "access": {
+        "caller": "scope",
+        "scope": "agents:read",
+        "module": "agents",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "input": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "status": {
+              "type": "string",
+              "enum": ["waiting", "approved", "rejected", "expired", "replaced", "failed"]
+            },
+            "refusalCode": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["agents.approval.rejected", "agents.approval.expired", "agents.approval.replaced", "agents.approval.failed"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "failureCode": {
+              "type": ["string", "null"]
+            },
+            "ruleId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "decidedAt": {
+              "type": ["string", "null"]
+            },
+            "decidedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["person", "reviewer"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "replacedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ranAt": {
+              "type": ["string", "null"]
+            },
+            "agentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "agentName": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "sessionId",
+            "tool",
+            "input",
+            "status",
+            "refusalCode",
+            "failureCode",
+            "ruleId",
+            "createdAt",
+            "expiresAt",
+            "decidedAt",
+            "decidedBy",
+            "replacedBy",
+            "result",
+            "ranAt",
+            "agentId",
+            "agentName"
+          ],
+          "additionalProperties": false
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 1
           }
         },
         {
@@ -12772,6 +13573,99 @@
         }
       ]
     },
+    "agents.routes.confirm": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "routes.confirm",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "agents",
+        "person": true,
+        "ownSession": "agents.route_change_person_only"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "changeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["changeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "inputPerMillion": {
+            "type": ["string", "null"]
+          },
+          "outputPerMillion": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "applied", "withdrawn"]
+          },
+          "proposedBy": {
+            "type": "string"
+          },
+          "confirmedBy": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "task",
+          "maxOutputTokens",
+          "inputPerMillion",
+          "outputPerMillion",
+          "status",
+          "proposedBy",
+          "confirmedBy",
+          "createdAt",
+          "decidedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "changeId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "changeId": "not-a-uuid"
+          }
+        }
+      ]
+    },
     "agents.routes.desk": {
       "service": "svc-agents",
       "module": "agents",
@@ -13253,6 +14147,99 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "agents.routes.withdraw": {
+      "service": "svc-agents",
+      "module": "agents",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "routes.withdraw",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "agents",
+        "person": true,
+        "ownSession": "agents.route_change_person_only"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "changeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["changeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "inputPerMillion": {
+            "type": ["string", "null"]
+          },
+          "outputPerMillion": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "applied", "withdrawn"]
+          },
+          "proposedBy": {
+            "type": "string"
+          },
+          "confirmedBy": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "task",
+          "maxOutputTokens",
+          "inputPerMillion",
+          "outputPerMillion",
+          "status",
+          "proposedBy",
+          "confirmedBy",
+          "createdAt",
+          "decidedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "changeId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "changeId": "not-a-uuid"
+          }
         }
       ]
     },

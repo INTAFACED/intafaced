@@ -185,3 +185,32 @@ export const PAY_PAYMENT_VIEWS_LIST = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** Its own scope. Refunding is not the same authority as taking payment. */
+export const PAY_PAYMENT_REFUND = defineProcedure({
+  ...base,
+  name: 'pay.payment.refund',
+  kind: 'mutation',
+  path: 'payment.refund',
+  access: { caller: 'scope', scope: 'pay:refund', module: 'pay' },
+  refusals: {},
+  input: z.object({
+    paymentId: z.string().guid(),
+    amount: amountSchema,
+    // refundId is the caller's idempotency key. Without it the service invented
+    // `${paymentId}:${count + 1}`, so a client retry of a PARTIAL refund that had
+    // already succeeded booked a second refund. A retry must carry the same id.
+    refundId: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((id) => id.trim().length > 0, 'refundId must not be blank'),
+  }),
+  checks: { refund_id_holds: { at: 'input.refundId', says: 'refundId must not be blank' } },
+  output: paymentView,
+  samples: [
+    { verdict: 'accept', input: { paymentId: '11111111-1111-4111-8111-111111111111', amount: '1', refundId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'refund_id_holds', input: { paymentId: '11111111-1111-4111-8111-111111111111', amount: '1', refundId: ' ' } },
+  ],
+});

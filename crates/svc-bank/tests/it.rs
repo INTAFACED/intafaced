@@ -24,6 +24,46 @@ mod automations_pay_yourself_db;
 mod automations_rules_db;
 #[path = "automations_sorter_db.rs"]
 mod automations_sorter_db;
+#[path = "bank_api_db.rs"]
+mod bank_api_db;
+#[path = "bills_direct_debits_db.rs"]
+mod bills_direct_debits_db;
+#[path = "bills_pay_db.rs"]
+mod bills_pay_db;
+#[path = "bills_rail_sends_db.rs"]
+mod bills_rail_sends_db;
+#[path = "business_dual_control_db.rs"]
+mod business_dual_control_db;
+#[path = "business_guards_db.rs"]
+mod business_guards_db;
+#[path = "business_holds_payroll_db.rs"]
+mod business_holds_payroll_db;
+#[path = "business_procedures_db.rs"]
+mod business_procedures_db;
+#[path = "business_retry_db.rs"]
+mod business_retry_db;
+#[path = "business_roles_db.rs"]
+mod business_roles_db;
+#[path = "business_team_db.rs"]
+mod business_team_db;
+#[path = "business_team_membership_db.rs"]
+mod business_team_membership_db;
+#[path = "card_ops_desk_disputes_db.rs"]
+mod card_ops_desk_disputes_db;
+#[path = "card_ops_desk_programme_db.rs"]
+mod card_ops_desk_programme_db;
+#[path = "card_ops_desk_reads_db.rs"]
+mod card_ops_desk_reads_db;
+#[path = "card_ops_desk_record_db.rs"]
+mod card_ops_desk_record_db;
+#[path = "card_ops_ledger_db.rs"]
+mod card_ops_ledger_db;
+#[path = "card_ops_partner_db.rs"]
+mod card_ops_partner_db;
+#[path = "card_ops_product_db.rs"]
+mod card_ops_product_db;
+#[path = "card_programme_db.rs"]
+mod card_programme_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
@@ -42,6 +82,10 @@ mod credit_previews;
 mod earn_db;
 #[path = "env_parity.rs"]
 mod env_parity;
+#[path = "global_send_db.rs"]
+mod global_send_db;
+#[path = "global_sim_db.rs"]
+mod global_sim_db;
 #[path = "guard_grid.rs"]
 mod guard_grid;
 #[path = "input_parity.rs"]
@@ -88,6 +132,9 @@ mod transfers_withdrawal_db;
 mod wire_replay;
 
 // The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod business_kit;
+mod card_ops_desk_kit;
+mod card_ops_kit;
 mod loans_kit;
 mod support;
 

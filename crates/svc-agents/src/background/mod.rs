@@ -629,7 +629,7 @@ pub fn stop(x: &Rt<'_>, run_id: &str, user_id: &str) -> Result<Option<Json>, Run
 fn settle_session(x: &Rt<'_>, session_id: &str) -> Result<Json, RunError> {
     let stopped_at = x.now.iso();
     let mut settlements = Vec::new();
-    let mut billed: Amount = 0;
+    let mut billed: Amount = Amount::ZERO;
     let mut unpaid = Json::Null;
     for window_id in meter::open_windows(x.pool, session_id)? {
         match settle::settle_window(x.m, x.pool, session_id, &window_id, x.now) {

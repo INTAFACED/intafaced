@@ -48,8 +48,8 @@ pub const JOB_DOORS: [JobDoor; 27] = [
     job("/internal/jobs/payout-sim/failed", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/cancelled", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/returned", Slice::PartnerAccount),
-    job("/internal/jobs/bill-pay/run-due", Slice::Bills),
-    job("/internal/jobs/bill-pay/returned", Slice::Bills),
+    job("/internal/jobs/bill-pay/run-due", Slice::BusinessSpend),
+    job("/internal/jobs/bill-pay/returned", Slice::BusinessSpend),
     job("/internal/jobs/payin-sim/paid", Slice::Ramps),
     job("/internal/jobs/payin-sim/returned", Slice::Ramps),
     job("/internal/jobs/card-sim/shipment", Slice::Cards),
@@ -389,13 +389,19 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
                 .unwrap_or_else(|| not_ported(Slice::Automations)),
             );
         }
+        if j.slice == Slice::Bills {
+            return Some(
+                door.bills_deps(door.now(), |d| crate::bills::router::job(d, j.path, &body))
+                    .unwrap_or_else(|| not_ported(Slice::Bills)),
+            );
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {
         return Some(reply(403, "caller not allowed", "bank.caller_forbidden"));
     }
     if path == PARTNER_RESERVES {
-        return Some(not_ported(Slice::CardOps));
+        return Some(crate::card_ops_desk::reserves::door(door));
     }
     Some(
         match restore_watermark::read(door.store(), door.now(), BANK_SCHEMA) {

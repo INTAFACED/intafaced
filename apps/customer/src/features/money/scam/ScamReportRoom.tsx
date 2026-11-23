@@ -3,10 +3,10 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { asAssetId } from '@intafaced/contracts/asset-id';
-import type { SupportScamContact, SupportScamReportInput, SupportScamWhen } from '@intafaced/contracts/support-safety';
+import type { SupportScamContact, SupportScamWhen } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
-import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
+import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend, sendScamReport } from '../safety-ack';
 
 /**
  * Report a scam (BK-safe-02, J-bank-18 #3), on the flow template. `support.safety.reportScam` checks with the bank that
@@ -45,7 +45,7 @@ export function ScamReportRoom() {
   const [transferId, setTransferId] = useState(transferFromUrl);
   const [contactedBy, setContactedBy] = useState<SupportScamContact>('phone_call');
   const [details, setDetails] = useState('');
-  const { send, busy, sent, refusal } = useSafetySend<SupportScamReportInput>('scam', 'safety.reportScam');
+  const { send, busy, sent, refusal } = useSafetySend('scam', sendScamReport);
   const earlier = useMyAcknowledgements('scam', sent?.id ?? null);
   const asset = assetId.trim().toUpperCase();
   const sentMoney = when === 'after_sending';

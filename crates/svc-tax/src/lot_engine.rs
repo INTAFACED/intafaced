@@ -299,7 +299,7 @@ impl Book {
     }
 
     fn remaining(&self, i: usize) -> Amount {
-        self.lot(i).map_or(0, |l| l.remaining)
+        self.lot(i).map_or(Amount::ZERO, |l| l.remaining)
     }
 
     fn remaining_cost(&self, i: usize) -> Option<Amount> {
@@ -327,8 +327,8 @@ impl Book {
 
     /// `averagePoolOf`.
     fn average_pool(&self, open: &[usize]) -> Pool {
-        let mut qty = 0;
-        let mut cost = Some(0);
+        let mut qty = Amount::ZERO;
+        let mut cost = Some(Amount::ZERO);
         for i in open {
             qty += self.remaining(*i);
             cost = match (cost, self.remaining_cost(*i)) {
@@ -397,7 +397,10 @@ impl Ids {
 type Prices<'a> = Option<&'a HashMap<String, Amount>>;
 
 fn entered_price(prices: Prices<'_>, id: &str) -> Option<Amount> {
-    prices.and_then(|p| p.get(id)).copied().filter(|p| *p > 0)
+    prices
+        .and_then(|p| p.get(id))
+        .copied()
+        .filter(|p| *p > Amount::ZERO)
 }
 
 /// `runLotEngine`.
@@ -408,7 +411,7 @@ pub fn run_lot_engine(
     apart: Option<&dyn Fn(LotSource) -> bool>,
 ) -> EngineRun {
     let mut by_asset: Vec<(&str, Vec<&Movement>)> = Vec::new();
-    for m in movements.iter().filter(|m| m.qty > 0) {
+    for m in movements.iter().filter(|m| m.qty > Amount::ZERO) {
         match by_asset.iter_mut().find(|(a, _)| *a == m.asset_id) {
             Some((_, list)) => list.push(m),
             None => by_asset.push((&m.asset_id, vec![m])),
@@ -542,7 +545,7 @@ pub fn run_lot_engine(
             let price_lot_id = entry
                 .price_lot_id
                 .filter(|p| customer && *p != entry.lot.id);
-            if entry.remaining > 0 && entry.remaining_cost.is_none() {
+            if entry.remaining > Amount::ZERO && entry.remaining_cost.is_none() {
                 residuals.push(TAX_COST_BASIS_UNAVAILABLE);
             }
             let head = entry.lot;
@@ -556,8 +559,8 @@ pub fn run_lot_engine(
                 qty: head.qty,
                 remaining: entry.remaining,
                 cost_usd: head.cost_usd,
-                remaining_cost_usd: if entry.remaining == 0 {
-                    Some(0)
+                remaining_cost_usd: if entry.remaining == Amount::ZERO {
+                    Some(Amount::ZERO)
                 } else {
                     entry.remaining_cost
                 },
@@ -616,8 +619,8 @@ fn carry(
     let mut remaining = m.qty;
     let pool = (method == EngineMethod::Average).then(|| book.average_pool(&from));
     let mut unranked = false;
-    let mut taken: Amount = 0;
-    while remaining > 0 && !from.is_empty() {
+    let mut taken: Amount = Amount::ZERO;
+    while remaining > Amount::ZERO && !from.is_empty() {
         let picked = match method {
             EngineMethod::Lifo => Some(from.len() - 1),
             EngineMethod::Hifo => book.pick(&from, EngineMethod::Hifo),
@@ -704,7 +707,7 @@ fn carry(
         } else {
             book.insert_by_date(&mut to, new_index);
         }
-        if book.remaining(lot_index) == 0 && idx < from.len() {
+        if book.remaining(lot_index) == Amount::ZERO && idx < from.len() {
             from.remove(idx);
         }
     }
@@ -719,7 +722,7 @@ fn carry(
             }
         }
     }
-    if remaining > 0 {
+    if remaining > Amount::ZERO {
         let id = ids.next(&lot_id_of(&m.tx_id, &m.asset_id));
         let price = entered_price(prices, &id);
         let cost = price.map(|p| mul(p, remaining));
@@ -809,15 +812,15 @@ fn dispose(
     };
 
     for mut pool in pools {
-        if remaining == 0 {
+        if remaining == Amount::ZERO {
             break;
         }
         let mut unranked = false;
         let average = (method == EngineMethod::Average).then(|| book.average_pool(&pool));
         let pool_entered = average.as_ref().is_some_and(|p| p.entered);
         let mut drew = false;
-        let mut taken_cost: Amount = 0;
-        while remaining > 0 && !pool.is_empty() {
+        let mut taken_cost: Amount = Amount::ZERO;
+        while remaining > Amount::ZERO && !pool.is_empty() {
             drew = true;
             let picked_at = picked.and_then(|p| pool.iter().position(|i| *i == p));
             let idx = match picked_at {
@@ -864,7 +867,7 @@ fn dispose(
                 customer_entered: from_customer,
             });
             remaining -= take;
-            taken_cost += cost.unwrap_or(0);
+            taken_cost += cost.unwrap_or(Amount::ZERO);
             if let (Some(left), Some(p)) = (proceeds_left, proceeds) {
                 proceeds_left = Some(left - p);
             }
@@ -878,7 +881,7 @@ fn dispose(
                 }
                 l.remaining -= take;
             }
-            if book.remaining(lot_index) == 0 {
+            if book.remaining(lot_index) == Amount::ZERO {
                 pool.remove(idx);
             }
         }
@@ -893,15 +896,15 @@ fn dispose(
             }
         }
     }
-    open.retain(|i| book.remaining(*i) != 0);
-    if remaining > 0 && open.is_empty() {
+    open.retain(|i| book.remaining(*i) != Amount::ZERO);
+    if remaining > Amount::ZERO && open.is_empty() {
         residuals.push(TAX_LOT_UNDERFLOW);
     }
-    let covered = remaining == 0 && !unknown;
+    let covered = remaining == Amount::ZERO && !unknown;
     let cost_usd = if covered {
         matches
             .iter()
-            .try_fold(0, |t: Amount, x| x.cost_usd.map(|c| t + c))
+            .try_fold(Amount::ZERO, |t: Amount, x| x.cost_usd.map(|c| t + c))
     } else {
         None
     };

@@ -172,6 +172,52 @@ describe('custody transactions (real Postgres)', () => {
     expect((await svc.list({ limit: 10, status: 'confirming' })).items).toEqual([]);
   });
 
+  /** The current attempt's journal row of a held withdrawal: what the customer reads splits `held` by it. */
+  async function journal(withdrawalId: string, outcome: 'requested' | 'accepted' | 'refused', confirmations: number | null = null) {
+    await db.sql`INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref, confirmations)
+      VALUES (${withdrawalId}::uuid, 0, ${outcome}, ${outcome === 'accepted' ? '0xhash-' + withdrawalId : null}, ${confirmations})`;
+  }
+
+  it('reads an in-flight withdrawal from its dispatch journal, the same split the customer sees, in the row, the filter and the timeout', async () => {
+    const queued = await withdrawal({ status: 'held' });
+    const dispatching = await withdrawal({ status: 'held' });
+    await journal(dispatching, 'requested');
+    const broadcast = await withdrawal({ status: 'held' });
+    await journal(broadcast, 'accepted', 0);
+    const confirming = await withdrawal({ status: 'held' });
+    await journal(confirming, 'accepted', 3);
+    const refused = await withdrawal({ status: 'held' });
+    await journal(refused, 'refused');
+
+    const expected: Array<[string, string, string]> = [
+      [queued, 'held', 'QUEUED'],
+      [dispatching, 'dispatching', 'BROADCASTING'],
+      [broadcast, 'broadcast', 'BROADCASTING'],
+      [confirming, 'confirming', 'CONFIRMING'],
+      [refused, 'held', 'QUEUED'],
+    ];
+    const all = await svc.list({ limit: 10 });
+    for (const [id, status, state] of expected) {
+      expect(all.items.find((x) => x.withdrawalId === id)).toMatchObject({ status, state });
+      expect(await svc.get(id)).toMatchObject({ status, state });
+      expect((await svc.timeline(id)).at(-1)).toMatchObject({ kind: 'current', detail: status });
+    }
+    const ids = async (status: 'held' | 'dispatching' | 'broadcast' | 'confirming') =>
+      (await svc.list({ limit: 10, status })).items.map((x) => x.withdrawalId).sort();
+    expect(await ids('held')).toEqual([queued, refused].sort());
+    expect(await ids('dispatching')).toEqual([dispatching]);
+    expect(await ids('broadcast')).toEqual([broadcast]);
+    expect(await ids('confirming')).toEqual([confirming]);
+
+    // The owner's timeout is the one for the state it is in now, not the QUEUED one.
+    await svc.setTimeout('founder-a', { state: 'QUEUED', seconds: 3600, reason: 'TEST' });
+    await svc.setTimeout('founder-a', { state: 'CONFIRMING', seconds: 60, reason: 'TEST' });
+    clock = new Date(clock.getTime() + 61_000);
+    expect((await svc.get(confirming)).timeout).toEqual({ seconds: 60, overdue: true });
+    expect((await svc.get(queued)).timeout).toEqual({ seconds: 3600, overdue: false });
+    expect((await svc.get(broadcast)).timeout).toBeNull();
+  });
+
   it('shows an unknown failure code raw, and a held row with a code does not claim a reason', async () => {
     await withdrawal({ status: 'failed', failure: 'vendor.weird_code' });
     const held = await withdrawal({ status: 'held', failure: 'rail.failed' });
