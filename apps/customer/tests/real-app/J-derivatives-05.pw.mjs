@@ -541,7 +541,7 @@ test(`${J} #7 moves a position between main and sub-account: moved where the ven
   await moveMargin.getByRole('combobox', { name: 'Sub-account', exact: true }).selectOption(s.subAccount);
   await moveMargin.getByRole('combobox', { name: 'Direction', exact: true }).selectOption('into_sub_account');
   await moveMargin.getByRole('textbox', { name: 'USDC to move', exact: true }).fill('100');
-  const submitted = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/submit' && r.request().method() === 'POST');
+  const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   await moveMargin.getByRole('button', { name: 'Move margin', exact: true }).click();
   await continueInWallet(page);
   await expect(subs).toContainText('The venue accepted it.', { timeout: 20_000 });
@@ -555,10 +555,10 @@ test(`${J} #7 moves a position between main and sub-account: moved where the ven
     asset: 'USDC',
     amount: '100',
   });
-  // The venue's own record of that one transfer, by the nonce its answer names.
-  const answer = await (await submitted).json();
-  expect(answer.readBack?.nonce, JSON.stringify(answer).slice(0, 300)).toBeTruthy();
-  const transfer = await record(v.a, s.owner, '/transfer', { nonce: answer.readBack.nonce });
+  // The venue's own record of that one transfer, by the nonce the signed action carries.
+  const { prepared: signed } = await (await prepared).json();
+  expect(signed?.nonce, JSON.stringify(signed).slice(0, 300)).toBeTruthy();
+  const transfer = await record(v.a, s.owner, '/transfer', { nonce: signed.nonce });
   expect(transfer).toMatchObject({ subAccount: s.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
   expect(same(transfer.amount, '100')).toBe(true);
   const mainAfter = (await usdcOn(v.a, s.owner)).free;
