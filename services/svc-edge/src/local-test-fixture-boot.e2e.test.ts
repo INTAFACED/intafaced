@@ -1,10 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_FIXTURE_REFUSE_CODE } from '@intafaced/config';
 import { describe, expect, it } from 'vitest';
+import { startEdge, stopEdge } from './boot.testkit.js';
 
 /**
  * THE SHIPPED ENTRYPOINT, BOOTED, MUST REFUSE LOCAL-TEST STAND-INS (issue #4611).
@@ -19,37 +15,20 @@ import { describe, expect, it } from 'vitest';
  * "Starts" = /health answers on the real socket.
  */
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = join(HERE, 'index.ts');
-
 const ZZ_LIST = 'ZZ:local-test-stand-in';
 // A real list: includes XK (Kosovo), which is real and not "user-assigned".
 const REAL_LIST = 'KP:UN resolution ref,XK:counsel-reviewed ref';
 const REAL_SOURCE = 'counsel-reviewed-2026-10';
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
 type Outcome = { listened: boolean; exitCode: number | null; output: string };
 
 /** Boot the real entrypoint. Resolves when it listens (then kills it) or when it exits. */
 async function boot(extra: Record<string, string | undefined>): Promise<Outcome> {
-  const port = await freePort();
   // Start from a clean env: nothing from the developer's shell or vitest config may leak in.
   const childEnv: Record<string, string> = {
     PATH: process.env.PATH ?? '',
     SERVICE_NAME: 'svc-edge',
     HTTP_HOST: '127.0.0.1',
-    HTTP_PORT: String(port),
-    LOG_LEVEL: 'fatal',
     OTEL_ENABLED: 'false',
     JWT_ACCESS_SECRET: 'j'.repeat(48),
     EDGE_PRINCIPAL_SECRET: 'e'.repeat(48),
@@ -60,33 +39,13 @@ async function boot(extra: Record<string, string | undefined>): Promise<Outcome>
   };
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) childEnv[k] = v;
 
-  let output = '';
-  const child: ChildProcess = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: childEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
-  child.stderr?.on('data', (d: Buffer) => (output += d.toString()));
-
-  const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-  const deadline = Date.now() + 60_000;
-  let listened = false;
-  while (Date.now() < deadline && child.exitCode === null) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/health`);
-      if (res.ok) {
-        listened = true;
-        break;
-      }
-    } catch {
-      // not listening yet
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  if (child.exitCode === null) child.kill();
-  await exited;
-  return { listened, exitCode: child.exitCode, output };
+  const edge = startEdge(childEnv);
+  const listened = await edge.listening.then(
+    () => true,
+    () => false,
+  );
+  await stopEdge(edge);
+  return { listened, exitCode: edge.child.exitCode, output: edge.output() };
 }
 
 const REFUSING_ENVS: ReadonlyArray<readonly [string, string | undefined]> = [
