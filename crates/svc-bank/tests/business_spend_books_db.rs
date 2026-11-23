@@ -279,7 +279,7 @@ impl Bank {
     /// the partner from the business's own account to the TEST merchant under its capture key.
     fn buy(&self, b: &Business, merchant: &str, amount: &str) {
         let purchase_id = uuid();
-        let key = format!("bank.business.card-capture:{purchase_id}");
+        let key = svc_bank::business_spend::cards::service::card_capture_key(&purchase_id);
         let moved = self
             .partner()
             .lock()

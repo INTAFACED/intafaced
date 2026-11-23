@@ -27,6 +27,7 @@ use sha2::{Digest, Sha256};
 
 use super::formats::{self, BookLine, BookStatement};
 use crate::activity::analytics::partner_moves_between;
+use crate::business_spend::cards::service::card_capture_key;
 use crate::business_team::service::{Seat, partner_account, seat};
 use crate::errors::Refusal;
 use crate::partner::custody::Held;
@@ -42,11 +43,6 @@ pub const ACCOUNTING_VENDOR_CODE: &str = "vendor.accounting";
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_SPAN_MS: i64 = 366 * DAY_MS;
 const MAX_BULK: usize = 200;
-
-/// `cardCaptureKey` (`business/business-cards.ts`): the business key of a card purchase's capture at the partner.
-fn card_capture_key(purchase_id: &str) -> String {
-    format!("bank.business.card-capture:{purchase_id}")
-}
 
 /// A period: `[from, to)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
