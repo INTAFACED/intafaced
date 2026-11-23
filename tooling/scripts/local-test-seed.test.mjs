@@ -30,6 +30,9 @@ import {
   TEST_P2P_FIELDS,
   applyAll,
   applyEarn,
+  bankSeed,
+  BANK_BIN,
+  earnPoolId,
   applyHomeContent,
   applyHouse,
   applyLoans,
@@ -906,8 +909,6 @@ async function openLocalRecorded(plan) {
     'packages/ledger-client/dist/index.js': `export const recipes = { from: 'packages/ledger-client' };
       export const userAvailable = () => 'userAvailable'; export const parseAmount = (x) => x; export const formatAmount = (x) => x;`,
     'packages/contracts/dist/index.js': `export const serviceAuthHeadersForBody = (caller) => ({ 'x-caller': caller });`,
-    'services/svc-bank/dist/earn/earn-service.js': `export class EarnService { constructor(sql, ledger) { this.sql = sql; globalThis.__seedWiring.built.push(['EarnService', sql.url]); } }`,
-    'services/svc-bank/dist/loans/loan-service.js': `export class LoanService { constructor(sql, ledger, deps) { this.sql = sql; globalThis.__seedWiring.built.push(['LoanService', sql.url]); } }`,
     'services/svc-p2p/dist/instrument-service.js': `export class InstrumentService {
       constructor(sql) { globalThis.__seedWiring.built.push(['InstrumentService', sql.url]); }
       registerMethodSchema(input) { globalThis.__seedWiring.calls.push(['registerMethodSchema', input]); return { methodId: input.methodId }; }
@@ -938,8 +939,8 @@ async function openLocalRecorded(plan) {
   );
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (specifier === 'postgres' && context.parentURL?.includes('/services/svc-bank/')) {
-        seen.loaded.push('postgres (svc-bank)');
+      if (specifier === 'postgres' && context.parentURL?.includes('/services/svc-p2p/')) {
+        seen.loaded.push('postgres (svc-p2p)');
         return { url: pathToFileURL(files.postgres).href, format: 'commonjs', shortCircuit: true };
       }
       for (const rel of Object.keys(stubs)) {
@@ -982,22 +983,17 @@ test("the stack wiring uses the services' own code, posts only ledger-client rec
   };
   try {
     const { deps, seen, ledgerClient } = await openLocalRecorded(plan);
-    // The services' own code, built: svc-bank's earn and loan services and svc-p2p's instrument service.
+    // The services' own code, built: svc-p2p's instrument service; svc-bank's earn pools and loan products go through
+    // its binary's test-seed (bankSeed, below).
     assert.deepEqual(seen.loaded.sort(), [
       'packages/contracts/dist/index.js',
       'packages/ledger-client/dist/index.js',
-      'postgres (svc-bank)',
-      'services/svc-bank/dist/earn/earn-service.js',
-      'services/svc-bank/dist/loans/loan-service.js',
+      'postgres (svc-p2p)',
       'services/svc-p2p/dist/instrument-service.js',
     ]);
-    assert.deepEqual(seen.built, [
-      ['EarnService', plan.bankUrl],
-      ['LoanService', plan.bankUrl],
-      ['InstrumentService', plan.p2pUrl],
-    ]);
-    assert.equal(deps.earn.constructor.name, 'EarnService');
-    assert.equal(deps.loans.constructor.name, 'LoanService');
+    assert.deepEqual(seen.built, [['InstrumentService', plan.p2pUrl]]);
+    assert.deepEqual(Object.keys(deps.earn).sort(), ['createPool', 'listPools']);
+    assert.deepEqual(Object.keys(deps.loans).sort(), ['createProduct', 'listProducts']);
     await deps.instruments.registerMethodSchema({ methodId: 'm' });
     await deps.instruments.setMethodSchemaEnabled('m', 'XX', false, 'low_demand');
     assert.deepEqual(seen.calls, [
@@ -1146,16 +1142,16 @@ test('applyAll funds each reserve from a labelled TEST deposit and a second appl
   assert.ok(replay.every((attempt) => attempt.noop));
 });
 
-test('resolvePostgres loads the postgres package svc-bank declares', async () => {
+test('resolvePostgres loads the postgres package svc-p2p declares', async () => {
   const mod = await import('./local-test-seed.mjs');
   assert.equal(typeof mod.resolvePostgres, 'function');
   const fixture = tmp();
   const bare = tmp();
   try {
-    const bank = path.join(fixture, 'services', 'svc-bank');
-    const stubDir = path.join(bank, 'node_modules', 'postgres');
+    const p2p = path.join(fixture, 'services', 'svc-p2p');
+    const stubDir = path.join(p2p, 'node_modules', 'postgres');
     mkdirSync(stubDir, { recursive: true });
-    writeFileSync(path.join(bank, 'package.json'), JSON.stringify({ name: '@intafaced/svc-bank', dependencies: { postgres: '0.0.0' } }));
+    writeFileSync(path.join(p2p, 'package.json'), JSON.stringify({ name: '@intafaced/svc-p2p', dependencies: { postgres: '0.0.0' } }));
     writeFileSync(path.join(stubDir, 'package.json'), JSON.stringify({ name: 'postgres', main: 'index.js' }));
     writeFileSync(
       path.join(stubDir, 'index.js'),
@@ -1165,9 +1161,9 @@ test('resolvePostgres loads the postgres package svc-bank declares', async () =>
     assert.equal(typeof loaded, 'function');
     assert.equal(loaded(), 'local-test-postgres-stub');
 
-    const bareBank = path.join(bare, 'services', 'svc-bank');
-    mkdirSync(bareBank, { recursive: true });
-    writeFileSync(path.join(bareBank, 'package.json'), JSON.stringify({ name: '@intafaced/svc-bank' }));
+    const bareP2p = path.join(bare, 'services', 'svc-p2p');
+    mkdirSync(bareP2p, { recursive: true });
+    writeFileSync(path.join(bareP2p, 'package.json'), JSON.stringify({ name: '@intafaced/svc-p2p' }));
     assert.throws(
       () => mod.resolvePostgres(bare),
       (err) => {
@@ -1422,4 +1418,35 @@ test('custody off: main reads the running ledger record, so apply skips the fund
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("svc-bank's binary seeds the plan's bank schema on a TEST stack, amounts as decimals, and its refusal keeps its code", () => {
+  const plan = { bankUrl: 'postgres://svc_bank:pw@127.0.0.1:15460/intafaced_local_test' };
+  const runs = [];
+  const answers = [JSON.stringify([{ id: 'p', name: 'TEST pool', status: 'open', assetId: 'USDT' }])];
+  const run = (bin, args, opts) => {
+    runs.push({ bin, args, input: opts.input, env: opts.env });
+    if (answers.length) return answers.shift();
+    throw Object.assign(new Error('exit 1'), {
+      stdout: JSON.stringify({ refused: { code: 'bank.earn_rate_unset', message: 'No pool is open' } }),
+    });
+  };
+  const bank = bankSeed(plan, (v) => `fmt:${v}`, run);
+  assert.deepEqual(bank('create-pool', { name: 'TEST pool', minDeposit: 0n }), [
+    { id: 'p', name: 'TEST pool', status: 'open', assetId: 'USDT' },
+  ]);
+  assert.equal(runs[0].bin, BANK_BIN);
+  assert.deepEqual(runs[0].args, ['test-seed', 'create-pool']);
+  assert.equal(runs[0].input, JSON.stringify({ name: 'TEST pool', minDeposit: 'fmt:0' }));
+  // Only the plan's database, and a TEST posture: the caller's DATABASE_URL never reaches it.
+  assert.equal(runs[0].env.DATABASE_URL, plan.bankUrl);
+  assert.equal(runs[0].env.APP_ENV, 'test');
+  assert.throws(
+    () => bank('list-pools', {}),
+    (err) => err.code === 'bank.earn_rate_unset',
+  );
+  // The pool's id is made from its name: the same name, the same pool.
+  assert.equal(earnPoolId('TEST a'), earnPoolId('TEST a'));
+  assert.notEqual(earnPoolId('TEST a'), earnPoolId('TEST b'));
+  assert.match(earnPoolId('TEST a'), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
 });
