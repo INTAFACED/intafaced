@@ -355,7 +355,11 @@ function Requests() {
               </span>
               <span>
                 <StatusWord request={row} />
-                {shownCode(row.refusalCode) && <small className="lt-muted"> {t('reference', { code: row.refusalCode! })}</small>}
+                {row.refusalCode && (
+                  <small className="lt-muted" data-code={row.refusalCode}>
+                    {shownCode(row.refusalCode) ? ` ${t('reference', { code: row.refusalCode })}` : null}
+                  </small>
+                )}
               </span>
             </div>
           ))

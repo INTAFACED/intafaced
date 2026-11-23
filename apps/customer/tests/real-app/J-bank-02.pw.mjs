@@ -685,7 +685,7 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   await expect(rules).toContainText('Refused: a refused request to add money adds nothing.');
   // The refusal itself stays listed with its reason (and #2's bank transfer, opened, beside it), and the balance is still 50.
   await expect(page.getByTestId('add-money-request')).toHaveCount(2);
-  const refusedRow = page.getByTestId('add-money-request').filter({ hasText: 'bank.fiat_ramp_socket' });
+  const refusedRow = page.getByTestId('add-money-request').filter({ has: page.locator('[data-code="bank.fiat_ramp_socket"]') });
   await expect(refusedRow).toHaveCount(1);
   await expect(refusedRow).toHaveAttribute('data-status', 'refused');
 
