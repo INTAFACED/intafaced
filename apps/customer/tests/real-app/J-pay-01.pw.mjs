@@ -560,7 +560,8 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
     await expect(page.getByTestId('money-act__done')).toHaveText('Completed');
     await expect(page.getByTestId('money-act__hold')).toHaveCount(0);
     await expect(page.getByText(NOTE)).toBeVisible();
-    await expect(page.getByText(reference).first()).toBeVisible();
+    // The payment's own reference: shown short, carrying the whole id (ShortReference).
+    await expect(page.locator(`[data-reference="${reference}"]`).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /cancel/i })).toHaveCount(0);
     await expect(

@@ -217,8 +217,9 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
     await expect(rows.nth(i)).toHaveAttribute('href', hrefs[i]);
     await rows.nth(i).click();
     await expect(page).toHaveURL(hrefs[i]);
-    // The record it opens is that movement's own (its record number is the row's id), in the row's asset.
-    await expect(page.locator('main')).toContainText(decodeURIComponent(hrefs[i].slice('/money/activity/'.length)));
+    // The record it opens is that movement's own (its record number, carried on the card, is the row's id), in the row's asset.
+    const recordId = decodeURIComponent(hrefs[i].slice('/money/activity/'.length));
+    await expect(page.locator('main').getByTestId('money-card').first()).toHaveAttribute('data-record', recordId);
     await expect(page.locator('main')).toContainText(assets[i]);
   }
 
