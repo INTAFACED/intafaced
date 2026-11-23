@@ -832,9 +832,11 @@ export interface UserVenueOrder {
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
    * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
    * other trigger order attached to the same entry filled first, so this one never closes what that one already did;
-   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time.
+   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time;
+   * `self_trade` when the account's own later order would have traded with it and the venue's self-trade rule cancelled
+   * it instead (J-derivatives-04 #7).
    */
-  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null;
 }
 
 /**

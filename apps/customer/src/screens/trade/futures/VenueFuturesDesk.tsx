@@ -60,7 +60,7 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
-import { slippageLimit } from '../desk/venue-desk';
+import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
@@ -966,6 +966,7 @@ function Ticket({
           owner={owner}
           run={run}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
+          selfTrade={venueSelfTrade(market)}
           result={result}
           onConfirm={() => void confirm()}
           onClose={() => {

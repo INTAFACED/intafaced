@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Dialog } from '../../../shared/ui';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { draftId, keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
+import { draftId, keys, type AsOf, type OrderIntent, type VenuePreview, type VenueSelfTradeMode, type VenueUp } from '../venue-api';
 import { AsOfLine, Known, OutcomeLine, TestMark, word, type ActionResult, type RunAction, type VenueAccount } from './VenueKit';
 import { venueCopy } from './venue-copy';
 
@@ -55,6 +55,7 @@ export function ReviewDialog({
   owner,
   run,
   confirmLabel,
+  selfTrade,
   extra,
   after,
   result,
@@ -69,6 +70,11 @@ export function ReviewDialog({
   owner: string;
   run: RunAction;
   confirmLabel: string;
+  /**
+   * The venue's own self-trade rule on the market, or null where it publishes none (J-derivatives-04 #7): what the venue
+   * does when this order would trade with the person's own resting order. Absent: the sheet has no such line.
+   */
+  selfTrade?: VenueSelfTradeMode | null;
   extra?: ReactNode;
   /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
   after?: ReactNode;
@@ -149,6 +155,12 @@ export function ReviewDialog({
             <dt>{t('Time in force')}</dt>
             <dd data-line="tif">{word(t, 'tif', intent.timeInForce)}</dd>
           </div>
+          {selfTrade !== undefined ? (
+            <div>
+              <dt>{t('Self trade review')}</dt>
+              <dd data-line="self-trade">{selfTrade ? word(t, 'stp', selfTrade) : t('Not published')}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>{t('Client id held')}</dt>
             <dd className="lt-num" data-line="client-id">

@@ -58,6 +58,10 @@ export const venueStatusSchema = z.union([
       .object({ minLeadMs: z.number().int().min(0), timeoutsSec: z.array(z.number().int().positive()).nullable() })
       .nullable()
       .optional(),
+    // J-derivatives-04 #7: the owner's order-rate limit on the door, in new orders a minute for one venue account on one
+    // market. Not known is blank: the door counts nothing of its own and the edge's limit is the one in force. Absent
+    // from an older door: read as not set.
+    orderRatePerMinute: maybeKnown(z.number().int().positive()).optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
     // Every configured venue with its health and the position modes it offers (J-derivatives-28, J-derivatives-05 #1 #3).

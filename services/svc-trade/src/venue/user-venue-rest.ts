@@ -217,9 +217,18 @@ export function venueRefusalReply(reply: FastifyReply, err: unknown) {
   }
   if (err instanceof UserVenueDoorError) {
     if (err.code === 'idempotency.in_progress') reply.header('retry-after', '1');
+    if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
     return reply.code(err.status).send({
       code:
-        err.status === 404 ? 'NotFound' : err.status === 422 ? 'InvalidOrder' : err.status === 503 ? 'ExchangeNotAvailable' : 'BadRequest',
+        err.status === 404
+          ? 'NotFound'
+          : err.status === 422
+            ? 'InvalidOrder'
+            : err.status === 503
+              ? 'ExchangeNotAvailable'
+              : err.status === 429
+                ? 'RateLimitExceeded'
+                : 'BadRequest',
       message: err.message,
       intafacedCode: err.code,
     });

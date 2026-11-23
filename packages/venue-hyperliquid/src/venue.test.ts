@@ -705,6 +705,19 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { order: order(3, '0.3', '0.5', NOW - 1000), status: 'open', statusTimestamp: NOW - 1000 },
       { order: order(2, '0.5', '0.5', NOW - 2000), status: 'canceled', statusTimestamp: NOW - 1500 },
     ];
+    // An order the venue's self-trade rule cancelled says so, in the history and read by its id (J-derivatives-04 #7).
+    const own = { order: order(4, '0.5', '0.5', NOW - 500), status: 'selfTradeCanceled', statusTimestamp: NOW - 400 };
+    const withOwn = fakeVenue();
+    withOwn.info.historicalOrders = () => [own];
+    withOwn.info.orderStatus = () => ({ status: 'order', order: own });
+    expect((await venueWith(withOwn).orderHistory(account)).value[0]!.order).toMatchObject({
+      status: 'canceled',
+      cancelReason: 'self_trade',
+    });
+    expect((await venueWith(withOwn).orderByClientId(account, own.order.cloid)).value).toMatchObject({
+      status: 'canceled',
+      cancelReason: 'self_trade',
+    });
     const history = (await venueWith(fake).orderHistory(account)).value;
     expect(fake.infoTypes).toContain('historicalOrders');
     expect(history.map((r) => [r.order.venueOrderId, r.order.status, r.order.filled, r.placedAt.getTime()])).toEqual([

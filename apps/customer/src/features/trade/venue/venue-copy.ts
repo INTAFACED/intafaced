@@ -101,6 +101,7 @@ export const venueCopy = defineCopy('trade.venue', {
   'Venue locks': 'The venue locks',
   'Fee role': 'Fee role',
   'Time in force': 'Time in force',
+  'Self trade review': 'If it meets my own order',
   'Client id held': 'Client id held for retry',
   'Builder approval': 'Builder fee approval',
   'Builder approved': 'Signed, up to {bps} bps',

@@ -236,9 +236,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     for (const entry of raw) {
       const wrapped = obj(entry, 'historical order');
       const order = obj(wrapped.order, 'historical order.order');
-      const status = mapOrderStatus(str(wrapped.status, 'historical order status'));
+      const venueStatus = str(wrapped.status, 'historical order status');
+      const status = mapOrderStatus(venueStatus);
       list.push({
-        order: await this.toOrder(account, order, status === 'open' ? null : status, lev),
+        order: { ...(await this.toOrder(account, order, status === 'open' ? null : status, lev)), ...cancelReasonOf(venueStatus) },
         placedAt: new Date(int(order.timestamp, 'order timestamp')),
       });
     }
@@ -254,7 +255,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     const raw = obj(wrapped.order, 'orderStatus.order.order');
     const status = mapOrderStatus(venueStatus);
     // An open order's part-filled state comes from its sizes.
-    const order = await this.toOrder(account, raw, status === 'open' ? null : status, this.leverageLookup(account));
+    const order = {
+      ...(await this.toOrder(account, raw, status === 'open' ? null : status, this.leverageLookup(account))),
+      ...cancelReasonOf(venueStatus),
+    };
     return this.asOf(order, typeof wrapped.statusTimestamp === 'number' ? wrapped.statusTimestamp : undefined);
   }
 
@@ -504,4 +508,9 @@ export function mapOrderStatus(venueStatus: string): VenueOrderStatus {
   if (venueStatus === 'rejected' || venueStatus.endsWith('Rejected')) return 'rejected';
   if (venueStatus === 'canceled' || venueStatus.endsWith('Canceled') || venueStatus === 'scheduledCancel') return 'canceled';
   throw new Error(`venue order status "${venueStatus}" is not one this adapter knows`);
+}
+
+/** Why the venue cancelled an order, where its status word says: `selfTradeCanceled` is its self-trade rule (J-derivatives-04 #7). */
+export function cancelReasonOf(venueStatus: string): Pick<UserVenueOrder, 'cancelReason'> {
+  return venueStatus === 'selfTradeCanceled' ? { cancelReason: 'self_trade' } : {};
 }

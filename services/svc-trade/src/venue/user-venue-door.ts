@@ -229,6 +229,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_order_amount_raise'
   // J-derivatives-04 #6: a whole-position take profit and stop loss rest, and another whole close was asked for.
   | 'trade.venue_whole_close_taken'
+  // J-derivatives-04 #7: the owner's order-rate limit is set and this venue account is at it on the market.
+  | 'trade.venue_order_rate_limited'
   | 'trade.venue_account_mode_unknown'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
@@ -313,6 +315,8 @@ export class UserVenueDoorError extends Error {
     message: string,
     readonly code: UserVenueDoorCode,
     readonly status: number,
+    /** Seconds until the same request can pass, where waiting helps (sent as `retry-after`). */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'UserVenueDoorError';
@@ -471,6 +475,13 @@ export interface UserVenueDoorDeps {
    * on preview and on prepare, before anything is prepared. Never a default.
    */
   readonly spreadLimitBps?: number | null;
+  /**
+   * The owner's order-rate limit (TRADE_VENUE_ORDER_RATE_PER_MINUTE, J-derivatives-04 #7): the most new orders one venue
+   * account may ask this door to prepare on one market in a minute, or null/absent when blank. Blank is never
+   * unlimited: the door then counts nothing of its own, the edge's limit is the one in force on the order path, and
+   * `status()` says the limit is not set. Never a default.
+   */
+  readonly orderRatePerMinute?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -527,6 +538,50 @@ export function discountedBuilderFee(feeBps: Amount, discountBps: number): Amoun
   const off = BigInt(Math.min(discountBps, 10_000));
   const lowered = (feeBps * (10_000n - off)) / 10_000n;
   return lowered - (lowered % TENTH_BPS);
+}
+
+/** The owner's order-rate limit, or null when blank or not a whole number of 1 or more: never a default, never zero. */
+export function publishedOrderRate(perMinute: number | null | undefined): number | null {
+  return perMinute != null && Number.isSafeInteger(perMinute) && perMinute >= 1 ? perMinute : null;
+}
+
+const ORDER_RATE_WINDOW_MS = 60_000;
+/** Above this many counted accounts and markets, the ones with nothing in the last minute are dropped. */
+const ORDER_RATE_KEYS_KEPT = 4096;
+
+/**
+ * The new orders asked for in the trailing minute, by key (one venue account on one market), counted in this process as
+ * the edge counts its own limit: per replica. A request takes a place for each of its orders or none at all.
+ */
+export class OrderRateWindow {
+  private readonly asked = new Map<string, number[]>();
+
+  /**
+   * `orderKeys` holds one key per new order. Under `limit` on every key, each order takes its place. Otherwise nothing
+   * is taken and the answer is the seconds until the request fits, or null when it holds more orders on one key than
+   * the whole limit, which no wait changes.
+   */
+  take(orderKeys: readonly string[], limit: number, nowMs: number): { ok: true } | { ok: false; retryAfterSeconds: number | null } {
+    const since = nowMs - ORDER_RATE_WINDOW_MS;
+    const wanted = new Map<string, number>();
+    for (const key of orderKeys) wanted.set(key, (wanted.get(key) ?? 0) + 1);
+    const live = new Map<string, number[]>();
+    let waitSeconds = 0;
+    for (const [key, orders] of wanted) {
+      if (orders > limit) return { ok: false, retryAfterSeconds: null };
+      const times = (this.asked.get(key) ?? []).filter((at) => at > since);
+      live.set(key, times);
+      const over = times.length + orders - limit;
+      // The request fits once the `over` oldest orders counted here have left the minute.
+      if (over > 0) waitSeconds = Math.max(waitSeconds, 1, Math.ceil((times[over - 1]! + ORDER_RATE_WINDOW_MS - nowMs) / 1000));
+    }
+    if (waitSeconds > 0) return { ok: false, retryAfterSeconds: waitSeconds };
+    for (const [key, orders] of wanted) this.asked.set(key, [...live.get(key)!, ...Array.from({ length: orders }, () => nowMs)]);
+    if (this.asked.size > ORDER_RATE_KEYS_KEPT) {
+      for (const [key, times] of this.asked) if (times[times.length - 1]! <= since) this.asked.delete(key);
+    }
+    return { ok: true };
+  }
 }
 
 /** The owner's spread limit, or `trade.spread_limit_unset` ("protection not set") when blank or not an integer 1–5000. */
@@ -744,6 +799,7 @@ export class UserVenueDoor {
   private venuePromise: Promise<ConnectedUserVenue> | null = null;
   /** The id of the venue this door last connected to; `null` before the first connect. */
   connectedVenueId: string | null = null;
+  private readonly orderRate = new OrderRateWindow();
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
@@ -791,6 +847,9 @@ export class UserVenueDoor {
       scheduledCancel: venue.venue.scheduledCancel
         ? { minLeadMs: venue.venue.scheduledCancel.minLeadMs, timeoutsSec: this.publishedTimeouts() }
         : null,
+      // The owner's order-rate limit on this door (J-derivatives-04 #7). Not known is blank: the door counts nothing of
+      // its own and the edge's limit is the one in force on the order path, which the app says beside it.
+      orderRatePerMinute: this.orderRateRead(),
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
@@ -800,6 +859,49 @@ export class UserVenueDoor {
       // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
       builderAddress: this.publishedBuilderAddress(),
     };
+  }
+
+  private orderRateRead(): { known: true; value: number } | { known: false } {
+    const limit = publishedOrderRate(this.deps.orderRatePerMinute);
+    return limit === null ? { known: false } : { known: true, value: limit };
+  }
+
+  /**
+   * The owner's order-rate limit (J-derivatives-04 #7), judged as the last thing before a new action is stored: each new
+   * order of the action takes a place in its venue account's minute on its market, or the whole action is refused 429
+   * `trade.venue_order_rate_limited` with nothing stored and no wallet asked. An order that only reduces a position is
+   * never counted or refused, so a limit never holds back a close or a stop. A key asked again is answered from the
+   * store before this runs and takes no second place. Blank: nothing is counted here (the edge's limit is in force).
+   */
+  private admitOrderRate(userId: string, account: UserVenueAccount, intent: VenueIntent): void {
+    const limit = publishedOrderRate(this.deps.orderRatePerMinute);
+    if (limit === null) return;
+    const orders =
+      intent.kind === 'place_order'
+        ? [intent]
+        : intent.kind === 'replace_order'
+          ? [intent.order]
+          : intent.kind === 'place_orders'
+            ? intent.orders
+            : [];
+    const counted = orders.filter((order) => !order.reduceOnly);
+    if (counted.length === 0) return;
+    const keyOf = (symbol: string) => [userId, account.venueId, account.owner, account.subAccount ?? '', symbol].join('\u0000');
+    const taken = this.orderRate.take(
+      counted.map((order) => keyOf(order.symbol)),
+      limit,
+      this.deps.now().getTime(),
+    );
+    if (taken.ok) return;
+    const rule = `at most ${limit} new orders a minute on one market for one venue account`;
+    throw new UserVenueDoorError(
+      taken.retryAfterSeconds === null
+        ? `the order-rate limit is ${rule}, and this request holds more than that. Nothing was stored or sent`
+        : `the order-rate limit is ${rule}. Try again in ${taken.retryAfterSeconds} s. Nothing was stored or sent`,
+      'trade.venue_order_rate_limited',
+      429,
+      taken.retryAfterSeconds ?? undefined,
+    );
   }
 
   /** The owner's published dead-man timeouts, or null when blank. */
@@ -1738,6 +1840,7 @@ export class UserVenueDoor {
     );
 
     const prepared = await venue.prepare(account, signer, finalIntent);
+    this.admitOrderRate(principal.userId, account, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
     // A concurrent prepare of the same key may have won the insert: the stored action is the one.
     if (stored.prepared.digest !== prepared.digest) return this.reuse(stored, account, signer, finalIntent);

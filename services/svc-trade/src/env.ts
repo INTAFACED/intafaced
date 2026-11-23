@@ -271,6 +271,17 @@ const schema = serviceEnvSchema
       TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * The owner's order-rate limit on the user's venue door: the most new orders one venue account may ask this
+       * service to prepare on one market in a minute (J-derivatives-04 #7). An order that only reduces a position is
+       * never counted or refused.
+       *
+       * NO DEFAULT. Blank / unset / not a whole number of 1 or more → null: this service then counts nothing of its
+       * own, the edge's limit is the one in force on the order path, and `/api/v1/venue/status` says the limit is not
+       * set. Blank never means unlimited, and no number is invented.
+       */
+      TRADE_VENUE_ORDER_RATE_PER_MINUTE: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
        *
        * NO DEFAULT. Blank / unset / any non-integer entry → null; arming refuses `trade.cancel_all_after_unset`.

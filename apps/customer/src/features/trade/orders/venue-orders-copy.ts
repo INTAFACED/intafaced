@@ -41,6 +41,16 @@ export const venueOrdersCopy = defineCopy('trade.venue-orders', {
   reasonPositionClosed: 'The position it closed is gone, so the venue cancelled it',
   reasonRejected: 'The venue refused it: {failure}',
   reasonLinked: 'The other order attached to the same entry filled first',
+  reasonSelfTrade: 'It met one of your own orders, so the venue cancelled it under its self-trade rule: {rule}',
+  selfTradeLogged: 'Self-trade rule: {rule}',
+  flowTitle: 'Order-flow protections',
+  flowSelfTrade: 'If an order meets your own',
+  flowSelfTradeBody:
+    'The venue applies its own self-trade rule on each market, named when you review an order. An order it cancels is listed below with that rule.',
+  flowRate: 'Order rate limit',
+  flowRateSet: 'At most {count} new orders a minute on one market.',
+  flowRateUnset:
+    'Not set, so the edge limit applies: the limit on every request from one address, counted before a request reaches trading.',
   fills: 'Fills',
   noFills: 'Nothing has filled.',
   fillSummary: '{amount} at {price}, {role}, {time}',

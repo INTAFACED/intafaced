@@ -699,6 +699,9 @@ services:
       # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
       # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
       TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
+      # Most new orders one venue account may ask the venue door to prepare on one market in a minute.
+      # Empty = svc-trade counts none of its own; the edge limit (EDGE_RATE_LIMIT_MAX) is the one in force. Never invented.
+      TRADE_VENUE_ORDER_RATE_PER_MINUTE: ${TRADE_VENUE_ORDER_RATE_PER_MINUTE:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.

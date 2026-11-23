@@ -9,7 +9,7 @@ import { Button, DataTable, EmptyState, Failure, Loading, Page } from '../../../
 import { useSession } from '../../session';
 import { zoneName } from '../../../screens/trade/desk/time';
 import { useVenueMode } from '../use-venue-mode';
-import type { VenueFill, VenueHistoryPage, VenueHistoryQuery, VenueOrder, VenueOrderRecord } from '../venue-api';
+import type { VenueFill, VenueHistoryPage, VenueHistoryQuery, VenueMarket, VenueOrder, VenueOrderRecord, VenueUp } from '../venue-api';
 import { AsOfLine, TestMark, VenueFrame, WalletBar, useOwner, useVenueApi, word } from '../venue/VenueKit';
 import { venueCopy } from '../venue/venue-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
@@ -94,7 +94,7 @@ function VenueOrdersFrame({
 }: {
   title: ReactNode;
   actions?: ReactNode;
-  children: (owner: string, test: boolean) => ReactNode;
+  children: (owner: string, test: boolean, status: VenueUp | null) => ReactNode;
 }) {
   const { t } = venueOrdersCopy.useCopy();
   const mode = useVenueMode();
@@ -132,7 +132,7 @@ function VenueOrdersFrame({
       <Page eyebrow={t('eyebrow')} title={title} actions={actions}>
         <TestMark test={test} />
         <WalletBar />
-        <Owned>{(owner) => children(owner, test)}</Owned>
+        <Owned>{(owner) => children(owner, test, mode.status.available ? mode.status : null)}</Owned>
       </Page>
     </VenueFrame>
   );
@@ -167,12 +167,45 @@ export function VenueOrdersRoom({ path }: { path: string }) {
         </a>
       }
     >
-      {(owner, test) => <VenueHistory path={path} owner={owner} test={test} />}
+      {(owner, test, status) => <VenueHistory path={path} owner={owner} test={test} status={status} />}
     </VenueOrdersFrame>
   );
 }
 
-function VenueHistory({ path, owner, test }: { path: string; owner: string; test: boolean }) {
+/** The venue's own self-trade rule on `symbol` in its words, or "not published" where the venue names none. */
+function selfTradeRule(v: ReturnType<typeof venueCopy.useCopy>['t'], markets: readonly VenueMarket[] | null, symbol: string): string {
+  const rule = markets?.find((m) => m.symbol === symbol)?.selfTrade;
+  return rule?.known ? word(v, 'stp', rule.value) : v('Not published');
+}
+
+/**
+ * The order-flow protections on the person's venue orders (J-derivatives-04 #7): the venue's self-trade rule, logged on
+ * each order it cancels, and the owner's order-rate limit as the door reports it. A blank limit is said as that, with the
+ * limit that holds in its place: the edge's, which counts every request before it reaches trading.
+ */
+function OrderFlowProtections({ status }: { status: VenueUp }) {
+  const { t } = venueOrdersCopy.useCopy();
+  const rate = status.orderRatePerMinute;
+  return (
+    <section className="orders-section" aria-label={t('flowTitle')} data-testid="venue-order-flow">
+      <h2>{t('flowTitle')}</h2>
+      <dl className="orders-list">
+        <div className="orders-row">
+          <dt>{t('flowSelfTrade')}</dt>
+          <dd data-line="self-trade">{t('flowSelfTradeBody')}</dd>
+        </div>
+        <div className="orders-row">
+          <dt>{t('flowRate')}</dt>
+          <dd data-line="order-rate" data-set={rate?.known ? 'yes' : 'no'}>
+            {rate?.known ? t('flowRateSet', { count: rate.value }) : t('flowRateUnset')}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function VenueHistory({ path, owner, test, status }: { path: string; owner: string; test: boolean; status: VenueUp | null }) {
   const { t } = venueOrdersCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const api = useVenueApi();
@@ -183,6 +216,9 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
   const [round, setRound] = useState(0);
   const key = `venue-history:${owner}:${search}:${round}`;
   const { resource } = useResource((signal) => api.orderHistory(owner, historyQuery(params, null), signal), key);
+  // The venue's own market terms: a self-trade cancel is logged with the rule the venue applied.
+  const marketsRead = useResource((signal) => api.markets(signal), `venue-history-markets:${round}`).resource;
+  const markets = marketsRead.status === 'ready' ? marketsRead.data.value : null;
   const [more, setMore] = useState<{ key: string; state: HistoryState } | null>(null);
   const refused = (failure: Refusal): HistoryState =>
     failure.code === 'trade.invalid_filter'
@@ -230,6 +266,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
     <section data-testid="venue-history">
       <ProductSwitch product="venue" />
       <p className="lt-muted">{t('historyLead')}</p>
+      {status ? <OrderFlowProtections status={status} /> : null}
       <div className="orders-filters" role="group" aria-label={t('historyTitle')}>
         {select(
           v('Side'),
@@ -293,7 +330,12 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
                   <td className="lt-num">{displayAmount(o.price)}</td>
                   <td className="lt-num">{displayAmount(o.amount)}</td>
                   <td className="lt-num">{displayAmount(o.filled)}</td>
-                  <td data-cell="status">{word(v, 'status', o.status)}</td>
+                  <td data-cell="status">
+                    {word(v, 'status', o.status)}
+                    {o.cancelReason === 'self_trade' ? (
+                      <span data-cell="reason"> · {t('selfTradeLogged', { rule: selfTradeRule(v, markets, o.symbol) })}</span>
+                    ) : null}
+                  </td>
                   <td>
                     {o.venueClientOrderId ? (
                       <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
@@ -393,9 +435,11 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
       ? t('reasonPositionClosed')
       : o.cancelReason === 'linked'
         ? t('reasonLinked')
-        : o.status === 'rejected' && o.trigger?.failure
-          ? t('reasonRejected', { failure: o.trigger.failure })
-          : t('reasonNotRecorded');
+        : o.cancelReason === 'self_trade'
+          ? t('reasonSelfTrade', { rule: selfTradeRule(v, markets.status === 'ready' ? markets.data.value : null, o.symbol) })
+          : o.status === 'rejected' && o.trigger?.failure
+            ? t('reasonRejected', { failure: o.trigger.failure })
+            : t('reasonNotRecorded');
   return (
     <article data-testid="venue-order">
       <h2 data-testid="venue-order-heading">
