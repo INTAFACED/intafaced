@@ -220,6 +220,16 @@ export class VipReviewAdmin {
     const expected = { statuses: decided, reason };
     const replay = await this.replay(input.approvalId, input.applicationId, expected);
     if (replay) return replay;
+    await this.settled(this.decide(principal, input, reason), input.approvalId, input.applicationId, expected);
+    return this.result(input.applicationId);
+  }
+
+  /** The checks and the write of one review; `review` answers a refusal its own approval raced with that decision. */
+  private async decide(
+    principal: Principal,
+    input: { applicationId: string; decision: VipDecision; approvalId: string; operationId: string },
+    reason: string,
+  ): Promise<void> {
     const current = await this.row(input.applicationId);
     if (current.status !== 'pending') {
       throw new TradeOpsError('vip.application_decided', `the application is ${current.status}, not waiting for review`);
@@ -238,7 +248,7 @@ export class VipReviewAdmin {
     });
     this.twoPeople(principal, consumed.approverId);
     const status: VipApplicationStatus = input.decision === 'reject' ? 'rejected' : trial ? 'approved' : 'approved_no_trial';
-    const write = this.deps.sql.begin(async (q) => {
+    await this.deps.sql.begin(async (q) => {
       if (trial) await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
@@ -266,8 +276,6 @@ export class VipReviewAdmin {
         at,
       );
     });
-    await this.settled(write, input.approvalId, input.applicationId, expected);
-    return this.result(input.applicationId);
   }
 
   /**
@@ -283,6 +291,16 @@ export class VipReviewAdmin {
     const expected = { statuses: ['approved'] as const, reason };
     const replay = await this.replay(input.approvalId, input.applicationId, expected);
     if (replay) return replay;
+    await this.settled(this.grant(principal, input, reason), input.approvalId, input.applicationId, expected);
+    return this.result(input.applicationId);
+  }
+
+  /** The checks and the write of one trial grant; `grantTrial` answers a refusal its own approval raced with that grant. */
+  private async grant(
+    principal: Principal,
+    input: { applicationId: string; approvalId: string; operationId: string },
+    reason: string,
+  ): Promise<void> {
     const current = await this.row(input.applicationId);
     if (current.status !== 'approved_no_trial') {
       throw new TradeOpsError(
@@ -306,7 +324,7 @@ export class VipReviewAdmin {
       operationId: input.operationId,
     });
     this.twoPeople(principal, consumed.approverId);
-    const write = this.deps.sql.begin(async (q) => {
+    await this.deps.sql.begin(async (q) => {
       await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
@@ -334,8 +352,6 @@ export class VipReviewAdmin {
         at,
       );
     });
-    await this.settled(write, input.approvalId, input.applicationId, expected);
-    return this.result(input.applicationId);
   }
 
   /** The approver may not also be the one who applies it: two people, or the approval proves nothing. */
@@ -365,9 +381,10 @@ export class VipReviewAdmin {
   }
 
   /**
-   * Wait for a decision's write. The same approval sent twice at once (a double click, a client retry) passes the
-   * replay check twice and identity answers both consumes; the second write then finds the decision made, or meets the
-   * approval's unique index. If that decision is this approval's own, answer it instead of refusing.
+   * Wait for a decision's checks and write. The same approval sent twice at once (a double click, a client retry) passes
+   * the replay check twice and identity answers both consumes; the second then finds the decision made (before or inside
+   * its write), the trial it granted in force, or the approval's unique index. If that decision is this approval's own,
+   * answer it instead of refusing.
    */
   private async settled(
     write: Promise<unknown>,
@@ -379,7 +396,8 @@ export class VipReviewAdmin {
       await write;
     } catch (error) {
       const raced =
-        (error instanceof TradeOpsError && (error.code === 'vip.application_decided' || error.code === 'vip.trial_not_owed')) ||
+        (error instanceof TradeOpsError &&
+          (error.code === 'vip.application_decided' || error.code === 'vip.trial_not_owed' || error.code === 'vip.trial_active')) ||
         (error as { code?: string }).code === '23505';
       if (raced && (await this.replay(approvalId, applicationId, expected))) return;
       throw error;
