@@ -1,7 +1,5 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import { payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { anyScopeProcedure, router, signedInProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -36,7 +34,7 @@ import { MerchantSecurity } from './security.js';
 import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
-import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSettings } from './webhooks.js';
+import { WebhookOps, type WebhookRetryLimit, type WebhookSettings } from './webhooks.js';
 import type { WebhookResolver } from '../webhook-url-guard.js';
 import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
@@ -77,6 +75,9 @@ import {
   PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
   PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
   PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
+  PAY_MERCHANT_OPS_PAYOUTS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
@@ -529,33 +530,19 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
       }),
 
       payouts: router({
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              status: z.enum(['pending', 'posted', 'paid_out', 'failed']).optional(),
-              assetId: assetIdIn.optional(),
-              from: iso.optional(),
-              to: iso.optional(),
-              search: z.string().trim().min(1).max(200).optional(),
-            }),
-          )
-          .output(payPageSchema(payPayoutListItemSchema))
-          .query(({ ctx, input }) => wrapOps(async () => need().payouts.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_PAYOUTS_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().payouts.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
       }),
 
       webhooks: router({
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              status: z.enum(['active', 'disabled']).optional(),
-              search: z.string().trim().min(1).max(500).optional(),
-            }),
-          )
-          .query(({ ctx, input }) => wrapOps(async () => need().webhooks.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().webhooks.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         create: memberWrite
           .input(
             z.object({
@@ -577,18 +564,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(z.object({ endpointId: id, requestId: id, overlapSeconds: z.number().int().min(0).max(31_536_000).optional() }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.rotateSecret(await callerOf(ctx), input))),
         deliveries: router({
-          list: read
-            .input(
-              z.object({
-                limit: limitInput,
-                cursor: cursorInput,
-                endpointId: id.optional(),
-                status: z.enum(DELIVERY_STATUSES).optional(),
-                from: iso.optional(),
-                to: iso.optional(),
-              }),
-            )
-            .query(({ ctx, input }) => wrapOps(async () => need().webhooks.listDeliveries(await callerOf(ctx), input))),
+          list: mountRecord(
+            PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
+            ({ ctx, input }) => wrapOps(async () => need().webhooks.listDeliveries(await callerOf(ctx), input)),
+            payRefusal,
+          ),
           retry: memberWrite
             .input(z.object({ requestId: id, deliveryId: id }))
             .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.retry(await callerOf(ctx), input))),

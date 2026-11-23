@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
@@ -85,7 +86,9 @@ describe('what each tab reads', () => {
     // The tickets blocker: svc-support's account read goes by ticket, strictly (its record, mounted by svc-support).
     expect(service('svc-support/src/router.ts')).toContain('accountState: mountRecord(\n      SUPPORT_DESK_ACCOUNT_STATE,');
     expect(SUPPORT_DESK_ACCOUNT_STATE.input.safeParse({ ticketId: USER, userId: USER }).success).toBe(false);
-    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
+    // svc-trade's restriction history: mounted from its record, which asks a signed-in caller as protectedProcedure did.
+    expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: mountRecord\(\s*TRADE_ACCOUNT_CONTROLS_HISTORY,/);
+    expect(TRADE_ACCOUNT_CONTROLS_HISTORY.access).toEqual({ caller: 'signedIn' });
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(
       /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,

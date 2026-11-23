@@ -181,7 +181,9 @@ function plan(opts) {
   const existing = [];
   for (const [path, list] of byPath) {
     if (opts.skip?.[path]) {
-      for (const s of list) hand.push({ site: s, why: `its record can't be exported as the router writes it: ${opts.skip[path]}` });
+      const skipped = opts.skip[path];
+      const why = typeof skipped === 'object' ? skipped.why : `its record can't be exported as the router writes it: ${skipped}`;
+      for (const s of list) hand.push({ site: s, why });
       continue;
     }
     const proc = procs.get(path);
@@ -786,11 +788,17 @@ export function answerChecks(p, node, seen = new Set()) {
     });
   };
   // A schema built by the caller's own function (`verificationStatus(userId, limit)`) checks against what it captures:
-  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept.
+  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept. A
+  // builder imported from contracts (`payPageSchema(row)`) is the one the routers use, not the caller's: its arguments are
+  // read like any schema.
   let top = node;
   while (top?.type === 'TSAsExpression' || top?.type === 'TSSatisfiesExpression' || top?.type === 'ParenthesizedExpression')
     top = top.expression;
-  if (top?.type === 'CallExpression' && top.callee.type === 'Identifier')
+  if (
+    top?.type === 'CallExpression' &&
+    top.callee.type === 'Identifier' &&
+    !/^@intafaced\/contracts(\/|$)/.test(bindingOf(p, top.callee, top.callee.name).from ?? '')
+  )
     found.push(`${top.callee.name}() builds the schema (${relative(REPO, p.file)}:${p.src.slice(0, top.start).split('\n').length})`);
   visit(p, node);
   return [...new Set(found)];
@@ -1516,6 +1524,11 @@ function report(opts) {
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
     rewritten: new Set([...result.done, ...planned.existing].flatMap((r) => r.sites.map((s) => s.node))).size,
+    // Each moved call's path and the files its callers are in (run.mjs leaves a path whose caller then fails the typecheck).
+    moved: [...result.done, ...planned.existing].map((r) => ({
+      path: r.path,
+      files: [...new Set(r.sites.map((s) => relative(REPO, s.file)))],
+    })),
     hand: planned.hand.map((h) => ({
       at: `${relative(REPO, h.site.file)}:${h.site.line}`,
       call: `${h.site.module ?? '?'} ${h.site.path ?? '?'}`,

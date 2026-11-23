@@ -758,6 +758,19 @@ test("a schema the caller's own function builds is an answer check, so its call 
   assert.deepEqual(answerChecks(p, init('b')), []);
 });
 
+test("a page builder imported from contracts is the routers' schema, not the caller's own function", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'f.ts');
+  writeFileSync(
+    file,
+    "import { z } from 'zod';\nimport { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';\nconst row = z.object({ id: z.string() });\nexport const a = payPageSchema(row);\nexport const b = payPageSchema(row.refine(Boolean));\n",
+  );
+  const p = load(file);
+  const init = (name) => p.program.body.find((s) => s.declaration?.declarations?.[0]?.id.name === name).declaration.declarations[0].init;
+  assert.deepEqual(answerChecks(p, init('a')), []);
+  assert.match(answerChecks(p, init('b'))[0], /^\.refine\(\)/);
+});
+
 test('a useBankRead, payCall and founderEdgeCall call each moves to its record form, its other arguments kept', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
   const put = (path, lines) => {
@@ -3183,5 +3196,60 @@ test('the router reader follows an optional part (`...ext?.merchant`) and a prop
   assert.deepEqual(
     unread.map((u) => `${u.path}: ${u.why}`),
     ['ops.*: MemberExpression not followed'],
+  );
+});
+
+test("a run's new type error is owned by the moved call whose caller is in its file, or in a file it reaches by imports; one with neither is owned by none", async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const moved = [
+    { path: 'copy.list', files: ['apps/customer/src/screens/trade/copybots/api.ts'] },
+    { path: 'grid.get', files: ['apps/customer/src/screens/trade/copybots/GridRoom.tsx'] },
+    { path: 'otc.quote', files: ['apps/customer/src/screens/trade/otc/data.ts'] },
+  ];
+  const sources = {
+    'apps/customer/src/screens/trade/copybots/CopyRoom.tsx': "import { listCopies } from './api.js';\n",
+    'apps/customer/src/shared/view-sync.ts': "import { x } from '../features/other.js';\n",
+    'apps/customer/src/screens/trade/otc/model.test.ts': "import { quote } from './model.js';\n",
+    'apps/customer/src/screens/trade/otc/model.ts': "import type { Quote } from './data';\n",
+    'apps/customer/src/screens/trade/otc/data.ts': '',
+    'apps/customer/src/screens/trade/terminal/index.tsx': "import { createRoomApi } from '../copybots/api';\n",
+    'apps/customer/src/screens/trade/copybots/api.ts': '',
+  };
+  const err = (file, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(3,7): ${msg}` });
+  const owners = ownersOf(
+    [
+      err('apps/customer/src/screens/trade/copybots/GridRoom.tsx', "error TS2339: Property 'exits' does not exist"),
+      err('apps/customer/src/screens/trade/copybots/CopyRoom.tsx', 'error TS2322: Type A is not assignable to type B'),
+      err('apps/customer/src/shared/view-sync.ts', 'error TS2322: Type C is not assignable to type D'),
+      err('apps/customer/src/screens/trade/otc/model.test.ts', 'error TS2345: Argument of type E'),
+      err('apps/customer/src/screens/trade/terminal/index.tsx', 'error TS2322: Type F'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  assert.deepEqual(
+    [...owners.get('apps/customer/src/screens/trade/copybots/GridRoom.tsx')],
+    [['grid.get', "error TS2339: Property 'exits' does not exist"]],
+  );
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/copybots/CopyRoom.tsx').keys()], ['copy.list']);
+  assert.equal(owners.has('apps/customer/src/shared/view-sync.ts'), false);
+  // Two imports away: the test reads the model, which reads the moved file's type.
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/otc/model.test.ts').keys()], ['otc.quote']);
+  // A folder's index.tsx resolves its imports from its own folder.
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
+});
+
+test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
+  const { z } = await contractsZod();
+  assert.throws(
+    () => samplesFor({ name: 'identity.affiliates.redeem', path: 'p', input: z.object({ token: z.string().uuid() }) }),
+    /no accepted input found/,
+  );
+  assert.match(
+    samplesFor({ name: 'x.get', path: 'p', input: z.object({ id: z.string().uuid() }) }),
+    /"id":"11111111-1111-4111-8111-111111111111"/,
   );
 });

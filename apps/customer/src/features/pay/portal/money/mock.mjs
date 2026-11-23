@@ -381,10 +381,14 @@ export function createMoneyMock(ctx) {
         case 'merchantControl.approvals.list':
           return ok(
             route,
-            page(
-              approvals.filter((a) => !input.status || a.status === input.status),
-              input,
-            ),
+            // The service answers each asset's headroom left today beside the page; the stand-in sets no daily limit.
+            {
+              ...page(
+                approvals.filter((a) => !input.status || a.status === input.status),
+                input,
+              ),
+              dailyPayoutRemaining: [],
+            },
           );
         case 'merchantControl.approvals.decide': {
           const a = approvals.find((x) => x.approvalId === input.approvalId);
