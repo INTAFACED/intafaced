@@ -2201,7 +2201,357 @@
       ],
       "catchall": "strict"
     },
-    { "t": "dunion", "disc": "recipe", "options": [270, 287, 290, 298, 304, 554, 558, 561, 564, 570, 572, 575, 581] }
+    { "t": "literal", "values": ["loanCollateralLock"] },
+    {
+      "t": "object",
+      "shape": [
+        ["loanId", 274],
+        ["userId", 274],
+        ["collateralAssetId", 544],
+        ["amount", 277],
+        ["sequence", 543]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 582],
+        ["input", 583]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanCollateralRelease"] },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 585],
+        ["input", 583]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanDraw"] },
+    {
+      "t": "object",
+      "shape": [
+        ["loanId", 274],
+        ["userId", 274],
+        ["debtAssetId", 544],
+        ["principal", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 587],
+        ["input", 588]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanRepay"] },
+    {
+      "t": "object",
+      "shape": [
+        ["loanId", 274],
+        ["userId", 274],
+        ["debtAssetId", 544],
+        ["principal", 277],
+        ["interest", 277],
+        ["sequence", 543]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 590],
+        ["input", 591]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanReserveFund"] },
+    {
+      "t": "object",
+      "shape": [
+        ["fundingId", 50],
+        ["debtAssetId", 544],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 593],
+        ["input", 594]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanLiquidate"] },
+    { "t": "literal", "values": ["house"] },
+    { "t": "literal", "values": ["market-maker"] },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 597],
+        ["ownerId", 598],
+        ["assetId", 544],
+        ["kind", 545]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["collateralTo", 599],
+        ["proceedsFrom", 599]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["loanId", 274],
+        ["userId", 274],
+        ["tranche", 543],
+        ["collateralAssetId", 544],
+        ["collateralSold", 277],
+        ["debtAssetId", 544],
+        ["proceeds", 277],
+        ["principalRepaid", 277],
+        ["interestRepaid", 277],
+        ["penalty", 277],
+        ["surplusToBorrower", 277],
+        ["buyer", 600],
+        ["markPrice", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 596],
+        ["input", 601]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["loanBadDebt"] },
+    {
+      "t": "object",
+      "shape": [
+        ["loanId", 274],
+        ["debtAssetId", 544],
+        ["shortfall", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 603],
+        ["input", 604]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["businessApprovalHold"] },
+    {
+      "t": "object",
+      "shape": [
+        ["approvalId", 274],
+        ["from", 546],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 606],
+        ["input", 607]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["businessApprovalRelease"] },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 609],
+        ["input", 607]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["businessApprovalSettle"] },
+    {
+      "t": "object",
+      "shape": [
+        ["approvalId", 274],
+        ["from", 546],
+        ["to", 546],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 611],
+        ["input", 612]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["businessPayroll"] },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/" }]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["to", 546],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 616 },
+    {
+      "t": "object",
+      "shape": [
+        ["payrollId", 615],
+        ["from", 546],
+        ["recipients", 617]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 614],
+        ["input", 618]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["deposit"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "max_length", "n": 123 },
+        { "k": "regex", "src": "/^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 274],
+        ["assetId", 544],
+        ["amount", 277],
+        ["rail", 621],
+        ["railRef", 47]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 620],
+        ["input", 622]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["withdrawHold"] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 274],
+        ["assetId", 544],
+        ["amount", 277],
+        ["rail", 621],
+        ["withdrawalId", 556]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 624],
+        ["input", 625]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["withdrawSettle"] },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 627],
+        ["input", 625]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["withdrawReverse"] },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 629],
+        ["input", 625]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["rewardPay"] },
+    {
+      "t": "object",
+      "shape": [
+        ["rewardId", 542],
+        ["userId", 274],
+        ["assetId", 544],
+        ["amount", 277],
+        ["reason", 297]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 631],
+        ["input", 632]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["sweepFeesToRewards"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 },
+        { "k": "regex", "src": "/^[^\\s]+$/" }
+      ]
+    },
+    { "t": "literal", "values": ["bank"] },
+    {
+      "t": "object",
+      "shape": [
+        ["windowId", 635],
+        ["sourceModule", 636],
+        ["assetId", 544],
+        ["amount", 277]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["recipe", 634],
+        ["input", 637]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "dunion",
+      "disc": "recipe",
+      "options": [
+        270, 287, 290, 298, 304, 554, 558, 561, 564, 570, 572, 575, 581, 584, 586, 589, 592, 595, 602, 605, 608, 610, 613, 619, 623, 626,
+        628, 630, 633, 638
+      ]
+    }
   ],
   "inputs": {
     "post": 0,
@@ -2239,7 +2589,7 @@
     "transactionsExist": 259,
     "reconciliationEvaluations": 262,
     "restoreWatermark": 268,
-    "postRecipe": 582,
+    "postRecipe": 639,
     "controlRun": 307,
     "evaluationFeed": 363,
     "postRecipeReply": 567,

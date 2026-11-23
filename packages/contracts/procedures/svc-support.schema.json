@@ -8082,6 +8082,173 @@
         }
       ]
     },
+    "support.safety.reportScam": {
+      "service": "svc-support",
+      "module": "support",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "safety.reportScam",
+      "access": {
+        "caller": "scope",
+        "scope": "support:write"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "when": {
+            "type": "string",
+            "enum": ["before_sending", "after_sending"]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d{1,18}(\\.\\d{1,18})?$"
+          },
+          "assetId": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{2,16}$"
+          },
+          "transferId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contactedBy": {
+            "type": "string",
+            "enum": ["phone_call", "text_message", "email", "social_media", "messaging_app", "in_person", "other"]
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 5000
+          }
+        },
+        "required": ["when", "amount", "assetId", "contactedBy"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["complaint", "bereavement", "scam"]
+          },
+          "ticketId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}-[0-9A-F]{8}$"
+          },
+          "acknowledgedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "responseDeadline": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "const": "set"
+                      },
+                      "dueAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "limitDays": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["status", "dueAt", "limitDays"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "const": "not_set"
+                      }
+                    },
+                    "required": ["status"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "caseNote": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "kind", "ticketId", "reference", "acknowledgedAt", "responseDeadline", "caseNote"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "support_scam_report_input_holds": {
+          "at": "input",
+          "says": "a report after sending money names the transfer; before sending money there is no transfer to name"
+        },
+        "amount_holds": {
+          "at": "input.amount",
+          "says": "an amount is greater than zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "when": "before_sending",
+            "amount": "1",
+            "assetId": "USDC",
+            "contactedBy": "phone_call"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "support_scam_report_input_holds",
+          "input": {
+            "when": "after_sending",
+            "amount": "1",
+            "assetId": "USDC",
+            "contactedBy": "phone_call"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "amount_holds",
+          "input": {
+            "when": "before_sending",
+            "amount": "0",
+            "assetId": "USDC",
+            "contactedBy": "phone_call"
+          }
+        }
+      ]
+    },
     "support.searchKb": {
       "service": "svc-support",
       "module": "support",

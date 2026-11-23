@@ -76,6 +76,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   const servicePorts = defs.map((d) => d.env.HTTP_PORT);
   for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
   assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
+  // svc-fix binds its FIX sockets and ingest listener to HTTP_HOST: loopback, never the home network (#10244).
+  assert.equal(fixEnv.HTTP_HOST, '127.0.0.1', 'svc-fix listens on loopback only');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
     for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
@@ -1177,7 +1179,14 @@ console.log('local-test-stack: customer folder override checks passed');
     /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
-  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  {
+    const { mintLocalTestSecret } = await import('./local-test-stack.mjs');
+    const key = mintLocalTestSecret('adminSession');
+    assert.match(key, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(Buffer.from(key, 'base64url').length, 32);
+    assert.equal(Buffer.from(key, 'base64url').toString('base64url'), key);
+    assert.match(source, /s\.adminSession = mintLocalTestSecret\('adminSession'\);/);
+  }
   assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart\(\s*names,\s*\{[^}]*start = cmdStart,[^}]*\}[\s\S]*?await start\(/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);

@@ -50,7 +50,6 @@
   "/otc",
   "/otc/:quoteId",
   "/otc/tradeInfo",
-  "/uc/ad",
   "/uc/ad/create",
   "/uc/ad/update",
   "/uc/order",

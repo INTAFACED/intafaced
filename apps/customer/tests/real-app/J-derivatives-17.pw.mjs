@@ -521,7 +521,7 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   expect(dec(after[2].split(' ')[0])).toBe(dec(fromUnits(volume)));
 });
 
-test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser }) => {
+test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser, stepPicture }) => {
   test.setTimeout(300_000);
   const id = await venueId();
   const to = new Date(Date.now() + 10 * 60_000);
@@ -555,6 +555,13 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
     .getByRole('button', { name: /Export CSV/ })
     .click();
   const file = await download;
+  // The step's picture: the recon it exported, from the top. Clicking Export scrolled the window to the foot of the page,
+  // and the end picture of run 45177617233 drew the console's sticky bar over the venue's totals (read BROKEN).
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
   const text = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
   // The file says when it was made, how fresh its data is and what it covers, on `#` lines above the header.
   const lines = text.trim().split(/\r?\n/);

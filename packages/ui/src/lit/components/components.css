@@ -132,6 +132,13 @@
   outline-offset: 2px;
 }
 
+/* A heading, landmark or section that code moves focus to (tabindex -1) is where reading starts, not a control: it
+   takes no ring (a room's title drew a box round itself on arrival). */
+.lit-root :is(h1, h2, h3, h4, main, section)[tabindex='-1']:focus-visible,
+:root:where([data-look='lit']) :is(h1, h2, h3, h4, main, section)[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 /* Action keys (Add, Send, Buy). The lit one is the light. */
 .lit-key {
   display: inline-flex;
@@ -236,6 +243,44 @@
 .lit-chips button:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
+}
+
+/* Date box (DateInput): the native box keeps its keys, picker and value; at rest its digits, written in the browser's
+   language, give way to the day in the page's language, drawn in the box's own place and font. */
+.lit-date {
+  position: relative;
+  display: grid;
+  justify-items: stretch;
+  min-inline-size: 0;
+}
+.lit-date.lit-date:not(:focus-within) > input {
+  color: transparent;
+}
+.lit-date:not(:focus-within) > input::-webkit-datetime-edit {
+  opacity: 0;
+}
+.lit-date > [data-part='shown'] {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0.75rem;
+  inset-inline-end: 2.25rem;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: var(--lit-text-1);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.lit-date > [data-part='shown']::before {
+  content: attr(data-shown);
+}
+.lit-date[data-empty] > [data-part='shown'] {
+  color: var(--lit-text-3);
+}
+.lit-date:focus-within > [data-part='shown'] {
+  visibility: hidden;
 }
 
 /* Field */

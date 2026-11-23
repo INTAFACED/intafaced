@@ -3,7 +3,6 @@ import {
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
-  merchantControlApprovalPageSchema,
   merchantControlApprovalDecideInputSchema,
   merchantTierListInputSchema,
   merchantTierListSchema,
@@ -35,6 +34,7 @@ import {
   PAY_MERCHANT_CONTROL_LIMITS_OPEN,
   PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
   PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_APPROVALS_LIST,
 } from '@intafaced/contracts/pay-merchant-control-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -225,10 +225,9 @@ export function createMerchantControlRouter(control?: ControlService) {
         ),
       }),
       approvals: router({
-        list: read
-          .input(merchantControlApprovalListInputSchema)
-          .output(merchantControlApprovalPageSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+          ({ ctx, input }) =>
             guarded(async () => {
               const page = await control.approvals.list(principalOf(ctx), input);
               return {
@@ -237,7 +236,8 @@ export function createMerchantControlRouter(control?: ControlService) {
                 dailyPayoutRemaining: page.dailyPayoutRemaining,
               };
             }),
-          ),
+          payRefusal,
+        ),
         request: mountRecord(
           PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
           ({ ctx, input }) => guarded(async () => toContractApproval(await control.approvals.request(principalOf(ctx), input))),

@@ -1,9 +1,9 @@
 import type { SettingsBTools } from '../b-client';
-import { tolerantPage } from '../b-shared';
 import { pagedResult } from '../../ui/page';
 import type { ApiResult } from '../../../../../shared/api';
 import { developersCopy } from './copy';
 import * as s from './schemas';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
   IDENTITY_API_KEYS_LIST,
   IDENTITY_API_KEYS_CREATE,
@@ -18,6 +18,8 @@ import {
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS,
   PAY_MERCHANT_OPS_WEBHOOKS_POLICY,
   PAY_MERCHANT_OPS_WEBHOOKS_GUIDE,
+  PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+  PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /** An answer that says "no" in its data (`revoked: false`) is a refusal in words, never a quiet success. */
@@ -42,10 +44,15 @@ export const developersApi = ({ query, mutate, identityQueryRecord, identityMuta
   // ---- webhooks (merchantOps.webhooks.*) ----
   endpointsList: async (cursor: string | undefined, status: string, search: string, signal?: AbortSignal) =>
     pagedResult(
-      await query(
-        'merchantOps.webhooks.list',
-        { limit: 25, ...(cursor ? { cursor } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) },
-        tolerantPage(s.endpointSchema),
+      await queryRecord(
+        PAY_MERCHANT_OPS_WEBHOOKS_LIST,
+        // The page's filter text is sent as before; the service checks it against its own list and refuses any other.
+        {
+          limit: 25,
+          ...(cursor ? { cursor } : {}),
+          ...(status ? { status: status as ProcedureInput<typeof PAY_MERCHANT_OPS_WEBHOOKS_LIST>['status'] } : {}),
+          ...(search ? { search } : {}),
+        },
         signal,
       ),
     ),
@@ -61,17 +68,17 @@ export const developersApi = ({ query, mutate, identityQueryRecord, identityMuta
     signal?: AbortSignal,
   ) =>
     pagedResult(
-      await query(
-        'merchantOps.webhooks.deliveries.list',
+      await queryRecord(
+        PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
         {
           limit: 25,
           ...(cursor ? { cursor } : {}),
           ...(filter.endpointId ? { endpointId: filter.endpointId } : {}),
-          ...(filter.status ? { status: filter.status } : {}),
+          // The page's filter text is sent as before; the service checks it against its own list and refuses any other.
+          ...(filter.status ? { status: filter.status as ProcedureInput<typeof PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST>['status'] } : {}),
           ...(filter.from ? { from: filter.from } : {}),
           ...(filter.to ? { to: filter.to } : {}),
         },
-        tolerantPage(s.deliverySchema),
         signal,
       ),
     ),

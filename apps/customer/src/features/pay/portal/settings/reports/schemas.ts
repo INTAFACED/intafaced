@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { stamp } from '../b-shared';
+import { stamp } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 // mirrors services/svc-pay/src/merchant-ops/exports.ts on main (#4826): seven kinds, columns, generatedAt, expired.
 export const exportKinds = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
@@ -32,5 +32,3 @@ export const exportJobSchema = z.object({
   completedAt: stamp.nullish(),
 });
 export type ExportJob = z.infer<typeof exportJobSchema>;
-
-export const memberLabelSchema = z.object({ userId: z.string(), label: z.string().nullish(), role: z.string().optional() });
