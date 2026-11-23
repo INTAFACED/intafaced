@@ -36,7 +36,7 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
    again): the TEST mailbox shows the newest code for your address. Type it in and tap **Confirm and open my account**.
 5. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
    **Full**, enter any country code, and submit: the stack's TEST operators approve it within a minute. Sign out and in
-   once so the app sees it.
+   once so the app sees it. On a hosted beta the founders approve it instead (`docs/runbooks/beta-founders.md`).
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
 
