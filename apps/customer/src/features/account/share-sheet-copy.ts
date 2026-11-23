@@ -23,5 +23,6 @@ export const shareSheetCopy = defineCopy('account.shareSheet', {
   noLink: 'Get your invitation link first. One-tap share tags your live link; it never makes one.',
   keyUnset: 'One-tap share is off: the signing key for share tags is not set. Your invitation link still works.',
   refused: 'The service refused to make a share link. Nothing was shared.',
+  visitsNoLink: 'No visits to count yet. Each surface counts visits once your invitation link exists; then refresh the counts.',
   statsFailed: 'Visit counts could not be read.',
 });
