@@ -341,6 +341,13 @@ fn recovery_jobs<'a>(
                 })
             }),
         ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
+            }),
+        ),
     ]
 }
 

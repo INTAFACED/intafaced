@@ -110,6 +110,20 @@ mod loans_repay_db;
 mod loans_sweep_db;
 #[path = "ops_desk_db.rs"]
 mod ops_desk_db;
+#[path = "partner_account_cash_out.rs"]
+mod partner_account_cash_out;
+#[path = "partner_account_closure.rs"]
+mod partner_account_closure;
+#[path = "partner_account_deposits.rs"]
+mod partner_account_deposits;
+#[path = "partner_account_linked.rs"]
+mod partner_account_linked;
+#[path = "partner_account_payouts.rs"]
+mod partner_account_payouts;
+#[path = "partner_account_recovery.rs"]
+mod partner_account_recovery;
+#[path = "partner_account_salary.rs"]
+mod partner_account_salary;
 #[path = "partner_db.rs"]
 mod partner_db;
 #[path = "partner_probe.rs"]
@@ -144,6 +158,7 @@ mod business_kit;
 mod card_ops_desk_kit;
 mod card_ops_kit;
 mod loans_kit;
+mod partner_account_kit;
 mod support;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.

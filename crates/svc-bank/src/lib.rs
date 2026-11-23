@@ -32,6 +32,7 @@ pub mod migrate;
 pub mod ops_approval;
 pub mod ops_desk;
 pub mod partner;
+pub mod partner_account;
 pub mod ramps;
 pub mod ready;
 pub mod recovery;

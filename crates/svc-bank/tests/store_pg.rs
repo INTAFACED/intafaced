@@ -252,7 +252,9 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
 }
 
 #[test]
-fn a_job_door_answers_401_unsigned_then_names_its_slice() {
+/// Unsigned, a job door answers 401; signed, the call reaches its slice, whose own body check answers (every slice is
+/// ported, so none answers "not ported").
+fn a_job_door_answers_401_unsigned_then_its_slice_checks_the_body() {
     let Some(db) = TestDb::new() else { return };
     db.migrated_in_place();
     let d = door(db.store());
@@ -262,11 +264,11 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
         body.compact(),
         r#"{"error":"service credentials required","code":"bank.unauthenticated"}"#
     );
-    let (status, body) = post(&d, "/internal/jobs/payout-sim/verify", Some("svc-bank"));
-    assert_eq!(status, 500);
+    let (status, body) = post(&d, "/internal/jobs/bill-pay/run-due", Some("svc-bank"));
+    assert_eq!(status, 400);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the partner-account slice is not ported"}"#
+        r#"{"error":"body not in shape","code":"bank.validation_failed"}"#
     );
     d.end();
 }
