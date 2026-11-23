@@ -34,7 +34,8 @@ export async function POST(request: Request) {
         return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
       const answer = await sendTreasuryControl('run', {
         controlId: req.controlId,
-        ...(req.asOf === 'now' ? {} : { asOf: req.asOf, margin: req.margin }),
+        // A past run with no margin named goes to svc-ledger without one, so the refusal is svc-ledger's own.
+        ...(req.asOf === 'now' ? {} : { asOf: req.asOf, ...(req.margin === 'unset' ? {} : { margin: req.margin }) }),
         reason: req.reason,
         approvalId: ids.approvalId,
         operationId: ids.operationId,

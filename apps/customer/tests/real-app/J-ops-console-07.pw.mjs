@@ -2,6 +2,7 @@
 import { expect, test } from './journey.mjs';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import http from 'node:http';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool } from './stack.mjs';
@@ -207,15 +208,17 @@ async function twoFounderRun(controlId, opts) {
 }
 
 /**
- * svc-ledger restarted reading its outside side from an address nothing answers, or back on the stack's default (no snapshot
- * published, so unset). "Unreachable" is written to its own state file before the restart, so a run cancelled in between is
- * put back by the next run's first hook.
+ * svc-ledger restarted reading its outside side from an address nothing answers (`true`), from a LOCAL TEST stand-in this
+ * journey runs on loopback (its address), or back on the stack's default (`false`: no snapshot published, so unset). That it
+ * is off the default is written to its own state file before the restart, so a run cancelled in between is put back by the
+ * next run's first hook.
  */
 const outsideSource = journeyState('J-ops-console-07-outside');
-function ledgerOutside(unreachable) {
+function ledgerOutside(source) {
+  const unreachable = Boolean(source);
   const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
   if (unreachable) {
-    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = source === true ? 'unreachable' : source;
     outsideSource.write({ unreachable: true });
   } else delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
   try {
@@ -232,6 +235,46 @@ const putOutsideBack = () => {
 // A step that fails or times out never reaches its own finally, so the hooks put the ledger back before the next step.
 test.beforeAll(putOutsideBack);
 test.afterEach(putOutsideBack);
+
+/**
+ * A LOCAL TEST outside source on loopback that takes svc-ledger's snapshot read and leaves it unanswered until `answer()`,
+ * so a step can look at what svc-ledger has stored while that read is still open. It stands where the outside party's
+ * snapshot would be and never gives a balance: once answered it says it cannot be read (503), as an unreadable source does.
+ * `open()` is how many reads are waiting. No read waits past 9 s, inside svc-ledger's own 10 s limit for an outside read.
+ */
+async function heldOutsideSource() {
+  const waiting = new Set();
+  let answered = false;
+  const end = (res) => {
+    waiting.delete(res);
+    if (res.writableEnded) return;
+    res.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ label: 'TEST', error: 'LOCAL TEST outside source: not readable' }));
+  };
+  const server = http.createServer((req, res) => {
+    if (answered) return end(res);
+    waiting.add(res);
+    res.on('close', () => waiting.delete(res));
+    setTimeout(() => end(res), 9_000).unref();
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return {
+    url: `http://127.0.0.1:${server.address().port}/local-test-held-outside-snapshot`,
+    open: () => waiting.size,
+    answer() {
+      answered = true;
+      for (const res of waiting) end(res);
+    },
+    async close() {
+      this.answer();
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
 
 const accountsRead = (answer) => Number(/(\d+) accounts? and/.exec(answer)?.[1] ?? NaN);
 
@@ -544,6 +587,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #2 schedule (UTC), severity, tolerance and a dynamic account set: active, and built-ins cannot change', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(240_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
@@ -582,6 +626,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         );
       expect(live, `built-in ${id}: no retire or pause request can be sent from the desk`).toEqual([]);
     }
+    await stepPicture(a);
 
     // A retire sent anyway, with two founders, is refused by the ledger with its code, and the control stays as it was.
     await requireTreasury(section);
@@ -616,7 +661,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     });
   });
 
-  test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser }) => {
+  test('J-ops-console-07 #2 a new matching account is included on the next run', async ({ browser, stepPicture }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
     await founders(browser);
@@ -629,13 +674,15 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
     const after = accountsRead(await twoFounderRun(state.thresholdId));
     expect(after, 'the new TEST customer’s USDT account joins the next run').toBeGreaterThan(before);
+    await stepPicture(state.a);
   });
 
   test('J-ops-console-07 #3 a run now stores its row and each source’s as-of; an outside-balance control with no snapshot shows unset', async ({
     browser,
+    stepPicture,
   }) => {
-    test.setTimeout(420_000);
-    const { a } = await founders(browser);
+    test.setTimeout(600_000);
+    const { a, b } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
     state.outsideId = await define(section, {
@@ -655,14 +702,67 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     // The run stored its row: re-read from a fresh page, it carries the same status and the same sources line.
     const stored = await storedRun(a, state.outsideId, answer, 'UNSET');
     expect(stored).toContain(sources[0]);
+    await stepPicture(a);
+
+    // The row is there before the run's reads are done. svc-ledger now reads its outside side from a LOCAL TEST source that
+    // takes the read and leaves it unanswered. Founder A runs an approved request; while that read is still open, founder
+    // B's console already lists the run: one row marked started, stamped with the ledger's as-of, nothing read into it yet.
+    const held = await heldOutsideSource();
+    try {
+      ledgerOutside(held.url);
+      const { desk, phrase } = await approvedRun(state.outsideId);
+      const sectionB = b.getByTestId('reconciliation-controls');
+      await choose(sectionB, state.outsideId);
+      const before = await evaluationsOf(sectionB);
+      const runsB = sectionB.getByTestId('rc-runs');
+      const started = runsB.locator('[data-testid="rc-run-row"][data-status="started"]');
+      await expect(started, 'no run of the control is open before this one').toHaveCount(0);
+      expect(held.open(), 'nothing has asked the outside source yet').toBe(0);
+
+      await desk.getByLabel(/to approve or run it$/).fill(phrase);
+      await desk.getByRole('button', { name: 'Run the approved request', exact: true }).click();
+      await expect
+        .poll(() => held.open(), { message: 'svc-ledger asks the outside source for the run', timeout: 30_000, intervals: [100] })
+        .toBeGreaterThan(0);
+      await runsB.getByRole('button', { name: 'Reload evaluations', exact: true }).click();
+      await expect(started, 'the run is listed while its outside read is open').toHaveCount(1, { timeout: 8_000 });
+      const startedId = await started.getAttribute('data-run-id');
+      const open = (await started.innerText()).replace(/\s+/g, ' ');
+      // Still unanswered after the row was read back, so the row was stored before this read of the run was done.
+      expect(held.open(), 'the run’s outside read is still unanswered while its row is listed').toBeGreaterThan(0);
+      expect(before.ids, 'the open row is a new evaluation of the control').not.toContain(startedId);
+      expect(open).toContain(`Run ${startedId}: started.`);
+      const stamped = open.match(
+        /Sources: ledger as of (\d{4}-\d{2}-\d{2}T[0-9:.]+Z); outside unset; parity unset\. Outside side: not_applicable\./,
+      );
+      expect(stamped, `the open row carries the ledger's as-of and no outside read yet: ${open}`).not.toBeNull();
+      expect(open, 'nothing is read into the open row yet').toContain('0 accounts and 0 assets read.');
+
+      // The source then answers that it cannot be read: the same row finishes as ERROR at the outside read, never a PASS,
+      // and keeps the as-of it was opened with.
+      held.answer();
+      const reply = desk.getByTestId('step-reply');
+      await expect(reply).toContainText(/The service answered|Code: /, { timeout: 60_000 });
+      const finished = (await reply.innerText()).replace(/\s+/g, ' ');
+      expect(runId(finished), 'the run that finished is the row that was open').toBe(startedId);
+      expect(finished).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
+      expect(finished).toContain('Error: ledger.reconcile_source_unavailable at outside.');
+      const kept = `Sources: ledger as of ${stamped[1]}; outside unset; parity unset. Outside side: unavailable.`;
+      expect(finished).toContain(kept);
+      expect(await storedRun(a, state.outsideId, finished, 'ERROR')).toContain(kept);
+    } finally {
+      await held.close();
+      ledgerOutside(false);
+    }
   });
 
   test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({
     browser,
+    stepPicture,
   }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(600_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
-    const { a } = await founders(browser);
+    const { a, b } = await founders(browser);
     const section = await openLedger(a);
     await choose(section, state.thresholdId);
     const desk = section.getByTestId('rc-run');
@@ -680,16 +780,53 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(desk).toContainText('ledger.reconcile_asof_invalid');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
 
+    // The desk holds both requests. Sent anyway, the way the desk sends a run, approved by the second founder and run, each
+    // is refused by svc-ledger itself with its typed code, and the control gains no evaluation.
+    const control = (await controlsOf(a)).find((c) => c.id === state.thresholdId);
+    expect(control?.margin, 'the control has no margin of its own').toEqual({ status: 'unset' });
+    const before = await evaluationsOf(section);
+    const endpoint = '/api/ledger-reconciliation/run';
+    const phrase = `RUN CONTROL ${state.thresholdId.slice(0, 8)}`;
+    const sentAnyway = async (asOf, margin, why) => {
+      const request = {
+        kind: 'ledger.reconciliation_control.run',
+        controlId: state.thresholdId,
+        version: String(control.version),
+        asOf,
+        margin,
+        reason: `LOCAL TEST J-ops-console-07 ${why} ${tag}`,
+      };
+      const asked = await consolePropose(a, endpoint, request, phrase);
+      expect(asked.body?.ok, `the console takes the request to a second founder: ${JSON.stringify(asked).slice(0, 400)}`).toBe(true);
+      const approved = await consoleStep(b, endpoint, asked.body.packet, 'approve', phrase);
+      expect(approved.body?.ok, `the second founder approves it: ${JSON.stringify(approved).slice(0, 400)}`).toBe(true);
+      return consoleStep(a, endpoint, asked.body.packet, 'execute', phrase);
+    };
+    const blank = await sentAnyway(past.toISOString(), 'unset', 'past run with no margin');
+    expect(blank.body, JSON.stringify(blank).slice(0, 400)).toMatchObject({ ok: false, refusal: { code: 'ops.control_margin_unset' } });
+    const ahead = new Date(Date.now() + 86_400_000);
+    ahead.setUTCSeconds(0, 0);
+    const future = await sentAnyway(ahead.toISOString(), '0', 'run at a future instant');
+    expect(future.body, JSON.stringify(future).slice(0, 400)).toMatchObject({
+      ok: false,
+      refusal: { code: 'ledger.reconcile_asof_invalid' },
+    });
+    const untouched = await openLedger(a);
+    await choose(untouched, state.thresholdId);
+    expect(await evaluationsOf(untouched), 'neither refused request stored a run').toEqual(before);
+
     const withMargin = await twoFounderRun(state.thresholdId, { instant: typed, margin: '60' });
     expect(withMargin).toContain(
       `As of ${past.toISOString()}; balances read at ${new Date(past.getTime() - 60_000).toISOString()} (margin 60 s)`,
     );
     const zero = await twoFounderRun(state.thresholdId, { instant: typed, margin: '0' });
     expect(zero).toContain(`balances read at ${past.toISOString()} (margin 0 s)`);
+    await stepPicture(a);
   });
 
   test('J-ops-console-07 #5 a run evaluates PASS or FAIL with per-asset evidence, and an unreadable source is ERROR, never PASS', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId || !state.outsideId) throw new Error('steps #1 and #3 left no controls');
@@ -726,6 +863,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(scaled(broken.difference) < 0n).toBe(true);
       // The person reads the evaluation: the stored row is FAIL with the same four figures.
       expect(evidence(await storedRun(a, floorId, fail, 'FAIL'), 'USDT'), 'the FAIL evidence is stored as shown').toEqual(broken);
+      await stepPicture(a);
     } finally {
       // Pause the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it. Step #6 reads its alert
       // while paused, then retires it.
@@ -753,6 +891,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #5 the evidence is the ledger’s: one customer’s two assets at a past instant and now, stored as shown', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     const { a } = await founders(browser);
@@ -841,6 +980,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
             expect(kept[field], `${asset} stored ${field} is a decimal figure`).toMatch(/^-?\d+(?:\.\d+)?$/);
         }
       }
+      await stepPicture(a);
     } finally {
       await lifecycle(ownId, 'retire', 'Retired');
     }
@@ -857,6 +997,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #6 pause needs two founders, a paused control runs nothing until resumed, and retired is final', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(420_000);
     if (!state.thresholdId || !state.outsideId) throw new Error('steps #1 and #3 left no controls');
@@ -957,6 +1098,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(line).toContainText(`Run ${r.id}: ${r.status}.`);
     }
     await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
+    await stepPicture(a);
 
     // A paused control keeps its alerts, and so does a retired one. A fresh TEST floor fails; its USDT alert and its
     // evaluations are read back from svc-ops and svc-ledger once it is paused, and again after it is retired.
@@ -1023,6 +1165,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #7 a run that fails two assets opens two alerts; the same failure again raises the count, opens nothing new', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     const { a } = await founders(browser);
@@ -1073,6 +1216,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       expect(repeated, 'the repeat opens nothing new').toHaveLength(2);
       expect(repeated.map((r) => r.id).sort()).toEqual(opened.map((r) => r.id).sort());
       expect(repeated.every((r) => r.periodStart === opened[0].periodStart)).toBe(true);
+      await stepPicture(a);
       const detail = await openAlert(a, opened[0].id);
       await expect(detail.getByTestId('timeline-entry')).toHaveCount(2);
       await expect(detail.locator('[data-testid="timeline-entry"][data-kind="opened"]')).toHaveCount(1);
@@ -1087,6 +1231,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #8 two founders acknowledge at once: one wins, the other sees it; snoozed notices stop while the count rises', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(600_000);
     if (!state.pairId || !state.thresholdId) throw new Error('steps #1 and #7 left no controls');
@@ -1173,6 +1318,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(muted).toHaveAttribute('data-snoozed', 'true');
       await expect(muted.getByTestId('alert-notices')).toHaveAttribute('data-sent', sentBefore);
       await expect(muted.locator('[data-testid="timeline-entry"][data-kind="repeated"]').last()).toHaveAttribute('data-notice', 'snoozed');
+      await stepPicture(a);
     } finally {
       // Retire the TEST two-asset floor so scheduled runs do not keep failing on it.
       await lifecycle(state.pairId, 'retire', 'Retired');
@@ -1181,6 +1327,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #9 resolve as fixed names booked ledger transactions; accepting needs a note and two founders and freezes the evidence', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(900_000);
     const { a, b } = await founders(browser);
@@ -1342,6 +1489,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(reread.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', evidenceHash);
       await expect(reread.getByTestId('alert-evidence')).toHaveText(evidenceText);
       await expect(reread.getByTestId('alert-resolved')).toHaveCount(0);
+      await stepPicture(a);
       state.acceptAlert = {
         id: toAccept.id,
         evidenceHash,
@@ -1359,6 +1507,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
   test('J-ops-console-07 #10 a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event received twice is stored once', async ({
     browser,
+    stepPicture,
   }) => {
     test.setTimeout(900_000);
     if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert)
@@ -1496,6 +1645,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(later).toHaveCount(1);
       await expect(later).toHaveAttribute('data-error-code', 'ledger.reconcile_source_unavailable');
       await expect(later).toHaveAttribute('data-phase', 'snapshot');
+      await stepPicture(a);
     } finally {
       // Retire every TEST control this step and #9 made, so scheduled runs do not keep failing on them.
       for (const id of [state.fixId, state.acceptId, errorId].filter(Boolean))

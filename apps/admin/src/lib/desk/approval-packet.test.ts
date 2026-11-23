@@ -114,9 +114,15 @@ describe('request reading is strict', () => {
       reason: 'LOCAL TEST run the USDT floor control',
     };
     expect(readDeskRequest(run)).toEqual(run);
-    // A run now carries no margin; a past run names one; an instant is only the exact ISO text svc-ledger hashes.
+    // A run now carries no margin; an instant is only the exact ISO text svc-ledger hashes.
     expect(readDeskRequest({ ...run, margin: '30' })).toBeNull();
-    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toBeNull();
+    // A past run names its margin as the contract's decimal, or names none. The one with none is read, so svc-ledger
+    // (not this console) refuses it with ops.control_margin_unset (crates/svc-ledger/tests/controls_pg.rs; J-ops-console-07 #4).
+    const past = { ...run, asOf: '2026-10-23T06:30:00.000Z' };
+    expect(readDeskRequest({ ...past, margin: '0' })).toEqual({ ...past, margin: '0' });
+    expect(readDeskRequest(past)).toEqual(past);
+    expect(describeRequest(past as Parameters<typeof describeRequest>[0])).toContain('ops.control_margin_unset');
+    for (const margin of ['', ' ', '-1', '1e3', '30s', 'none']) expect(readDeskRequest({ ...past, margin })).toBeNull();
     expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00Z', margin: '0' })).toBeNull();
     expect(readDeskRequest({ ...run, version: '0' })).toBeNull();
     expect(readDeskRequest(null)).toBeNull();

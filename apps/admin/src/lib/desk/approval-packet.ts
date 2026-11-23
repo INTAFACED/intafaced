@@ -68,7 +68,8 @@ export type DeskRequest =
   | { readonly kind: 'ledger.unfreeze'; readonly version: string }
   /**
    * Run one reconciliation control (svc-ledger OPS-reconciliation-01). `version` is the control version read; `asOf` is `now` or a
-   * past instant as an ISO string; `margin` is the seconds read before that instant, or `unset` for a run now. All four are signed.
+   * past instant as an ISO string; `margin` is the seconds read before that instant, or `unset` for a run now and for a past
+   * run that names none (svc-ledger refuses that one). All four are signed.
    */
   | {
       readonly kind: 'ledger.reconciliation_control.run';
@@ -389,8 +390,10 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version) || !isRunInstant(raw.asOf)) return null;
     if (typeof raw.margin !== 'string') return null;
-    // A run now reads at its own instant, so it carries no margin; a past run always names the one it reads with.
-    if (raw.asOf === 'now' ? raw.margin !== 'unset' : !reconciliationDecimalSchema.safeParse(raw.margin).success) return null;
+    // A run now reads at its own instant, so it carries no margin. A past run names the margin it reads with, or `unset`
+    // when none is named: svc-ledger, not this console, answers that one (`ops.control_margin_unset` when the control has
+    // none of its own; an approval signed over `unset` never matches a run svc-ledger would read with another margin).
+    if (raw.margin !== 'unset' && (raw.asOf === 'now' || !reconciliationDecimalSchema.safeParse(raw.margin).success)) return null;
     return {
       kind: 'ledger.reconciliation_control.run',
       controlId: raw.controlId,
@@ -975,7 +978,9 @@ export function describeRequest(request: DeskRequest): string {
     case 'ledger.reconciliation_control.run':
       return request.asOf === 'now'
         ? `Run reconciliation control ${request.controlId} now ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`
-        : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
+        : request.margin === 'unset'
+          ? `Run reconciliation control ${request.controlId} as of ${request.asOf}, with no margin named ("${request.reason}"). svc-ledger answers it: a control with no margin of its own refuses the run (ops.control_margin_unset), and this approval covers no other margin, so the request reads nothing. Nothing posts and nothing freezes.`
+          : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
     case 'ledger.reconciliation_control.lifecycle':
       return request.lifecycle === 'pause'
         ? `Pause reconciliation control ${request.controlId} ("${request.reason}"): the scheduler and runs on demand skip it until it is resumed. Its policy, runs and history stay. It moves only if the control is still at version ${request.version}.`

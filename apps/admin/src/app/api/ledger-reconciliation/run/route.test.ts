@@ -102,6 +102,24 @@ describe('control run: the two-founder steps', () => {
     await post({ step: 'execute', request: runPast, confirm: PHRASE, approvalId: 'appr_1', operationId: 'op_1' });
     expect(JSON.parse(fn.mock.calls[0]![1]!.body as string)).toMatchObject({ asOf: '2026-10-23T06:30:00.000Z', margin: '0' });
   });
+  it('a past run that names no margin goes to svc-ledger without one, and svc-ledger’s refusal keeps its code', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) =>
+      Response.json({ message: 'ops.control_margin_unset', code: 'ops.control_margin_unset' }, { status: 400 }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const noMargin = { ...runPast, margin: 'unset' } as DeskRequest;
+    const res = await post({ step: 'execute', request: noMargin, confirm: PHRASE, approvalId: 'appr_1', operationId: 'op_1' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { code: 'ops.control_margin_unset', changed: 'no' } });
+    expect(fn.mock.calls[0]![0]).toBe('http://isolated-edge:4000/admin/ledger/reconciliation/controls/run');
+    expect(JSON.parse(fn.mock.calls[0]![1]!.body as string)).toEqual({
+      controlId: CONTROL_ID,
+      asOf: '2026-10-23T06:30:00.000Z',
+      reason: 'LOCAL TEST run the USDT floor control',
+      approvalId: 'appr_1',
+      operationId: 'op_1',
+    });
+  });
   it('svc-ledger’s refusal of a future instant keeps its code', async () => {
     vi.stubGlobal(
       'fetch',

@@ -4,13 +4,19 @@ import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements
  * The outside-balance snapshot svc-ledger reads (LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, an owner value). Unset by default, so an
  * outside-balance control shows its outside side unset (J-ops-console-07 #3). `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT=unreachable`
  * on a start or restart points it at a closed local port, so a run shows ERROR when its outside source cannot be read
- * (J-ops-console-07 #5). LOCAL TEST only, not an owner decision.
+ * (J-ops-console-07 #5). A loopback address (`http://127.0.0.1:<port>/<path>`) points it at a LOCAL TEST stand-in a journey
+ * runs itself, so the journey can see what svc-ledger has stored while its outside read is still unanswered
+ * (J-ops-console-07 #3). LOCAL TEST only, not an owner decision.
  */
+const LOOPBACK_SNAPSHOT = /^http:\/\/127\.0\.0\.1:[1-9]\d{1,4}\/[a-z0-9-]+$/;
 function outsideSnapshot() {
   const asked = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
   if (asked === undefined || asked === '') return {};
   if (asked === 'unreachable') return { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: 'http://127.0.0.1:9/local-test-outside-snapshot' };
-  throw new Error(`LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "${asked}"; leave it unset for no snapshot, or set it to unreachable.`);
+  if (LOOPBACK_SNAPSHOT.test(asked)) return { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: asked };
+  throw new Error(
+    `LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "${asked}"; leave it unset for no snapshot, or set it to unreachable or to http://127.0.0.1:<port>/<path>.`,
+  );
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({

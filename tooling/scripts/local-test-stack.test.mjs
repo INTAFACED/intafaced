@@ -447,6 +447,21 @@ const script = resolve(here, 'local-test-stack.mjs');
     const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: url, ...rest } = ledgerEnv();
     assert.equal(url, 'http://127.0.0.1:9/local-test-outside-snapshot');
     assert.deepEqual(rest, unset);
+    // A loopback stand-in a journey runs itself (J-ops-console-07 #3), and nothing else changes; no other host is taken.
+    process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'http://127.0.0.1:45123/local-test-held-outside-snapshot';
+    const { LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: held, ...heldRest } = ledgerEnv();
+    assert.equal(held, 'http://127.0.0.1:45123/local-test-held-outside-snapshot');
+    assert.deepEqual(heldRest, unset);
+    for (const other of [
+      'on',
+      'http://example.com:80/snapshot',
+      'https://127.0.0.1:45123/x',
+      'http://127.0.0.1:45123/x?y=1',
+      'http://127.0.0.1/x',
+    ]) {
+      process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = other;
+      assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "/, other);
+    }
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'on';
     assert.throws(ledgerEnv, /LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT is "on"/);
   } finally {
