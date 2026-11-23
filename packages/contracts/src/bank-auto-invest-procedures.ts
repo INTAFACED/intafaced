@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineProcedure } from './procedure.js';
+import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 import { assetIdSchema } from './asset-id.js';
 
@@ -102,4 +102,21 @@ export const BANK_AUTO_INVEST_CANCEL = defineProcedure({
     { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+export const BANK_AUTO_INVEST_POLICY = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.policy',
+  kind: 'query',
+  path: 'autoInvest.policy',
+  access: { caller: 'public' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    enabled: z.boolean(),
+    convertWired: z.boolean(),
+    dcaRequiresConvert: z.literal(true),
+    inventsRates: z.literal(false),
+  }),
+  samples: [{ verdict: 'accept' }],
 });

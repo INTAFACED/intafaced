@@ -226,7 +226,7 @@ impl Http {
         let mut first: Option<String> = None;
         let mut total: i64 = 0;
         let mut net: Vec<(String, Amount)> = Vec::new();
-        let mut by_kind: Vec<(String, Amount)> = Vec::new();
+        let mut by_kind = Kinds::default();
         let mut offset: i64 = 0;
         while offset == 0 || offset < total {
             let body = Json::obj([
@@ -267,19 +267,17 @@ impl Http {
                     total = whole(&page, "total");
                     for sum in list(&page, "sums") {
                         let asset = text(sum, "assetId");
-                        add(&mut net, &asset, parse_amount(&text(sum, "net")).ok()?);
-                        tally(
-                            &mut by_kind,
+                        add(&mut net, &asset, parse_amount(&text(sum, "net")).ok()?)?;
+                        by_kind.tally(
                             &format!("held:{asset}"),
                             parse_amount(&text(sum, "held")).ok()?,
                             i128::from(whole(sum, "heldCount")),
-                        );
-                        tally(
-                            &mut by_kind,
+                        )?;
+                        by_kind.tally(
                             &format!("reversal_unfunded:{asset}"),
                             parse_amount(&text(sum, "reversalUnfunded")).ok()?,
                             i128::from(whole(sum, "reversalUnfundedCount")),
-                        );
+                        )?;
                     }
                 }
                 Some(f) if *f != shape => return None,
@@ -298,7 +296,9 @@ impl Http {
                 } else {
                     format!("-{amount}")
                 };
-                if text(item, "signedAmount") != signed || parse_amount(&amount).ok()? <= 0 {
+                if text(item, "signedAmount") != signed
+                    || parse_amount(&amount).ok()? <= Amount::ZERO
+                {
                     return None;
                 }
                 let named = parsed(
@@ -333,44 +333,78 @@ impl Http {
             return None;
         }
         let mut added: Vec<(String, Amount)> = Vec::new();
-        let mut listed: Vec<(String, Amount)> = Vec::new();
+        let mut listed = Kinds::default();
         for i in &items {
-            add(&mut added, &i.asset_id, i.amount);
+            add(&mut added, &i.asset_id, i.amount)?;
             // Kind by kind, in amount and in count, so two kinds can never swap behind a net that still adds up.
-            tally(
-                &mut listed,
+            listed.tally(
                 &format!("{}:{}", i.kind, i.asset_id),
                 i.amount.checked_abs()?,
                 1,
-            );
+            )?;
         }
-        if !same(&added, &net) || !same(&listed, &by_kind) {
+        if !same(&added, &net) || !listed.same(&by_kind) {
             return None;
         }
         Some(items)
     }
 }
 
-fn add(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount) {
+/// `add`: `value` onto `key`'s figure; `None` when the sum leaves `i128`, so two figures past its top never clamp
+/// to one value and read as equal.
+fn add<T: Copy + Plus>(into: &mut Vec<(String, T)>, key: &str, value: T) -> Option<()> {
     match into.iter_mut().find(|(k, _)| k == key) {
-        Some((_, v)) => *v = v.saturating_add(amount),
-        None => into.push((key.to_owned(), amount)),
+        Some((_, v)) => *v = v.plus(value)?,
+        None => into.push((key.to_owned(), value)),
+    }
+    Some(())
+}
+
+/// A figure that adds without wrapping: an amount, or a count.
+trait Plus: Sized {
+    fn plus(self, other: Self) -> Option<Self>;
+}
+
+impl Plus for Amount {
+    fn plus(self, other: Amount) -> Option<Amount> {
+        self.checked_add(other)
     }
 }
 
-/// `tally`: one kind's amount under `key` and its count under `#key`, skipping a sum that is zero in both.
-fn tally(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount, count: i128) {
-    if amount == 0 && count == 0 {
-        return;
+impl Plus for i128 {
+    fn plus(self, other: i128) -> Option<i128> {
+        self.checked_add(other)
     }
-    add(into, key, amount);
-    add(into, &format!("#{key}"), count);
+}
+
+/// Each kind's amount and its count, kept apart: a count is not money.
+#[derive(Default)]
+struct Kinds {
+    amounts: Vec<(String, Amount)>,
+    counts: Vec<(String, i128)>,
+}
+
+impl Kinds {
+    /// `tally`: one kind's amount and count under `key`, skipping a sum that is zero in both.
+    fn tally(&mut self, key: &str, amount: Amount, count: i128) -> Option<()> {
+        if amount == Amount::ZERO && count == 0 {
+            return Some(());
+        }
+        add(&mut self.amounts, key, amount)?;
+        add(&mut self.counts, key, count)
+    }
+
+    fn same(&self, other: &Kinds) -> bool {
+        same(&self.amounts, &other.amounts) && same(&self.counts, &other.counts)
+    }
 }
 
 /// Every key of either side holds the same figure on both, a missing one read as zero.
-fn same(a: &[(String, Amount)], b: &[(String, Amount)]) -> bool {
-    let of = |side: &[(String, Amount)], k: &str| {
-        side.iter().find(|(key, _)| key == k).map_or(0, |(_, v)| *v)
+fn same<T: Copy + Default + PartialEq>(a: &[(String, T)], b: &[(String, T)]) -> bool {
+    let of = |side: &[(String, T)], k: &str| {
+        side.iter()
+            .find(|(key, _)| key == k)
+            .map_or(T::default(), |(_, v)| *v)
     };
     a.iter().chain(b).all(|(k, _)| of(a, k) == of(b, k))
 }

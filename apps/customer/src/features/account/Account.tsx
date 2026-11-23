@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import { SettingsTemplate, Sheet } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
+import { ShortReference } from '../../shared/ShortReference';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from './kit-parts';
@@ -458,7 +459,7 @@ export function Account() {
                                   {row.frozen ? ` · ${t('frozen')}` : ''}
                                 </span>
                                 <span data-testid="subaccounts__ref" className="lt-mono lt-hint" lang="zxx">
-                                  {row.id}
+                                  <ShortReference id={row.id} />
                                 </span>
                                 <time
                                   data-testid="subaccounts__ref"
@@ -593,14 +594,14 @@ export function Account() {
                               <div>
                                 <dt>{t('target')}</dt>
                                 <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                  {record.target}
+                                  <ShortReference id={record.target} />
                                 </dd>
                               </div>
                             )}
                             <div>
                               <dt>{t('request')}</dt>
                               <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                {record.requestId}
+                                <ShortReference id={record.requestId} />
                               </dd>
                             </div>
                           </dl>
@@ -656,23 +657,20 @@ export function Account() {
                             <div>
                               <dt>{t('target')}</dt>
                               <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                {receipt.id ?? receipt.record.target}
+                                <ShortReference id={receipt.id ?? receipt.record.target} />
                               </dd>
                             </div>
                           )}
                           <div>
                             <dt>{t('request')}</dt>
                             <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              {receipt.record.requestId}
+                              <ShortReference id={receipt.record.requestId} />
                             </dd>
                           </div>
                         </dl>
                         {!receipt.answer.ok && (
-                          <div>
+                          <div data-code={receipt.answer.code}>
                             <RefusalSentence receipt={receipt} />
-                            <p data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              HTTP {receipt.answer.status} · {receipt.answer.code}
-                            </p>
                           </div>
                         )}
                         <p className="lt-hint">{t('separate')}</p>
@@ -708,14 +706,14 @@ export function Account() {
                         <div>
                           <dt>{t('owner')}</dt>
                           <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                            {visibleReview.owner}
+                            <ShortReference id={visibleReview.owner} />
                           </dd>
                         </div>
                         {visibleReview.row && (
                           <div>
                             <dt>{t('target')}</dt>
                             <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              {visibleReview.row.id}
+                              <ShortReference id={visibleReview.row.id} />
                             </dd>
                           </div>
                         )}

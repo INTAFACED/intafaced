@@ -29,7 +29,9 @@ import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onram
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
+import { customerPartnerBalancesDoor } from '../ops/customer-partner-balances.js';
 import { customerCardsProcedure } from '../ops/customer-cards.js';
+import { customerTransfersProcedure } from '../ops/customer-transfers.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
@@ -1148,8 +1150,11 @@ export function createOpsRouter(c: BankRouterContext) {
     authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
+    /** J-derivatives-26 #8: one customer's partner-held spending balances, each with its source and as-of time. Read-only, audited first. */
+    customerPartnerBalances: customerPartnerBalancesDoor(bank),
     /** J-ops-console-04 #7: one customer's cards, every status, for the console's customer record. Read-only, audited first. */
     customerCards: customerCardsProcedure(bank, guard),
+    customerTransfers: customerTransfersProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 }

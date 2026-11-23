@@ -114,7 +114,7 @@ async function login(page, path = '/p2p') {
   await page.locator('input[name="identifier"]').fill('offer-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.pay-room-tabs')).toBeVisible();
+  await expect(page.locator('[data-testid="p2p-rooms"]')).toBeVisible();
 }
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 const inspector = (page) => page.locator('.p2p-offer-inspector');
@@ -519,7 +519,7 @@ test('passive locale changes preserve focus, exact quantities, all destinations 
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       await expect(exact.locator('.pay-amount-digits')).toHaveAttribute('data-exact-amount', state.current.remainingAmount);
       expect((await exact.textContent()).replaceAll(',', '')).toBe(state.current.remainingAmount);
-      await expect(page.locator('.pay-room-tabs a')).toHaveCount(5);
+      await expect(page.locator('[data-testid="p2p-rooms"] a')).toHaveCount(5);
       await inspector(page).getByRole('button', { name: 'Volver a las ofertas', exact: true }).click();
       await page.locator('.p2p-offer-known > summary').click();
       await page.locator('.p2p-offer-known input').fill('invalid');
@@ -527,7 +527,7 @@ test('passive locale changes preserve focus, exact quantities, all destinations 
       await expect(page.getByRole('alert')).toContainText('Introduce un ID de oferta válido.');
       await peer.evaluate(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
       await expect(page.getByRole('alert')).toContainText('Saisissez un ID d’offre valide.');
-      const links = page.locator('.pay-room-tabs a');
+      const links = page.locator('[data-testid="p2p-rooms"] a');
       await links.first().focus();
       for (let index = 0; index < 5; index++) {
         if (index) await page.keyboard.press('Tab');

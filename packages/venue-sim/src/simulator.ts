@@ -2779,7 +2779,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const state = this.account(account);
     const perps = [...this.marketsBySymbol.values()].filter((m) => m.kind === 'perpetual' && !m.marginAccount);
     const asset = perps[0]?.quoteAsset ?? 'USDC';
-    const b = this.balance(state, asset);
+    // A read writes nothing: an account with no balance in the asset keeps no row for it.
+    const b = state.balances.get(asset) ?? { free: ZERO, locked: ZERO };
     let unrealised = ZERO;
     let used = ZERO;
     let maintenance = ZERO;
@@ -4051,8 +4052,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           'closing or flipping a position with an opening order is not offered on the TEST simulator: close it reduce-only',
         );
       }
+      // An own resting order this one crosses is not counted: the self-trade rule below cancels it before this one rests.
+      const book = this.bookOf(market.symbol);
       const opposite = [...state.orders.values()].some(
-        (o) => o.order.symbol === market.symbol && o.order.side !== intent.side && !o.order.reduceOnly && isLive(o),
+        (o) =>
+          o.order.symbol === market.symbol &&
+          o.order.side !== intent.side &&
+          !o.order.reduceOnly &&
+          isLive(o) &&
+          !(book.includes(o) && crossesPrice(o)),
       );
       if (opposite) return refused('not_offered', 'opening orders on both sides of one market are not offered on the TEST simulator');
     }
@@ -4076,7 +4084,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `free ${lockAsset}${marginAccount === SPOT_POCKET ? ' in spot' : marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
-    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
+    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled', 'self_trade');
     balance.free = sub(balance.free, lockAmount);
     balance.locked = add(balance.locked, lockAmount);
 
@@ -4775,7 +4783,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private release(
     order: OrderState,
     status: UserVenueOrder['status'],
-    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | null = null,
+    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null = null,
   ): void {
     const o = order.order;
     if (o.locked !== ZERO) {

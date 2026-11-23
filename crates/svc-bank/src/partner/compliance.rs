@@ -440,7 +440,7 @@ impl State {
                     "The partner bank does not say what this account holds right now, so it cannot be closed yet.",
                 ));
             };
-            if amount > 0 {
+            if amount > Amount::ZERO {
                 out.push(ClosureBalance {
                     asset_id: row.account.asset_id,
                     space_id: row.account.space_id,

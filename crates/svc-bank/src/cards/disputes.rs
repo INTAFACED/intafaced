@@ -325,7 +325,7 @@ pub struct OpenAsk<'a> {
 pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Dispute, Refusal> {
     let case_key = step_key(ask.case_key)?;
     let reason = bounded(ask.reason, 1, 500, "A dispute reason")?;
-    let positive = is_decimal(ask.amount) && amount(ask.amount)? > 0;
+    let positive = is_decimal(ask.amount) && amount(ask.amount)? > Amount::ZERO;
     if !positive {
         return Err(invalid(
             "A disputed amount is a positive decimal (bank.card_dispute_invalid)",
@@ -353,10 +353,10 @@ pub fn open(d: &Deps<'_>, ask: &OpenAsk<'_>) -> Result<Dispute, Refusal> {
                 r.get::<_, String>(2),
                 amount(&r.get::<_, String>(3))?,
             ),
-            None => (String::new(), String::new(), String::new(), 0),
+            None => (String::new(), String::new(), String::new(), Amount::ZERO),
         };
         let (auth_id, user_id, asset_id, captured) = auth;
-        if auth_id.is_empty() || captured == 0 {
+        if auth_id.is_empty() || captured == Amount::ZERO {
             return Err(refuse(
                 "bank.card_dispute_not_disputable",
                 "That card payment has no settled capture to dispute (bank.card_dispute_not_disputable)",
@@ -728,7 +728,7 @@ impl Form {
                     ("captured", Json::str(format_amount(self.captured))),
                     (
                         "disputable",
-                        Json::str(format_amount(self.disputable.max(0))),
+                        Json::str(format_amount(self.disputable.max(Amount::ZERO))),
                     ),
                     ("settledAt", t(self.settled_at)),
                 ]),
@@ -798,16 +798,16 @@ pub fn form(d: &Deps<'_>, card_id: &str, authorization_ref: &str) -> Result<Form
     })?;
     let (asset_id, decision, merchant, decided_at, captured, settled, refunded, dispute_id) = row;
     let disputable = captured - refunded;
-    let settled_at = settled.or((captured > 0).then_some(decided_at));
+    let settled_at = settled.or((captured > Amount::ZERO).then_some(decided_at));
     let deadline = match (&rules, settled_at) {
         (Some(r), Some(s)) => Some(Instant(s.0 + r.window_days * DAY_MS)),
         _ => None,
     };
     let standing = if decision != "approved" {
         "declined"
-    } else if captured == 0 {
+    } else if captured == Amount::ZERO {
         "not_settled"
-    } else if disputable <= 0 {
+    } else if disputable <= Amount::ZERO {
         "refunded"
     } else if dispute_id.is_some() {
         "already_disputed"
@@ -876,8 +876,8 @@ pub fn cardholder_open(
             ),
         ));
     }
-    let shown = format_amount(form.disputable.max(0));
-    if is_decimal(disputed) && amount(disputed)? > form.disputable.max(0) {
+    let shown = format_amount(form.disputable.max(Amount::ZERO));
+    if is_decimal(disputed) && amount(disputed)? > form.disputable.max(Amount::ZERO) {
         return Err(refuse(
             "bank.card_dispute_not_disputable",
             format!(

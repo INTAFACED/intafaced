@@ -129,18 +129,7 @@
   }
 
   /* Panel cards */
-  .acct-body
-    :is(
-      .settings-section,
-      .security__card,
-      .rank-perks,
-      .subaccounts__identity,
-      .subaccounts__list,
-      .subaccounts__create,
-      .verification__tier,
-      .verification__records,
-      .verification__request
-    ) {
+  .acct-body :is(.settings-section, .security__card, .rank-perks, .subaccounts__identity, .subaccounts__list, .subaccounts__create) {
     min-width: 0;
     padding: var(--if-space-6) !important;
     margin: 0 !important;
@@ -148,7 +137,7 @@
     border-radius: var(--if-r-lg) !important;
     background: var(--if-panel) !important;
   }
-  .acct-body :is(.security__layout, .settings-grid, .subaccounts__columns, .verification__columns) {
+  .acct-body :is(.security__layout, .settings-grid, .subaccounts__columns) {
     display: flex !important;
     flex-direction: column;
     align-items: stretch !important;
@@ -158,28 +147,9 @@
     grid-column: auto !important;
     grid-row: auto !important;
   }
-  .acct-body .verification__list {
-    display: contents !important;
-  }
-  .acct-body .verification__tier {
-    order: 1;
-  }
-  .acct-body .verification__request {
-    order: 2;
-  }
-  .acct-body .verification__records {
-    order: 3;
-    display: flex;
-    flex-direction: column;
-    gap: var(--if-space-4);
-  }
-  .acct-body .verification__jump {
-    display: none !important;
-  }
   .acct-body .security__card,
   .acct-body .subaccounts__list,
-  .acct-body .subaccounts__create,
-  .acct-body .verification__request {
+  .acct-body .subaccounts__create {
     gap: var(--if-space-4) !important;
   }
   .acct-body .settings-section {
@@ -188,8 +158,7 @@
     gap: var(--if-space-5);
   }
   .acct-body .section-heading,
-  .acct-body .subaccounts__heading,
-  .acct-body .verification__heading {
+  .acct-body .subaccounts__heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -241,55 +210,12 @@
     min-width: 0;
   }
 
-  /* Verification: the level as a big tag */
-  .acct-body .verification__tier {
-    gap: var(--if-space-3) !important;
-  }
-  .acct-body .verification__tier .eyebrow {
-    text-transform: none !important;
-    letter-spacing: 0 !important;
-    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui) !important;
-  }
-  .acct-body .verification__level {
-    margin: 0 !important;
-    font-size: inherit !important;
-    line-height: 1 !important;
-  }
-  .acct-body .verification__row {
-    grid-template-columns: minmax(0, 96px) 40px minmax(0, 96px) minmax(0, 1fr) auto !important;
-  }
-  .acct-body .verification__approved {
-    color: var(--if-up-text) !important;
-  }
-  .acct-body .verification__ref,
   .acct-body .identity-sessions__ref,
   .acct-body .security__ref {
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-mono);
     color: var(--if-fg-3);
     overflow-wrap: anywhere;
   }
-  /* Raw reference codes stay for screen readers and support, not on screen */
-  .acct-body .verification__identity,
-  .acct-body .verification__rows .verification__ref {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
-  .acct-body .verification__rows li {
-    border-top-color: var(--if-line) !important;
-  }
-  .acct-body .verification__tier {
-    border-bottom: 1px solid var(--if-line) !important;
-    padding-bottom: var(--if-space-6) !important;
-  }
-  .acct-body .verification__request .button {
-    width: auto;
-    align-self: flex-start;
-  }
-
   /* Security: the long session list scrolls inside its card; raw IDs stay readable by screen readers only */
   .acct-body .identity-sessions__rows,
   .acct-body .security__rows {
@@ -398,9 +324,10 @@
     .acct-nav__title {
       display: none;
     }
+    /* Every section stays in sight on a phone: the row wraps rather than hiding Verification and Display past the edge. */
     .acct-nav ul {
       flex-direction: row;
-      overflow-x: auto;
+      flex-wrap: wrap;
     }
     .acct-nav a {
       white-space: nowrap;

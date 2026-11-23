@@ -221,6 +221,7 @@ async function stepMarket(tag, s, personCoin = '0') {
 test(`${J} #1 previews a maker limit and a taker market: the venue's maker and taker rates and our builder fee, each named; the line comes from the preview, not the list`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   await startsLine(browser);
@@ -234,83 +235,110 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
   const listed = await venueMarket(market.symbol);
   expect(listed).toMatchObject({ makerFeeBps: { known: true }, takerFeeBps: { known: true } });
 
-  // The market list the desk reads is rewritten to say other rates (9 bps both): what the review shows must still be the
-  // venue's own rates for this account, from the preview of this order.
-  await page.route('**/api/v1/venue/markets*', async (route) => {
-    const res = await route.fetch();
-    const body = await res.json();
-    for (const m of body.value ?? [])
-      if (m.symbol === market.symbol)
-        Object.assign(m, { makerFeeBps: { known: true, value: '9' }, takerFeeBps: { known: true, value: '9' } });
-    await route.fulfill({ response: res, json: body });
-  });
+  // The desk reads the venue's market list once, as it opens: its header names the rates listed then.
   const wallet = await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
   const sent = venueWrites(page);
   const asked = wallet.requests.length;
-  await expect(page.getByTestId('venue-header')).toContainText('maker 9 bps, taker 9 bps');
+  const listedWords = `maker ${listed.makerFeeBps.value} bps, taker ${listed.takerFeeBps.value} bps`;
+  await expect(page.getByTestId('venue-header')).toContainText(listedWords);
   const ledgerBefore = await ledgerOf(s);
   const coinBefore = await balanceOf(s.owner, market.base);
-
-  // The person's own rates as the venue reports them for their account (the base tier: the market's own published ones).
-  const own = (await venueRecord(s.owner, '/fee-status')).value.account;
-  expect(own.tierName).toBe('TEST base');
-  const makerRate = listed.makerFeeBps.value;
-  const takerRate = listed.takerFeeBps.value;
-  const ratesWords = `maker ${pct(makerRate)}, taker ${pct(takerRate)}`;
-
-  // A maker limit: a sell at 150 rests above every bid. Reviewed: the preview's own rates, role and fees, each named.
-  await orderTab(page, 'Limit').click();
-  await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
-  const maker = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
-  expect(maker.value).toMatchObject({
-    role: 'maker',
-    rates: { makerFeeBps: { known: true, value: makerRate }, takerFeeBps: { known: true, value: takerRate } },
+  // Every read of the market list from here on: a review that took its rates from a list read again as it opens would
+  // show the venue's new rates too, so the list must not be read at all while the reviews are drawn.
+  const listReads = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/markets') listReads.push(r.url());
   });
-  await sellForm(page)
-    .getByRole('button', { name: `Sell ${market.base}`, exact: true })
-    .click();
-  let sheet = reviewSheet(page);
-  await expect(sheet).toBeVisible();
-  await expect(line(sheet, 'venue-rates')).toHaveText(ratesWords);
-  await expect(line(sheet, 'role')).toHaveText('Maker');
-  // The venue's fee: 150 x 1 at the maker rate, in USDC; our builder fee beside it at our rate, a line of its own.
-  expect(sameDecimal(maker.value.venueFee.value.amount, fromUnits((toUnits('150') * toUnits(makerRate)) / toUnits('10000')))).toBe(true);
-  await expect(line(sheet, 'venue-fee')).toContainText('USDC');
-  const builderAmount = fromUnits((toUnits('150') * toUnits(s.builder.feeBps)) / toUnits('10000'));
-  expect(sameDecimal(maker.value.builderFee.value.amount, builderAmount)).toBe(true);
-  await expect(line(sheet, 'builder-fee')).toContainText('USDC');
-  expect(sameDecimal((await line(sheet, 'builder-fee').innerText()).replace(/[^\d.]/g, ''), builderAmount)).toBe(true);
-  expect(sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), maker.value.venueFee.value.amount)).toBe(true);
-  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(sheet).toHaveCount(0);
 
-  // A taker market: it meets the bid at 99.8 now. Reviewed: taker, the same two rates from its own preview.
-  await sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('');
-  await orderTab(page, 'Market').click();
-  const taker = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
-  expect(taker.value).toMatchObject({
-    role: 'taker',
-    rates: { makerFeeBps: { known: true, value: makerRate }, takerFeeBps: { known: true, value: takerRate } },
-  });
-  // What the venue charges a taker: what fills now (at 99.8) at the taker rate.
-  expect(sameDecimal(taker.value.venueFee.value.amount, fromUnits((toUnits('99.8') * toUnits(takerRate)) / toUnits('10000')))).toBe(true);
-  await sellForm(page)
-    .getByRole('button', { name: `Sell ${market.base}`, exact: true })
-    .click();
-  sheet = reviewSheet(page);
-  await expect(sheet).toBeVisible();
-  await expect(line(sheet, 'venue-rates')).toHaveText(ratesWords);
-  await expect(line(sheet, 'role')).toHaveText('Taker');
-  expect(sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), taker.value.venueFee.value.amount)).toBe(true);
-  await expect(line(sheet, 'builder-fee')).toContainText('USDC');
-  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // Then the venue changes this market's TEST rates (its own control, as a venue publishes a new schedule): the list the
+  // page holds is now out of date, and only a preview of this order can carry the rates the venue charges now.
+  const makerRate = '2.5';
+  const takerRate = '6.5';
+  expect([makerRate, takerRate]).not.toEqual([listed.makerFeeBps.value, listed.takerFeeBps.value]);
+  const changed = await testVenue('/test/market-fees', { symbol: market.symbol, makerFeeBps: makerRate, takerFeeBps: takerRate });
+  expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+  try {
+    // The person's own rates as the venue reports them for their account now (the base tier: the market's own ones).
+    const own = (await venueRecord(s.owner, '/fee-status')).value.account;
+    expect(own.tierName).toBe('TEST base');
+    expect(await venueMarket(market.symbol)).toMatchObject({
+      makerFeeBps: { known: true, value: makerRate },
+      takerFeeBps: { known: true, value: takerRate },
+    });
+    const ratesWords = `maker ${pct(makerRate)}, taker ${pct(takerRate)}`;
+    const builderOn = (notional) => fromUnits((toUnits(notional) * toUnits(s.builder.feeBps)) / toUnits('10000'));
+    const shown = async (scope, name) => (await line(scope, name).innerText()).replace(/[^\d.]/g, '');
 
-  // Previewing sends nothing: no prepare or submit, no signature, no order, nothing locked, the ledger untouched.
-  expect(sent).toEqual([]);
-  expect(wallet.requests.length).toBe(asked);
-  expect(await openOn(s.owner, market.symbol)).toEqual([]);
-  expect(await balanceOf(s.owner, market.base)).toEqual(coinBefore);
-  expect(await ledgerOf(s)).toEqual(ledgerBefore);
+    // A maker limit: a sell at 150 rests above every bid. Reviewed: the preview's own rates, role and fees, each named.
+    await orderTab(page, 'Limit').click();
+    await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
+    const maker = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
+    expect(maker.value).toMatchObject({
+      role: 'maker',
+      rates: { makerFeeBps: { known: true, value: makerRate }, takerFeeBps: { known: true, value: takerRate } },
+    });
+    // The venue's fee: 150 x 1 at the maker rate, in USDC; our builder fee beside it at our rate, a line of its own.
+    expect(sameDecimal(maker.value.venueFee.value.amount, fromUnits((toUnits('150') * toUnits(makerRate)) / toUnits('10000')))).toBe(true);
+    expect(sameDecimal(maker.value.builderFee.value.amount, builderOn('150'))).toBe(true);
+    await sellForm(page)
+      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .click();
+    let sheet = reviewSheet(page);
+    await expect(sheet).toBeVisible();
+    await expect(line(sheet, 'venue-rates')).toHaveText(ratesWords);
+    await expect(line(sheet, 'role')).toHaveText('Maker');
+    await expect(line(sheet, 'venue-fee')).toContainText('USDC');
+    await expect(line(sheet, 'builder-fee')).toContainText('USDC');
+    await expect.poll(async () => sameDecimal(await shown(sheet, 'venue-fee'), maker.value.venueFee.value.amount)).toBe(true);
+    await expect.poll(async () => sameDecimal(await shown(sheet, 'builder-fee'), builderOn('150'))).toBe(true);
+    // Not the list: the page read no market list since it opened, and its header still names the rates it read then.
+    expect(listReads).toEqual([]);
+    await expect(page.getByTestId('venue-header')).toContainText(listedWords);
+    await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+
+    // A taker market: it meets the bid at 99.8 now. Reviewed: taker, the same two rates from its own preview.
+    await sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('');
+    await orderTab(page, 'Market').click();
+    const taker = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
+    expect(taker.value).toMatchObject({
+      role: 'taker',
+      rates: { makerFeeBps: { known: true, value: makerRate }, takerFeeBps: { known: true, value: takerRate } },
+    });
+    // What the venue charges a taker, and our builder fee: what fills now (at 99.8), each at its own rate.
+    expect(sameDecimal(taker.value.venueFee.value.amount, fromUnits((toUnits('99.8') * toUnits(takerRate)) / toUnits('10000')))).toBe(true);
+    expect(sameDecimal(taker.value.builderFee.value.amount, builderOn('99.8'))).toBe(true);
+    await sellForm(page)
+      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .click();
+    sheet = reviewSheet(page);
+    await expect(sheet).toBeVisible();
+    await expect(line(sheet, 'venue-rates')).toHaveText(ratesWords);
+    await expect(line(sheet, 'role')).toHaveText('Taker');
+    await expect(line(sheet, 'venue-fee')).toContainText('USDC');
+    await expect(line(sheet, 'builder-fee')).toContainText('USDC');
+    await expect.poll(async () => sameDecimal(await shown(sheet, 'venue-fee'), taker.value.venueFee.value.amount)).toBe(true);
+    await expect.poll(async () => sameDecimal(await shown(sheet, 'builder-fee'), builderOn('99.8'))).toBe(true);
+    expect(listReads).toEqual([]);
+    await expect(page.getByTestId('venue-header')).toContainText(listedWords);
+    // The step's picture: the taker's review open, its rates, role and both fees named.
+    await stepPicture();
+    await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    // Previewing sends nothing: no prepare or submit, no signature, no order, nothing locked, the ledger untouched.
+    expect(sent).toEqual([]);
+    expect(wallet.requests.length).toBe(asked);
+    expect(await openOn(s.owner, market.symbol)).toEqual([]);
+    expect(await balanceOf(s.owner, market.base)).toEqual(coinBefore);
+    expect(await ledgerOf(s)).toEqual(ledgerBefore);
+  } finally {
+    // This step's own market goes back to the rates it listed, for #3 and #9, which trade on it.
+    await testVenue('/test/market-fees', {
+      symbol: market.symbol,
+      makerFeeBps: listed.makerFeeBps.value,
+      takerFeeBps: listed.takerFeeBps.value,
+    });
+  }
 });
 
 test(`${J} #2 opens the public fee page: the venue's schedule and our builder fee, never above the venue's cap; a blank value reads "not set"; the network fee is a separate line`, async ({
@@ -329,8 +357,8 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
   const section = page.locator('[data-fees="venue"]');
   await expect(section).toContainText('our builder fee is added on top, as its own line');
 
-  // The venue's tiers, row for row as the venue publishes them.
-  const schedule = (await testVenue('/fee-status', {})).body.value.schedule;
+  // The venue's tiers, row for row as the venue's own record publishes them (one schedule, whichever account reads it).
+  const schedule = (await venueRecord(s.owner, '/fee-status')).value.schedule;
   expect(schedule.tiers.length).toBeGreaterThan(1);
   for (const tier of schedule.tiers) {
     const row = section.locator(`[data-fees="venue-tiers"] tr[data-tier="${tier.name}"]`);
@@ -343,7 +371,7 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
 
   // Each listed market: the venue's own rates, our builder fee and the venue's cap on it, each read from the venue.
   const ours = await (await fetch(`${EDGE}/api/v1/venue/fees`)).json();
-  const listedOnVenue = (await testVenue('/markets', {})).body.value;
+  const listedOnVenue = (await venueRecord(s.owner, '/markets')).value;
   expect(ours.value.markets.length).toBeGreaterThan(0);
   const builderPct = pct(s.builder.feeBps);
   for (const m of ours.value.markets) {
@@ -501,7 +529,9 @@ test(`${J} #4 fills where the venue charges no fee, and where the venue pays a r
   await expect(rebateRow.locator('[data-cell="venue-fee"] [data-fee="rebate"]')).toHaveAttribute('data-rebate', '0.01');
   // Never a negative fee anywhere on the row.
   await expect(rebateRow).not.toContainText(/[-−]\s*0\.0/);
-  expect(sameDecimal(await rebateRow.locator('[data-cell="builder-fee"]').innerText(), fromUnits(builderDue))).toBe(true);
+  await expect
+    .poll(async () => sameDecimal(await rebateRow.locator('[data-cell="builder-fee"]').innerText(), fromUnits(builderDue)))
+    .toBe(true);
   // The ledger posts nothing for the person: the money is on their own venue account.
   expect(await ledgerOf(s)).toEqual(ledgerBefore);
 });
@@ -560,9 +590,11 @@ test(`${J} #6 crosses a venue tier: the venue's tier read from the venue at its 
   expect(toUnits(after.account.volume.value)).toBe(traded);
   tier = await open();
   await expect(tier.locator('[data-cell="tier"]')).toHaveText(tier1.name);
-  expect(sameDecimal((await tier.locator('[data-cell="volume"]').innerText()).replace(/\s*USDC$/, ''), after.account.volume.value)).toBe(
-    true,
-  );
+  await expect
+    .poll(async () =>
+      sameDecimal((await tier.locator('[data-cell="volume"]').innerText()).replace(/\s*USDC$/, ''), after.account.volume.value),
+    )
+    .toBe(true);
   await expect(tier.locator('[data-cell="updated"] time')).toHaveAttribute('datetime', after.account.tierUpdatedAt);
   await expect(tier.locator('[data-cell="spot-rates"]')).toHaveText(
     `maker ${pct(after.account.spot.makerFeeBps.value)}, taker ${pct(after.account.spot.takerFeeBps.value)}`,

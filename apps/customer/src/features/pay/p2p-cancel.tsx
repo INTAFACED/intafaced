@@ -115,7 +115,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
     : [];
   if (trade.resolution === 'voided') {
     return (
-      <section className="p2p-order-result" aria-label={t('refundTitle')} data-testid="order-refund">
+      <section aria-label={t('refundTitle')} data-testid="order-refund">
         <PayDetails values={who} />
         <p className="lt-muted">
           <Copy k="voided" />
@@ -124,7 +124,7 @@ export function OrderRefund({ trade }: { trade: Trade }) {
     );
   }
   return (
-    <section className="p2p-order-result" aria-label={t('refundTitle')} data-testid="order-refund">
+    <section aria-label={t('refundTitle')} data-testid="order-refund">
       <h3>{t('refundTitle')}</h3>
       <PayDetails
         values={[

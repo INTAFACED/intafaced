@@ -131,7 +131,7 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
               onChange={setStatus}
               options={[['', t('cvAllStatuses')], ...conversionStatuses.map((s) => [s, t(`cvStatus_${s}` as 'cvStatus_filled')] as const)]}
             />
-            <p className="muted pp-count" role="status">
+            <p className="lt-muted" role="status">
               {t('mnCountNewest', { n: shown.length })}
             </p>
           </div>
@@ -221,7 +221,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 </EmptyState>
               ) : (
                 <PaySection title={t('cvStep1')} description={t('cvStep1Body')}>
-                  <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+                  <form data-testid="form-stack" className="lt-stack" noValidate onSubmit={(e) => e.preventDefault()}>
                     <SelectField
                       label={t('pnSettlement')}
                       value={settlement?.id ?? ''}

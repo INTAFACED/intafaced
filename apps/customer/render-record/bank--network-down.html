@@ -104,13 +104,12 @@
 <p class="lt-description">Your spaces and every bank service in one place.</p>
 </div>
 </header>
-<div class="lt-body">
-<section class="lt-region" data-region="rooms">
+<div class="lt-room-section">
 <div data-testid="money-bank-nav">
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
 </p>
-<nav class="lt-tabs" aria-label="Bank rooms">
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
 <a href="/bank" class="lt-tab" aria-current="page">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
 <a href="/bank/transfers" class="lt-tab">Transfers</a>
@@ -122,12 +121,13 @@
 <a href="/bank/business" class="lt-tab">Business</a>
 </nav>
 </div>
-</section>
+</div>
+<div class="lt-body">
 <div class="lt-grid lt-grid-main-side">
 <div class="lt-col-main">
 <section class="lt-region" data-region="hero" aria-label="Balance">
 <section>
-<header class="lt-title-row">
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Holdings</h2>
 </div>
@@ -266,7 +266,7 @@
 <section class="lt-region" data-region="sections" aria-label="Activity">
 <div class="lt-body">
 <section>
-<header class="lt-title-row">
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Your spaces</h2>
 </div>
@@ -343,7 +343,7 @@
 </section>
 </div>
 <section>
-<header class="lt-title-row">
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Bank services</h2>
 </div>

@@ -124,7 +124,7 @@ export function FilterRow({
           {open && <div className="pp-filter-row">{more}</div>}
         </div>
       )}
-      <p className="muted pp-count" role="status">
+      <p className="lt-muted" role="status">
         {shown !== undefined ? countText(t, shown, Boolean(hasMore), total) : ''}
         {active && (
           <>

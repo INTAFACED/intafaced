@@ -126,8 +126,9 @@ export const BANK_TRANSFERS_QUOTE = defineProcedure({
     fee: amountString,
     feeBlocker: z.string().nullable(),
     /**
-     * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
-     * partner moves it and has not said what it costs, read as "not known", never 0.
+     * The network fee on the move (CUSTODY-DELTA §1.3): what the partner bank that holds the sender's money says it
+     * charges for a send; "0" for a send on our own book, which crosses no network. Null: the partner moves it and has
+     * not said what it costs, read as "not known", never 0. Absent only from an older service.
      */
     networkFee: amountString.nullable().optional(),
     withinPerTransfer: z.boolean(),

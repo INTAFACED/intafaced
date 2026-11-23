@@ -38,6 +38,7 @@ use std::sync::Mutex;
 use base64::Engine as _;
 use service_kit::http::{Fetch, FetchError, HttpRequest, HttpResponse};
 use service_kit::json::Json;
+use service_kit::money::Amount;
 use service_kit::time::Instant;
 use svc_bank::door::system_now;
 use svc_bank::errors::Refusal;
@@ -244,7 +245,7 @@ fn statement_debt(
                 interest -= li;
             }
             _ => assert!(
-                lp == 0 && li == 0,
+                lp == Amount::ZERO && li == Amount::ZERO,
                 "statement line {kind} moves debt and is not in the sum"
             ),
         }
@@ -377,7 +378,7 @@ fn a_proposes_a_correction_and_b_approves_a_new_row_with_its_reason_the_interest
         .find(|l| l[0] == "interest_correction")
         .unwrap();
     assert_eq!(line[2..5].to_vec(), vec!["-0.05", "-0.05", "0"]);
-    let interest: i128 = lines
+    let interest: Amount = lines
         .iter()
         .filter(|l| l[0] == "interest" || l[0] == "interest_correction")
         .map(|l| amt(&l[3]))
@@ -424,7 +425,12 @@ fn refuses_taking_off_more_interest_than_is_owed_before_the_approval_is_spent() 
     let Some(k) = reads_kit() else { return };
     let loan_id = seed_accrued(&k);
     let owed = k.debt(&loan_id).interest;
-    let terms = correction(&loan_id, &uuid(), &fmt(-(owed + 1)), "TEST: more than owed");
+    let terms = correction(
+        &loan_id,
+        &uuid(),
+        &fmt(-(owed + Amount::from_scaled(1))),
+        "TEST: more than owed",
+    );
     let door = k.door();
     let a = adjust(&door, &approved_correction(&k, &terms));
     assert_eq!(a.trpc(), "CONFLICT", "{a:?}");
@@ -433,7 +439,7 @@ fn refuses_taking_off_more_interest_than_is_owed_before_the_approval_is_spent() 
     // Exactly what is owed is allowed, and leaves no interest.
     let all = correction(&loan_id, &uuid(), &fmt(-owed), "TEST: all of it");
     adjust(&door, &approved_correction(&k, &all)).ok();
-    assert_eq!(k.debt(&loan_id).interest, 0);
+    assert_eq!(k.debt(&loan_id).interest, Amount::ZERO);
 }
 
 #[test]

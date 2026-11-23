@@ -25,13 +25,21 @@ export interface TabsListProps extends TabsPrimitive.List.Props {
   divider?: boolean;
 }
 
-/** Underline tabs. Each tab is `text-base` 500, inactive `fg-2`, active `fg`. */
+/**
+ * Underline tabs. Each tab is `text-base` 500, inactive `fg-2`, active `fg`. One line at every width: a list longer than
+ * its box scrolls sideways (scroll bar hidden) and a tab keeps its width, so at a phone's width labels never squeeze over
+ * each other (issue 10303).
+ */
 export function TabsList({ className, children, tone = 'default', divider = false, ...props }: TabsListProps) {
   return (
     <ToneContext.Provider value={tone}>
       <TabsPrimitive.List
         data-slot="tabs-list"
-        className={cn('relative flex items-stretch gap-6', divider && 'border-b border-line', className)}
+        className={cn(
+          'relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none]',
+          divider && 'border-b border-line',
+          className,
+        )}
         {...props}
       >
         {children}
@@ -53,7 +61,7 @@ export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        'relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2',
+        'relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2',
         'transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg',
         'data-disabled:pointer-events-none data-disabled:opacity-40',
         focusRing,

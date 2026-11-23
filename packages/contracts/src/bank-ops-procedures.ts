@@ -482,12 +482,43 @@ export const BANK_OPS_TRANSFER_HEALTH = defineProcedure({
   ],
 });
 
+/** One customer's payments to and from other people, newest first, for the console's customer record (J-ops-console-02 #3). */
+export const BANK_OPS_CUSTOMER_TRANSFERS = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerTransfers',
+  kind: 'query',
+  path: 'ops.customerTransfers',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({
+    userId: z.string(),
+    transfers: z.array(
+      z.object({
+        id: z.string(),
+        direction: z.enum(['sent', 'received']),
+        counterpartyUserId: z.string(),
+        amount: z.string().regex(/^\d+(\.\d{1,18})?$/),
+        assetId: assetIdSchema,
+        status: z.string(),
+        ledgerTxId: z.string().nullable(),
+        createdAt: z.string(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   ...base,
   name: 'bank.ops.customerBalances',
   kind: 'query',
   path: 'ops.customerBalances',
-  access: { caller: 'scope', scope: 'admin:treasury' },
+  access: { caller: 'anyScope', scopes: ['admin:read', 'admin:treasury'] },
   refusals: {},
   input: z.object({ userId: z.string().guid() }).strict(),
   output: z.object({
@@ -507,6 +538,44 @@ export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   samples: [
     { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * J-derivatives-26 #8: one customer's spending balances as the partner that holds their money reports them, for the
+ * founder console (`admin:read`). Each figure is the one the customer's own `spaces.list` shows, with the partner's label
+ * as its source and the partner's as-of time; a stale figure says so, and a figure the partner has not reported refuses
+ * by name. `heldByPartner: false` with no spaces when no partner holds this person's money: ledger figures are never
+ * mixed in. Audited before anything is read; writes nothing.
+ */
+export const BANK_OPS_CUSTOMER_PARTNER_BALANCES = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerPartnerBalances',
+  kind: 'query',
+  path: 'ops.customerPartnerBalances',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: { 'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE', 'bank.partner_balance_not_known': 'PRECONDITION_FAILED' },
+  input: z.object({ userId: z.string().guid() }).strict(),
+  output: z.object({
+    userId: z.string(),
+    heldByPartner: z.boolean(),
+    spaces: z.array(
+      z.object({
+        spaceId: z.string(),
+        assetId: assetIdSchema,
+        kind: z.string(),
+        name: z.string(),
+        balance: signedAmount,
+        source: z.string(),
+        asOf: z.string(),
+        state: z.enum(['known', 'stale']),
+        staleAfterMs: z.number(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: { userId: '11111111-1111-4111-8111-111111111111', extra: 1 } },
   ],
 });
 

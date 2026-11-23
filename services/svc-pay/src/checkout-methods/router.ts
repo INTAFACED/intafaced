@@ -7,11 +7,11 @@ import {
   checkoutMethodsSavedSchema,
   checkoutMethodsSchema,
 } from '@intafaced/contracts/merchant-checkout-methods';
-import { router } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import type { MethodRails } from './catalogue.js';
 import { CheckoutMethodSettings } from './methods.js';
 
@@ -35,7 +35,8 @@ export function createCheckoutMethodsRouter(deps: CheckoutMethodsMountDeps | und
     return { settings, sql: deps.sql };
   };
   const read = ownMerchantRead();
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({

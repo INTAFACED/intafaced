@@ -14,14 +14,14 @@ use std::collections::BTreeMap;
 
 use service_kit::http::{Fetch, HttpRequest};
 use service_kit::json::{self, Json};
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, parse_amount, ratio_of};
 use service_kit::time::{Instant, time_clip};
 
 use super::risk::Mark;
 use crate::errors::Refusal;
 use crate::partner::refuse;
 
-const ONE: Amount = 1_000_000_000_000_000_000;
+const ONE: Amount = Amount::whole(1);
 
 /// `MarkQuality`: how the mark was derived. The liquidation gate cares which.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,7 +142,7 @@ fn round_seconds(ms: i64) -> i64 {
 /// `acceptableForMarking`: is this mark fit to warn a borrower on?
 pub fn acceptable_for_marking(mark: &QuotedMark, now: Instant, policy: &MarkPolicy) -> MarkCheck {
     let m = &mark.mark;
-    if m.price <= 0 {
+    if m.price <= Amount::ZERO {
         return MarkCheck::no(format!(
             "{}: non-positive mark {}",
             m.asset_id,
@@ -210,7 +210,7 @@ pub fn acceptable_for_liquidation(
     }
 
     if let Some(previous) = previous
-        && previous > 0
+        && previous > Amount::ZERO
     {
         let delta = if m.price > previous {
             m.price - previous
@@ -218,7 +218,7 @@ pub fn acceptable_for_liquidation(
             previous - m.price
         };
         // Integer bps, rounded up so a move exactly on the breaker trips it.
-        let deviation_bps = mul_div(delta, 10_000, previous, Rounding::Ceil);
+        let deviation_bps = ratio_of(delta, previous, 10_000, Rounding::Ceil);
         if deviation_bps > i128::from(policy.max_deviation_bps) {
             return MarkCheck::no(format!(
                 "{}: mark moved {deviation_bps}bps from {} to {}, breaker at {}bps — not liquidating through it",
@@ -395,15 +395,15 @@ impl TickerPriceSource {
         if let (Some(bid), Some(ask)) = (bid, ask) {
             let bid = amount_of(bid)?;
             let ask = amount_of(ask)?;
-            if bid > 0 && ask > 0 {
+            if bid > Amount::ZERO && ask > Amount::ZERO {
                 // Floor of the mid: half a unit in the direction collateral rounds.
-                let mid = bid / 2 + ask / 2 + (bid % 2 + ask % 2) / 2;
+                let mid = bid / 2 + ask / 2 + (bid.rem_count(2) + ask.rem_count(2)) / 2;
                 return Some(QuotedMark::new(asset_id, mid, as_of, MarkQuality::Mid));
             }
         }
         if let Some(last) = truthy(body.get("last")) {
             let last = amount_of(last)?;
-            if last > 0 {
+            if last > Amount::ZERO {
                 return Some(QuotedMark::new(asset_id, last, as_of, MarkQuality::Last));
             }
         }
@@ -522,7 +522,7 @@ mod tests {
             c.reason.as_deref(),
             Some("BTC: mark is dated 120s in the future")
         );
-        let zero = QuotedMark::new("BTC", 0, now(), MarkQuality::Mid);
+        let zero = QuotedMark::new("BTC", Amount::ZERO, now(), MarkQuality::Mid);
         let c = acceptable_for_marking(&zero, now(), &p);
         assert_eq!(c.reason.as_deref(), Some("BTC: non-positive mark 0"));
     }

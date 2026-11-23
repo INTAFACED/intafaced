@@ -5,11 +5,21 @@
  * INTAFACED holds and moves nothing here: each move is the person's own wallet-signed venue transfer.
  */
 import { apiKeyCreateOutputSchema, apiKeyCreateRequestId, type ApiKeyCreateOutput, type ApiKeyList } from '@intafaced/contracts/api-keys';
-import { IDENTITY_DEVELOPER_KEYS_LIST } from '@intafaced/contracts/identity-developer-keys-procedures';
+import { IDENTITY_DEVELOPER_KEYS_LIST, IDENTITY_DEVELOPER_KEYS_REVOKE } from '@intafaced/contracts/identity-developer-keys-procedures';
+import {
+  venueAgentActivitySchema,
+  venueAgentKeyExpirySchema,
+  venueAgentLimitsSchema,
+  venueAgentRevokeSchema,
+  type VenueAgentActivity,
+  type VenueAgentActivityRow,
+  type VenueAgentRevoke,
+} from '@intafaced/contracts/trade-venue-door';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
 import type { StepUpBegin } from '../account';
+import { type TypedDataDocument, withDomainTypes } from '../protocol';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 
@@ -54,6 +64,8 @@ export const agentAccountSchema = z
     asset: z.string(),
     cap: decimal,
     room: decimal,
+    /** The person's own per-order size, leverage and daily-loss caps (J-agents-21 #16); null is not set. */
+    limits: venueAgentLimitsSchema.optional(),
     balances: z
       .object({ value: z.array(z.object({ asset: z.string(), total: decimal }).passthrough()) })
       .passthrough()
@@ -66,9 +78,35 @@ export const agentAccountSchema = z
 export type AgentAccount = z.infer<typeof agentAccountSchema>;
 
 export const agentConnectionSchema = z
-  .object({ keyId: z.string(), accountId: z.string(), subAccount: z.string().nullable() })
+  .object({
+    keyId: z.string(),
+    accountId: z.string(),
+    subAccount: z.string().nullable(),
+    /** The key's end date as identity holds it (J-agents-21 #19): null is none; not known when identity could not be asked. */
+    expiry: venueAgentKeyExpirySchema.optional(),
+  })
   .passthrough();
 export type AgentConnection = z.infer<typeof agentConnectionSchema>;
+
+export type AgentActivityRow = VenueAgentActivityRow;
+export type AgentRevoke = VenueAgentRevoke;
+
+/** The EIP-712 domain the wallet reads, every field the venue sent kept as sent (a salt included). */
+const walletDomain = z
+  .object({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    chainId: z.union([z.number(), z.string()]).optional(),
+    verifyingContract: z.string().optional(),
+  })
+  .passthrough();
+
+/** The venue's payload with its domain types declared, as the wallet signs it; null when its domain is not one. */
+export function walletTypedData(typed: AgentNext['prepared']['typedData']): TypedDataDocument | null {
+  const withTypes = withDomainTypes(typed);
+  const domain = walletDomain.safeParse(withTypes.domain);
+  return domain.success ? { ...withTypes, domain: domain.data } : null;
+}
 
 const BASE = '/venue/agent-accounts';
 
@@ -136,6 +174,68 @@ export function submitAgentAction(
 
 export function abandonAgentAccount(api: ApiClient, accountId: string): Promise<ApiResult<AgentAccount>> {
   return api.rest(`${BASE}/${encodeURIComponent(accountId)}/abandon`, agentAccountSchema, { method: 'POST', body: {} });
+}
+
+type Signature = { digest: string; signature: string; signedBy: string };
+const accountPost = (api: ApiClient, accountId: string, action: string, body: Record<string, unknown>) =>
+  api.rest(`${BASE}/${encodeURIComponent(accountId)}/${action}`, agentAccountSchema, { method: 'POST', body });
+
+/**
+ * A move in from the person's main venue account (`fund`) or back to it (`withdraw`), under the id made once for this
+ * ask. svc-trade refuses a move in past the cap before anything is prepared; otherwise the answer's `next` is the venue
+ * transfer for the wallet to sign.
+ */
+export function moveAgentFunds(
+  api: ApiClient,
+  accountId: string,
+  direction: 'fund' | 'withdraw',
+  moveId: string,
+  amount: string,
+): Promise<ApiResult<AgentAccount>> {
+  return accountPost(api, accountId, direction, { moveId, amount });
+}
+
+export function setAgentCap(api: ApiClient, accountId: string, cap: string): Promise<ApiResult<AgentAccount>> {
+  return accountPost(api, accountId, 'cap', { cap });
+}
+
+/** Only the caps named are changed; one left out stays as it was. */
+export function setAgentLimits(
+  api: ApiClient,
+  accountId: string,
+  limits: { maxOrderNotional?: string; maxLeverage?: string; maxDailyLoss?: string },
+): Promise<ApiResult<AgentAccount>> {
+  return accountPost(api, accountId, 'limits', limits);
+}
+
+export function closeAgentAccount(api: ApiClient, accountId: string): Promise<ApiResult<AgentAccount>> {
+  return accountPost(api, accountId, 'close', {});
+}
+
+export function readAgentActivity(api: ApiClient, keyId: string, signal?: AbortSignal): Promise<ApiResult<VenueAgentActivity>> {
+  return api.rest(`${BASE}/connections/${encodeURIComponent(keyId)}/activity`, venueAgentActivitySchema, { signal });
+}
+
+/** Identity switches the assistant's API key off: its next call is refused at the door. */
+export async function revokeAssistantKey(api: ApiClient, keyId: string): Promise<ApiResult<null>> {
+  const off = await api.call(IDENTITY_DEVELOPER_KEYS_REVOKE, { keyId });
+  return off.ok ? { ok: true, data: null } : off;
+}
+
+/**
+ * svc-trade revokes the assistant on its agent account: the connection ends, its resting orders are cancelled once and
+ * our copy of the venue agent key is dropped. With the wallet's signature of the answer's `next`, the venue's own revoke
+ * is sent. Safe to send again.
+ */
+export function revokeAssistant(
+  api: ApiClient,
+  keyId: string,
+  signed?: { actionKey: string; signature: Signature },
+): Promise<ApiResult<AgentRevoke>> {
+  return api.rest(`${BASE}/connections/${encodeURIComponent(keyId)}/revoke`, venueAgentRevokeSchema, {
+    method: 'POST',
+    body: signed ?? {},
+  });
 }
 
 /** The trade scopes an assistant's key holds, and the one the form also offers so the person sees it refused (#6). */
