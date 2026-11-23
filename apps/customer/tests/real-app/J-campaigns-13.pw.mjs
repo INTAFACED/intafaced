@@ -338,7 +338,7 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
   await expect(page.getByTestId('dividends-kind').getByRole('button', { name: 'Dividends' })).toHaveAttribute('aria-pressed', 'true');
   const refusal = page.getByTestId('dividends-refusal');
   await expect(refusal).toHaveAttribute('data-code', 'owner.decision', { timeout: 30_000 });
-  await expect(refusal).toHaveText(`No dividend is paid yet. INTAFACED still has to decide: ${DIVIDEND_QUESTION}`);
+  await expect(refusal).toHaveText(`No dividend is paid. INTAFACED still has to decide: ${DIVIDEND_QUESTION}`);
   await expect(page.getByTestId('dividends-empty')).toHaveAttribute('data-kind', 'dividend');
   await expect(page.getByTestId('dividends-empty')).toHaveText('No dividend records');
   await expect(page.getByTestId('dividend-record')).toHaveCount(0);

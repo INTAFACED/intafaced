@@ -213,7 +213,7 @@ test(`${J} #1 opens /uc/promotion/perks: my loyalty tier, the multiplier, the ne
   // A tier on a points basis waits for the owner, and says so.
   const points = page.getByTestId('perks-points-tier');
   await expect(points).toHaveAttribute('data-code', 'owner.decision');
-  await expect(points).toContainText('Not offered yet. INTAFACED still has to decide:');
+  await expect(points).toContainText('Not offered. INTAFACED still has to decide:');
   await expect(page.getByTestId('perks-points-question')).toContainText('Should a loyalty tier be reached on points');
   await expect(page.getByTestId('perks-pass-none')).toHaveText('No trial pass is in force.');
   await expect(badge(page)).toHaveCount(0);

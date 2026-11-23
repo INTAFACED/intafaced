@@ -61,7 +61,7 @@ describe('/uc/paydividends room', () => {
   it('explains what an airdrop is here and why dividends are not paid', () => {
     expect(html).toContain('What an airdrop is here');
     expect(html).toContain('Dividends');
-    expect(html).toContain('aren’t paid yet');
+    expect(html).toContain('are not paid, so none is listed here');
     expect(html).toContain('That doesn’t mean you were owed one.');
   });
 

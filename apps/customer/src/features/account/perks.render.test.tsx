@@ -84,7 +84,7 @@ describe('/uc/promotion/perks', () => {
 
   it('says thresholds are not set when there is no programme, and the multiplier is not set without rates', () => {
     const html = ready(tier({ program: null, next: null, rates: null }));
-    expect(html).toContain('Tier levels aren’t set yet');
-    expect(html).toContain('Not set yet: this tier has no fee yet.');
+    expect(html).toContain('No tier levels are set');
+    expect(html).toContain('Not set: this tier has no fee.');
   });
 });
