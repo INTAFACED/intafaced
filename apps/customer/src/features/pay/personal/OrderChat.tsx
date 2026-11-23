@@ -29,7 +29,7 @@ function PendingItem({
   const unconfirmed = item.status === 'unconfirmed';
   const retriable = item.failure === null || !NOT_RETRIABLE.has(item.failure);
   return (
-    <li className="p2p-chat-item">
+    <li className="lt-stack">
       <div className="p2p-chat-msg" data-own="true" data-status={item.status} data-testid="chat-pending">
         <div className="p2p-chat-meta">
           <strong>{t('roleYou')}</strong>
@@ -137,7 +137,7 @@ export function ChatView({
         : [];
   const hint = state.phase === 'loading' ? t('loading') : state.phase === 'failed' ? t('composeOffLoad') : t('composeHint');
   return (
-    <div className="p2p-chat" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
+    <div className="lt-stack" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
       <div className="p2p-chat-head" data-testid="chat-head">
         <strong>{me ? counterparty : t('buyerAndSeller')}</strong>
         {me ? <span className="lt-muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
@@ -190,7 +190,7 @@ export function ChatView({
                 {state.messages.map((message) => {
                   const role = senderRole(message.senderId, trade, viewer);
                   return (
-                    <li key={message.id} className="p2p-chat-item">
+                    <li key={message.id} className="lt-stack">
                       {message.id === state.firstUnread && state.unreadAtOpen > 0 ? (
                         <p className="p2p-chat-new" data-testid="chat-new-divider">
                           {t('newDivider', { count: state.unreadAtOpen })}

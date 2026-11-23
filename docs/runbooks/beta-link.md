@@ -1,11 +1,12 @@
 # The beta link
 
-The Customer app on the latest `main`, always on, on TEST funds only, for the owner's beta walk on his phone (#9346).
+The Customer app on the latest `main`, always on, on TEST funds only, for the owner's beta walk and the people he invites (#9346).
 
-- **Link:** `http://localhost:6210/`
-- **TEST mailbox** (the sign-up codes the app sends): `http://localhost:6290/`
+- **Link:** `https://beta.intafaced.com/`, behind a login only invited emails pass
+- **TEST mailbox** (the codes the app sends): `https://beta-mail.intafaced.com/`, behind the same login
+- **On the box itself:** `http://localhost:6210/` and `http://localhost:6290/`
 - **State now:** `node tooling/beta/beta-host.mjs status` on the box (`~/.intafaced/beta/status.json`): `up` with the
-  main commit it shows, `blocked` or `down` with the reason.
+  main commit it shows, `updating` while a round moves it to main, `blocked` or `down` with the reason.
 
 ## How it works
 
@@ -16,9 +17,35 @@ minutes fetches main and runs `verify launch`, which readies the stack the way a
 what is down. At most once every 2 hours it first moves the checkout to main and installs, so the launch rebuilds what
 changed: a merge to main is on the link within about two and a half hours. The mailbox page names the commit served.
 
-**Who can open it (the allow list):** the stack listens only on the box's own loopback. Nothing on the internet or the
-home network can reach it. It opens only through T3 Connect's preview tunnel, on a device signed in to the owner's T3
-Connect account and approved for the box ("Require approval for new devices" is on). No new account, sign-in or spend.
+**While it updates:** the update rebuilds and restarts the stack in its one checkout, which takes about five minutes on
+the box. From before the checkout moves until the new stack passes the TEST funds check and Markets lists priced markets,
+`status.json` reads `updating`, and the front answers every page load with a short "Updating the beta" page that reloads
+itself; an open app tab reloads onto it within 15 seconds. A launch on a stack that is up and readied changes nothing a
+tester sees. When the app refuses, or the status is `down`, `refused` or `blocked`, a page load gets "The beta is
+resting" instead of a browser error. A second stack readied beside the first would avoid the wait, at twice the build and
+memory on a box that is already loaded.
+
+**Who can open it (the allow list):** the stack listens only on the box's own loopback, and nothing on the home
+network can reach it. The only way in from outside is a Cloudflare Tunnel, which the box dials out. Cloudflare Access sits
+in front of both names: a one-time PIN mailed to an email on the invite list, and nobody else gets past the login. The
+tunnel itself also refuses any request that does not carry an Access token for its app (cloudflared's
+`originRequest.access`), so a request can't skip the login even if the Access app were removed.
+
+| Piece                                          | On the box                                                                                                              | What it does                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `intafaced-beta-tunnel.service` (systemd user) | `~/.local/bin/cloudflared`, config `~/.cloudflared/intafaced-beta.yml`, credentials beside it (mode 600)                | `beta.intafaced.com` → `127.0.0.1:6211`, `beta-mail.intafaced.com` → `127.0.0.1:6291`, anything else 404 |
+| `intafaced-beta-front.service` (systemd user)  | `~/.intafaced/beta/checkout/tooling/beta/beta-front.mjs`; `serve` writes its unit and restarts it when the file changes | maps the public origin onto the stack's loopback names (below); shows the updating page                  |
+| `intafaced-beta.service`                       | `tooling/beta/beta-host.mjs serve`                                                                                      | the stack itself, unchanged                                                                              |
+
+**Why the front:** the stack knows only its loopback origin. Its Customer server refuses any other `Host`, and Edge and
+svc-ws accept only `http://localhost:6210` as an `Origin`. The front rewrites the `Host`, and rewrites the `Origin` only
+when it is exactly `https://beta.intafaced.com`, so a cross-site call is still refused. It points loopback redirects and the
+mailbox's links at the public name, and strips Access's token before the stack sees it. Nothing in the stack's environment
+changes, so the TEST funds check below stays as strict as before. Test: `node --test tooling/beta/beta-front.test.mjs
+tooling/beta/beta-round.test.mjs`.
+
+**The Cloudflare side** (the `intafaced.com` zone, the tunnel `intafaced-beta`, the two Access apps and their invite
+list) is set by the owner's agents with his Cloudflare key, which lives outside this repository.
 
 **TEST funds only, shown by a check:** after every round, `beta-host.mjs check` reads the environment of every process
 the stack started and fails when any address names a host other than this machine, so no service has a route to a real
@@ -27,18 +54,45 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
 
 ## Sign in as a test customer, on the phone
 
-1. On your phone, open the T3 app and any chat on the Linux box.
-2. Open a browser tab in T3 and go to `http://localhost:6210/`. In the tab's menu, tap **Open on this device**. The app
-   opens in the phone's own browser view. (A long press on the link in a chat does the same.)
-3. Tap **Sign up**. Enter any email ending in `@local-test.invalid` (for example `nino1@local-test.invalid`), a handle,
-   a password of your choice, a country, "No, I am not a US person", and a birth date. Tap **Create account**.
-4. The app asks for the code from the email. Open a second tab at `http://localhost:6290/` (**Open on this device**
-   again): the TEST mailbox shows the newest code for your address. Type it in and tap **Confirm and open my account**.
-5. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
-   **Full**, enter any country code, and submit: the stack's TEST operators approve it within a minute. Sign out and in
-   once so the app sees it. On a hosted beta the founders approve it instead (`docs/runbooks/beta-founders.md`).
+1. Open `https://beta.intafaced.com/`. Cloudflare asks for your email. Enter an invited one, then type the 6-digit code
+   Cloudflare mails you. You stay signed in for a week on that browser.
+2. Open `https://beta-mail.intafaced.com/` in a second tab. The TEST mailbox names your token (your login email, with
+   every other character a dash, then a short code of it) and shows only mail to TEST addresses that start with it, so each person sees only the
+   codes for the accounts they created. Back in the app, tap **Sign up**. Enter an email that is your token, or your
+   token, a dot and anything (for example `alice-gmail-com-1a2b3c4d5e.1@local-test.invalid`), a handle, a password of your choice,
+   a country, "No, I am not a US person", and a birth date. Tap **Create account**.
+3. The app asks for the code from the email. The mailbox tab shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
+   later is asked for a device code: it is in the same mailbox.
+4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
+   **Full**, enter any country code, and submit. Within a minute the stack's TEST approvers approve it and 1000 TEST
+   USDT reach the account, with nobody in the loop (below). Sign out and in once so the app sees it, then trade.
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
+
+**Invited testers are approved and funded automatically** (`tooling/beta/beta-invited.mjs`, #10243). The front passes
+each Access-verified viewer's token to the mailbox, and the mailbox records it in `~/.intafaced/beta/invited.json`;
+every invited person opens the mailbox for their sign-up code. Every 15 seconds `serve` runs one pass: an account whose
+address is a recorded token, or the token, a dot and more, at `local-test.invalid` has its pending Full (or Basic)
+request approved through the stack's two-person TEST door, and once it holds Full gets 1000 TEST USDT through the real
+ledger, once per account (a fixed ledger reference) and for at most 3 accounts per person
+(`~/.intafaced/beta/granted.json`). Any other account, uninvited or made on the box, gets nothing. The pass's lines are
+in `round.log`. Test, on the box: `node tooling/beta/beta-host.mjs invited-test --checkout ~/.intafaced/beta/checkout
+--watch`, run as below.
+
+**Approve or fund anyone else (an agent, on the box).** Run these under the user's systemd manager, as the stack runs.
+An agent's own shell may not read the stack's processes, and then the tools refuse with "not active".
+
+```sh
+B=~/.intafaced/beta
+run() { systemd-run --user --quiet --wait --pipe --collect -p WorkingDirectory=$B/checkout \
+  --setenv=LOCAL_STACK_SLOT=3 --setenv=LOCAL_STACK_STATE=$B/state /bin/bash -lc "$1"; }
+run 'node tooling/scripts/local-test-gates.mjs verify'                        # if a request still waits: TEST operators approve it now
+run 'node tooling/scripts/local-test-stack.mjs fund <email> USDT 1000'        # TEST USDT through the real ledger
+```
+
+**Known gaps on the public name:** passkeys stay off, because the stack's passkey domain is `localhost`. The TEST bank
+pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
+tabs overlap, so "OTO" covers "Market".
 
 ## When it is not up
 
@@ -53,5 +107,9 @@ Everything you see is TEST: prices, balances and limits carry the TEST label, an
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.
 
+- **The link shows a Cloudflare error (502 or 1033):** `systemctl --user status intafaced-beta-tunnel.service
+intafaced-beta-front.service`; the tunnel's log names its connections (`journalctl --user -u intafaced-beta-tunnel`).
+
 Install once on the box, from the beta checkout: `node ~/.intafaced/beta/checkout/tooling/beta/beta-host.mjs install`.
 Stop: `systemctl --user stop intafaced-beta.service`, then `node tooling/beta/beta-host.mjs stop`.
+Close the public door alone: `systemctl --user disable --now intafaced-beta-tunnel.service`.

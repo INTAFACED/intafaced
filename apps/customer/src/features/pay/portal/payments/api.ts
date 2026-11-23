@@ -14,6 +14,7 @@ import {
   PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
   PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE,
   PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY,
+  PAY_MERCHANT_OPS_ACTIVITY_LIST,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import {
   PAY_SUBSCRIPTION_PRODUCT_READY,
@@ -169,7 +170,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord, qu
     return { ok: true as const, data: { rows, complete: false } };
   },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
-    list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
+    queryRecord(PAY_MERCHANT_OPS_ACTIVITY_LIST, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
   checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
     query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
   ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),

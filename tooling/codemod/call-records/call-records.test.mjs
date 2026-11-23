@@ -12,6 +12,8 @@ import {
   checkedToolCall,
   importedFrom,
   importsFile,
+  listItemOf,
+  pageOf,
   holdCallersOnly,
   portInFlight,
   portRefusal,
@@ -2549,6 +2551,64 @@ test('a helper that would move under a name the group imports from contracts is 
     { p: load(join(repo, app, 'api-other.ts')), node: init(`${app}/api-other.ts`, 'differs'), where: 'x output' },
   ]);
   assert.match(differs.problems.join('; '), /id clashes with another id the record imports from packages\/contracts\/src\/pay-founder\.ts/);
+});
+
+test("a portal list's answer is a page of the row schema its callers name, through `import * as ns`", () => {
+  const portal = 'apps/customer/src/features/pay/portal';
+  const repo = plantRepo('call-records-list-answer-', {
+    'packages/contracts/src/procedure.ts': ['export const defineProcedure = (r) => r;'],
+    [`${portal}/api-tools.ts`]: [
+      'export function portalTools(api) {',
+      "  const query = (procedure: string, input, schema, signal) => api.query('pay', procedure, input, schema, { signal });",
+      '  const list = (procedure: string, item, input, signal) => query(procedure, input, item, signal);',
+      '  return { query, list };',
+      '}',
+      'export type PortalTools = ReturnType<typeof portalTools>;',
+    ],
+    [`${portal}/settings/b-client.ts`]: ['export type SettingsBTools = {};'],
+    [`${portal}/schemas.ts`]: [
+      "import { z } from 'zod';",
+      'const stamp = z.string();',
+      'export const rowSchema = z.object({ id: z.string(), at: stamp });',
+      'export const otherRowSchema = z.object({ id: z.string() });',
+    ],
+    [`${portal}/a.ts`]: [
+      "import * as p from './schemas';",
+      "import type { PortalTools } from './api-tools';",
+      'export const a = ({ list }: PortalTools) => ({',
+      "  rows: (signal) => list('merchantOps.rows.list', p.rowSchema, {}, signal),",
+      "  other: (signal) => list('merchantOps.other.list', p.otherRowSchema, {}, signal),",
+      '});',
+    ],
+    [`${portal}/b.ts`]: [
+      "import * as shared from './schemas';",
+      "import type { PortalTools } from './api-tools';",
+      'export const b = ({ list, query }: PortalTools) => ({',
+      "  rows: (signal) => list('merchantOps.rows.list', shared.rowSchema, { limit: 5 }, signal),",
+      "  other: (signal) => query('merchantOps.other.list', {}, shared.otherRowSchema, signal),",
+      '});',
+    ],
+  });
+  const sites = findSites(repo).sort((x, y) => x.file.localeCompare(y.file) || x.node.start - y.node.start);
+  const of = (path) =>
+    answerFromCallers(
+      repo,
+      sites.filter((s) => s.path === path),
+      { schemaOf: schemaArgOf, checksOf: answerChecks, itemOf: listItemOf },
+    );
+  // Two callers name one row through two namespaces: one declaration, so one answer, the page of it.
+  const rows = of('merchantOps.rows.list');
+  assert.ok(rows.output, rows.why);
+  assert.equal(rows.output.page, true);
+  const c = closureOf(repo, [{ ...rows.output, where: 'rows output' }]);
+  assert.deepEqual(c.problems, []);
+  assert.deepEqual(
+    c.moved.map((m) => m.name),
+    ['stamp', 'rowSchema'],
+  );
+  assert.equal(pageOf(text(rows.output.p, rows.output.node)), 'z.object({ items: z.array(rowSchema), nextCursor: z.string().nullable() })');
+  // A list and a query of one path parse different answers (a page of the row, the row): the record can take only one.
+  assert.match(of('merchantOps.other.list').why ?? '', /parse it with different schemas/);
 });
 
 /** A scratch repo with these files, committed so `git ls-files` sees them. */

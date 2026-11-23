@@ -43,7 +43,7 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
                     <CoinIcon asset={market.base} size={24} />
                     <span data-testid="mkt-card__name" className="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
                       {market.base}
-                      <span className="mkt-muted">/{market.quote}</span>
+                      <span className="lt-muted">/{market.quote}</span>
                     </span>
                     <span className="mkt-card__price" data-money>
                       {priceText(market, ticker?.last)}

@@ -188,14 +188,14 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
   const { t } = portalCopy.useCopy();
   if (items.length === 0)
     return (
-      <span className="pp-none" title={emptyLabel ?? t('noPaymentsInPeriod')}>
+      <span className="lt-muted" title={emptyLabel ?? t('noPaymentsInPeriod')}>
         —
       </span>
     );
   return (
     <span className="pp-lines">
       {items.map((item) => (
-        <span key={item.assetCode} className="pp-line">
+        <span key={item.assetCode}>
           <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
         </span>
       ))}
@@ -392,7 +392,7 @@ export function Steps({
           <div>
             <strong>
               {item.title}
-              <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
+              <span className="lt-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
             </strong>
             {item.detail && <p className="lt-muted">{item.detail}</p>}
           </div>
@@ -409,7 +409,7 @@ export function UsageBar({ pct, label }: { pct: number; label: string }) {
   return (
     <div className="pp-usage" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
       <span className={`pp-usage-fill${full ? ' pp-usage-fill--full' : ''}`} style={{ width: `${pct}%` }} />
-      <span className="pp-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
+      <span className="lt-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
     </div>
   );
 }

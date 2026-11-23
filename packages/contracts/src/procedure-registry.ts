@@ -1101,6 +1101,8 @@ import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from './identity-self-freeze-manage-
 
 import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedures.js';
 
+import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from './identity-set-api-key-request-signing-procedures.js';
+
 import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
 
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
@@ -1608,6 +1610,14 @@ import {
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS,
   PAY_MERCHANT_OPS_WEBHOOKS_POLICY,
   PAY_MERCHANT_OPS_WEBHOOKS_GUIDE,
+  PAY_MERCHANT_OPS_ACTIVITY_LIST,
+  PAY_MERCHANT_OPS_TEAM_LIST,
+  PAY_MERCHANT_OPS_KYB_HISTORY,
+  PAY_MERCHANT_OPS_TEAM_HISTORY,
+  PAY_MERCHANT_OPS_EXPORTS_LIST,
+  PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
   PAY_MERCHANT_OPS_EXPORTS_CREATE,
   PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
 } from './pay-merchant-ops-procedures.js';
@@ -3385,6 +3395,8 @@ const part_identity_self_freeze_manage_procedures: readonly ProcedureRecord[] = 
 
 const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [IDENTITY_SESSION_SETTINGS];
 
+const part_identity_set_api_key_request_signing_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_API_KEY_REQUEST_SIGNING];
+
 const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
 
 const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
@@ -3934,6 +3946,14 @@ const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS,
   PAY_MERCHANT_OPS_WEBHOOKS_POLICY,
   PAY_MERCHANT_OPS_WEBHOOKS_GUIDE,
+  PAY_MERCHANT_OPS_ACTIVITY_LIST,
+  PAY_MERCHANT_OPS_TEAM_LIST,
+  PAY_MERCHANT_OPS_KYB_HISTORY,
+  PAY_MERCHANT_OPS_TEAM_HISTORY,
+  PAY_MERCHANT_OPS_EXPORTS_LIST,
+  PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
   PAY_MERCHANT_OPS_EXPORTS_CREATE,
   PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
 ];
@@ -4750,6 +4770,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
   ...part_identity_session_settings_procedures,
+  ...part_identity_set_api_key_request_signing_procedures,
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
   ...part_identity_staff_procedures,

@@ -793,7 +793,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
           {t('linkOwnerOnly')}
         </p>
       )}
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>
           {portal && (

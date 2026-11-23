@@ -72,7 +72,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
   }, [load]);
 
   return (
-    <div className="dk-ledger">
+    <div className="lt-stack">
       <div className="dk-ledger-head">
         <Statement />
         <Button variant="secondary" size={32} onClick={() => void load(null, null)}>

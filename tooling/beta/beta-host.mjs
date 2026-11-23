@@ -8,16 +8,20 @@
  * approved T3 device and nowhere else (docs/runbooks/beta-link.md says how, step by step).
  *
  *   node tooling/beta/beta-host.mjs serve     the supervisor: a round now and every BETA_EVERY_MIN minutes (30), and the
- *                                             TEST mailbox page; it exits after a round that changed this file, so
- *                                             systemd starts the new copy
+ *                                             TEST mailbox page; after each round it restarts the public front when the
+ *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
+ *                                             changed this file, so systemd starts the new copy
  *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it (at most every 2 hours), launch
- *                                             or update the stack,
- *                                             run the TEST funds check, write status.json
+ *                                             or update the stack, run the TEST funds check, wait until it is readied,
+ *                                             write status.json: `updating` from before the checkout moves until then,
+ *                                             so the front shows its updating page, never a half-built app (#10299)
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
  *                                             stack's state folder); exit 1 on any finding
  *   node tooling/beta/beta-host.mjs status    what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
+ *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
+ *                                             the journey-style test of invited testers (beta-invited.journey.mjs)
  *
  * What it keeps (AGENTS.md floor 1, 7 and 8):
  *   - It moves no money and posts nothing: the stack's own start readies it (TEST gates, TEST market maker, TEST
@@ -37,6 +41,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -72,7 +77,11 @@ export function betaPaths(home = os.homedir()) {
     status: path.join(root, 'status.json'),
     log: path.join(root, 'round.log'),
     screening: path.join(root, 'state', 'screening.local.json'),
+    ...invitedPaths(root),
     unit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta.service'),
+    frontUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-front.service'),
+    /** The hash of the beta-front.mjs the front service was last started on. */
+    front: path.join(root, 'front.json'),
   };
 }
 
@@ -184,6 +193,39 @@ async function checkStack(state, link) {
   return fundsCheck({ records, readEnviron, page: await getText(link) });
 }
 
+// ── Readied: what a tester sees first ───────────────────────────────────────
+
+/**
+ * Is the stack readied for a tester, from the two public reads Home and Markets make (`/api/v1/markets`, `/api/v1/tickers`,
+ * either text or null)? Right after a restart the stack answered while it listed only the TEST pairs with blank prices and
+ * Home showed "Prices can't be loaded" (#10299). Readied: a market that is not a TEST pair has a last price.
+ */
+export function readied({ markets, tickers }) {
+  let list;
+  let prices;
+  try {
+    list = JSON.parse(markets ?? '');
+    prices = JSON.parse(tickers ?? '');
+  } catch {
+    return { ok: false, why: 'the market list or the prices did not answer' };
+  }
+  if (!Array.isArray(list) || !prices || typeof prices !== 'object')
+    return { ok: false, why: 'the market list or the prices did not answer' };
+  const priced = list.filter((m) => m && m.test !== true && Number.isFinite(Number.parseFloat(prices[m.symbol]?.last)));
+  return priced.length
+    ? { ok: true, why: `${priced.length} of ${list.length} markets have a price` }
+    : { ok: false, why: `none of ${list.length} markets that are not TEST pairs has a price yet` };
+}
+
+async function readiedNow(link) {
+  const [markets, tickers] = await Promise.all([getText(`${link}api/v1/markets?limit=500`), getText(`${link}api/v1/tickers?limit=500`)]);
+  return readied({ markets, tickers });
+}
+
+/** How long a round waits, after the launch and the TEST funds check pass, for the stack to be readied. */
+export const READY_WAIT_MS = 5 * 60_000;
+const READY_EVERY_MS = 10_000;
+
 // ── The TEST mailbox page ───────────────────────────────────────────────────
 
 /** The outbox file's rows of the last `hours`, newest first, at most `max`: `{ purpose, email, expires, code, link }`. */
@@ -200,9 +242,21 @@ export function mailboxRows(text, { now = Date.now(), hours = 24, max = 60 } = {
   return rows.reverse().slice(0, max);
 }
 
+/** The rows a viewer may see: mail to TEST addresses whose local part is their token, or it, a dot and more. A token
+ * holds no dot (beta-front.mjs viewerToken), so one viewer's token is never the start of another's addresses. */
+export function viewerRows(rows, token) {
+  if (!token) return [];
+  return rows.filter((r) => {
+    const local = String(r.email ?? '')
+      .toLowerCase()
+      .split('@')[0];
+    return local === token || local.startsWith(`${token}.`);
+  });
+}
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
+export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = null } = {}) {
   const body = rows.length
     ? rows
         .map(
@@ -220,23 +274,36 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null } = {}) {
 .test{background:#F5A915;color:#0b0b0b;font-weight:600;padding:.3rem .6rem;display:inline-block}table{border-collapse:collapse;width:100%}
 td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}</style></head>
 <body><p class="test">TEST MAILBOX: test accounts only, not real mail</p><h1>Codes and links the beta app sent</h1>${state}
+${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>. Sign up with one, for example <b>${esc(viewer)}.1@local-test.invalid</b>.</p>` : ''}
 <p><a href="${esc(link)}">Open the beta app</a>. This page reloads every 10 seconds.</p>
 <table><thead><tr><th>What</th><th>To</th><th>Code</th><th>Expires</th></tr></thead><tbody>
 ${body}
 </tbody></table></body></html>`;
 }
 
-function serveMailbox(paths) {
+/** The TEST mailbox page's server, on `port` (MAILBOX_PORT on the beta). */
+export function serveMailbox(paths, port = MAILBOX_PORT) {
   const server = http.createServer((req, res) => {
     let text = '';
     try {
       text = fs.readFileSync(path.join(paths.state, 'email-outbox.log'), 'utf8');
     } catch {}
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' });
-    res.end(mailboxPage(mailboxRows(text), { status: readJson(paths.status) }));
+    // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
+    // box's own loopback, without the header, every row.
+    const viewer = req.headers['x-beta-viewer'];
+    // A viewer the front passed on came through Cloudflare Access, so is on the invite list (beta-invited.mjs).
+    if (viewer !== undefined && recordInvited(paths.invited, String(viewer))) log(paths, `mailbox: a new invited viewer, ${viewer}`);
+    const rows = mailboxRows(text);
+    res.end(
+      mailboxPage(viewer === undefined ? rows : viewerRows(rows, String(viewer)), {
+        status: readJson(paths.status),
+        viewer: viewer ?? null,
+      }),
+    );
   });
   server.on('error', (err) => log(paths, `mailbox: ${err.message}`));
-  server.listen(MAILBOX_PORT, '127.0.0.1');
+  server.listen(port, '127.0.0.1');
   return server;
 }
 
@@ -311,10 +378,10 @@ export function stopCommands(paths) {
 }
 
 /** Run stopCommands in the beta checkout on its slot; resolves to the first failing exit code, else 0. */
-async function stopStack(paths) {
+async function stopStack(paths, runWith = run) {
   let code = 0;
   for (const args of stopCommands(paths)) {
-    const c = await run(paths, 'node', args, { cwd: paths.checkout, env: stackEnv(paths) });
+    const c = await runWith(paths, 'node', args, { cwd: paths.checkout, env: stackEnv(paths) });
     if (c !== 0 && code === 0) code = c;
   }
   return code;
@@ -336,7 +403,18 @@ function ensureCheckout(paths) {
   return add.status === 0 ? null : `could not make the checkout: ${add.stderr.trim()}`;
 }
 
-async function round(paths = betaPaths()) {
+/** What a round reaches outside itself: git, commands, the TEST funds check, the readied probe, the clock. A test replaces them. */
+const roundIo = {
+  git,
+  run,
+  check: checkStack,
+  readied: readiedNow,
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  now: () => Date.now(),
+};
+
+export async function round(paths = betaPaths(), io = {}) {
+  const { git, run, check: checkWith, readied: readiedWith, sleep, now } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -345,7 +423,7 @@ async function round(paths = betaPaths()) {
   const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
-  const step = decide({ screening: fs.existsSync(paths.screening), head, target, updatedAt: prev.updatedAt });
+  const step = decide({ screening: fs.existsSync(paths.screening), head, target, updatedAt: prev.updatedAt, now: now() });
   const held = step === 'launch' && head !== target;
   log(
     paths,
@@ -360,8 +438,22 @@ async function round(paths = betaPaths()) {
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
-  const updatedAt = step === 'update' ? new Date().toISOString() : prev.updatedAt;
+  const updatedAt = step === 'update' ? new Date(now()).toISOString() : prev.updatedAt;
   const mainAt = target;
+  // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
+  // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
+  // readied restarts nothing (same commit), so it stays `up`.
+  const warm = step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  if (!warm)
+    writeStatus(paths, {
+      state: 'updating',
+      reason: step === 'update' ? `moving to main ${target.slice(0, 9)}` : 'starting what is down',
+      sha: head,
+      target: sha,
+      since: new Date(now()).toISOString(),
+      updatedAt: prev.updatedAt,
+      mainAt,
+    });
   if (step === 'update') {
     const co = git(paths.checkout, 'checkout', '--quiet', '--detach', target);
     if (co.status !== 0) return finish(paths, { state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head });
@@ -370,10 +462,10 @@ async function round(paths = betaPaths()) {
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
-  const check = await checkStack(paths.state, BETA_LINK);
+  const check = await checkWith(paths.state, BETA_LINK);
   for (const l of check.lines) log(paths, `check: ${l}`);
   if (!check.ok) {
-    await stopStack(paths);
+    await stopStack(paths, run);
     return finish(paths, {
       state: 'refused',
       reason: 'the TEST funds check failed, so the stack was stopped',
@@ -392,12 +484,28 @@ async function round(paths = betaPaths()) {
       updatedAt,
       mainAt,
     });
+  // Readied: still `updating` until Markets lists priced markets, so Home and Markets open full.
+  let ready = await readiedWith(BETA_LINK);
+  for (const until = now() + READY_WAIT_MS; !ready.ok && now() < until;) {
+    await sleep(READY_EVERY_MS);
+    ready = await readiedWith(BETA_LINK);
+  }
+  log(paths, `readied: ${ready.ok ? 'ok' : 'not yet'}: ${ready.why}`);
+  if (!ready.ok)
+    return finish(paths, {
+      state: 'down',
+      reason: `not readied ${READY_WAIT_MS / 60_000} minutes after the launch: ${ready.why}`,
+      check: check.lines,
+      sha,
+      updatedAt,
+      mainAt,
+    });
   return finish(paths, {
     state: 'up',
     sha,
     updatedAt,
     mainAt,
-    upSince: prev.state === 'up' && prev.upSince ? prev.upSince : new Date().toISOString(),
+    upSince: warm && prev.upSince ? prev.upSince : new Date(now()).toISOString(),
     check: check.lines,
   });
 }
@@ -416,16 +524,62 @@ const fileHash = (file) => {
   }
 };
 
+/** How often the invited testers' pass runs (beta-invited.mjs): a Full request is approved and funded within a minute. */
+const INVITED_EVERY_MS = 15_000;
+
+/**
+ * Whether the invited pass runs now: the stack is up, someone invited has opened the mailbox, and no pass is running.
+ * Idle (no invited viewer yet) it starts nothing.
+ */
+export const invitedPassDue = ({ state, invited, running }) => state === 'up' && invited > 0 && !running;
+
+/**
+ * One invited pass at a time, from the checkout's own copy, its lines in the round log; never longer than 2 minutes. A
+ * failed pass waits a minute before the next, so a stack that refuses fills the log once a minute, not every 15 s.
+ */
+export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-invited.mjs') } = {}) {
+  let running = false;
+  let nextAt = 0;
+  const tick = () => {
+    if (Date.now() < nextAt) return;
+    if (!invitedPassDue({ state: readJson(paths.status, {})?.state, invited: readInvited(paths.invited).size, running })) return;
+    running = true;
+    const out = fs.openSync(paths.log, 'a');
+    const args = [script, 'pass', '--root', paths.root, '--checkout', paths.checkout];
+    const child = spawn('node', args, { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
+    const timer = setTimeout(() => child.kill('SIGTERM'), 120_000);
+    let ended = false;
+    const end = (code) => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(timer);
+      fs.closeSync(out);
+      if (code !== 0) nextAt = Date.now() + 60_000;
+      running = false;
+    };
+    child.on('close', (code) => end(code ?? 1));
+    child.on('error', () => end(127));
+  };
+  const every = setInterval(tick, INVITED_EVERY_MS);
+  return () => clearInterval(every);
+}
+
 async function serve(paths) {
   const everyMin = Number(process.env.BETA_EVERY_MIN ?? 30);
   if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55) throw new Error('BETA_EVERY_MIN must be 5 to 55');
   const mine = fileHash(SELF);
   serveMailbox(paths);
+  invitedLoop(paths);
   for (;;) {
     try {
       await round(paths);
     } catch (err) {
       finish(paths, { state: 'down', reason: `round threw: ${err.message}` });
+    }
+    try {
+      syncFront(paths);
+    } catch (err) {
+      log(paths, `front: ${err.message}`);
     }
     // The checkout's copy of this file moved with main: exit, and systemd (Restart=always) starts the new one.
     if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
@@ -455,6 +609,59 @@ WantedBy=default.target
 `;
 }
 
+const FRONT_SERVICE = 'intafaced-beta-front.service';
+
+/**
+ * The public front's systemd user service (beta-front.mjs), run from the beta checkout, so a merged change to the front
+ * reaches the link with the round that moves the checkout (#10294), not by a copy placed by hand.
+ */
+export function frontUnitText(paths) {
+  return `[Unit]
+Description=INTAFACED beta public front: 127.0.0.1:6211 -> app :6210, 127.0.0.1:6291 -> TEST mailbox :6290, for https://beta.intafaced.com (cloudflared)
+After=intafaced-beta.service
+
+[Service]
+Type=simple
+WorkingDirectory=${paths.checkout}
+ExecStart=/bin/bash -lc 'exec node tooling/beta/beta-front.mjs'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+/**
+ * What the supervisor does to the front after a round: 'none' where no front is installed (it is installed with the
+ * tunnel, docs/runbooks/beta-link.md), 'install' when its unit is not the one above (write it, reload, restart),
+ * 'restart' when the checkout's beta-front.mjs is not the file it last started on, else 'keep'.
+ */
+export function frontAction({ unitOnDisk, unitWanted, startedOn, fileHash: now }) {
+  if (unitOnDisk == null || now == null) return 'none';
+  if (unitOnDisk !== unitWanted) return 'install';
+  return startedOn === now ? 'keep' : 'restart';
+}
+
+export function syncFront(paths, systemctl = (...args) => spawnSync('systemctl', ['--user', ...args], { encoding: 'utf8' })) {
+  let unitOnDisk = null;
+  try {
+    unitOnDisk = fs.readFileSync(paths.frontUnit, 'utf8');
+  } catch {}
+  const unitWanted = frontUnitText(paths);
+  const hash = fileHash(path.join(paths.checkout, 'tooling', 'beta', 'beta-front.mjs'));
+  const action = frontAction({ unitOnDisk, unitWanted, startedOn: readJson(paths.front, {})?.sha256 ?? null, fileHash: hash });
+  if (action === 'none' || action === 'keep') return action;
+  if (action === 'install') {
+    fs.writeFileSync(paths.frontUnit, unitWanted);
+    systemctl('daemon-reload');
+  }
+  const r = systemctl('restart', FRONT_SERVICE);
+  if (r.status === 0) fs.writeFileSync(paths.front, `${JSON.stringify({ sha256: hash, at: new Date().toISOString() })}\n`);
+  log(paths, `front: ${action}${r.status === 0 ? '' : ` failed (systemctl exited ${r.status})`}`);
+  return action;
+}
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
   const paths = betaPaths();
@@ -478,6 +685,8 @@ async function main(argv) {
     return;
   }
   if (cmd === 'stop') process.exit(await stopStack(paths));
+  // The journey-style test of the invited testers' approval and funds (#10243); it reads its own flags.
+  if (cmd === 'invited-test') return void (await import('./beta-invited.journey.mjs'));
   if (cmd === 'install') {
     if (process.platform !== 'linux') throw new Error('install writes a systemd user service: Linux only');
     const noCheckout = ensureCheckout(paths);
@@ -493,7 +702,7 @@ async function main(argv) {
     console.log(`installed ${paths.unit}; status: node tooling/beta/beta-host.mjs status`);
     return;
   }
-  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install');
+  console.error('usage: beta-host.mjs serve | round | check [--state <dir>] | status | stop | install | invited-test [--watch]');
   process.exit(2);
 }
 

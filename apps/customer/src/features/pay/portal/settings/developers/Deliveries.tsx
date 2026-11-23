@@ -120,7 +120,7 @@ export function DeliveryList({
             <Field label={t('to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         )}
-        <p className="muted pp-count" role="status">
+        <p className="lt-muted" role="status">
           {list.state.status === 'ready'
             ? list.state.hasMore
               ? t('newestMore', { n: shown.length })
@@ -189,7 +189,7 @@ export function DeliveryList({
                 },
                 { header: t('colWhen'), cell: (d) => <DateTime value={d.createdAt} /> },
                 {
-                  header: <span className="pp-sr">{t('colActions')}</span>,
+                  header: <span className="lt-sr">{t('colActions')}</span>,
                   cell: (d) => (
                     <div className="lt-actions">
                       <Button tone="quiet" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
@@ -301,7 +301,7 @@ export function RecoverMissed({
   const chosen = endpoints.find((e) => e.id === endpointId);
   return (
     <PaySection title={t('recoverTitle')} description={t('recoverBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <SelectField
           label={t('recoverEndpoint')}
           value={endpointId}
@@ -318,7 +318,7 @@ export function RecoverMissed({
             <dl className="pay-details">
               <div>
                 <dt>{t('recoverEndpoint')}</dt>
-                <dd className="pp-wrap">{chosen ? shownEndpointUrl(chosen.url) : ''}</dd>
+                <dd className="lt-wrap">{chosen ? shownEndpointUrl(chosen.url) : ''}</dd>
               </div>
               <div>
                 <dt>{t('recoverSince')}</dt>
@@ -392,7 +392,7 @@ export function AttemptList({ api, delivery }: { api: Pick<SettingsBApi, 'delive
       ) : r.data.attempts.length === 0 ? (
         <p className="lt-muted">{t('attemptsEmpty')}</p>
       ) : (
-        <table className="pp-table">
+        <table>
           <thead>
             <tr>
               <th scope="col">{t('colAttemptNo')}</th>
