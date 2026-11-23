@@ -6,7 +6,7 @@ import { founderPagesOf } from './admin.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { EDGE, ORIGIN, api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, toUnits, tool } from './stack.mjs';
 import { agePast } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
@@ -682,7 +682,19 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const cause = asked.body?.error?.data?.cause;
   expect(asked.status, JSON.stringify(asked.body).slice(0, 400)).not.toBe(200);
   expect(cause?.code, JSON.stringify(asked.body).slice(0, 400)).toBe('pay.internal_settlement_refused');
-  expect(JSON.stringify(cause), 'the ledger refused it as more than is available').toContain('ledger.insufficient_funds');
+  // The person's own record of that withdrawal, as svc-pay keeps it: failed, with the ledger's reason, and nothing sent.
+  const history = await (await api(me)).get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit: 20 }))}`);
+  expect(history.status, JSON.stringify(history.body).slice(0, 300)).toBe(200);
+  const record = history.body.result.data.items.filter((w) => w.clientRef === `${J}-5-bonus-${tag}`);
+  expect(record, JSON.stringify(history.body).slice(0, 600)).toHaveLength(1);
+  expect(record[0], 'the ledger refused it as more than is available').toMatchObject({
+    assetId: 'USDT',
+    status: 'failed',
+    railRef: null,
+  });
+  // svc-bank's answer, from the book's own refusal: more than the person has available.
+  expect(record[0].failure?.code, JSON.stringify(record[0])).toMatch(/\.insufficient_funds$/);
+  expect(toUnits(record[0].amount)).toBe(toUnits(over));
   // Nothing was sent: the person's USDT and the friend's are what they were, and the bonus is still locked, still theirs.
   expect(await ledgerBalance(me, 'USDT')).toEqual(mineBefore);
   expect(await ledgerBalance(friend, 'USDT')).toEqual(friendBefore);
