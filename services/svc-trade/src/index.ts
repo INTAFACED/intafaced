@@ -35,6 +35,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { VenueStatements } from './venue/venue-statements.js';
+import { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
@@ -130,6 +131,8 @@ import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
+import { VenueBalanceWatch } from './venue/balance-watch.js';
+import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -546,6 +549,20 @@ const venueAutoTopUp = userVenue
       now: () => new Date(),
     })
   : null;
+// The private balances stream's source (J-cex-spot-15 #9): one event per change in the balance of each venue account a
+// person's own wallet signed for, with its source and the venue's new total, on the protections' interval, apart from them
+// so a slow venue read never holds a protection back. Reads only; the ledger posts nothing. Off with the door.
+const venueBalanceWatch = userVenue
+  ? new VenueBalanceWatch({
+      venue: () => userVenue.venue(),
+      accounts: (venueId) => userVenueStore.ownerSignedAccountsAll(venueId),
+      store: new SqlBalanceWatchStore(sql),
+      publish: async (userId, change) => {
+        await bus.publish('venueBalanceChanged', { ...change, userId }, { idempotencyKey: `${change.changeId}:${userId}` });
+      },
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -557,6 +574,21 @@ if (venueProtections && protectionEngineMs > 0) {
     Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
+      )
+      .finally(() => {
+        busy = false;
+      });
+  }, protectionEngineMs).unref();
+}
+if (venueBalanceWatch && protectionEngineMs > 0) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    venueBalanceWatch
+      .tick()
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_balance_watch.tick_failed', message: String(err) })}\n`),
       )
       .finally(() => {
         busy = false;
@@ -879,6 +911,8 @@ const leadDesk = new LeadDesk({
   },
   ownerDay: copyOwnerDay,
 });
+/** The venue's margin readings our door keeps, for a founder's ratio history (J-derivatives-26 #8). */
+const venueMarginSamples = new VenueMarginSamples(sql, (err) => app.log.warn({ err }, 'venue margin sample not kept'));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -938,6 +972,14 @@ export const appRouter = createTradeRouter(
   venueGrid,
   recurringBuys,
   venueAutoTopUp,
+  // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
+  {
+    audit: (row, at) => writeOperatorAudit(sql, row, at),
+    venue: userVenue ? () => userVenue.venue() : null,
+    store: new SqlPreparedActionStore(sql),
+    samples: venueMarginSamples,
+    now: () => new Date(),
+  },
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1980,6 +2022,7 @@ registerPrivateRest(app, {
   venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueMarginSamples: userVenueRouter ? venueMarginSamples : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,

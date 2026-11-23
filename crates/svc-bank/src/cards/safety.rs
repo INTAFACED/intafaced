@@ -4,9 +4,9 @@
 //! A 3D Secure challenge is the card partner asking the cardholder to confirm an online purchase. The partner holds the
 //! code; this row never does, only how many wrong codes were typed. The owner's count (`BANK_CARD_3DS_TRY_LIMIT`) of
 //! wrong codes locks the challenge. The right code approves it, and the purchase's authorisation is then driven once,
-//! under the business key `3ds:<challenge ref>`, through `CardService.authorize`: that move is slice `card-ops`', so an
-//! approved challenge with no authorisation answers "not ported" until that slice is, and stays approved for it to finish
-//! (the TypeScript's own crash path: the next answer with no code finishes it).
+//! under the business key `3ds:<challenge ref>`, through `card-ops`' authorisation (`moves::decide::authorize`). If that
+//! fails the challenge stays approved for the next answer to finish (the TypeScript's own crash path: the next answer
+//! with no code finishes it).
 //!
 //! A fraud report freezes the card as the person's own lock and opens one case for that payment: the payment is the
 //! business key, so filing again returns the same case. Nothing here moves money.

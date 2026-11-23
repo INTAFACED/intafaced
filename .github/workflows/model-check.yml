@@ -1,5 +1,6 @@
-# Model check: every TLA+ model in the repo (services/<service>/model/, found by tooling/ci/model-check.mjs) on every
-# pull request that touches a modelled service, a file under services/ or packages/ a model's COVERS files name, or
+# Model check: every TLA+ model in the repo (services/<service>/model/ or crates/<service>/model/, found by
+# tooling/ci/model-check.mjs) on every pull request that touches a modelled service, a file under services/, packages/
+# or crates/ a model's COVERS files name, or
 # this check. Each model's check.sh
 # must pass the code as it is and show each deliberately broken version failing on its rule.
 #
@@ -19,6 +20,7 @@ on:
     paths:
       - services/**
       - packages/**
+      - crates/**
       - .github/workflows/model-check.yml
       - tooling/ci/model-check.mjs
   workflow_dispatch:

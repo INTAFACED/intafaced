@@ -438,13 +438,20 @@ if (env.PAY_URL) {
   });
 }
 // Lifetime can be published without a mail port. With either one missing, every
-// reset request refuses auth.reset_unwired. The only transport this process
-// can install is the local-outbox file, and only when APP_ENV is exactly dev
-// or test. Staging and production stay unwired. No provider is configured.
+// reset request refuses auth.reset_unwired. The local-outbox file runs only when
+// APP_ENV is exactly dev or test; a hosted stack names its mail gateway, and a
+// staging or prod start without a transport refuses. No provider is configured here.
 const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+  gateway: {
+    url: env.IDENTITY_MAIL_GATEWAY_URL,
+    key: env.IDENTITY_MAIL_GATEWAY_KEY,
+    from: env.IDENTITY_MAIL_FROM,
+    linkBase: env.IDENTITY_MAIL_LINK_BASE,
+    consoleLinkBase: env.IDENTITY_MAIL_CONSOLE_LINK_BASE,
+  },
 });
 // Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
 const sms = openIdentitySms({

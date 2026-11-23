@@ -1,6 +1,6 @@
 //! Slice `ops-desk`: the operator desk's calls (`router/ops.router.ts`: `heldSends`, `releaseHeldSend`,
 //! `rejectHeldSend`, `limitRequests`, `decideLimitRequest`, `publishTransferTerms`, `transferHealth`, `failedTransfers`,
-//! `transferDetail`, `customerTransfers`, `customerBalances`, `customerBalanceEntries`, `assetPauses`, `setAssetPause`, `partnerStops`,
+//! `transferDetail`, `customerTransfers`, `customerBalances`, `customerPartnerBalances`, `customerBalanceEntries`, `assetPauses`, `setAssetPause`, `partnerStops`,
 //! `setPartnerStop`, `partnerRefusals`), each checked as the TypeScript checks it.
 //!
 //! - `pauses`: the per-asset pause of new borrow and new supply, read and changed (`ops/asset-pause.ts`).
@@ -8,7 +8,8 @@
 //!   `partner-refusals.ts`).
 //! - `transfer_reads`: health, the failed list, one transfer and one customer's sends (`ops/transfer-*.ts`,
 //!   `failed-transfers.ts`, `customer-transfers.ts`).
-//! - `balances`: a customer's balances and the entries behind one (`ops/customer-balances.ts`).
+//! - `balances`: a customer's balances and the entries behind one (`ops/customer-balances.ts`), and the spending balances
+//!   the partner holding their money reports (`ops/customer-partner-balances.ts`).
 //!
 //! The held sends, the limit requests and the published terms are slice `transfers`' own functions
 //! (`personal::held_for_review`, `release_held`, `reject_held`, `limits::queue`, `decide`, `terms::publish`); this slice
@@ -370,6 +371,11 @@ fn call(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
             let owner = text(input, "userId");
             balances::audit(user, owner, "breakdown")
                 .and_then(|()| balances::breakdown(d.store, d.ledger, &d.money(), owner))
+        }
+        "ops.customerPartnerBalances" => {
+            let owner = text(input, "userId");
+            balances::partner_audit(user, owner)
+                .and_then(|()| balances::partner_held(d.store, &d.money(), owner))
         }
         "ops.customerTransfers" => {
             let owner = text(input, "userId");

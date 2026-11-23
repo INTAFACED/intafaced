@@ -1,13 +1,5 @@
 {
   "files": {
-    "services/svc-bank/src/personal-pay/router.ts": {
-      "sign": 0,
-      "caller": 1
-    },
-    "services/svc-bank/src/router.ts": {
-      "sign": 0,
-      "caller": 1
-    },
     "services/svc-execution/src/router.ts": {
       "sign": 0,
       "caller": 1
