@@ -214,7 +214,11 @@ function ownerRules(on) {
   }
 }
 
-test.afterAll(() => ownerRules(false));
+// Put back off only once #8 has run: a failed step ends its worker and runs this hook too, and a restart then would
+// empty the partner's book under the steps still to come.
+test.afterAll(() => {
+  if (run.read().lastStepRan) ownerRules(false);
+});
 
 /** Every move out of A to another person on the TEST partner's own book. */
 async function movesOut() {
@@ -772,6 +776,7 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
 }) => {
   test.setTimeout(180_000);
   const { sender, recipient } = people();
+  run.write({ lastStepRan: true });
   const { reference, before, second } = run.read();
   if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
   const moved = toUnits(AMOUNT) + toUnits(second);
