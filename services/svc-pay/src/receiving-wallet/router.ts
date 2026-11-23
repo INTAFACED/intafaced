@@ -1,14 +1,14 @@
 import type { Sql } from 'postgres';
-import { receivingWalletSavedSchema, receivingWalletSaveInputSchema } from '@intafaced/contracts/merchant-receiving-wallet';
-import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
-import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
+import { teamMemberCheck } from '../team-member-write.js';
 import { ReceivingWallets } from './wallet.js';
 import { outsideFundsOf } from './outside-funds.js';
 import {
   PAY_MERCHANT_RECEIVING_WALLET_GET,
   PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+  PAY_MERCHANT_RECEIVING_WALLET_SAVE,
 } from '@intafaced/contracts/pay-merchant-receiving-wallet-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -30,7 +30,6 @@ export function createReceivingWalletRouter(deps: ReceivingWalletMountDeps | und
     return { wallets, sql: deps.sql };
   };
   const teamMember = teamMemberCheck(() => need().sql);
-  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({
@@ -40,10 +39,11 @@ export function createReceivingWalletRouter(deps: ReceivingWalletMountDeps | und
         ({ ctx }) => wrapOps(async () => need().wallets.get(await callerOf(ctx))),
         payRefusal,
       ),
-      save: write
-        .input(receivingWalletSaveInputSchema)
-        .output(receivingWalletSavedSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().wallets.save(await callerOf(ctx), input))),
+      save: mountRecord(
+        PAY_MERCHANT_RECEIVING_WALLET_SAVE,
+        ({ ctx, input }) => wrapOps(async () => need().wallets.save(await callerOf(ctx), input)),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
       /** The business's money in its own wallet or with the partner, as the chain or the partner last reported it. */
       outsideFunds: mountRecord(
         PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,

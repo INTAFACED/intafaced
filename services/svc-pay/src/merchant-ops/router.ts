@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
+import { PAY_EXPORT_KINDS, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { anyScopeProcedure, router, signedInProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -49,7 +49,14 @@ import {
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  iso,
+  assetIdIn,
+  PAY_MERCHANT_OPS_EXPORTS_CREATE,
+  PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -99,8 +106,6 @@ export interface MerchantOpsDeps {
   readonly receiptPlaces?: ReceiptAssetPlaces;
 }
 
-const iso = z.string().datetime({ offset: true });
-const assetIdIn = z.string().trim().min(1).max(32);
 const note = z.string().trim().min(1).max(2000);
 
 function makeParts(deps: MerchantOpsDeps) {
@@ -392,11 +397,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             return need().team.acceptInvite(ctx.principal.userId, input.memberId);
           }),
         ),
-        declineInvite: exit.input(z.object({ memberId: id })).mutation(({ ctx, input }) =>
-          wrapOps(async () => {
-            if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
-            return need().team.declineInvite(ctx.principal.userId, input.memberId);
-          }),
+        declineInvite: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+          ({ ctx, input }) =>
+            wrapOps(async () => {
+              if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+              return need().team.declineInvite(ctx.principal.userId, input.memberId);
+            }),
+          { refusalOf: payRefusal, checks: { membershipExit } },
         ),
       }),
 
@@ -449,39 +457,9 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
       }),
 
       exports: router({
-        create: memberWrite
-          .input(
-            z.object({
-              requestId: id,
-              kind: z.enum(PAY_EXPORT_KINDS),
-              filters: z
-                .object({
-                  from: iso.optional(),
-                  to: iso.optional(),
-                  status: z.string().max(32).optional(),
-                  assetId: assetIdIn.optional(),
-                  amountMin: z.string().optional(),
-                  amountMax: z.string().optional(),
-                })
-                .strict()
-                .default({}),
-              columns: z
-                .array(z.string().regex(/^[a-z_]{1,64}$/))
-                .max(32)
-                .optional(),
-              /** M-rep-01: local days in a time zone; the server computes the UTC boundaries. Not combined with filters.from/to. */
-              period: z
-                .object({
-                  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-                  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-                  timeZone: z.string().trim().min(1).max(64),
-                })
-                .strict()
-                .optional(),
-            }),
-          )
-          .output(payExportJobSchema)
-          .mutation(({ ctx, input }) =>
+        create: mountRecord(
+          PAY_MERCHANT_OPS_EXPORTS_CREATE,
+          ({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
               const caller = await callerOf(ctx);
@@ -491,7 +469,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               if (result.created) kick(result.job.jobId, () => p.exports.process(result.job.jobId));
               return result.job;
             }),
-          ),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         /** M-rep-01: per kind, the date basis and the columns this caller's role may pick; formats offered. */
         options: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => reportOptions(await callerOf(ctx)))),
         list: read

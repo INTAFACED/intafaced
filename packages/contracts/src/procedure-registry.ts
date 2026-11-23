@@ -1541,6 +1541,17 @@ import {
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_CREATE,
+  PAY_MERCHANT_CATALOG_IMAGES_UPLOAD,
+  PAY_MERCHANT_CATALOG_PRICES_CREATE,
+  PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT,
+  PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_DELETE,
+  PAY_MERCHANT_CATALOG_PRICES_REPLACE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT,
+  PAY_MERCHANT_CATALOG_COPY,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 } from './pay-merchant-catalog-procedures.js';
 
 import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from './pay-merchant-checkout-procedures.js';
@@ -1565,7 +1576,12 @@ import {
   PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
 } from './pay-merchant-metrics-procedures.js';
 
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from './pay-merchant-ops-procedures.js';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_EXPORTS_CREATE,
+  PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+} from './pay-merchant-ops-procedures.js';
 
 import {
   PAY_MERCHANT_STARTER_FEE,
@@ -1589,7 +1605,10 @@ import {
 import {
   PAY_MERCHANT_RECEIVING_WALLET_GET,
   PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+  PAY_MERCHANT_RECEIVING_WALLET_SAVE,
 } from './pay-merchant-receiving-wallet-procedures.js';
+
+import { PAY_MERCHANT_STORES_ARCHIVE, PAY_MERCHANT_STORES_REOPEN } from './pay-merchant-stores-procedures.js';
 
 import { PAY_PAY_HALTS_STATUS } from './pay-pay-halts-procedures.js';
 
@@ -1603,6 +1622,8 @@ import {
   PAY_PAYMENT_REFUNDS_GET,
   PAY_PAYMENT_VIEWS_LIST,
   PAY_PAYMENT_REFUND,
+  PAY_PAYMENT_VIEWS_DELETE,
+  PAY_PAYMENT_UNMASK,
 } from './pay-payment-procedures.js';
 
 import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
@@ -3811,6 +3832,17 @@ const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_CREATE,
+  PAY_MERCHANT_CATALOG_IMAGES_UPLOAD,
+  PAY_MERCHANT_CATALOG_PRICES_CREATE,
+  PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT,
+  PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_DELETE,
+  PAY_MERCHANT_CATALOG_PRICES_REPLACE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT,
+  PAY_MERCHANT_CATALOG_COPY,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 ];
 
 const part_pay_merchant_checkout_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_CHECKOUT_BRANDING_GET];
@@ -3835,7 +3867,12 @@ const part_pay_merchant_metrics_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
 ];
 
-const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET];
+const part_pay_merchant_ops_procedures: readonly ProcedureRecord[] = [
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_EXPORTS_CREATE,
+  PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+];
 
 const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_STARTER_FEE,
@@ -3859,7 +3896,10 @@ const part_pay_merchant_procedures: readonly ProcedureRecord[] = [
 const part_pay_merchant_receiving_wallet_procedures: readonly ProcedureRecord[] = [
   PAY_MERCHANT_RECEIVING_WALLET_GET,
   PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS,
+  PAY_MERCHANT_RECEIVING_WALLET_SAVE,
 ];
+
+const part_pay_merchant_stores_procedures: readonly ProcedureRecord[] = [PAY_MERCHANT_STORES_ARCHIVE, PAY_MERCHANT_STORES_REOPEN];
 
 const part_pay_pay_halts_procedures: readonly ProcedureRecord[] = [PAY_PAY_HALTS_STATUS];
 
@@ -3873,6 +3913,8 @@ const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_REFUNDS_GET,
   PAY_PAYMENT_VIEWS_LIST,
   PAY_PAYMENT_REFUND,
+  PAY_PAYMENT_VIEWS_DELETE,
+  PAY_PAYMENT_UNMASK,
 ];
 
 const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];
@@ -4695,6 +4737,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_merchant_ops_procedures,
   ...part_pay_merchant_procedures,
   ...part_pay_merchant_receiving_wallet_procedures,
+  ...part_pay_merchant_stores_procedures,
   ...part_pay_pay_halts_procedures,
   ...part_pay_payment_procedures,
   ...part_pay_rail_health_procedures,

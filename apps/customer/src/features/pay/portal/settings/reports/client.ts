@@ -2,10 +2,11 @@ import type { SettingsBTools } from '../b-client';
 import { tolerantPage } from '../b-shared';
 import { pagedResult } from '../../ui/page';
 import * as s from './schemas';
+import { PAY_MERCHANT_OPS_EXPORTS_CREATE } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export type ExportFilter = { kind?: string; status?: string; from?: string; to?: string; search?: string };
 
-export const reportsApi = ({ query, mutate }: SettingsBTools) => ({
+export const reportsApi = ({ query, mutate, mutateRecord }: SettingsBTools) => ({
   reportJobs: async (cursor: string | undefined, f: ExportFilter, signal?: AbortSignal) =>
     pagedResult(
       await query(
@@ -25,10 +26,10 @@ export const reportsApi = ({ query, mutate }: SettingsBTools) => ({
     ),
   reportRequest: (input: {
     requestId: string;
-    kind: string;
+    kind: s.ExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
     columns?: string[];
-  }) => mutate('merchantOps.exports.create', input, s.exportJobSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_EXPORTS_CREATE, input),
   reportDownload: (jobId: string) => query('merchantOps.exports.download', { jobId }, s.exportDownloadSchema),
   reportDelete: (jobId: string) => mutate('merchantOps.exports.expire', { jobId }, s.exportJobSchema),
   /** Names for "requested by": the team list gives a label per person. */

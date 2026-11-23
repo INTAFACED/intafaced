@@ -11,7 +11,11 @@ import {
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
 } from '@intafaced/contracts/pay-merchant-procedures';
-import { PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_EXPORTS_CREATE,
+  PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryRecord, mutateRecord }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
@@ -52,7 +56,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
   acceptInvite: (memberId: string) => mutate('merchantOps.team.acceptInvite', { memberId }, p.memberSchema),
   permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
-  declineInvite: (memberId: string) => mutate('merchantOps.team.declineInvite', { memberId }, z.object({ declined: z.literal(true) })),
+  declineInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE, { memberId }),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
     list(
       'merchantOps.exports.list',
@@ -64,7 +68,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
     requestId: string;
     kind: p.ExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
-  }) => mutate('merchantOps.exports.create', input, p.exportJobSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_EXPORTS_CREATE, input),
   exportDownload: (jobId: string) => query('merchantOps.exports.download', { jobId }, p.exportDownloadSchema),
   notifications: (cursor: string | undefined, unreadOnly: boolean, kind: string, signal?: AbortSignal) =>
     list(

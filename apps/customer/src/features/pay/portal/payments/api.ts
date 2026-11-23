@@ -1,23 +1,22 @@
 import { z } from 'zod';
-import {
-  paymentUnmaskedSchema,
-  paymentViewDeletedSchema,
-  paymentViewSchema,
-  type PaymentViewColumn,
-  type PaymentViewFilters,
-} from '@intafaced/contracts/pay-payment-views';
+import { paymentViewSchema, type PaymentViewColumn, type PaymentViewFilters } from '@intafaced/contracts/pay-payment-views';
 import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../../schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
-import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
+import {
+  PAY_PAYMENT_VIEWS_LIST,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_VIEWS_DELETE,
+  PAY_PAYMENT_UNMASK,
+} from '@intafaced/contracts/pay-payment-procedures';
 import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import { PAY_SUBSCRIPTION_PRODUCT_READY, PAY_SUBSCRIPTION_CYCLES } from '@intafaced/contracts/pay-subscription-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query(
       'subscription.list',
@@ -202,8 +201,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     filters: PaymentViewFilters;
     columns: PaymentViewColumn[];
   }) => mutate('payment.views.create', input, paymentViewSchema),
-  deletePaymentView: (viewId: string) => mutate('payment.views.delete', { viewId }, paymentViewDeletedSchema),
-  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) =>
-    mutate('payment.unmask', input, paymentUnmaskedSchema),
+  deletePaymentView: (viewId: string) => mutateRecord(PAY_PAYMENT_VIEWS_DELETE, { viewId }),
+  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) => mutateRecord(PAY_PAYMENT_UNMASK, input),
   paymentHistory: (paymentId: string, signal?: AbortSignal) => queryRecord(PAY_PAYMENT_HISTORY, { paymentId, limit: 200 }, signal),
 });

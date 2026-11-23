@@ -1,36 +1,13 @@
 import type { Sql } from 'postgres';
 import {
-  catalogCopyInputSchema,
-  catalogCopySchema,
   priceChoicesInputSchema,
   priceChoicesSchema,
-  priceCreateInputSchema,
   priceQuoteInputSchema,
   priceQuoteSchema,
-  priceReplaceInputSchema,
-  priceReplaceSchema,
-  priceSchema,
-  priceSetDefaultInputSchema,
-  productCreateInputSchema,
-  productDeletedSchema,
-  productIdInputSchema,
-  productImageSchema,
-  productImageUploadInputSchema,
-  productImportInputSchema,
-  productImportSchema,
   productListInputSchema,
   productListSchema,
-  productSchema,
 } from '@intafaced/contracts/merchant-catalog';
-import {
-  productAvailabilitySchema,
-  productAvailabilitySetInputSchema,
-  storeCreateInputSchema,
-  storeIdInputSchema,
-  storeListInputSchema,
-  storeListSchema,
-  storeSchema,
-} from '@intafaced/contracts/merchant-stores';
+import { storeCreateInputSchema, storeListInputSchema, storeListSchema, storeSchema } from '@intafaced/contracts/merchant-stores';
 import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
@@ -52,9 +29,21 @@ import {
   PAY_MERCHANT_CATALOG_PRICES_USAGE,
   PAY_MERCHANT_CATALOG_PRICES_GET,
   PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+  PAY_MERCHANT_CATALOG_PRODUCTS_CREATE,
+  PAY_MERCHANT_CATALOG_IMAGES_UPLOAD,
+  PAY_MERCHANT_CATALOG_PRICES_CREATE,
+  PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT,
+  PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_DELETE,
+  PAY_MERCHANT_CATALOG_PRICES_REPLACE,
+  PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT,
+  PAY_MERCHANT_CATALOG_COPY,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
 } from '@intafaced/contracts/pay-merchant-catalog-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
+import { PAY_MERCHANT_STORES_ARCHIVE, PAY_MERCHANT_STORES_REOPEN } from '@intafaced/contracts/pay-merchant-stores-procedures';
 
 export interface CatalogMountDeps {
   readonly sql: Sql;
@@ -98,26 +87,31 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           ({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId)),
           payRefusal,
         ),
-        create: write
-          .input(productCreateInputSchema)
-          .output(z.object({ product: productSchema, replayed: z.boolean() }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input))),
-        archive: write
-          .input(productIdInputSchema)
-          .output(productSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.setStatus(await callerOf(ctx), input.productId, 'archived'))),
-        unarchive: write
-          .input(productIdInputSchema)
-          .output(productSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.setStatus(await callerOf(ctx), input.productId, 'active'))),
-        delete: write
-          .input(productIdInputSchema)
-          .output(productDeletedSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.delete(await callerOf(ctx), input.productId))),
-        import: write
-          .input(productImportInputSchema)
-          .output(productImportSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().imports.run(await callerOf(ctx), input))),
+        create: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_CREATE,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        archive: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_ARCHIVE,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.setStatus(await callerOf(ctx), input.productId, 'archived')),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        unarchive: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_UNARCHIVE,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.setStatus(await callerOf(ctx), input.productId, 'active')),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        delete: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_DELETE,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.delete(await callerOf(ctx), input.productId)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        import: mountRecord(
+          PAY_MERCHANT_CATALOG_PRODUCTS_IMPORT,
+          ({ ctx, input }) => wrapOps(async () => need().imports.run(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
       }),
       prices: router({
         list: mountRecord(
@@ -125,18 +119,21 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           ({ ctx, input }) => wrapOps(async () => need().prices.list(await callerOf(ctx), input)),
           payRefusal,
         ),
-        create: write
-          .input(priceCreateInputSchema)
-          .output(z.object({ price: priceSchema, replayed: z.boolean() }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.create(await callerOf(ctx), input))),
-        setDefault: write
-          .input(priceSetDefaultInputSchema)
-          .output(priceSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.setDefault(await callerOf(ctx), input))),
-        replace: write
-          .input(priceReplaceInputSchema)
-          .output(priceReplaceSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.replace(await callerOf(ctx), input))),
+        create: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_CREATE,
+          ({ ctx, input }) => wrapOps(async () => need().prices.create(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        setDefault: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_SET_DEFAULT,
+          ({ ctx, input }) => wrapOps(async () => need().prices.setDefault(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        replace: mountRecord(
+          PAY_MERCHANT_CATALOG_PRICES_REPLACE,
+          ({ ctx, input }) => wrapOps(async () => need().prices.replace(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         get: mountRecord(
           PAY_MERCHANT_CATALOG_PRICES_GET,
           ({ ctx, input }) => wrapOps(async () => need().prices.get(await callerOf(ctx), input.priceId)),
@@ -162,25 +159,28 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           ({ ctx, input }) => wrapOps(async () => need().availability.get(await callerOf(ctx), input.productId)),
           payRefusal,
         ),
-        set: write
-          .input(productAvailabilitySetInputSchema)
-          .output(productAvailabilitySchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().availability.set(await callerOf(ctx), input))),
+        set: mountRecord(
+          PAY_MERCHANT_CATALOG_AVAILABILITY_SET,
+          ({ ctx, input }) => wrapOps(async () => need().availability.set(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
       }),
-      copy: write
-        .input(catalogCopyInputSchema)
-        .output(catalogCopySchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().copier.copy(await callerOf(ctx), input))),
+      copy: mountRecord(
+        PAY_MERCHANT_CATALOG_COPY,
+        ({ ctx, input }) => wrapOps(async () => need().copier.copy(await callerOf(ctx), input)),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
       images: router({
         rules: mountRecord(
           PAY_MERCHANT_CATALOG_IMAGES_RULES,
           ({ ctx }) => wrapOps(async () => need().catalog.imageRules(await callerOf(ctx))),
           payRefusal,
         ),
-        upload: write
-          .input(productImageUploadInputSchema)
-          .output(productImageSchema)
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.uploadImage(await callerOf(ctx), input))),
+        upload: mountRecord(
+          PAY_MERCHANT_CATALOG_IMAGES_UPLOAD,
+          ({ ctx, input }) => wrapOps(async () => need().catalog.uploadImage(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         get: mountRecord(
           PAY_MERCHANT_CATALOG_IMAGES_GET,
           ({ ctx, input }) => wrapOps(async () => need().catalog.image(await callerOf(ctx), input.imageId)),
@@ -198,14 +198,16 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
         .input(storeCreateInputSchema)
         .output(z.object({ store: storeSchema, replayed: z.boolean() }).strict())
         .mutation(({ ctx, input }) => wrapOps(async () => need().stores.create(await callerOf(ctx), input))),
-      archive: write
-        .input(storeIdInputSchema)
-        .output(storeSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().stores.setStatus(await callerOf(ctx), input.storeId, 'archived'))),
-      reopen: write
-        .input(storeIdInputSchema)
-        .output(storeSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().stores.setStatus(await callerOf(ctx), input.storeId, 'active'))),
+      archive: mountRecord(
+        PAY_MERCHANT_STORES_ARCHIVE,
+        ({ ctx, input }) => wrapOps(async () => need().stores.setStatus(await callerOf(ctx), input.storeId, 'archived')),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
+      reopen: mountRecord(
+        PAY_MERCHANT_STORES_REOPEN,
+        ({ ctx, input }) => wrapOps(async () => need().stores.setStatus(await callerOf(ctx), input.storeId, 'active')),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
     }),
   });
 }

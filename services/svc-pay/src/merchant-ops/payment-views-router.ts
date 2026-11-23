@@ -1,13 +1,9 @@
 import type { Sql } from 'postgres';
 import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import {
-  paymentUnmaskedSchema,
-  paymentUnmaskInputSchema,
   paymentUnmaskReadPageSchema,
   paymentUnmaskReadsInputSchema,
   paymentViewCreateInputSchema,
-  paymentViewDeletedSchema,
-  paymentViewDeleteInputSchema,
   paymentViewSchema,
   paymentViewUpdateInputSchema,
 } from '@intafaced/contracts/pay-payment-views';
@@ -16,7 +12,7 @@ import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
 import { PaymentPrivacy, PaymentViews } from './payment-views.js';
 import { resolveMerchantCaller } from './roles.js';
-import { PAY_PAYMENT_VIEWS_LIST } from '@intafaced/contracts/pay-payment-procedures';
+import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_VIEWS_DELETE, PAY_PAYMENT_UNMASK } from '@intafaced/contracts/pay-payment-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
 
@@ -52,16 +48,17 @@ export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivac
         .input(paymentViewUpdateInputSchema)
         .output(paymentViewSchema)
         .mutation(({ ctx, input }) => wrapOps(async () => need().views.update(await callerOf(ctx), input))),
-      delete: write
-        .input(paymentViewDeleteInputSchema)
-        .output(paymentViewDeletedSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().views.remove(await callerOf(ctx), input))),
+      delete: mountRecord(
+        PAY_PAYMENT_VIEWS_DELETE,
+        ({ ctx, input }) => wrapOps(async () => need().views.remove(await callerOf(ctx), input)),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
     }),
     /** One clear payer detail, with a reason, written to the audit first. */
-    unmask: write
-      .input(paymentUnmaskInputSchema)
-      .output(paymentUnmaskedSchema)
-      .mutation(({ ctx, input }) => wrapOps(async () => need().privacy.unmask(await callerOf(ctx), input))),
+    unmask: mountRecord(PAY_PAYMENT_UNMASK, ({ ctx, input }) => wrapOps(async () => need().privacy.unmask(await callerOf(ctx), input)), {
+      refusalOf: payRefusal,
+      checks: { teamMember },
+    }),
     /** The audit of clear values shown: who, which payment, which field, why. Owner and admins. */
     unmaskReads: read
       .input(paymentUnmaskReadsInputSchema)

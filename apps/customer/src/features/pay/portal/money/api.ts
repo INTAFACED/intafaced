@@ -2,9 +2,9 @@ import { merchantLimitIncreaseResultSchema, merchantTierListSchema, type PayCap 
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
 import {
   payDestinationAddOutputSchema,
-  payExportJobSchema,
   payPayoutListItemSchema,
   payRefundItemSchema,
+  type PayExportKind,
 } from '@intafaced/contracts/pay-portal-reads';
 import { z } from 'zod';
 import * as p from '../schemas';
@@ -44,6 +44,7 @@ import {
   PAY_CONVERSION_QUOTE,
   PAY_CONVERSION_EXECUTE,
 } from '@intafaced/contracts/pay-conversion-procedures';
+import { PAY_MERCHANT_OPS_EXPORTS_CREATE } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /** The filters a list sends to the service. A blank one is left out, never sent empty. */
 export type ListQuery = { status?: string; assetId?: string; from?: string; to?: string; search?: string };
@@ -157,7 +158,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
   // ---- exports -------------------------------------------------------------------------------------
   moneyExportCreate: (input: {
     requestId: string;
-    kind: string;
+    kind: PayExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
-  }) => mutate('merchantOps.exports.create', input, payExportJobSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_EXPORTS_CREATE, input),
 });
