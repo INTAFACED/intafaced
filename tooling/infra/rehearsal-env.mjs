@@ -73,13 +73,14 @@ export const TEST_STAND_INS = {
 
 /**
  * Production posture refuses the local chain (.env.example's Anvil, chain 31337), and the beta posture runs TEST networks
- * only: the rehearsal points the protocol and the indexer at the public Base Sepolia testnet's own endpoint. Always set.
+ * only. The rehearsal names the Base Sepolia chain id with an endpoint under `.invalid` (RFC 2606, never resolves), so the
+ * protocol and the indexer boot on testnet settings and CI reaches no outside service. Always set.
  */
 export const TEST_NETWORK = {
   PROTOCOL_CHAIN_ID: '84532',
-  PROTOCOL_RPC_URL: 'https://sepolia.base.org',
-  INDEXER_RPC_URL: 'https://sepolia.base.org',
-  // A public contract that exists on every chain (the ERC-4337 v0.7 EntryPoint), so the indexer has real logs to read.
+  PROTOCOL_RPC_URL: 'https://base-sepolia-rpc.invalid',
+  INDEXER_RPC_URL: 'https://base-sepolia-rpc.invalid',
+  // A public contract's address (the ERC-4337 v0.7 EntryPoint), not the zero address the indexer refuses.
   INDEXER_VENUE_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
   // The example's addresses are what a fresh Anvil deploy produces; on a testnet they are no deployment of ours, so they
   // stay blank and the protocol refuses its chain paths with a typed answer.
@@ -148,10 +149,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const { env, roles, generated, standIns } = rehearsalEnv({
     example: readFileSync(join(ROOT, '.env.example'), 'utf8'),
     compose: readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8'),
-    extra: {
-      INTAFACED_SANCTIONS_REGIONS: process.env.INTAFACED_SANCTIONS_REGIONS,
-      INTAFACED_SANCTIONS_LIST_SOURCE: process.env.INTAFACED_SANCTIONS_LIST_SOURCE,
-    },
   });
   // Actions masks a registered value wherever it would appear later in this job's public log.
   if (process.env.GITHUB_ACTIONS === 'true') for (const name of generated) console.log(`::add-mask::${env.get(name)}`);

@@ -5,8 +5,9 @@
 # stack, and staging-deploy.yml needs a host that has not been bought. So this is how anyone knows the hosted stack
 # starts. It reaches no host, holds no deploy credential, and is not a required check.
 #
-# Every secret the stack needs is made fresh on the runner (tooling/infra/rehearsal-env.mjs) and dies with it; only
-# names are printed, and no container log is, since this repository's Actions logs are public.
+# Every secret the stack needs is made fresh on the runner (tooling/infra/rehearsal-env.mjs), masked, and dies with it.
+# No repository secret is read, and no outside service is called: the chain and mail endpoints are `.invalid` names.
+# A bad container's last log lines are printed with hex runs and URL credentials masked.
 #
 # Each run also proves its own health gate: it swaps one service onto an image broken on purpose and requires the
 # gate to name that service and fail. A gate that passes a broken image fails the run.
@@ -49,10 +50,8 @@ jobs:
         with:
           persist-credentials: false
 
+      # No repository secret is read: every value is made here, and the owner's screening list stays unset.
       - name: Settings made on the runner
-        env:
-          INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
-          INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
         run: node tooling/infra/rehearsal-env.mjs .env "$RUNNER_TEMP/roles.sql"
 
       - name: Build every image
@@ -95,9 +94,10 @@ jobs:
           echo "sign-in with an unknown name answered $status $code"
           # A refusal to a made-up sign-in carries no secret; its first lines say which layer answered.
           printf '%s' "$body" | sed '$d' | cut -c1-600
-          # Identity answered through the site and the edge, with its own typed refusal for a wrong sign-in.
+          # Identity answered through the site and the edge with its own typed refusal: with no screening list set (the
+          # owner's, which this run never reads), every sign-in is paused, exactly as on a host before the owner sets it.
           case "$code" in
-            auth.invalid_credentials) ;;
+            identity.screening_unset) ;;
             *) echo "::error::sign-in did not reach identity's typed refusal"; exit 1 ;;
           esac
 
