@@ -54,6 +54,39 @@ describe('Where you stand: each figure’s state and the total’s time', () => 
     expect(html).toContain('data-total-usd="510.00"');
     expect(html).toMatch(new RegExp(`data-testid="standing-as-of" data-held="stale"[^]*dateTime="${OLD}"`));
   });
+  it('a part with nothing priced shows each amount as its source reports it, and each line of a part is one element', () => {
+    const html = draw([
+      {
+        id: 'venue',
+        label: 'TEST venue',
+        read: {
+          state: 'read',
+          asOf: FRESH,
+          rows: [
+            { asset: 'BTC', amount: '0.00000123' },
+            { asset: 'TWIN', amount: '0.0000006' },
+          ],
+        },
+      },
+    ]);
+    const venue = html.slice(html.indexOf('data-part="venue"'));
+    const li = venue.slice(0, venue.indexOf('</li>'));
+    expect(li).toMatch(/data-testid="standing-part-amounts"[^>]*>0\.00000123 BTC, 0\.0000006 TWIN</);
+    expect(li).toContain('Not valued: no published price');
+    // The row stacks its children (.lt-rows > li), so the li holds elements only: no text of its own, such as a bare
+    // separator, which would stand on a line by itself.
+    const own = [];
+    let depth = 0;
+    for (const piece of li
+      .slice(li.indexOf('>') + 1)
+      .replaceAll('<!-- -->', '')
+      .split(/(<[^>]+>)/)) {
+      if (piece.startsWith('</')) depth -= 1;
+      else if (piece.startsWith('<')) depth += piece.endsWith('/>') ? 0 : 1;
+      else if (depth === 0 && piece.trim()) own.push(piece);
+    }
+    expect(own).toEqual([]);
+  });
   it('with every part fresh, the total is known at its oldest part’s time', () => {
     const older = new Date(NOW - 10_000).toISOString();
     const html = draw([
