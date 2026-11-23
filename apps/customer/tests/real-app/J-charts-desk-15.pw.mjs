@@ -291,6 +291,7 @@ async function usdc(owner) {
 
 test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-styled line, and no order until Place and Confirm`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   await startsLine(browser);
@@ -325,9 +326,12 @@ test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-s
   expect((await usdc(owner)).locked).toBe(0n);
   await expect(orderLines()).toHaveCount(0);
   expect(await ledgerView(s.account)).toEqual(s.ledger);
+  await stepPicture(page);
 });
 
-test(`${J} #2 creates an order at a price from the price-axis plus button or the context menu: the ticket opens at that price`, async () => {
+test(`${J} #2 creates an order at a price from the price-axis plus button or the context menu: the ticket opens at that price`, async ({
+  stepPicture,
+}) => {
   const s = state();
   const owner = ownerOf(s);
   const door = doorCalls();
@@ -356,9 +360,12 @@ test(`${J} #2 creates an order at a price from the price-axis plus button or the
   expect(door.sent()).toEqual([]);
   expect(signatures()).toBe(0);
   expect(await venueOpen(owner, s.symbol)).toEqual([]);
+  await stepPicture(page);
 });
 
-test(`${J} #3 confirms: the order shows as a line with its size, and a retry sends the same key and creates one order`, async () => {
+test(`${J} #3 confirms: the order shows as a line with its size, and a retry sends the same key and creates one order`, async ({
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   const s = state();
   const owner = ownerOf(s);
@@ -425,25 +432,52 @@ test(`${J} #3 confirms: the order shows as a line with its size, and a retry sen
   await expect(line).toContainText(`Buy ${AMOUNT}`);
   run.write({ order: order.venueClientOrderId });
   expect(await ledgerView(s.account)).toEqual(s.ledger);
+  await stepPicture(page);
 });
 
-test(`${J} #4 drags the order line to a new price: a review of the replacement, and the old order is cancelled only on confirm`, async () => {
+test(`${J} #4 drags the order line to a new price: a review of the replacement, and the old order is cancelled only on confirm`, async ({
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   const s = state();
   const owner = ownerOf(s);
   const before = await usdc(owner);
   const door = doorCalls();
+  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await dragLineTo(orderLines().first(), INSIDE);
+  const venuePreview = (await (await preview).json()).value;
   const review = page.getByRole('dialog', { name: 'Review the replacement' });
   await expect(review).toBeVisible({ timeout: 20_000 });
-  await expect(review).toContainText('cancelled only when you confirm');
+  await expect(review).toContainText('The order at the old price is cancelled only when you confirm the new one');
   // Only the venue's preview of the replacement: nothing prepared, signed or sent; the old order rests, its lock untouched.
   await page.waitForTimeout(1000);
   expect(door.sent().map((c) => c.path)).toEqual(['preview']);
   const replacement = door.of('preview')[0].body.intent;
+  // The review names the replacement: the same buy of the same size, from the resting order's price to the dragged one
+  // (the price previewed, to a tick or two of the pixel), and what the venue would lock for it, from its own preview.
+  const [old] = await venueOpen(owner, s.symbol);
+  const line = (await review.locator('p').first().textContent()).trim();
+  const named = line.match(/^Replace (Buy|Sell) ([\d,.]+) (\S+) at ([\d,.]+) with the same order at ([\d,.]+)\.$/);
+  expect(named, line).not.toBeNull();
+  const [, side, amount, asset, from, to] = named;
+  const plain = (x) => x.replaceAll(',', '');
+  expect(side).toBe('Buy');
+  expect(sameDecimal(plain(amount), AMOUNT)).toBe(true);
+  expect(asset).toBe(s.symbol.split('-')[0]);
+  expect(sameDecimal(plain(from), old.price) && sameDecimal(plain(from), BELOW)).toBe(true);
+  expect(sameDecimal(plain(to), replacement.price)).toBe(true);
+  expect(Math.abs(Number(plain(to)) - Number(INSIDE))).toBeLessThanOrEqual(0.2);
+  expect(replacement).toMatchObject({ side: 'buy', type: 'limit' });
+  expect(sameDecimal(replacement.amount, AMOUNT)).toBe(true);
+  const lock = review.getByTestId('chart-move-lock');
+  await expect(lock).toHaveAttribute('data-lock', venuePreview.lock.amount);
+  await expect(lock).toContainText(` ${venuePreview.lock.asset}`);
+  expect(venuePreview.lock.asset).toBe('USDC');
   expect(signatures()).toBe(1);
   expect((await venueOpen(owner, s.symbol)).map((o) => o.venueClientOrderId)).toEqual([s.order]);
   expect(await usdc(owner)).toEqual(before);
+  // The step's screen is the review itself, before Confirm closes it.
+  await stepPicture(page);
   await review.getByRole('button', { name: 'Confirm' }).click();
   await continueInWallet(page);
   await expect(page.getByTestId('chart-trading-note')).toContainText('The order now rests at', { timeout: 20_000 });
@@ -473,7 +507,9 @@ test(`${J} #4 drags the order line to a new price: a review of the replacement, 
   expect(await ledgerView(s.account)).toEqual(s.ledger);
 });
 
-test(`${J} #5 drags beyond the protection distance: a confirmation naming the distance before anything is sent`, async () => {
+test(`${J} #5 drags beyond the protection distance: a confirmation naming the distance before anything is sent`, async ({
+  stepPicture,
+}) => {
   const s = state();
   const owner = ownerOf(s);
   const before = await usdc(owner);
@@ -496,6 +532,8 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   await page.waitForTimeout(1000);
   expect(door.sent()).toEqual([]);
   expect(signatures()).toBe(2);
+  // The step's screen is the confirmation itself, before Cancel closes it.
+  await stepPicture(page);
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(ask).toHaveCount(0);
   const open = await venueOpen(owner, s.symbol);
@@ -504,7 +542,9 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   expect(await usdc(owner)).toEqual(before);
 });
 
-test(`${J} #6 opens the chart of a halted market: order entry on the chart is disabled with the refusal naming the halt`, async () => {
+test(`${J} #6 opens the chart of a halted market: order entry on the chart is disabled with the refusal naming the halt`, async ({
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   const s = state();
   const owner = ownerOf(s);
@@ -530,6 +570,7 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
     expect(door.sent()).toEqual([]);
     expect(signatures()).toBe(2);
     expect(await venueOpen(owner, s.halted)).toEqual([]);
+    await stepPicture(page);
   } finally {
     await testVenue('/test/market-status', { symbol: s.halted, status: 'trading' });
   }
