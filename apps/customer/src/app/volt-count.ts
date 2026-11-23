@@ -388,7 +388,7 @@ export function voltCount(source: VoltSource = APP_SOURCE): VoltCount {
 export const intoVoltLayer = (env: Record<string, string | undefined> = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
 
 /** Whether a room is drawn on its template from the kit: in Volt, or a placeholder there. */
-export const onKit = (room: VoltRoom) => room.state === 'volt' || room.state === 'placeholder';
+const onKit = (room: VoltRoom) => room.state === 'volt' || room.state === 'placeholder';
 
 /**
  * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room off the kit that the
