@@ -144,6 +144,11 @@ pub trait HoldReads {
     fn quote(&self, _asset_id: &str, _settlement: &str) -> Option<Result<Option<Quote>, Refusal>> {
         None
     }
+    /// What the partner captured for this cardholder in this asset, `Ok(None)` when it reports no book for them;
+    /// `None` for a partner without the read.
+    fn captured(&self, _user_id: &str, _asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        None
+    }
 }
 
 /// `partnerCardKey('hold', authorizationId)`: our id, never the network's reference.
@@ -343,6 +348,21 @@ impl HoldReads for TestCardHolds<'_> {
             available: figures.as_ref().map(|f| f.0.clone()),
             held: figures.map(|f| f.1),
         })
+    }
+
+    /// `captured`: every hold's captured part, once the partner keeps a book for this cardholder and asset.
+    fn captured(&self, user_id: &str, asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        let mut book = self.lock();
+        if book.book_of(self.terms, user_id, asset_id).is_none() {
+            return Some(Ok(None));
+        }
+        let sum: Amount = book
+            .holds
+            .values()
+            .filter(|h| h.user_id == user_id && h.asset_id == asset_id)
+            .map(|h| h.captured)
+            .sum();
+        Some(Ok(Some(format_amount(sum))))
     }
 
     fn hold_state(&self, hold_key: &str) -> Result<Option<HoldReport>, Refusal> {

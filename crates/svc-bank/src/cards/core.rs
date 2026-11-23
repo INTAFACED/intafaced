@@ -113,7 +113,7 @@ pub fn held_count(
     Ok(row.get(0))
 }
 
-fn assert_under_count(
+pub(crate) fn assert_under_count(
     c: &mut impl GenericClient,
     user_id: &str,
     card_type: &str,
