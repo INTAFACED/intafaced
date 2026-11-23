@@ -57,7 +57,7 @@ export const BETA_LINK = `http://localhost:${3210 + 1000 * BETA_SLOT}/`;
 /** The TEST mailbox page: the codes and links the beta stack "mails" into its LOCAL-TEST outbox file. */
 export const MAILBOX_PORT = 6290;
 const MAILBOX_LINK = `http://localhost:${MAILBOX_PORT}/`;
-/** The stack's own banner text (local-test-stack.mjs BANNER_TEXT); the page must carry it. */
+/** The TEST banner's words (apps/customer/deployment/test-banner.mjs BANNER_TEXT); the page must carry them. */
 const BANNER_MARK = 'TEST FUNDS';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 /**
