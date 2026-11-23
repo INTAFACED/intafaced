@@ -46,7 +46,7 @@ async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000
   const app = buildMailboxRelay({ sql: db.sql, credential, sendUrl: 'https://mailbox.fixture/send', sendToken, timeoutMs, fetchImpl });
   const url = await app.listen({ port: 0, host: '127.0.0.1' });
   resources.push(() => app.close());
-  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: 2000 }) };
+  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: timeoutMs + 1000 }) };
 }
 function envelope() {
   return {
@@ -102,39 +102,66 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
   afterAll(async () => {
     for (const db of [first, restored, independent]) await db?.drop();
   }, 30_000);
-  it('replays one immutable business request after actual old guest backup restore without another mailbox attempt', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'intafaced-mail-relay-restore-'));
-    try {
-      const archive = join(dir, 'before-enqueue.dump');
-      await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
-      const wire = await upstream();
-      const gateway = await relay(independent, wire.fetchImpl);
-      const input = {
-        businessKey: `acknowledgement:${randomUUID()}`,
-        contactId: randomUUID(),
-        submissionId: randomUUID(),
-        recipientEmail: 'local-proof@example.invalid',
-        message: { kind: 'enquiry_acknowledgement' as const },
-      };
-      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 2500 }).send(input);
-      expect(original.status).toBe('accepted');
-      await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
-      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 2500 }).send(input);
-      expect(recovered.notificationId).not.toBe(original.notificationId);
-      expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
-      expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
-      expect(wire.messages).toHaveLength(1);
-      expect(wire.messages[0]).toEqual({
-        to: [input.recipientEmail],
-        displayName: 'INTAFACED',
-        subject: 'Your INTAFACED enquiry',
-        text: 'Thanks for your interest in INTAFACED. We’ve received your contact details. The team reviews enquiries before arranging calls.',
-      });
-      expect(wire.authorization).toEqual([`Bearer ${sendToken}`]);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+  // Timing is not what this test proves. The loaded-runner variant holds each claim in SQL for 1.5 s, the shape of a cold
+  // first send on a busy runner, and the replay must still be accepted once with no second mailbox attempt.
+  it.each([
+    ['an idle runner', 0],
+    ['a loaded runner (each claim held 1.5 s in SQL)', 1500],
+  ] as const)(
+    'replays one immutable business request after actual old guest backup restore without another mailbox attempt: %s',
+    async (_runner, slowClaimMs) => {
+      const dir = await mkdtemp(join(tmpdir(), 'intafaced-mail-relay-restore-'));
+      try {
+        const archive = join(dir, 'before-enqueue.dump');
+        await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
+        if (slowClaimMs) {
+          const pause = `CREATE FUNCTION notify.test_slow_claim() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+          PERFORM pg_sleep(${slowClaimMs / 1000}); RETURN NEW; END $$;`;
+          await first.sql.unsafe(`${pause} CREATE TRIGGER zz_test_slow_claim BEFORE UPDATE ON notify.guest_notifications FOR EACH ROW
+          WHEN (NEW.status = 'attempting') EXECUTE FUNCTION notify.test_slow_claim();`);
+          await independent.sql.unsafe(`${pause} CREATE TRIGGER zz_test_slow_claim BEFORE INSERT ON notify.mailbox_relay_receipts
+          FOR EACH ROW EXECUTE FUNCTION notify.test_slow_claim();`);
+          resources.push(async () => {
+            await first.sql.unsafe(
+              'DROP TRIGGER zz_test_slow_claim ON notify.guest_notifications; DROP FUNCTION notify.test_slow_claim();',
+            );
+            await independent.sql.unsafe(
+              'DROP TRIGGER zz_test_slow_claim ON notify.mailbox_relay_receipts; DROP FUNCTION notify.test_slow_claim();',
+            );
+          });
+        }
+        const wire = await upstream();
+        // Each budget sits inside the one above it (relay 5 s < channel 6 s < guest 7 s), and the guest lease leaves the
+        // claim 13 s of slack, so a slow claim spends slack, not the delivery budget.
+        const gateway = await relay(independent, wire.fetchImpl, 5000);
+        const guest = { timeoutMs: 7000, leaseMs: 20_000 };
+        const input = {
+          businessKey: `acknowledgement:${randomUUID()}`,
+          contactId: randomUUID(),
+          submissionId: randomUUID(),
+          recipientEmail: 'local-proof@example.invalid',
+          message: { kind: 'enquiry_acknowledgement' as const },
+        };
+        const original = await new GuestNotificationService(first.sql, gateway.email, guest).send(input);
+        expect(original.status).toBe('accepted');
+        await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
+        const recovered = await new GuestNotificationService(restored.sql, gateway.email, guest).send(input);
+        expect(recovered.notificationId).not.toBe(original.notificationId);
+        expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
+        expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
+        expect(wire.messages).toHaveLength(1);
+        expect(wire.messages[0]).toEqual({
+          to: [input.recipientEmail],
+          displayName: 'INTAFACED',
+          subject: 'Your INTAFACED enquiry',
+          text: 'Thanks for your interest in INTAFACED. We’ve received your contact details. The team reviews enquiries before arranging calls.',
+        });
+        expect(wire.authorization).toEqual([`Bearer ${sendToken}`]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
   it('serializes simultaneous attempts, rejects changed delivery, and stores only opaque receipts', async () => {
     const entered = gate(),
       release = gate();
