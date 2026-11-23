@@ -34,7 +34,7 @@
 <p>Every authentication and permission refusal a call to the trading REST API (/api/v1) can answer with. Branch on the code; the detail code names the decision behind it.</p>
 <section aria-labelledby="dev-auth-errors">
 <h2 id="dev-auth-errors">Authentication and permission errors</h2>
-<table class="lt-table" data-testid="auth-errors-catalogue">
+<table class="lt-table" data-stack="always" data-testid="auth-errors-catalogue">
 <thead>
 <tr>
 <th scope="col">Code</th>
@@ -51,80 +51,80 @@
 <th scope="row">
 <code>AuthenticationError</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.required</code>
 </td>
-<td>Error: change the request</td>
-<td>Authentication</td>
-<td>No key was sent: the Authorization header is missing.<small> Answered by the trading service, in its CCXT dialect.</small>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Authentication</td>
+<td data-label="Cause">No key was sent: the Authorization header is missing.<small> Answered by the trading service, in its CCXT dialect.</small>
 </td>
-<td>Send the key as Authorization: Bearer followed by the key.</td>
+<td data-label="What to do">Send the key as Authorization: Bearer followed by the key.</td>
 </tr>
 <tr id="edge.api_key_denied" data-cause="denied" data-code="edge.api_key_denied" data-severity="error" data-category="authentication">
 <th scope="row">
 <code>edge.api_key_denied</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.api_key_denied</code>
 </td>
-<td>Error: change the request</td>
-<td>Authentication</td>
-<td>The key is wrong: no live key matches it, or a restriction on the key (origin, IP address, product or account) refused this call.</td>
-<td>Check the key string, then the key’s restrictions on the keys page.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Authentication</td>
+<td data-label="Cause">The key is wrong: no live key matches it, or a restriction on the key (origin, IP address, product or account) refused this call.</td>
+<td data-label="What to do">Check the key string, then the key’s restrictions on the keys page.</td>
 </tr>
 <tr id="edge.api_key_revoked" data-cause="revoked" data-code="edge.api_key_revoked" data-severity="error" data-category="authentication">
 <th scope="row">
 <code>edge.api_key_revoked</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.api_key_revoked</code>
 </td>
-<td>Error: change the request</td>
-<td>Authentication</td>
-<td>The key was revoked.</td>
-<td>Make a new key. A dead key cannot be brought back.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Authentication</td>
+<td data-label="Cause">The key was revoked.</td>
+<td data-label="What to do">Make a new key. A dead key cannot be brought back.</td>
 </tr>
 <tr id="edge.api_key_expired" data-cause="expired" data-code="edge.api_key_expired" data-severity="error" data-category="authentication">
 <th scope="row">
 <code>edge.api_key_expired</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.api_key_expired</code>
 </td>
-<td>Error: change the request</td>
-<td>Authentication</td>
-<td>The key has expired.</td>
-<td>Make a new key.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Authentication</td>
+<td data-label="Cause">The key has expired.</td>
+<td data-label="What to do">Make a new key.</td>
 </tr>
 <tr id="account_frozen" data-cause="frozen" data-code="account_frozen" data-severity="error" data-category="account">
 <th scope="row">
 <code>account_frozen</code>
 </th>
-<td>403</td>
-<td>
+<td data-label="HTTP status">403</td>
+<td data-label="Detail code">
 <code>auth.account_frozen</code>
 </td>
-<td>Error: change the request</td>
-<td>Account</td>
-<td>The account behind the key is frozen.</td>
-<td>Contact support about the account.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Account</td>
+<td data-label="Cause">The account behind the key is frozen.</td>
+<td data-label="What to do">Contact support about the account.</td>
 </tr>
 <tr id="scope.denied" data-cause="scope" data-code="PermissionDenied" data-severity="error" data-category="permission">
 <th scope="row">
 <code>PermissionDenied</code>
 </th>
-<td>403</td>
-<td>
+<td data-label="HTTP status">403</td>
+<td data-label="Detail code">
 <code>scope.denied</code>
 </td>
-<td>Error: change the request</td>
-<td>Permission</td>
-<td>The key does not hold the scope this route needs.</td>
-<td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Permission</td>
+<td data-label="Cause">The key does not hold the scope this route needs.</td>
+<td data-label="What to do">
 <a class="lt-link" href="/developers/permissions">Make a key with the permission the route needs; the permission table lists them.</a>
 </td>
 </tr>
@@ -132,103 +132,103 @@
 <th scope="row">
 <code>PermissionDenied</code>
 </th>
-<td>403</td>
-<td>
+<td data-label="HTTP status">403</td>
+<td data-label="Detail code">
 <code>env.mismatch</code>
 </td>
-<td>Error: change the request</td>
-<td>Permission</td>
-<td>A sandbox key called a live address, or a live key called a sandbox address.</td>
-<td>Call the address of the environment the key belongs to.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Permission</td>
+<td data-label="Cause">A sandbox key called a live address, or a live key called a sandbox address.</td>
+<td data-label="What to do">Call the address of the environment the key belongs to.</td>
 </tr>
 <tr id="edge.request_unsigned" data-cause="unsigned" data-code="edge.request_unsigned" data-severity="error" data-category="signature">
 <th scope="row">
 <code>edge.request_unsigned</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.request_unsigned</code>
 </td>
-<td>Error: change the request</td>
-<td>Signature</td>
-<td>The key must sign every request, and this request carried no signature.</td>
-<td>Sign each request as the authentication page shows.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Signature</td>
+<td data-label="Cause">The key must sign every request, and this request carried no signature.</td>
+<td data-label="What to do">Sign each request as the authentication page shows.</td>
 </tr>
 <tr id="edge.request_stale" data-cause="stale" data-code="edge.request_stale" data-severity="error" data-category="signature">
 <th scope="row">
 <code>edge.request_stale</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.request_stale</code>
 </td>
-<td>Error: change the request</td>
-<td>Signature</td>
-<td>The request’s timestamp is older than the owner’s window.</td>
-<td>Check your clock against the server’s time, then sign again.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Signature</td>
+<td data-label="Cause">The request’s timestamp is older than the owner’s window.</td>
+<td data-label="What to do">Check your clock against the server’s time, then sign again.</td>
 </tr>
 <tr id="edge.request_future" data-cause="future" data-code="edge.request_future" data-severity="error" data-category="signature">
 <th scope="row">
 <code>edge.request_future</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.request_future</code>
 </td>
-<td>Error: change the request</td>
-<td>Signature</td>
-<td>The request’s timestamp is ahead of the owner’s window.</td>
-<td>Check your clock against the server’s time, then sign again.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Signature</td>
+<td data-label="Cause">The request’s timestamp is ahead of the owner’s window.</td>
+<td data-label="What to do">Check your clock against the server’s time, then sign again.</td>
 </tr>
 <tr id="edge.request_tampered" data-cause="tampered" data-code="edge.request_tampered" data-severity="error" data-category="signature">
 <th scope="row">
 <code>edge.request_tampered</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.request_tampered</code>
 </td>
-<td>Error: change the request</td>
-<td>Signature</td>
-<td>The signature does not match the request that arrived: the method, path, body or headers changed after signing.</td>
-<td>Sign exactly the method, path, timestamp, nonce and body you send.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Signature</td>
+<td data-label="Cause">The signature does not match the request that arrived: the method, path, body or headers changed after signing.</td>
+<td data-label="What to do">Sign exactly the method, path, timestamp, nonce and body you send.</td>
 </tr>
 <tr id="edge.request_replay" data-cause="replay" data-code="edge.request_replay" data-severity="error" data-category="signature">
 <th scope="row">
 <code>edge.request_replay</code>
 </th>
-<td>401</td>
-<td>
+<td data-label="HTTP status">401</td>
+<td data-label="Detail code">
 <code>auth.request_replay</code>
 </td>
-<td>Error: change the request</td>
-<td>Signature</td>
-<td>The nonce was already used.</td>
-<td>Use a fresh nonce for every request.</td>
+<td data-label="Severity">Error: change the request</td>
+<td data-label="Category">Signature</td>
+<td data-label="Cause">The nonce was already used.</td>
+<td data-label="What to do">Use a fresh nonce for every request.</td>
 </tr>
 <tr id="edge.request_window_unset" data-cause="window_unset" data-code="edge.request_window_unset" data-severity="temporary" data-category="platform">
 <th scope="row">
 <code>edge.request_window_unset</code>
 </th>
-<td>503</td>
-<td>
+<td data-label="HTTP status">503</td>
+<td data-label="Detail code">
 <code>auth.request_window_unset</code>
 </td>
-<td>Temporary: the same request may succeed later</td>
-<td>Platform</td>
-<td>The owner’s signing window is not set, so no signed request is accepted.</td>
-<td>Nothing in the request can change this. Signed calls are refused until the owner sets the window.</td>
+<td data-label="Severity">Temporary: the same request may succeed later</td>
+<td data-label="Category">Platform</td>
+<td data-label="Cause">The owner’s signing window is not set, so no signed request is accepted.</td>
+<td data-label="What to do">Nothing in the request can change this. Signed calls are refused until the owner sets the window.</td>
 </tr>
 <tr id="edge.authority_unavailable" data-cause="authority_unavailable" data-code="edge.authority_unavailable" data-severity="temporary" data-category="platform">
 <th scope="row">
 <code>edge.authority_unavailable</code>
 </th>
-<td>503</td>
-<td>none</td>
-<td>Temporary: the same request may succeed later</td>
-<td>Platform</td>
-<td>The gateway could not ask the service that checks keys. Nothing ran.</td>
-<td>Retry after the Retry-After seconds.</td>
+<td data-label="HTTP status">503</td>
+<td data-label="Detail code">none</td>
+<td data-label="Severity">Temporary: the same request may succeed later</td>
+<td data-label="Category">Platform</td>
+<td data-label="Cause">The gateway could not ask the service that checks keys. Nothing ran.</td>
+<td data-label="What to do">Retry after the Retry-After seconds.</td>
 </tr>
 </tbody>
 </table>

@@ -267,9 +267,13 @@ export function CopyRoom({ path }: { path: string }) {
           </span>
         }
         actions={
-          <Button onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
-            {t('Follow by leader ID')}
-          </Button>
+          <>
+            {/* The directory is the main way in; a leader's code is for someone who was given one. */}
+            <Button onClick={() => setTab('leaders')}>{t('Find a leader')}</Button>
+            <Button variant="secondary" onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
+              {t('Follow with a leader’s code')}
+            </Button>
+          </>
         }
       />
 

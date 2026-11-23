@@ -29,7 +29,8 @@
  *   - It moves no money and posts nothing: the stack's own start readies it (TEST gates, TEST market maker, TEST
  *     content), exactly as `verify launch` readies a journeys shard.
  *   - TEST funds only, shown by a check, not by a name: every process the stack started is read for every address in
- *     its environment, and one that names anything but this machine (127.0.0.1, localhost, ::1) is a finding. With
+ *     its environment, and one that names anything but this machine (127.0.0.1, localhost, ::1) or the beta's own
+ *     public host (BETA_OWN_HOSTS: the tunnel brings it back to this stack) is a finding. With
  *     no route off the machine, no service can reach a real chain, venue, bank or card rail. The page must carry the
  *     stack's TEST banner. A failed check stops the stack: it fails closed, never open.
  *   - It never sets or invents a sanctions screening list. Without the owner's TEST screening file in the beta state
@@ -43,6 +44,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -148,6 +150,13 @@ export function ensureAnvil(paths, sh = (cmd, args) => spawnSync(cmd, args, { en
 const NO_HOSTS = new Set();
 
 /**
+ * The beta's own public host, the one host off loopback this box's beta passes: the tunnel brings it back to this stack's
+ * own loopback, so an address on it reaches nothing else. The stack's TEST owner values name it (the help centre on the
+ * official-channel list, J-identity-13 #1). Any other host, a sibling name on the same domain included, still fails.
+ */
+export const BETA_OWN_HOSTS = Object.freeze(new Set([new URL(PUBLIC_ORIGIN).host]));
+
+/**
  * The public test networks' hosts a hosted beta may reach (#10208), each exactly: the Hyperliquid test network's API
  * (packages/venue-hyperliquid HL_TESTNET_API_URL) and the Base Sepolia RPC. A host is allowed only by an exact match,
  * never a suffix, so `sepolia.base.org.attacker.net` is a finding. Adding a test network here is the only way to open
@@ -196,12 +205,44 @@ export const environEntries = (text) =>
       return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)];
     });
 
+/** A /proc/net/tcp or tcp6 address (hex, the kernel's byte order) as text: `0.0.0.0`, `127.0.0.1`, `::`, `::ffff:…`. */
+export function procHost(hex) {
+  const words = hex.match(/.{8}/g).map((w) => w.match(/../g).reverse().join(''));
+  if (words.length === 1)
+    return words[0]
+      .match(/../g)
+      .map((b) => parseInt(b, 16))
+      .join('.');
+  const all = words.join('').toLowerCase();
+  if (/^0{32}$/.test(all)) return '::';
+  if (/^0{31}1$/.test(all)) return '::1';
+  if (/^0{20}ffff/.test(all)) return `::ffff:${procHost(hex.slice(24))}`;
+  return all.match(/.{4}/g).join(':');
+}
+
+/** One /proc/net/tcp or tcp6 table's listening sockets (state 0A), as `{ inode, host, port }`. */
+export function listeningSockets(text) {
+  const out = [];
+  for (const line of String(text).split('\n').slice(1)) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 10 || f[3] !== '0A') continue;
+    const [hex, port] = f[1].split(':');
+    out.push({ inode: f[9], host: procHost(hex), port: parseInt(port, 16) });
+  }
+  return out;
+}
+
+/** Is a listen address this machine only? */
+const loopbackListen = (host) => host.startsWith('127.') || host === '::1' || host.startsWith('::ffff:127.');
+
 /**
  * The TEST funds check on one stack. `records` are the stack's processes ({ name: { pid } }, run/processes.json);
- * `readEnviron(pid)` gives a process's environ text or null; `page` is the Customer page's HTML or null. Returns
- * `{ ok, lines }`, one line per finding or pass, naming keys and hosts, never a value.
+ * `readEnviron(pid)` gives a process's environ text or null; `readListeners(pid)` its listening sockets
+ * (`{ host, port }`) or null; `page` is the Customer page's HTML or null. A listener on any address but loopback is a
+ * finding: the home network could reach it (#10244). Returns `{ ok, lines }`, one line per finding or pass, naming
+ * keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, page, allow = NO_HOSTS }) {
+export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -216,6 +257,9 @@ export function fundsCheck({ records, readEnviron, page, allow = NO_HOSTS }) {
     if (outside.length === 0) clean++;
     const off = allow.size ? 'off this machine and the hosted allow list' : 'off this machine';
     for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, ${off}`);
+    for (const l of readListeners(r.pid) ?? []) {
+      if (!loopbackListen(l.host)) findings.push(`${name} (pid ${r.pid}): listens on ${l.host} port ${l.port}, reachable off this machine`);
+    }
   }
   if (named.length && read === 0) findings.push('no running process could be read');
   const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
@@ -240,6 +284,34 @@ const readEnviron = (pid) => {
     return null;
   }
 };
+/** One process's listening TCP sockets, from its socket fds and the kernel's tables, or null once it has ended. */
+export const readListeners = (pid) => {
+  let inodes;
+  try {
+    inodes = new Set(
+      fs
+        .readdirSync(`/proc/${pid}/fd`)
+        .map((fd) => {
+          try {
+            return /^socket:\[(\d+)\]$/.exec(fs.readlinkSync(`/proc/${pid}/fd/${fd}`))?.[1];
+          } catch {
+            return undefined; // an fd closed while it was read
+          }
+        })
+        .filter(Boolean),
+    );
+  } catch {
+    return null;
+  }
+  const tables = ['tcp', 'tcp6'].map((t) => {
+    try {
+      return fs.readFileSync(`/proc/${pid}/net/${t}`, 'utf8');
+    } catch {
+      return '';
+    }
+  });
+  return tables.flatMap(listeningSockets).filter((l) => inodes.has(l.inode));
+};
 function getText(url) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: 10_000 }, (res) => {
@@ -255,7 +327,7 @@ function getText(url) {
 
 async function checkStack(state, link, allow = NO_HOSTS) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, page: await getText(link), allow });
+  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
@@ -472,7 +544,7 @@ function ensureCheckout(paths) {
 const roundIo = {
   git,
   run,
-  check: checkStack,
+  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
   readied: readiedNow,
   anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -748,7 +820,7 @@ async function main(argv) {
     const marker = readJson(path.join(state, 'LOCAL-TEST-STACK.json'), {});
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
     const h = rest.indexOf('--hosted');
-    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : NO_HOSTS;
+    const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : state === paths.state ? BETA_OWN_HOSTS : NO_HOSTS;
     const c = await checkStack(state, link, allow);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);

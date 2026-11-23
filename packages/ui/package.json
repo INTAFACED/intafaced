@@ -26,6 +26,7 @@
     "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
     "./theme/theme.css": "./src/theme/theme.css",
     "./theme/base.css": "./src/theme/base.css",
+    "./theme/table-phone.css": "./src/theme/table-phone.css",
     "./lit": {
       "types": "./dist/lit/index.d.ts",
       "default": "./dist/lit/index.js"

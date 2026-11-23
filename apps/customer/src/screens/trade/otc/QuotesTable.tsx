@@ -145,6 +145,26 @@ export function QuotesTable({
 
   return (
     <div className="lt-stack">
+      {anyLoading && rows.every((r) => r.entry.status === 'loading') && rows.length > 0 ? (
+        <Skeleton shape="rows" count={3} />
+      ) : (
+        <div className="lt-scroll-x">
+          <Table
+            caption={t('Quotes table')}
+            mode="pro"
+            columns={cols}
+            rows={sorted}
+            rowKey={(r) => r.id}
+            sort={sort}
+            onSort={setSort}
+            onSelect={onSelect}
+            selected={selected ?? undefined}
+            empty={<p className="lt-hint">{t('No quotes')}</p>}
+          />
+        </div>
+      )}
+      <p className="lt-hint">{t('Quotes table note')}</p>
+      {/* The list above is the way in; a quote that isn't listed opens by its reference. */}
       <form
         className="lt-toolbar"
         onSubmit={(event) => {
@@ -165,25 +185,6 @@ export function QuotesTable({
       </form>
       {typed.trim() === '' ? <p className="lt-hint">{t('Open by id hint')}</p> : null}
       {refusal ? <Refusal words={refusal} /> : null}
-      {anyLoading && rows.every((r) => r.entry.status === 'loading') && rows.length > 0 ? (
-        <Skeleton shape="rows" count={3} />
-      ) : (
-        <div className="lt-scroll-x">
-          <Table
-            caption={t('Quotes table')}
-            mode="pro"
-            columns={cols}
-            rows={sorted}
-            rowKey={(r) => r.id}
-            sort={sort}
-            onSort={setSort}
-            onSelect={onSelect}
-            selected={selected ?? undefined}
-            empty={<p className="lt-hint">{t('No quotes')}</p>}
-          />
-        </div>
-      )}
-      <p className="lt-hint">{t('Quotes table note')}</p>
     </div>
   );
 }

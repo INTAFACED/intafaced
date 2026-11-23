@@ -436,7 +436,7 @@ function GridDetail({
           ...(data.status === 'stopped' && data.statusReason && STOP_WORD[data.statusReason]
             ? [{ label: t('Stopped by'), value: t(STOP_WORD[data.statusReason] as 'Price exit') }]
             : []),
-          { label: t('Bot ID'), value: data.botId },
+          { label: t('Bot reference'), value: data.botId },
         ]}
       />
       {data.venue && venue ? <VenueGridFacts bot={data} api={api} onDone={bot.reload} /> : null}

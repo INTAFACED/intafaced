@@ -77,6 +77,12 @@ describe('bars', () => {
     expect(out).toContain('data-negative="true"');
     expect(out).not.toMatch(/height="0"/);
   });
+
+  it('names each bar and its amount under it, so one lone bar is never an unlabelled block', () => {
+    const out = html(<Bars label="Movement" asset="GBP" bars={[{ label: 'Outflow', value: '12.5' }]} />);
+    expect(out).toContain('class="lt-bars-key"');
+    expect(out).toMatch(/data-bar="Outflow"><span class="lt-bars-name">Outflow<\/span><span class="lt-bars-value">£12\.5<\/span>/);
+  });
 });
 
 describe('coverage', () => {

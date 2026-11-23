@@ -929,6 +929,9 @@ importers:
 
   packages/venue-hyperliquid:
     dependencies:
+      '@intafaced/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client
@@ -2158,6 +2161,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@intafaced/venue-hyperliquid':
+        specifier: workspace:*
+        version: link:../../packages/venue-hyperliquid
       '@intafaced/venue-sim':
         specifier: workspace:*
         version: link:../../packages/venue-sim

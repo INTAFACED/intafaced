@@ -431,7 +431,7 @@ export function ScreenerRoom() {
             ? t('notServed')
             : t('noHistory');
     return (
-      <td key="change" data-column="change" data-state={cell.state}>
+      <td key="change" data-column="change" data-state={cell.state} data-label={t('col_change', { tf: t(`tfShort_${tf}`) })}>
         {text}
       </td>
     );
@@ -442,7 +442,7 @@ export function ScreenerRoom() {
     const value = { last: ticker?.last, volume: ticker?.baseVolume24h, high: ticker?.high24h, low: ticker?.low24h }[column] ?? null;
     const text = value === null ? t('noHistory') : column === 'volume' ? fmtAmount(value) : fmtPrice(value, row.market.tickSize);
     return (
-      <td key={column} data-column={column}>
+      <td key={column} data-column={column} data-label={t(`col_${column}`)}>
         {text}
       </td>
     );

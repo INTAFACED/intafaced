@@ -147,21 +147,13 @@
 <div class="lt-tab-panel" role="tabpanel" id="otc-panel-quotes" aria-labelledby="otc-tab-quotes">
 <div class="lt-stack">
 <div class="lt-stack">
-<form class="lt-toolbar">
-<div class="lit-field-control">
-<label for="_r_3_">Open by id</label>
-<input autocomplete="off" spellcheck="false" id="_r_3_" value="">
-</div>
-<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Open quote</button>
-</form>
-<p class="lt-hint">Paste a quote id to look it up. Only your own quotes open.</p>
 <div class="lt-scroll-x">
 <table class="lt-table" data-mode="pro" role="grid">
 <caption class="lt-sr">Quotes</caption>
 <thead>
 <tr>
 <th scope="col" data-align="start" aria-sort="none">
-<button type="button" class="lt-sort">Quote id<span class="lt-sort-mark" aria-hidden="true">
+<button type="button" class="lt-sort">Quote reference<span class="lt-sort-mark" aria-hidden="true">
 </span>
 </button>
 </th>
@@ -206,6 +198,14 @@
 </table>
 </div>
 <p class="lt-hint">Quotes this browser knows. Each is read from the desk again before it is shown; the device keeps only the ids.</p>
+<form class="lt-toolbar">
+<div class="lit-field-control">
+<label for="_r_3_">Open a quote that isn’t listed</label>
+<input autocomplete="off" spellcheck="false" id="_r_3_" value="">
+</div>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Open quote</button>
+</form>
+<p class="lt-hint">Your quotes are listed above. Paste the reference of one that isn’t to look it up. Only your own quotes open.</p>
 </div>
 </div>
 </div>

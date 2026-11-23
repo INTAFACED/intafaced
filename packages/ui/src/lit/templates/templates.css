@@ -86,6 +86,10 @@
   flex: 1 1 12rem;
   min-inline-size: 0;
 }
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+.lt-title-row-wrap > .lt-unbroken {
+  min-inline-size: max-content;
+}
 
 /* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
 .lt-nowrap {
@@ -851,6 +855,13 @@
   line-height: var(--lit-type-hero-line);
   font-weight: var(--lit-type-hero-weight);
   letter-spacing: var(--lit-type-hero-tracking);
+}
+/* On a phone the hero figure shrinks with the room, so a price like $65,403.57 stays on one line beside its controls. */
+@container room (max-width: 599px) {
+  .lt-figure-hero {
+    font-size: min(var(--lit-type-hero-size), 11cqi);
+    line-height: 1.1;
+  }
 }
 
 .lt-test {
@@ -1668,6 +1679,90 @@ button.lt-tab:focus-visible {
   }
 }
 
+/* A table in a column too narrow for its columns at any width (a reading page's many-column catalogue) asks to stack
+   always, with `data-stack="always"`: the same labelled rows as on a phone. */
+.lt-table[data-stack='always'] thead {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+   phone's width and no name spills out of its own box. */
+.lt-table[data-stack='always'] thead tr {
+  display: block;
+}
+.lt-table[data-stack='always'] thead th {
+  display: inline-block;
+}
+.lt-table[data-stack='always'],
+.lt-table[data-stack='always'] tbody,
+.lt-table[data-stack='always'] tr,
+.lt-table[data-stack='always'] td {
+  display: block;
+}
+.lt-table[data-stack='always'] tr {
+  padding-block: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line);
+}
+.lt-table[data-stack='always'] td {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  block-size: auto;
+  min-block-size: 1.75rem;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] td::before {
+  content: attr(data-label);
+  color: var(--lit-text-2);
+}
+/* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+.lt-table[data-stack='always'] tr[data-empty] td {
+  display: block;
+  text-align: center;
+}
+
+/* A table with a header row whose cells carry no label (`data-label`) can't say which value is which once stacked: on a
+   phone it keeps its header and columns, and its cells wrap (long words break) so it stays inside the phone's width.
+   (The kit's Table labels every cell; this holds a hand-written `lt-table`.) */
+@container room (max-width: 599px) {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) {
+    display: table;
+    table-layout: auto;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead {
+    position: static;
+    display: table-header-group;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead tr,
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody tr {
+    display: table-row;
+    padding-block: 0;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
+    display: table-row-group;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
+    display: table-cell;
+    overflow-wrap: anywhere;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
+    block-size: var(--lit-row-h);
+    padding-inline: var(--lit-gap-item);
+    border-block-end: 1px solid var(--lit-line);
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td::before {
+    content: none;
+  }
+}
+
 .lt-chart {
   margin: 0;
 }
@@ -1893,6 +1988,27 @@ button.lt-tab:focus-visible {
 
 .lt-bar {
   fill: var(--lit-accent);
+}
+
+/* Bars: each bar's name and amount, in a column under its bar. */
+.lt-bars-key {
+  display: grid;
+  gap: var(--lit-gap-item);
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+  text-align: center;
+}
+.lt-bars-key > span {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.lt-bars-name {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lt-bars-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .lt-chart-refused {
@@ -2219,7 +2335,9 @@ button.lt-tab:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-:root:where([data-look='lit'][data-theme='light']) :where(.if-app, [data-slot]) input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+:root:where([data-look='lit'][data-theme='light'])
+  :where(.if-app, [data-slot])
+  input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
   color-scheme: light;
 }
 
