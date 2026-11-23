@@ -176,6 +176,10 @@ test('staleLines and runIdOf: an old run re-run hours later is STALE', () => {
     stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
     'an old pull_request run re-run hours later is named stale',
   );
+  check(
+    !stale.some((l) => /merge main into/i.test(l)),
+    'a STALE line invites no main merge (project-state#3754: such lines drove 34 of 55 merges after a red)',
+  );
   check(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
   const at = (over) => ({ 1: { ...old, ...over } });
   const testsJob = [job(5, 'Tests (changed)', 1)];

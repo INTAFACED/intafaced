@@ -127,7 +127,8 @@ impl LedgerDoor {
     }
 
     /// `POST /operator/freeze`: the approval for this reason at the version read, then the switch under the caller's
-    /// name. The confirming operator is the approval's approver (or its requester), never a typed-in name.
+    /// name. The confirming operator is the approval's other person than the caller (`Consumed::other_than`), never a
+    /// typed-in name.
     fn freeze(&self, operator: &Principal, input: &Value) -> Result<Response, Failure> {
         let reason = text(input, "reason");
         let prior = self.freeze_state()?;
@@ -140,7 +141,7 @@ impl LedgerDoor {
             &[("reason", reason)],
             None,
         )?;
-        let confirm = consumed.approver_id.unwrap_or(consumed.requester_id);
+        let confirm = consumed.other_than(&operator.user_id);
         self.cfg.log.warn(
             vec![
                 ("actor", Json::str(operator.user_id.clone())),
@@ -175,7 +176,7 @@ impl LedgerDoor {
             &[],
             None,
         )?;
-        let confirm = consumed.approver_id.unwrap_or(consumed.requester_id);
+        let confirm = consumed.other_than(&operator.user_id);
         self.cfg.log.warn(
             vec![
                 ("actor", Json::str(operator.user_id.clone())),

@@ -102,13 +102,13 @@
 <p>Pay a person or a shop from a QR code.</p>
 </header>
 <section data-testid="pay-card" class="pay-card" aria-label="Scan to pay">
-<div class="pay-body">
+<div class="lt-stack">
 <div class="lt-actions">
 <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Scan with the camera</button>
 <a href="/pay/receive" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Show my QR code</a>
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="pay-scan-file">Choose an image of a QR code</label>
+<label class="lt-hint" for="pay-scan-file">Choose an image of a QR code</label>
 <input id="pay-scan-file" class="pay-text" accept="image/*" data-testid="pay-scan-file" type="file">
 </div>
 <div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-11">

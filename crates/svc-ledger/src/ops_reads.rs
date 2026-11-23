@@ -373,7 +373,7 @@ pub fn place_of(r: &OwnFundsPlaceRow) -> Result<Json, Failure> {
     else {
         return Err(Failure::Fault);
     };
-    if r.balance > 0 {
+    if r.balance > Amount::ZERO {
         return Err(Failure::Fault);
     }
     let place_id = r.owner_id.get(prefix.len()..).unwrap_or("");
@@ -401,7 +401,7 @@ pub fn own_funds_reply(read: &OwnFunds) -> Result<Json, Failure> {
     let accounts = read
         .rows
         .iter()
-        .filter(|r| r.balance > 0)
+        .filter(|r| r.balance > Amount::ZERO)
         .map(|r| {
             Json::obj([
                 ("ownerType", Json::str(r.owner_type.clone())),

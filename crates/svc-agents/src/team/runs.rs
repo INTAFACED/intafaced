@@ -269,7 +269,7 @@ impl TeamRuns<'_> {
             closed: false,
             action_count: 0,
             tool_calls: Vec::new(),
-            spend: 0,
+            spend: Amount::ZERO,
             approved_tools: Vec::new(),
         };
         match evaluate_tool_call(&guardrail, &empty, tool, None, None) {
@@ -487,8 +487,8 @@ impl TeamRuns<'_> {
                 owed_by_business: r.try_get::<_, Option<String>>(9)?.is_some(),
             });
         }
-        let int = |s: String| -> Result<Amount, TeamFail> {
-            s.parse::<Amount>()
+        let int = |s: String| -> Result<i128, TeamFail> {
+            s.parse::<i128>()
                 .map_err(|e| TeamFail::Thrown(e.to_string()))
         };
         let mut rs = Vec::new();
@@ -508,14 +508,14 @@ impl TeamRuns<'_> {
             });
         }
 
-        let mut business_total: Amount = 0;
+        let mut business_total: Amount = Amount::ZERO;
         let mut members = Vec::new();
         for m in &team.members {
             let mine: Vec<&W> = ws.iter().filter(|w| w.member == m.user_id).collect();
             let sealed_total: Amount = mine.iter().map(|w| w.charged).sum();
             business_total += sealed_total;
             // (task, input, output, cost), in first-seen order, sorted by task at the end.
-            let mut tasks: Vec<(String, Amount, Amount, Amount)> = Vec::new();
+            let mut tasks: Vec<(String, i128, i128, Amount)> = Vec::new();
             for w in &mine {
                 let in_window: Vec<&R> = rs
                     .iter()
@@ -537,7 +537,7 @@ impl TeamRuns<'_> {
                     let idx = match tasks.iter().position(|t| t.0 == task) {
                         Some(i) => i,
                         None => {
-                            tasks.push((task.to_owned(), 0, 0, 0));
+                            tasks.push((task.to_owned(), 0, 0, Amount::ZERO));
                             tasks.len() - 1
                         }
                     };
@@ -551,7 +551,7 @@ impl TeamRuns<'_> {
                 }
             }
             tasks.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
-            let count = |v: Amount| Json::Number(v as f64);
+            let count = |v: i128| Json::Number(v as f64);
             members.push(Json::obj([
                 ("userId", Json::str(m.user_id.clone())),
                 (
@@ -580,7 +580,7 @@ impl TeamRuns<'_> {
         // A window with nothing billable posts nothing and is owed by no one; it is left out as it charged nothing.
         let windows_view: Vec<Json> = ws
             .iter()
-            .filter(|w| w.charged > 0)
+            .filter(|w| w.charged > Amount::ZERO)
             .map(|w| {
                 Json::obj([
                     ("userId", Json::str(w.member.clone())),

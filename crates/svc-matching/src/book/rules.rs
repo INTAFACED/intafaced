@@ -39,7 +39,7 @@ pub fn can_fill_aon(fillable: Amount, qty: Amount, aon: bool) -> bool {
 
 /// `readMinQty`: missing, null or not positive is not set.
 pub fn read_min_qty(min_qty: &Opt<Amount>) -> Option<Amount> {
-    min_qty.get().filter(|m| *m > 0)
+    min_qty.get().filter(|m| *m > Amount::ZERO)
 }
 
 /// `minQtyRefuse`.
@@ -56,8 +56,10 @@ pub fn min_qty_refuse(qty: Amount, min_qty: Option<Amount>) -> Option<Reject> {
 /// `clipMeetsMinQty`.
 pub fn clip_meets_min_qty(clip: Amount, remaining_after: Amount, min_qty: Option<Amount>) -> bool {
     match min_qty {
-        Some(m) if m > 0 => clip >= m && !(remaining_after > 0 && remaining_after < m),
-        _ => clip > 0,
+        Some(m) if m > Amount::ZERO => {
+            clip >= m && !(remaining_after > Amount::ZERO && remaining_after < m)
+        }
+        _ => clip > Amount::ZERO,
     }
 }
 
@@ -79,7 +81,7 @@ pub fn both_sides_meet_min_qty(
 pub fn iceberg_display_refuse(qty: Amount, display: Option<Amount>) -> Option<Reject> {
     match display {
         None => Some(display_missing()),
-        Some(d) if d <= 0 => Some(display_missing()),
+        Some(d) if d <= Amount::ZERO => Some(display_missing()),
         Some(d) if d >= qty => Some(Reject::new(
             "iceberg_display_not_smaller",
             "iceberg display must be smaller than total; the engine does not invent a display",
@@ -113,7 +115,7 @@ pub fn wants_iceberg(order: &EngineOrder) -> bool {
 // ── pegs ────────────────────────────────────────────────────────────────
 
 fn read_reference(order: &EngineOrder) -> Option<Amount> {
-    order.reference.get().filter(|r| *r > 0)
+    order.reference.get().filter(|r| *r > Amount::ZERO)
 }
 
 /// `pegIntentRefuse`.
@@ -182,8 +184,8 @@ pub fn collar_intent_refuse(order: &EngineOrder) -> Option<Reject> {
     if order.collar.get() != Some(true) {
         return None;
     }
-    let min = order.min.get().filter(|m| *m > 0);
-    let max = order.max.get().filter(|m| *m > 0);
+    let min = order.min.get().filter(|m| *m > Amount::ZERO);
+    let max = order.max.get().filter(|m| *m > Amount::ZERO);
     let (Some(min), Some(max)) = (min, max) else {
         return Some(Reject::new(
             "missing_collar",
@@ -201,9 +203,11 @@ pub fn collar_intent_refuse(order: &EngineOrder) -> Option<Reject> {
 
 /// `minNotionalIntentRefuse`: the caller's price times qty, floored, against the caller's floor.
 pub fn min_notional_intent_refuse(order: &EngineOrder) -> Option<Reject> {
-    let floor = order.min_notional.get().filter(|m| *m > 0)?;
+    let floor = order.min_notional.get().filter(|m| *m > Amount::ZERO)?;
     let notional = match order.price {
-        Some(p) if p > 0 && order.qty > 0 => mul_rounded(order.qty, p, Rounding::Floor),
+        Some(p) if p > Amount::ZERO && order.qty > Amount::ZERO => {
+            mul_rounded(order.qty, p, Rounding::Floor)
+        }
         _ => {
             return Some(Reject::new(
                 "missing_notional",

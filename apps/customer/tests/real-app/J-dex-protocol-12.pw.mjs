@@ -241,6 +241,8 @@ async function otherWallet(browser) {
   const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // Connected before any room is opened, so a room never loads ahead of the wallet it reads.
+  await expect(page.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible();
   return { context, page, wallet };
 }
 
@@ -531,10 +533,11 @@ test(`${J} #6 opens the impermanent-loss card after the price moves to 1414:1414
   const other = await otherWallet(browser);
   try {
     await other.page.goto('/dex/positions');
-    await other.page
-      .getByRole('main')
-      .getByRole('link', { name: `${NAME} · 0.05%` })
-      .click(UNBUILT);
+    // The list is read from the pools on the TEST chain once the wallet is restored: it is built (#5 opened it), so this
+    // waits for the read as #5 does, not UNBUILT's five seconds, which a busy runner can outlast.
+    const received = other.page.getByRole('main').getByRole('link', { name: `${NAME} · 0.05%` });
+    await expect(received).toBeVisible({ timeout: 60_000 });
+    await received.click();
     await expect(other.page.getByRole('region', { name: 'Impermanent loss' })).toContainText('Entry unknown');
   } finally {
     await other.context.close();

@@ -4,6 +4,7 @@ import {
   BETA_LINK,
   BETA_SLOT,
   MAILBOX_PORT,
+  UPDATE_EVERY_MS,
   betaPaths,
   decide,
   environEntries,
@@ -13,9 +14,14 @@ import {
   outsideAddresses,
   reservedHost,
   stackEnv,
+  stopCommands,
   unitText,
 } from './beta-host.mjs';
+import { stopDecision } from '../scripts/verify-app.mjs';
 import { slotPorts } from '../scripts/local-test-facts.mjs';
+import { MARKET_INTERVAL_ENV, staleAfterMs, startArgs } from '../scripts/local-test-market.mjs';
+import { STACK_CODE_REACH_ENV, nodeServiceReach } from '../scripts/service-reach.mjs';
+import { pgDurable, pgServerFlags } from '../scripts/local-test-db-state.mjs';
 
 const environ = (obj) =>
   Object.entries(obj)
@@ -37,6 +43,24 @@ test('every stack command of the beta runs on its own slot and state folder', ()
     { slot: String(BETA_SLOT), state: '/home/x/.intafaced/beta/state', a: '1' },
   );
   assert.equal(paths.screening, '/home/x/.intafaced/beta/state/screening.local.json');
+});
+
+test('the beta, which no journey runs on, records no code reach and quotes its TEST market and captures its lake every five minutes', () => {
+  const env = stackEnv(betaPaths('/home/x'), {});
+  assert.equal(env[STACK_CODE_REACH_ENV], 'off');
+  assert.equal(env[MARKET_INTERVAL_ENV], '300');
+  assert.equal(env.LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS, '300');
+  assert.deepEqual(nodeServiceReach('/home/x/code', 'bank', { A: '1' }, env), { flags: [], env: { A: '1' } });
+  assert.deepEqual(startArgs([], env), ['--interval', '300']);
+  assert.ok(staleAfterMs(startArgs([], env)) > 300_000, 'a quiet log between two beta cycles is not STALE');
+});
+
+test('the beta keeps its database through a box restart: durable writes and no throwaway flags (#10352)', () => {
+  const env = stackEnv(betaPaths('/home/x'), {});
+  assert.equal(pgDurable(env), true);
+  assert.equal(pgServerFlags(env), '');
+  assert.equal(pgDurable({}), false, 'a journeys stack keeps the throwaway server');
+  assert.match(pgServerFlags({}), /fsync=off/);
 });
 
 test('outsideAddresses: loopback passes, any other host is named by key and host, never by value', () => {
@@ -96,6 +120,35 @@ test('decide: no screening file builds nothing; a moved main updates; the same c
   assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
   assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
   assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+});
+
+test('decide: a moved main updates at most once every 2 hours; between, the round only launches', () => {
+  const now = Date.parse('2026-11-23T08:00:00Z');
+  const ago = (ms) => new Date(now - ms).toISOString();
+  assert.equal(UPDATE_EVERY_MS, 2 * 3600_000);
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(30 * 60_000), now }), 'launch');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS - 1), now }), 'launch');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS), now }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: undefined, now }), 'update');
+  assert.equal(decide({ screening: false, head: 'a', target: 'b', updatedAt: ago(1), now }), 'blocked');
+});
+
+test('the page names the commit served, and the newer main it waits for', () => {
+  const html = mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'bbbbbbbbb222' } });
+  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta updates at most every 2 hours\)/);
+  assert.doesNotMatch(mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'aaaaaaaaa111' } }), /main is at/);
+});
+
+test("the beta's stop stops the stack it runs even when the latest verify launch found it already up", () => {
+  const paths = betaPaths('/home/x');
+  // Every round after the first runs verify launch on a running stack: its record says it did not start it.
+  const launch = { startedByUs: false, stack: 's1' };
+  const gated = (args) =>
+    args.includes('verify') && stopDecision({ claim: { slot: BETA_SLOT, live: true }, launch, stack: 's1' }) !== 'stop';
+  const cmds = stopCommands(paths);
+  assert.ok(cmds.length > 0);
+  for (const args of cmds) assert.ok(!gated(args), `${args.join(' ')} goes through verify stop, which leaves this stack running`);
+  assert.deepEqual(cmds.at(-1), ['/home/x/.intafaced/beta/checkout/tooling/scripts/local-test-stack.mjs', 'stop']);
 });
 
 test('mailboxRows: the last day, newest first, codes and links read from the outbox lines', () => {

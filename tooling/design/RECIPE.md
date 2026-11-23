@@ -11,8 +11,9 @@ row already on their template. One PR per batch.
    every word and every state; put the room's line `// volt-room: <route>` (`portal:<page>` for a merchant portal
    page) at the top of the screen file that draws it. Never edit a shared list in a batch.
 3. **Run the codemod:** `node tooling/design/volt-recipe.mjs --write <file> ...` (paths under `apps/customer/src`). It
-   moves the old Button, Badge and StatusTag and every class in its `CLASSES` map onto the kit, and prints with its line
-   each finding it left; its `PARTS` map says why the old parts it leaves have no twin.
+   moves the old Button, Badge and StatusTag and every class in its `CLASSES` map onto the kit, drops a class no
+   stylesheet names (`GONE`), and prints with its line each finding it left, a class a test finds an element by among
+   them; its `PARTS` map says why the old parts it leaves have no twin. `--plan --rank` ranks what every room leaves.
 4. **Each finding left needs judgement.** By kind (volt-count's names):
    - `old-kit` other than Button: use the kit's part (`Field`, `Segmented`, `Tabs`, `KeyValue`, `Sheet`, `EmptyState`…
      in `@intafaced/ui/lit`); where the kit has none, a native control inside `lt-field`.

@@ -158,7 +158,7 @@ describe('control-room procedures', () => {
 
     it('a team checker decides on pay:onboard: an active member of a verified business reaches the role check, an owner needs a live pay:write', async () => {
       // The owner grant law gives pay:write to the owner alone; admin and finance carry pay:onboard and hold
-      // payout.approve in the role table, so deciding is a team member's write (teamMemberWrite).
+      // payout.approve in the role table, so deciding is a team member's write (teamMemberCheck).
       const owner = randomUUID();
       const finance = randomUUID();
       const stranger = randomUUID();

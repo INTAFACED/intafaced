@@ -61,6 +61,18 @@ pub struct Consumed {
     pub requester_is_founder: Option<bool>,
 }
 
+impl Consumed {
+    /// The approval's other person as the caller submits it: the approver, unless the caller is that approver, then
+    /// the requester (the approving founder may submit the action the other founder proposed). With no approver, the
+    /// requester.
+    pub fn other_than(&self, caller: &str) -> String {
+        match &self.approver_id {
+            Some(approver) if approver != caller => approver.clone(),
+            _ => self.requester_id.clone(),
+        }
+    }
+}
+
 /// `principalUserId` and `principalSessionId`: the person and session a same-person approval is consumed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrincipalBinding<'a> {
@@ -508,6 +520,33 @@ mod tests {
     use crate::http::{FetchError, HttpResponse};
 
     use super::*;
+
+    fn consumed(approver: Option<&str>) -> Consumed {
+        Consumed {
+            action_type: "ledger.unfreeze".to_owned(),
+            target_service: "svc-ledger".to_owned(),
+            target_id: "posting_unfreeze".to_owned(),
+            status: "consumed".to_owned(),
+            requester_id: "proposer".to_owned(),
+            approver_id: approver.map(str::to_owned),
+            approver_is_founder: Some(true),
+            requester_is_founder: Some(true),
+        }
+    }
+
+    #[test]
+    fn the_other_person_is_never_the_caller_when_the_approval_has_two() {
+        assert_eq!(
+            consumed(Some("approver")).other_than("proposer"),
+            "approver"
+        );
+        assert_eq!(
+            consumed(Some("approver")).other_than("approver"),
+            "proposer"
+        );
+        assert_eq!(consumed(Some("approver")).other_than("third"), "approver");
+        assert_eq!(consumed(None).other_than("third"), "proposer");
+    }
 
     struct Fake {
         reply: Result<HttpResponse, FetchError>,
