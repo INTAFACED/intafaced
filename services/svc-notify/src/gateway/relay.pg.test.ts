@@ -46,7 +46,8 @@ async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000
   const app = buildMailboxRelay({ sql: db.sql, credential, sendUrl: 'https://mailbox.fixture/send', sendToken, timeoutMs, fetchImpl });
   const url = await app.listen({ port: 0, host: '127.0.0.1' });
   resources.push(() => app.close());
-  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: 2000 }) };
+  // The channel waits a second longer than the relay's own budget, so the relay always answers first.
+  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: Math.max(2000, timeoutMs + 1000) }) };
 }
 function envelope() {
   return {
@@ -108,7 +109,9 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       const archive = join(dir, 'before-enqueue.dump');
       await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
       const wire = await upstream();
-      const gateway = await relay(independent, wire.fetchImpl);
+      // This case proves the restore replay, not a deadline. It sends the file's first request (cold relay, cold pool,
+      // cold fetch), so on a loaded runner it gets wide budgets, still nested: relay 5 s < channel 6 s < guest 7 s.
+      const gateway = await relay(independent, wire.fetchImpl, 5000);
       const input = {
         businessKey: `acknowledgement:${randomUUID()}`,
         contactId: randomUUID(),
@@ -116,10 +119,10 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         recipientEmail: 'local-proof@example.invalid',
         message: { kind: 'enquiry_acknowledgement' as const },
       };
-      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 7000 }).send(input);
       expect(original.status).toBe('accepted');
       await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
-      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 7000 }).send(input);
       expect(recovered.notificationId).not.toBe(original.notificationId);
       expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
       expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
