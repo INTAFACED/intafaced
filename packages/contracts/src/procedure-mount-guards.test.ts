@@ -30,6 +30,8 @@ interface Caller {
   readonly kid?: string;
   readonly sub_account?: string;
   readonly region?: string;
+  readonly mfa?: boolean;
+  readonly tier?: string;
 }
 
 async function contextOf(c: Caller) {
@@ -38,8 +40,8 @@ async function contextOf(c: Caller) {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: c.scopes,
-    tier: 'none',
-    mfa: false,
+    tier: c.tier ?? 'none',
+    mfa: c.mfa ?? false,
     expiresAt: new Date(Date.now() + 60_000),
     ...(c.kid === undefined ? {} : { kid: c.kid }),
     ...(c.sub_account === undefined ? {} : { sub_account: c.sub_account }),
@@ -270,7 +272,8 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     );
     const callers: Caller[] = [
       { scopes: ['pay:write'] },
-      { scopes: ['pay:onboard'] },
+      { scopes: ['pay:onboard'], tier: 'full' },
+      { scopes: ['pay:onboard'], mfa: true },
       { scopes: ['pay:read'] },
       { scopes: ['pay:onboard'], region: 'KP' },
     ];
@@ -279,10 +282,10 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
       for (const c of callers) expect(await verdict(fromRecord, c), `${m} ${JSON.stringify(c)}`).toEqual(await verdict(byHand, c));
     }
     member = false;
-    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual(refused);
-    expect(await verdict(fromRecord, { scopes: ['pay:write'] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'], mfa: true, tier: 'full' })).toEqual(refused);
+    expect(await verdict(fromRecord, { scopes: ['pay:write'], mfa: true, tier: 'full' })).toEqual({ ok: true });
     member = true;
-    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'], mfa: true, tier: 'full' })).toEqual({ ok: true });
   });
 
   it("svc-pay's membership exit (signedInProcedure and a check): no pay scope is refused by the service's own check, through the record", async () => {
