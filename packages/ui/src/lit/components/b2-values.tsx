@@ -26,7 +26,15 @@ export function signDirection(text: string | null | undefined): Direction {
   return 'flat';
 }
 
-const GLYPH: Record<Direction, string> = { up: '▲', down: '▼', flat: '' };
+/** Up and down are drawn (the kit's lt-arrow-up / lt-arrow-down), never typed: Volt's faces carry no triangle glyphs. */
+function Arrow({ dir }: { dir: Direction }) {
+  if (dir === 'flat') return null;
+  return (
+    <>
+      <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+    </>
+  );
+}
 
 interface ValueProps extends Omit<React.ComponentProps<'span'>, 'children'> {
   /** Pre-formatted text, or null when unknown. */
@@ -85,7 +93,7 @@ export function Pct({
   const dir = value == null ? 'flat' : (direction ?? signDirection(value));
   return (
     <span data-slot="pct" data-direction={dir} className={clsx('lt-num lt-signed', className)} {...props} {...LTR}>
-      {arrow && value != null && GLYPH[dir] ? <span aria-hidden="true">{GLYPH[dir]} </span> : null}
+      {arrow && value != null ? <Arrow dir={dir} /> : null}
       {value ?? UNKNOWN}
     </span>
   );
@@ -106,7 +114,7 @@ export function ChangeText({
   return (
     <span data-slot="change-text" data-direction={dir} className={clsx('lt-change-text', className)} {...props}>
       <span {...LTR} className="lt-num lt-signed" data-direction={masked ? 'flat' : dir}>
-        {!masked && value != null && GLYPH[dir] ? <span aria-hidden="true">{GLYPH[dir]} </span> : null}
+        {!masked && value != null ? <Arrow dir={dir} /> : null}
         {masked ? HIDDEN_MASK : (value ?? UNKNOWN)}
       </span>
       {suffix ? <span className="lt-quiet">{suffix}</span> : null}
