@@ -1918,7 +1918,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // and points trade at it (never one without the other), and a bad value is refused by both.
 {
   const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
-  const { userVenueKind, userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const { testVenueKind, userVenueKind, userVenueSwitchOn } = await import('./local-test-venue.mjs');
   const saved = process.env.LOCAL_STACK_USER_VENUE;
   try {
     for (const [raw, on, second] of [
@@ -1942,6 +1942,8 @@ console.log('local-test-stack: customer folder override checks passed');
       if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
     }
     assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on, two, hl-recorded or hl-testnet/);
+    assert.equal(testVenueKind(''), 'sim');
+    assert.throws(() => testVenueKind('on'), /TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet/);
     // Which venue it is; the bank's TEST cash leg runs on the simulator only.
     for (const [raw, kind] of [
       ['off', null],
@@ -1951,6 +1953,8 @@ console.log('local-test-stack: customer folder override checks passed');
       ['hl-testnet', 'hl-testnet'],
     ]) {
       assert.equal(userVenueKind(raw), kind, `kind: ${raw}`);
+      // The venue process reads back exactly what the stack hands it (TEST_VENUE_KIND), the simulator included.
+      if (kind !== null) assert.equal(testVenueKind(kind), kind, `TEST_VENUE_KIND: ${kind}`);
       process.env.LOCAL_STACK_USER_VENUE = raw;
       const bank = localTestServiceEnvs().find((d) => d.name === 'bank').env;
       assert.equal('BANK_TEST_CASH_LEG_VENUE_URL' in bank, kind === 'sim', `bank env: ${raw}`);

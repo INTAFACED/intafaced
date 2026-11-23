@@ -187,6 +187,17 @@ export async function serveTestVenue({
 }
 
 /**
+ * `TEST_VENUE_KIND`, as the stack hands it to the venue process (`userVenueKind` of the switch): blank or `sim` is the
+ * simulator, `hl-recorded` and `hl-testnet` the Hyperliquid test network adapter. Anything else throws.
+ */
+export function testVenueKind(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '' || text === 'sim') return 'sim';
+  if (text === 'hl-recorded' || text === 'hl-testnet') return text;
+  throw new Error(`TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet (got ${JSON.stringify(raw)})`);
+}
+
+/**
  * The Hyperliquid test network as the stack's venue (#10203), behind the same HTTP venue protocol svc-trade reaches every
  * venue over. `hl-recorded` answers from the adapter's recording with no network: an order the recording does not hold
  * gets the recorded answer of its kind, and a read it has no kind for is the venue down. `hl-testnet` reaches the live
@@ -217,7 +228,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     id: testVenueId(process.env.TEST_VENUE_ID),
-    kind: userVenueKind(process.env.TEST_VENUE_KIND) ?? 'sim',
+    kind: testVenueKind(process.env.TEST_VENUE_KIND),
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

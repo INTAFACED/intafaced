@@ -113,7 +113,15 @@ import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, testVenueId, userVenueCount, userVenueKind, userVenueSwitchOn } from './local-test-venue.mjs';
+import {
+  serveTestVenue,
+  testVenueChainId,
+  testVenueId,
+  testVenueKind,
+  userVenueCount,
+  userVenueKind,
+  userVenueSwitchOn,
+} from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -4954,7 +4962,7 @@ async function runCli() {
       rpcUrl: process.env.TEST_VENUE_RPC_URL,
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
       id: testVenueId(process.env.TEST_VENUE_ID),
-      kind: userVenueKind(process.env.TEST_VENUE_KIND) ?? 'sim',
+      kind: testVenueKind(process.env.TEST_VENUE_KIND),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({
