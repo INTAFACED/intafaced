@@ -10,7 +10,7 @@ import { staffDoors } from './bank-desk.mjs';
 import { ADMIN } from './admin.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
+import { doorOk, otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 import { signedOnVenue, venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-26, in the running app (docs/roadmap/journeys.json): my spending money stays untouched when my cross
@@ -129,6 +129,13 @@ async function startsFor(page, door, store, tag) {
   await expect(() => walletDoorAct(session, key, { intent: cross, actionKey: `leverage:${owner}:${XCRS}:cross` })).toPass({
     timeout: 30_000,
     intervals: [2_000],
+  });
+  // Our builder fee rides on every order sent through the door: the wallet approves it once on the account.
+  const status = doorOk(await session.get('/api/v1/venue/status'));
+  expect(status.builder, 'the TEST builder fee is set on the door').toBeTruthy();
+  await walletDoorAct(session, key, {
+    intent: { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
+    actionKey: `approve-builder:${owner}:${tag}`,
   });
   await walletDoorAct(session, key, {
     intent: {
