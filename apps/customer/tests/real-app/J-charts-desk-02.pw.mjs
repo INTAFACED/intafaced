@@ -236,14 +236,17 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
     await expect(trading.getByRole('button', { name: 'Order on chart', exact: true })).toBeDisabled();
     await expect(trading.getByRole('form', { name: 'Order from the chart', exact: true })).toHaveCount(0);
     await stepPicture();
-    // The price scale offers no order button under the pointer, and a right click on the chart opens no order menu.
+    // The price scale offers no order button under the pointer, and a right click on the chart opens no order menu. Each
+    // is read once the chart has taken the pointer (it marks the price under it) and has drawn again.
+    const drawn = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const box = await host(page).boundingBox();
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.35);
-    await page.waitForTimeout(1_000);
+    await expect(page.locator('[data-crosshair-price]').first()).toHaveAttribute('data-crosshair-price', /\d/);
+    await drawn();
     await expect(page.getByTestId('chart-axis-plus')).toHaveCount(0);
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.35, { button: 'right' });
-    await page.waitForTimeout(1_000);
+    await drawn();
     await expect(page.getByRole('menu', { name: 'Order at this price', exact: true })).toHaveCount(0);
     // Nothing was sent: the halted chart placed, moved and cancelled no order.
     expect(orderWrites).toEqual([]);
