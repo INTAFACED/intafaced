@@ -2,7 +2,7 @@
 // volt-room: /bank/business/contractor-join
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   businessBulkRunSchema,
@@ -660,7 +660,7 @@ function ContractorRow({ c, change, t }: { c: BusinessContractor; change: Change
         </label>
         <label className="lt-field">
           <span>{t('invoiceDue')}</span>
-          <input type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} />
+          <DateInput type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} />
         </label>
         <Button tone="primary" type="submit" disabled={change.busy || !inv.number.trim() || !inv.amount.trim()}>
           {t('storeInvoice')}
