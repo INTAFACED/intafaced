@@ -737,7 +737,7 @@ test(`${J} #4 edits VIP thresholds and the snapshot time: the same proposal and 
       await expect(cells.nth(0)).toHaveText(`v${written.version}`);
       await expect(cells.nth(1)).toHaveText(String(accounts.length));
       await expect(cells.nth(2)).toHaveText(String(above));
-      expect(toUnits(await cells.nth(3).innerText()), 'counted 30-day volume, exactly').toBe(volume);
+      await expect.poll(async () => toUnits(await cells.nth(3).innerText()), 'counted 30-day volume, exactly').toBe(volume);
     } finally {
       await sql.end();
     }
