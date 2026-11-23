@@ -2,7 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 const en = {
   title: 'My rewards',
-  intro: 'Every campaign reward on your account, read from the campaigns service each time you open this page.',
+  intro: 'Every campaign reward on your account, up to date each time you open this page.',
   loading: 'Reading your rewards',
   emptyTitle: 'No rewards so far',
   emptyBody: 'When you claim a campaign reward it shows here: posted, on hold or still open, with the reason.',
@@ -82,7 +82,7 @@ const en = {
 
 const es: { [K in keyof typeof en]: string } = {
   title: 'Mis recompensas',
-  intro: 'Cada recompensa de campaña de tu cuenta, leída del servicio de campañas cada vez que abres esta página.',
+  intro: 'Cada recompensa de campaña de tu cuenta, al día cada vez que abres esta página.',
   loading: 'Leyendo tus recompensas',
   emptyTitle: 'Ninguna recompensa hasta ahora',
   emptyBody: 'Cuando reclames una recompensa de campaña aparecerá aquí: abonada, retenida o abierta, con el motivo.',
@@ -162,7 +162,7 @@ const es: { [K in keyof typeof en]: string } = {
 
 const fr: { [K in keyof typeof en]: string } = {
   title: 'Mes récompenses',
-  intro: 'Chaque récompense de campagne de votre compte, lue auprès du service des campagnes à chaque ouverture de cette page.',
+  intro: 'Chaque récompense de campagne de votre compte, à jour à chaque ouverture de cette page.',
   loading: 'Lecture de vos récompenses',
   emptyTitle: 'Aucune récompense jusqu’ici',
   emptyBody: 'Quand vous réclamez une récompense de campagne, elle apparaît ici : versée, retenue ou ouverte, avec la raison.',
