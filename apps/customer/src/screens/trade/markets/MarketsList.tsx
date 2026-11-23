@@ -173,7 +173,7 @@ export function MarketsList({
         cell,
       };
     };
-    const plain = (key: string, header: string, cell: (entry: Entry) => ReactNode): GridColumn<Entry> => ({
+    const unsortedColumn = (key: string, header: string, cell: (entry: Entry) => ReactNode): GridColumn<Entry> => ({
       key,
       label: header,
       headMarks: { 'data-col': key },
@@ -303,14 +303,14 @@ export function MarketsList({
         </span>
       ),
     );
-    const chart = plain('chart', t('Last 24h'), ({ market, ticker }) => (
+    const chart = unsortedColumn('chart', t('Last 24h'), ({ market, ticker }) => (
       <SparkCell
         symbol={market.symbol}
         label={`${market.base}/${market.quote} ${t('Last 24h')}`}
         trend={(direction(ticker?.changePct24h) ?? 'flat') === 'flat' ? 'neutral' : (direction(ticker?.changePct24h) as Tone)}
       />
     ));
-    const status = plain('status', t('Status'), (entry) => {
+    const status = unsortedColumn('status', t('Status'), (entry) => {
       const state = rowStatus(!isPaused(entry), statuses?.[entry.market.symbol]);
       const maintenance = statuses?.[entry.market.symbol]?.maintenance ?? null;
       const flag = maintenance ? <MaintenanceFlag window={maintenance} /> : null;
