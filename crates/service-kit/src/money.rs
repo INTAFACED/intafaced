@@ -304,21 +304,20 @@ fn div_wide(n: U256, d: u128) -> (U256, u128) {
     (q, r)
 }
 
-fn saturate(negative: bool, q: U256) -> Amount {
+fn saturate(negative: bool, q: U256) -> i128 {
     let fits = q.0 == 0 && q.1 <= i128::MAX.unsigned_abs();
-    Amount(match (fits, negative) {
+    match (fits, negative) {
         (true, false) => i128::try_from(q.1).unwrap_or(i128::MAX),
         (true, true) => 0i128.saturating_sub_unsigned(q.1),
         (false, false) => i128::MAX,
         (false, true) => i128::MIN,
-    })
+    }
 }
 
-/// `a * b / d`, rounded as `divideScaled` rounds (a zero `d` gives 0; no caller divides by zero).
-pub fn mul_div(a: Amount, b: Amount, d: Amount, rounding: Rounding) -> Amount {
-    let (a, b, d) = (a.0, b.0, d.0);
+/// `a * b / d` on raw integers, formed in 256 bits and rounded as `divideScaled` rounds; 0 for a zero `d`.
+fn wide_mul_div(a: i128, b: i128, d: i128, rounding: Rounding) -> i128 {
     if d == 0 {
-        return Amount::ZERO;
+        return 0;
     }
     let negative = ((a < 0) != (b < 0)) != (d < 0) && a != 0 && b != 0;
     let n = mul_wide(a.unsigned_abs(), b.unsigned_abs());
@@ -337,6 +336,31 @@ pub fn mul_div(a: Amount, b: Amount, d: Amount, rounding: Rounding) -> Amount {
         }
     }
     saturate(negative, q)
+}
+
+/// `a * b / d` on three amounts, rounded as `divideScaled` rounds (a zero `d` gives 0; no caller divides by zero).
+/// A plain count in any place takes `mul_ratio`, `ratio_of` or `mul_div_count`, never an amount made with
+/// `from_scaled` (`crates/service-kit/tests/counts_as_money.rs`).
+pub fn mul_div(a: Amount, b: Amount, d: Amount, rounding: Rounding) -> Amount {
+    Amount(wide_mul_div(a.0, b.0, d.0, rounding))
+}
+
+/// `amount * num / den`, where `num` and `den` are plain counts: a rate in basis points over 10,000, or one over a
+/// cap in basis points. Still money at the same scale; a zero `den` gives 0.
+pub fn mul_ratio(amount: Amount, num: i128, den: i128, rounding: Rounding) -> Amount {
+    Amount(wide_mul_div(amount.0, num, den, rounding))
+}
+
+/// `a / b` as a plain count of `1/per` steps: `ratio_of(debt, collateral, 10_000, Ceil)` is the loan-to-value in
+/// basis points. Saturates past i128; a zero `b` gives 0.
+pub fn ratio_of(a: Amount, b: Amount, per: i128, rounding: Rounding) -> i128 {
+    wide_mul_div(a.0, per, b.0, rounding)
+}
+
+/// `a * b / d` on plain integers (counts, or fractions at a scale that is not money), formed in 256 bits so the
+/// product never overflows; saturates past i128, and a zero `d` gives 0.
+pub fn mul_div_count(a: i128, b: i128, d: i128, rounding: Rounding) -> i128 {
+    wide_mul_div(a, b, d, rounding)
 }
 
 /// `mul(a, b)`: two scaled amounts multiplied (half-up unless stated).
@@ -360,9 +384,8 @@ pub fn share(total: Amount, qty: Amount, take: Amount) -> Amount {
     }
 }
 
-/// Compares `a * b` with `c * d` exactly.
-pub fn cmp_products(a: Amount, b: Amount, c: Amount, d: Amount) -> Ordering {
-    let (a, b, c, d) = (a.0, b.0, c.0, d.0);
+/// Compares `a * b` with `c * d` exactly, on raw integers.
+fn wide_cmp(a: i128, b: i128, c: i128, d: i128) -> Ordering {
     let sign = |x: i128, y: i128| -> i8 {
         if x == 0 || y == 0 {
             0
@@ -383,6 +406,16 @@ pub fn cmp_products(a: Amount, b: Amount, c: Amount, d: Amount) -> Ordering {
     } else {
         right.cmp(&left)
     }
+}
+
+/// Compares `a * b` with `c * d` exactly, four amounts. With plain counts in it, it is `cmp_times`.
+pub fn cmp_products(a: Amount, b: Amount, c: Amount, d: Amount) -> Ordering {
+    wide_cmp(a.0, b.0, c.0, d.0)
+}
+
+/// Compares `a * m` with `c * n` exactly, where `m` and `n` are plain counts (a rate in basis points, 10,000).
+pub fn cmp_times(a: Amount, m: i128, c: Amount, n: i128) -> Ordering {
+    wide_cmp(a.0, m, c.0, n)
 }
 
 /// `parseAmount`: an optionally signed decimal string, at most 18 places, inside `numeric(38,18)`. The error is
@@ -590,6 +623,31 @@ mod tests {
             ),
             Ordering::Equal
         );
+    }
+
+    #[test]
+    fn multiplies_and_divides_by_plain_counts() {
+        // 1 at 150 bps, floored: 0.015.
+        assert_eq!(
+            mul_ratio(ONE, 150, 10_000, Rounding::Floor),
+            Amount::from_scaled(15_000_000_000_000_000)
+        );
+        assert_eq!(mul_ratio(Amount::UNIT, 1, 3, Rounding::Ceil), Amount::UNIT);
+        assert_eq!(mul_ratio(Amount::UNIT, 1, 3, Rounding::Floor), Amount::ZERO);
+        assert_eq!(mul_ratio(Amount::MAX, 2, 1, Rounding::Trunc), Amount::MAX);
+        assert_eq!(mul_ratio(ONE, 1, 0, Rounding::Ceil), Amount::ZERO);
+        // 75.000000000000000001 over 100 is 7,501 bps rounded up.
+        assert_eq!(
+            ratio_of(75 * ONE + Amount::UNIT, 100 * ONE, 10_000, Rounding::Ceil),
+            7_501
+        );
+        assert_eq!(ratio_of(75 * ONE, 100 * ONE, 10_000, Rounding::Ceil), 7_500);
+        assert_eq!(ratio_of(ONE, Amount::ZERO, 10_000, Rounding::Ceil), 0);
+        assert_eq!(mul_div_count(i128::MAX, 3, 3, Rounding::Trunc), i128::MAX);
+        assert_eq!(mul_div_count(-7, 1, 2, Rounding::Floor), -4);
+        assert_eq!(cmp_times(Amount::MAX, 3, Amount::MAX, 2), Ordering::Greater);
+        assert_eq!(cmp_times(-Amount::UNIT, 5, Amount::UNIT, 1), Ordering::Less);
+        assert_eq!(cmp_times(Amount::ZERO, 5, Amount::ZERO, 1), Ordering::Equal);
     }
 
     #[test]
