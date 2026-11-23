@@ -27,6 +27,7 @@ import {
   OPS_OUTREACH_ASSIGN,
   OPS_OUTREACH_UPDATE_NEXT_ACTION,
   OPS_OUTREACH_ADD_NOTE,
+  OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS,
 } from '@intafaced/contracts/ops-outreach-procedures';
 import { OPS_ALERTS_ACKNOWLEDGE, OPS_ALERTS_SNOOZE, OPS_ALERTS_UNSNOOZE } from '@intafaced/contracts/ops-alerts-procedures';
 
@@ -47,7 +48,7 @@ export async function scratch(config: AdminSessionConfig, ctx: FounderCallContex
   await founderEdgeCall(config, 'ops', 'outreach.getContactProvenance', 'GET', input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_TASKS, input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_MESSAGES, input, token);
-  await founderEdgeCall(config, 'ops', 'outreach.documentProviderStatus', 'GET', undefined, token);
+  await founderEdgeRecordCall(config, OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS, undefined, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_UPSERT_CAMPAIGN, input, token);
   await founderEdgeRecordCall(config, OPS_OUTREACH_UPSERT_SOURCE_MAPPING, input, token);
   await founderEdgeCall(config, 'ops', 'outreach.mergeContacts', 'POST', input, token);
