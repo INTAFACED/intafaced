@@ -2,10 +2,10 @@
 //! `balances`, through svc-bank's read budget in ledger-client.ts): one owner's balances, signed as svc-bank. svc-bank
 //! holds no balance; every figure here is the ledger's answer at the moment of asking.
 //!
-//! A recovery sweep posts a `bankTransfer` recipe in the `recovery` key space. Which svc-ledger door the Rust bank posts
-//! through is not decided yet (PORT.md, "The ledger"), and no recipe's entries are ever assembled here, so
-//! [`HttpLedger`] has no post: [`Ledger::posts`] is false and the sweep is answered "not ported" before
-//! anything is written. Tests hand in a ledger that posts.
+//! A recovery sweep posts a `bankTransfer` recipe in the `recovery` key space through svc-ledger's `postRecipe` door,
+//! as every other slice posts (`spaces::ports::LedgerHttp::post_recipe`): svc-ledger builds the entries from the recipe
+//! and its business inputs; none is ever assembled here. A door built without the service's environment ([`Unwired`])
+//! posts nothing and the sweep is refused before anything is written.
 
 use std::time::{Duration, Instant as Clock};
 
@@ -39,6 +39,20 @@ impl AccountRef {
     /// `accountPurpose`: the trimmed purpose, or empty.
     pub fn purpose(&self) -> &str {
         self.purpose.as_deref().map_or("", js_trim)
+    }
+
+    /// The account as `postRecipe`'s input names it, in `AccountRef`'s key order; `purpose` only when it has one.
+    pub fn json(&self) -> Json {
+        let mut fields = vec![
+            ("ownerType".to_owned(), Json::str(self.owner_type.clone())),
+            ("ownerId".to_owned(), Json::str(self.owner_id.clone())),
+            ("assetId".to_owned(), Json::str(self.asset_id.clone())),
+            ("kind".to_owned(), Json::str(self.kind.clone())),
+        ];
+        if !self.purpose().is_empty() {
+            fields.push(("purpose".to_owned(), Json::str(self.purpose())));
+        }
+        Json::Object(fields)
     }
 
     /// `accountKey`.
@@ -131,6 +145,32 @@ pub struct HttpLedger {
     pub base: String,
     pub signer: CallSigner,
     pub fetch: Box<dyn Fetch>,
+    /// svc-ledger's `postRecipe` door, as every slice posts through it; `None` for a reader that never posts.
+    pub post: Option<Box<dyn crate::spaces::ports::Ledger>>,
+}
+
+/// `recipes.bankTransfer`'s input for `t`, and the business key svc-ledger books it under.
+pub fn bank_transfer_input(t: &BankTransfer) -> (Json, String) {
+    let kind = if t.key_space == "sched" {
+        "scheduled"
+    } else {
+        "manual"
+    };
+    (
+        Json::obj([
+            ("transferId", Json::str(t.transfer_id.clone())),
+            ("occurrence", Json::int(t.occurrence)),
+            ("from", t.from.json()),
+            ("to", t.to.json()),
+            (
+                "amount",
+                Json::str(service_kit::money::format_amount(t.amount)),
+            ),
+            ("kind", Json::str(kind)),
+            ("keySpace", Json::str(t.key_space)),
+        ]),
+        crate::transfers::moves::bank_transfer_key(t.key_space, &t.transfer_id, t.occurrence),
+    )
 }
 
 impl HttpLedger {
@@ -245,13 +285,23 @@ impl Ledger for HttpLedger {
     }
 
     fn posts(&self) -> bool {
-        false
+        self.post.is_some()
     }
 
-    fn bank_transfer(&self, _: &BankTransfer) -> Result<String, PostError> {
-        Err(PostError::Other(
-            "no svc-ledger post door is wired".to_owned(),
-        ))
+    fn bank_transfer(&self, t: &BankTransfer) -> Result<String, PostError> {
+        let Some(post) = self.post.as_ref() else {
+            return Err(PostError::Other(
+                "no svc-ledger post door is wired".to_owned(),
+            ));
+        };
+        let (input, key) = bank_transfer_input(t);
+        match post.post_recipe("bankTransfer", &input, &key) {
+            Ok(tx) => Ok(tx.id),
+            Err(crate::spaces::ports::PostFailure::Coded { code, message, .. }) => {
+                Err(PostError::Ledger { code, message })
+            }
+            Err(crate::spaces::ports::PostFailure::Unknown(m)) => Err(PostError::Other(m)),
+        }
     }
 }
 
@@ -288,6 +338,7 @@ mod tests {
                 None,
             ),
             fetch: Box::new(seen.clone()),
+            post: None,
         };
         (l, seen)
     }
@@ -325,5 +376,115 @@ mod tests {
         assert!(l.balances("user", "u1").is_err());
         assert_eq!(seen.0.lock().unwrap().len(), 1);
         assert!(Unwired.balances("user", "u").is_err());
+    }
+
+    /// svc-ledger's recipe door as the post sees it: each call recorded, answered in turn.
+    struct Recipes(
+        Arc<Mutex<Vec<(String, String, String)>>>,
+        Mutex<Vec<Result<&'static str, crate::spaces::ports::PostFailure>>>,
+    );
+
+    impl crate::spaces::ports::Ledger for Recipes {
+        fn balance(&self, _: &crate::spaces::ports::LedgerAccount) -> Result<Amount, String> {
+            Err("not read here".to_owned())
+        }
+        fn balances(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Vec<crate::spaces::ports::LedgerBalance>, String> {
+            Err("not read here".to_owned())
+        }
+        fn assets(&self) -> Result<Vec<Json>, String> {
+            Err("not read here".to_owned())
+        }
+        fn post_recipe(
+            &self,
+            recipe: &str,
+            input: &Json,
+            key: &str,
+        ) -> Result<crate::spaces::ports::LedgerTx, crate::spaces::ports::PostFailure> {
+            self.0
+                .lock()
+                .unwrap()
+                .push((recipe.to_owned(), input.compact(), key.to_owned()));
+            self.1
+                .lock()
+                .unwrap()
+                .remove(0)
+                .map(|id| crate::spaces::ports::LedgerTx {
+                    id: id.to_owned(),
+                    key: key.to_owned(),
+                    posted_at: service_kit::time::Instant(0),
+                    entries: Vec::new(),
+                })
+        }
+    }
+
+    #[test]
+    fn a_sweep_posts_the_bank_transfer_recipe_under_the_key_its_row_records() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (mut l, _) = ledger(Vec::new());
+        assert!(!l.posts(), "a reader with no post door posts nothing");
+        assert!(matches!(
+            l.bank_transfer(&BankTransfer {
+                transfer_id: "c".to_owned(),
+                occurrence: 1,
+                from: AccountRef::available("user", "owner", "USDT"),
+                to: AccountRef::available("user", "heir", "USDT"),
+                amount: parse_amount("1").unwrap(),
+                key_space: "recovery",
+            }),
+            Err(PostError::Other(_))
+        ));
+        l.post = Some(Box::new(Recipes(
+            calls.clone(),
+            Mutex::new(vec![
+                Ok("tx-1"),
+                Err(crate::spaces::ports::PostFailure::Coded {
+                    code: "ledger.insufficient_funds".to_owned(),
+                    message: "short".to_owned(),
+                    attempts: 1,
+                }),
+                Err(crate::spaces::ports::PostFailure::Unknown(
+                    "timeout".to_owned(),
+                )),
+            ]),
+        )));
+        assert!(l.posts());
+        let from = AccountRef::available("user", "owner", "USDT");
+        // The sweep row's key (`plan`): bank.transfer.recovery:<claim>:<account key>:<round>.
+        let row_key = format!("bank.transfer.recovery:claim-1:{}:2", from.key());
+        let t = BankTransfer {
+            transfer_id: format!("claim-1:{}", from.key()),
+            occurrence: 2,
+            from,
+            to: AccountRef::available("user", "heir", "USDT"),
+            amount: parse_amount("12.5").unwrap(),
+            key_space: "recovery",
+        };
+        assert_eq!(l.bank_transfer(&t), Ok("tx-1".to_owned()));
+        assert_eq!(
+            l.bank_transfer(&t),
+            Err(PostError::Ledger {
+                code: "ledger.insufficient_funds".to_owned(),
+                message: "short".to_owned()
+            })
+        );
+        assert_eq!(
+            l.bank_transfer(&t),
+            Err(PostError::Other("timeout".to_owned()))
+        );
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0].0, "bankTransfer");
+        assert_eq!(calls[0].2, row_key);
+        assert_eq!(
+            calls[0].1,
+            format!(
+                r#"{{"transferId":"claim-1:{}","occurrence":2,"from":{{"ownerType":"user","ownerId":"owner","assetId":"USDT","kind":"available"}},"to":{{"ownerType":"user","ownerId":"heir","assetId":"USDT","kind":"available"}},"amount":"12.5","kind":"manual","keySpace":"recovery"}}"#,
+                AccountRef::available("user", "owner", "USDT").key()
+            )
+        );
     }
 }

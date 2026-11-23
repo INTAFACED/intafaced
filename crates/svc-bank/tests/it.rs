@@ -108,8 +108,12 @@ mod loans_ops_db;
 mod loans_repay_db;
 #[path = "loans_sweep_db.rs"]
 mod loans_sweep_db;
+#[path = "ops_approval_golden.rs"]
+mod ops_approval_golden;
 #[path = "ops_desk_db.rs"]
 mod ops_desk_db;
+#[path = "ops_desk_partner_balances_db.rs"]
+mod ops_desk_partner_balances_db;
 #[path = "partner_account_cash_out.rs"]
 mod partner_account_cash_out;
 #[path = "partner_account_closure.rs"]
@@ -138,6 +142,8 @@ mod ramps_onramp_db;
 mod spaces_db;
 #[path = "store_pg.rs"]
 mod store_pg;
+#[path = "test_seed_db.rs"]
+mod test_seed_db;
 #[path = "transfers_guards_db.rs"]
 mod transfers_guards_db;
 #[path = "transfers_schedules_db.rs"]

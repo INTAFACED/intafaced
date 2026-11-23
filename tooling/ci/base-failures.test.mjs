@@ -504,7 +504,7 @@ test("the Tests job: main's own run fails on every failing test; only a pull req
 test("money code here is the repo's list, as the journeys run reads it, at the head and through git at a commit", () => {
   const here = moneyDirsOf(manifestsOf(process.cwd()));
   assert.deepEqual([...here].sort(), [...moneyCodeDirs(manifestsAt(process.cwd()))].sort());
-  assert.ok(here.has('services/svc-bank') && here.has('packages/ledger-client') && here.has('services/svc-edge'));
+  assert.ok(here.has('services/svc-pay') && here.has('packages/ledger-client') && here.has('services/svc-edge'));
   const files = {
     'services/svc-x/package.json': { name: '@intafaced/svc-x', dependencies: { '@intafaced/ledger-client': 'workspace:*' } },
     'packages/y/package.json': { name: '@intafaced/y' },
