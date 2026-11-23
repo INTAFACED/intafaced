@@ -250,7 +250,7 @@ function Contrast() {
 function SheetAndToast() {
   const toast = useToast();
   return (
-    <div className="vk-row">
+    <div className="lt-toolbar">
       <Dialog>
         <DialogTrigger render={<Button variant="secondary" size={40} data-kit="open-sheet" />}>Open the sheet</DialogTrigger>
         <DialogContent closeLabel="Close">
@@ -353,8 +353,8 @@ export default function VoltKit() {
       </Block>
 
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
-        <div className="vk-grid">
-          <div className="vk-row">
+        <div className="lt-stack">
+          <div className="lt-toolbar">
             <Button variant="primary" size={48}>
               Review buy
             </Button>
@@ -365,7 +365,7 @@ export default function VoltKit() {
               Not now
             </Button>
           </div>
-          <div className="vk-row">
+          <div className="lt-toolbar">
             <Button variant="primary" size={40} disabled>
               Review buy
             </Button>
@@ -376,7 +376,7 @@ export default function VoltKit() {
               Sending
             </Button>
           </div>
-          <div className="vk-row">
+          <div className="lt-toolbar">
             <Button variant="buy" size={40}>
               Buy BTC
             </Button>
@@ -483,7 +483,7 @@ export default function VoltKit() {
           <Table label="TEST orders" columns={ORDER_COLUMNS} rows={TEST_ORDERS} getRowId={(r) => r.id} minWidth="36rem" />
         </div>
         <p className="vk-table-note">On a phone the table scrolls sideways; the last columns sit past the edge.</p>
-        <div className="vk-row">
+        <div className="lt-toolbar">
           <Badge tone="neutral">TEST</Badge>
           <Badge tone="lime">New</Badge>
           <Badge tone="up">+3.49%</Badge>
