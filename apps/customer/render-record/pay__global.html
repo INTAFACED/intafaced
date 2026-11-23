@@ -96,7 +96,7 @@
 </header>
 <main id="main" tabindex="-1">
 <div data-testid="if-pay">
-<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
 <header class="lt-title-row">
 <div>
 <h1 class="lt-title">Pay</h1>
@@ -104,9 +104,19 @@
 </div>
 </header>
 <div class="lt-body">
-<div class="lt-grid lt-grid-main-side">
+<div class="lt-grid lt-grid-flow">
 <div class="lt-col-main">
-<section class="lt-region" data-region="hero" aria-label="Balance">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
+<section class="lt-stack" aria-labelledby="_r_3_" data-testid="pay-waiting">
+<h2 id="_r_3_">Waiting for you</h2>
+<div class="lit-note" data-tone="error" role="alert">
+<div data-part="body">We couldn’t load the payments waiting for you.</div>
+<div data-part="actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</div>
+</section>
 <section data-testid="pay-card" aria-label="Pay" class="lt-stack">
 <div class="lt-tabs" role="tablist" aria-label="Send or receive">
 <button type="button" role="tab" class="lt-tab" aria-selected="false" aria-controls="pay-panel-send" tabindex="-1">Send</button>
@@ -146,10 +156,10 @@
 </div>
 <div class="lt-title-row">
 <div class="lt-lines">
-<span id="_r_3_">Let people find me by my handle</span>
-<span class="lt-hint" id="_r_4_">Checking…</span>
+<span id="_r_4_">Let people find me by my handle</span>
+<span class="lt-hint" id="_r_5_">Checking…</span>
 </div>
-<button aria-labelledby="_r_3_" aria-describedby="_r_4_" disabled="" data-testid="handle-discoverable" type="button" role="switch" aria-checked="false" aria-label="Let people find me by my handle" class="lit-switch">
+<button aria-labelledby="_r_4_" aria-describedby="_r_5_" disabled="" data-testid="handle-discoverable" type="button" role="switch" aria-checked="false" aria-label="Let people find me by my handle" class="lit-switch">
 </button>
 </div>
 <div class="lt-title-row">
@@ -159,7 +169,7 @@
 </div>
 </div>
 <div class="lt-stack" data-testid="receive-contacts">
-<h3 id="_r_5_">Ways to receive</h3>
+<h3 id="_r_6_">Ways to receive</h3>
 <p class="lt-hint">People can also pay you by an email or phone you add here, once you confirm it with the code we send to it.</p>
 <div class="lit-note" data-tone="error" role="alert">
 <div data-part="body">We couldn’t load your ways to receive.</div>
@@ -171,8 +181,8 @@
 <button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Add an email or phone to receive by</button>
 </div>
 </div>
-<fieldset class="lt-stack" data-testid="stranger-rule" aria-labelledby="_r_6_" disabled="">
-<legend id="_r_6_">Payments from people not in your contacts</legend>
+<fieldset class="lt-stack" data-testid="stranger-rule" aria-labelledby="_r_7_" disabled="">
+<legend id="_r_7_">Payments from people not in your contacts</legend>
 <p class="lt-hint">Someone not in your contacts is anyone you haven’t paid before. Choose what happens when they pay you.</p>
 <div class="lit-note" data-tone="error" role="alert">
 <div data-part="body">We couldn’t load this setting.</div>
@@ -181,11 +191,11 @@
 </div>
 </div>
 <label class="lt-field">
-<input type="radio" name="_r_7_">
+<input type="radio" name="_r_8_">
 <span>Pay them into my balance</span>
 </label>
 <label class="lt-field">
-<input type="radio" name="_r_7_">
+<input type="radio" name="_r_8_">
 <span>Hold for me to accept</span>
 </label>
 </fieldset>
@@ -302,14 +312,14 @@
 </fieldset>
 <fieldset class="lt-stack" disabled="">
 <div class="lit-amount" data-slot="amount-field" data-size="md">
-<label for="_r_8_">You send</label>
+<label for="_r_9_">You send</label>
 <div data-part="box">
-<input id="_r_8_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="0" type="text" value="">
+<input id="_r_9_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="0" type="text" value="">
 </div>
 </div>
 <div class="lt-field">
-<label for="_r_9_">Asset to send</label>
-<select id="_r_9_">
+<label for="_r_10_">Asset to send</label>
+<select id="_r_10_">
 <option value="">No balance to send from</option>
 </select>
 </div>
@@ -393,21 +403,11 @@
 </div>
 </nav>
 </section>
-</section>
-<section class="lt-region" data-region="needs-you" aria-label="Needs you">
-<section class="lt-stack" aria-labelledby="_r_10_" data-testid="pay-waiting">
-<h2 id="_r_10_">Waiting for you</h2>
-<div class="lit-note" data-tone="error" role="alert">
-<div data-part="body">We couldn’t load the payments waiting for you.</div>
-<div data-part="actions">
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
-</div>
-</section>
 </section>
 </div>
 <div class="lt-col-side">
-<section class="lt-region" data-region="watching" aria-label="Watching">
+<section class="lt-region" data-region="summary" aria-label="Summary">
 <div class="lt-stack" data-testid="pay-recent">
 <section class="lt-stack" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
 <div class="lt-title-row">
