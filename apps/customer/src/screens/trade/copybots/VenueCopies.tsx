@@ -46,7 +46,7 @@ export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomAp
   const rows = resource.status === 'ready' ? resource.data.positions : [];
   const columns: TableColumn<CopyPosition>[] = [
     { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')), width: '5rem' },
     { id: 'qty', header: t('Amount'), value: (r) => r.qty, numeric: true, cell: (r) => displayAmount(r.qty) },
     { id: 'filled', header: t('Filled'), value: (r) => r.filledQty, numeric: true, cell: (r) => displayAmount(r.filledQty) },
     { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
@@ -89,7 +89,7 @@ export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi
   const rows = copies.flatMap((o) => (o.venue?.fills ?? []).map((f) => ({ ...f, market: o.market, side: o.side })));
   const columns: TableColumn<VenueFillRow & { market: string; side: 'buy' | 'sell' }>[] = [
     { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')), width: '5rem' },
     { id: 'amount', header: t('Amount'), value: (r) => r.amount, numeric: true, cell: (r) => displayAmount(r.amount) },
     { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
     {
