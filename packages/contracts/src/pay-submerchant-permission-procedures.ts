@@ -72,3 +72,52 @@ export const PAY_SUBMERCHANT_PERMISSION_HISTORY = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+const permissionChangeInput = z.object({
+  granteeMerchantId: z.string().guid(),
+  subjectMerchantId: z.string().guid(),
+  area: areaSchema,
+  /** `min(3)`: one character satisfies "not blank" and answers nothing. */
+  reason: z.string().trim().min(3).max(500),
+});
+const permissionChangeSamples = [
+  {
+    verdict: 'accept',
+    input: {
+      granteeMerchantId: '11111111-1111-4111-8111-111111111111',
+      subjectMerchantId: '22222222-2222-4222-8222-222222222222',
+      area: 'payment',
+      reason: 'Runs refunds for this shop',
+    },
+  },
+  { verdict: 'refuse', input: 42 },
+] as const;
+
+/**
+ * Delegate an area the caller already holds to a node between them and the subject. `reason` is required and stored:
+ * a permission is what a later incident is reconstructed from.
+ */
+export const PAY_SUBMERCHANT_PERMISSION_GRANT = defineProcedure({
+  ...base,
+  name: 'pay.submerchantPermission.grant',
+  kind: 'mutation',
+  path: 'submerchantPermission.grant',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: permissionChangeInput,
+  output: permissionEventView,
+  samples: permissionChangeSamples,
+});
+
+/** Take it back: a new journal row, never an edit. Same authority as `grant`. */
+export const PAY_SUBMERCHANT_PERMISSION_REVOKE = defineProcedure({
+  ...base,
+  name: 'pay.submerchantPermission.revoke',
+  kind: 'mutation',
+  path: 'submerchantPermission.revoke',
+  access: { caller: 'scope', scope: 'pay:write', module: 'pay' },
+  refusals: {},
+  input: permissionChangeInput,
+  output: permissionEventView,
+  samples: permissionChangeSamples,
+});

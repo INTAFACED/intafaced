@@ -112,6 +112,8 @@ export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(path
   LOCAL_STACK_PG_DURABLE: '1',
   LOCAL_STACK_MARKET_INTERVAL: String(BETA_CADENCE_SECONDS),
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
+  // The beta's Customer build shows only rooms finished in Volt (apps/customer/src/app/beta-volt.ts).
+  INTAFACED_BETA_VOLT_ONLY: '1',
 });
 
 /**

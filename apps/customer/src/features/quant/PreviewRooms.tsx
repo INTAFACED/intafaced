@@ -303,12 +303,21 @@ export function TesterRoom({ paper }: { paper: boolean }) {
   // Kept in memory only: a reload starts the sample replay again from the start at 1x.
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(true);
-  const [frame, setFrame] = useState(0);
+  // The frame follows the clock: `speed` frames every 100 ms since the replay last started or changed speed, on top of
+  // the frames before. Under a frozen clock it holds still, so a drawing of the room is the same every time.
+  const [clock, setClock] = useState(() => ({ base: 0, since: Date.now() }));
+  const [now, setNow] = useState(() => Date.now());
+  const frame = playing ? clock.base + Math.floor(Math.max(0, now - clock.since) / 100) * speed : clock.base;
+  const restart = (base: number) => {
+    const at = Date.now();
+    setClock({ base, since: at });
+    setNow(at);
+  };
   useEffect(() => {
     if (!playing) return undefined;
-    const id = setInterval(() => setFrame((n) => n + speed), 100);
+    const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [playing, speed]);
+  }, [playing]);
   const tick = (frame % TICKS) + 1;
   return (
     <PreviewShell
@@ -334,18 +343,29 @@ export function TesterRoom({ paper }: { paper: boolean }) {
               value={speed}
               aria-label={t('speed')}
               aria-valuetext={`${speed}x`}
-              onChange={(event) => setSpeed(Number(event.currentTarget.value))}
+              onChange={(event) => {
+                restart(frame);
+                setSpeed(Number(event.currentTarget.value));
+              }}
             />
           </label>
+          {/* The local replay's control and the engine's Start are one row of equal buttons; the real backtest's link sits apart. */}
           <div className="lt-actions">
-            <Button onClick={() => setPlaying((p) => !p)}>{playing ? t('pause') : t('play')}</Button>
-            <Button tone="primary" disabled={engine.waiting} onClick={() => void act('start')}>
+            <Button
+              onClick={() => {
+                restart(frame);
+                setPlaying(!playing);
+              }}
+            >
+              {playing ? t('pause') : t('play')}
+            </Button>
+            <Button disabled={engine.waiting} onClick={() => void act('start')}>
               {t('start')}
             </Button>
+            <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
+              {t('backtest')}
+            </a>
           </div>
-          <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
-            {t('backtest')}
-          </a>
         </Part>
       }
     />

@@ -8,11 +8,14 @@ import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation, validatedRecordMutation } from './BusinessPay';
+import { validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
 import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET, PAY_SUBMERCHANT_CREATE } from '@intafaced/contracts/pay-submerchant-procedures';
+import { areaSchema } from '@intafaced/contracts/pay-call-schemas';
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
@@ -298,17 +301,16 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                   />
                 }
                 perform={() =>
-                  validatedMutation(
+                  validatedRecordMutation(
                     pay,
-                    `submerchantPermission.${action}`,
+                    action === 'grant' ? PAY_SUBMERCHANT_PERMISSION_GRANT : PAY_SUBMERCHANT_PERMISSION_REVOKE,
                     input,
                     z.object({
                       granteeMerchantId: s.id,
                       subjectMerchantId: s.id,
-                      area: z.string().min(1),
+                      area: areaSchema,
                       reason: z.string().trim().min(3).max(500),
                     }),
-                    s.permissionEventSchema,
                     'pay:write',
                     `permission:${subject}:${grantee}:${area}`,
                   )

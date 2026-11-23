@@ -35,9 +35,6 @@ import { VerifyEmail } from './VerifyEmail';
 import { AccountStatus } from './AccountStatus';
 import { EligibilityStatement } from '../money';
 import { accountScreenCopy } from '../../screens/account/copy';
-import { accountStatusCopy } from './account-status-copy';
-import { rankPerksCopy } from './rank-perks-copy';
-import { membershipCopy } from './membership-copy';
 import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
@@ -104,9 +101,6 @@ export function Account() {
   const { api, userId } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const identity = useIdentity(api, userId);
-  const statusCopy = accountStatusCopy.useCopy();
-  const rankCopy = rankPerksCopy.useCopy();
-  const memberCopy = membershipCopy.useCopy();
   const { timeZone } = usePreferences();
   // Strategy subaccounts are a blocked feature (feature-registry.ts): the cards show and refuse honestly; only a row marked hidden would drop them.
   const showSubaccounts = featureById('strategy-subaccounts')?.status !== 'hidden';
@@ -354,32 +348,12 @@ export function Account() {
   }
   const unknowns = journal.records.filter((record) => !visibleReceipts.some((receipt) => receipt.record.requestId === record.requestId));
   const visibleReview = review && same(review) ? review : null;
-  const sectionLinks: readonly (readonly [string, string])[] = [
-    ['#account-id', t('owner')],
-    ['#account-status', statusCopy.t('title')],
-    ['#rank-perks', rankCopy.t('title')],
-    ['#membership', memberCopy.t('title')],
-    ...(showSubaccounts ? ([['#subaccounts', t('list')]] as const) : []),
-  ];
   return (
     <div lang={languageFor('title')}>
       <SettingsTemplate
         title={t('title')}
         description={t('description')}
         state={{ kind: 'ready' }}
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {sectionLinks.map(([href, label]) => (
-                <li key={href}>
-                  <a className="lt-link" href={href}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         explain={<p>{t('explain')}</p>}
         sections={
           <>
