@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { pictureFromTop, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import {
@@ -352,6 +352,7 @@ test(`${J} #2 leaves the trigger blank: refused with a typed reason in words; no
 
 test(`${J} #3 places a stop-market and looks at the pending list: pending orders listed with trigger, reference price and a way to modify or cancel each`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -379,6 +380,9 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     await expect(head).toHaveText(['Kind', 'Side', 'Size', 'Trigger', 'Reference price', 'Status', 'Run by', 'Legs', 'Actions']);
     const shown = await conditional(s, market);
     expect(shown).toMatchObject({ kind: 'stop_market', triggerPrice: '95', referencePrice: '100', triggerSource: 'last', status: 'armed' });
+    // The step's picture is taken here, with both orders pending: the checks below change, cancel and fire them, and the
+    // list they leave has nothing to modify or cancel.
+    await pictureFromTop(page, stepPicture);
 
     // Modify: the stop-market's trigger to 96, stored as the person typed it.
     await row(page, market)

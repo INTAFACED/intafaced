@@ -1357,6 +1357,21 @@
   .dk-table tbody tr:hover {
     background: var(--if-hover);
   }
+  /*
+   * The pending conditional orders hold sentences (who runs each order, each leg in words), so their cells wrap and the
+   * list keeps inside its panel with Modify and Cancel on screen; on one line a row it ran under the side column and
+   * past the window's edge. A window narrower than its words scrolls the list, not the page.
+   */
+  [data-testid='spot-conditional-pending'] {
+    overflow-x: auto;
+  }
+  [data-testid='spot-conditional-pending'] .dk-table {
+    white-space: normal;
+  }
+  [data-testid='spot-conditional-pending'] .dk-table td {
+    padding-block: var(--if-space-2);
+    vertical-align: top;
+  }
   .dk-side[data-side='buy'] {
     color: var(--if-up-text);
   }
