@@ -1,10 +1,4 @@
-import { EmptyState } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
-import { PortalFailure, PortalLoading } from '../../components';
-import { EntityList } from '../../ui/EntityList';
-import { Freshness } from '../../ui/Freshness';
-import { KpiStrip } from '../../ui/Kpi';
+import { Empty, EntityList, Failure, Freshness, KpiStrip, Loading, NotLive, Section } from '../../volt/parts';
 import { isNotLive, notLiveReason } from '../../refusal';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
@@ -51,21 +45,21 @@ export function DeclinesView({
 }) {
   const { t } = c.useCopy();
   return (
-    <PaySection title={t('declinesTitle')} description={t('declinesBody')}>
+    <Section title={t('declinesTitle')} description={t('declinesBody')}>
       {resource.status === 'loading' ? (
-        <PortalLoading rows={2} />
+        <Loading rows={2} />
       ) : resource.status === 'failed' ? (
         isNotLive(resource.failure) ? (
-          <NotLiveCard reason={notLiveReason(resource.failure)} title={t('declinesOffTitle')} needs="merchantAnalytics.declines">
+          <NotLive reason={notLiveReason(resource.failure)} title={t('declinesOffTitle')} needs="merchantAnalytics.declines">
             {t('declinesOffBody')}
-          </NotLiveCard>
+          </NotLive>
         ) : (
-          <PortalFailure result={resource.failure} retry={reload} />
+          <Failure result={resource.failure} retry={reload} />
         )
       ) : (
         <DeclinesBody data={resource.data} state={state} test={test} />
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -76,7 +70,7 @@ function DeclinesBody({ data, state, test }: { data: DeclinesData; state: Analyt
     return (
       <>
         {freshness}
-        <EmptyState title={t('declinesNone')}>{t('declinesNoneBody')}</EmptyState>
+        <Empty title={t('declinesNone')}>{t('declinesNoneBody')}</Empty>
       </>
     );
   const period = state.preset === 'custom' ? t('yourDates') : t(`period_${state.preset}`);
@@ -115,7 +109,6 @@ function DeclinesBody({ data, state, test }: { data: DeclinesData; state: Analyt
             { header: t('colCode'), cell: (r) => <code lang="und">{r.code}</code> },
             { header: t('colCount'), cell: (r) => r.count },
           ]}
-          card={(r) => ({ title: r.message, time: r.code, amount: r.count })}
         />
       )}
     </>

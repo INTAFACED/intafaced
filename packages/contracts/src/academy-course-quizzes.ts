@@ -56,43 +56,45 @@ const questionBase = {
 const uniqueChoices = (choices: readonly { id: string }[]) => new Set(choices.map((c) => c.id)).size === choices.length;
 
 /**
+ * A question's fields alone, without the rules between them (below), as JSON Schema can say it: what a reply's question
+ * is checked against before its record's `accept` applies the rules (`academy-admin-procedures.ts`).
+ */
+export const academyCourseQuizQuestionShape = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('single'),
+      ...questionBase,
+      choices: z.array(choice).min(2).max(20),
+      correctChoiceId: z.string().regex(ACADEMY_CHOICE_ID).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('multi'),
+      ...questionBase,
+      choices: z.array(choice).min(2).max(20),
+      correctChoiceIds: z.array(z.string().regex(ACADEMY_CHOICE_ID)).min(1).max(20).nullable(),
+      /** Each correct choice chosen earns an equal whole share of the points, unless any wrong one is chosen. */
+      partialCredit: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('numeric'),
+      ...questionBase,
+      answer: z.string().regex(ACADEMY_QUIZ_DECIMAL).nullable(),
+      /** How far from the answer still scores, as a decimal from 0. */
+      tolerance: z.string().regex(ACADEMY_QUIZ_DECIMAL),
+    })
+    .strict(),
+  z.object({ kind: z.literal('essay'), ...questionBase }).strict(),
+]);
+/**
  * A question with its key. Only staff reads carry the key; a learner's read never does. A key is null only on a survey,
  * which has none: saving a graded quiz with a question missing its key refuses.
  */
-export const academyCourseQuizQuestionSchema = z
-  .discriminatedUnion('kind', [
-    z
-      .object({
-        kind: z.literal('single'),
-        ...questionBase,
-        choices: z.array(choice).min(2).max(20),
-        correctChoiceId: z.string().regex(ACADEMY_CHOICE_ID).nullable(),
-      })
-      .strict(),
-    z
-      .object({
-        kind: z.literal('multi'),
-        ...questionBase,
-        choices: z.array(choice).min(2).max(20),
-        correctChoiceIds: z.array(z.string().regex(ACADEMY_CHOICE_ID)).min(1).max(20).nullable(),
-        /** Each correct choice chosen earns an equal whole share of the points, unless any wrong one is chosen. */
-        partialCredit: z.boolean(),
-      })
-      .strict(),
-    z
-      .object({
-        kind: z.literal('numeric'),
-        ...questionBase,
-        answer: z.string().regex(ACADEMY_QUIZ_DECIMAL).nullable(),
-        /** How far from the answer still scores, as a decimal from 0. */
-        tolerance: z
-          .string()
-          .regex(ACADEMY_QUIZ_DECIMAL)
-          .refine((v) => !v.startsWith('-'), { message: 'a tolerance is not negative' }),
-      })
-      .strict(),
-    z.object({ kind: z.literal('essay'), ...questionBase }).strict(),
-  ])
+export const academyCourseQuizQuestionSchema = academyCourseQuizQuestionShape
+  .refine((q) => q.kind !== 'numeric' || !q.tolerance.startsWith('-'), { message: 'a tolerance is not negative', path: ['tolerance'] })
   .refine((q) => !('choices' in q) || uniqueChoices(q.choices), { message: 'choice ids are unique', path: ['choices'] })
   .refine((q) => q.kind !== 'single' || q.correctChoiceId === null || q.choices.some((c) => c.id === q.correctChoiceId), {
     message: 'the key is one of the choices',

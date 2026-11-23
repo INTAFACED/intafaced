@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { CustodyError } from './errors.js';
 import type {
   AccountView,
@@ -306,7 +306,7 @@ export class CustodyService {
     return { wallet: walletView(row), vault: vaultView(vault!), entity: entityView(entity!) };
   }
 
-  private async lockVault(tx: Sql, vaultId: string, expectedVersion: number): Promise<VaultRow> {
+  private async lockVault(tx: Queryable, vaultId: string, expectedVersion: number): Promise<VaultRow> {
     const [row] = await tx<VaultRow[]>`SELECT * FROM pay.custody_vaults WHERE vault_id = ${vaultId} FOR UPDATE`;
     if (!row) throw new CustodyError('custody.vault_not_found', 'no such vault');
     if (row.version !== expectedVersion) {
@@ -315,7 +315,7 @@ export class CustodyService {
     return row;
   }
 
-  private async requireFreeName(tx: Sql, entityId: string, name: string, exceptVaultId: string | null): Promise<void> {
+  private async requireFreeName(tx: Queryable, entityId: string, name: string, exceptVaultId: string | null): Promise<void> {
     const taken = await tx<Array<{ vault_id: string }>>`
       SELECT vault_id FROM pay.custody_vaults
        WHERE entity_id = ${entityId} AND lower(btrim(name)) = lower(btrim(${name}))
@@ -323,7 +323,7 @@ export class CustodyService {
     if (taken[0]) throw new CustodyError('custody.name_taken', `a vault called "${name}" already exists for this entity`);
   }
 
-  private async event(tx: Sql, kind: string, subjectId: string, action: string, actor: string, detail: Record<string, unknown>) {
+  private async event(tx: Queryable, kind: string, subjectId: string, action: string, actor: string, detail: Record<string, unknown>) {
     await tx`
       INSERT INTO pay.custody_events (subject_kind, subject_id, action, actor_id, detail)
       VALUES (${kind}, ${subjectId}, ${action}, ${actor}, ${tx.json(detail as never)})`;

@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
-import { SELFIE_DECISIONS, UUID, type SelfieDecision } from '@/lib/desk/approval-packet';
+import { SELFIE_DECISIONS, type SelfieDecision } from '@/lib/desk/approval-packet';
+import { UUID } from '@/lib/approval-fields';
 import { rowText } from '@/lib/ops-desk/actions-model';
 import type { Row } from '@/lib/ops-desk/types';
 import './desk.css';

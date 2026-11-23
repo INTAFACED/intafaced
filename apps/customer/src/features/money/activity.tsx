@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, Page, Tabs } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
+import type { Resource } from '../../shared/resource';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { t, Text } from './copy';
 import { ScheduleExecutions } from './ScheduleHistory';
 import { onrampSchema, offrampSchema, scheduleSchema } from './contracts';
-import { Continuation, date, funds, NoRows, ResourceView, Section, useBankRead, usePageLimit } from './components';
+import { Continuation, date, funds, NoRows, ResourceView, Section, usePageLimit, useBankRecord } from './components';
+import { BANK_RAMPS_ONRAMPS, BANK_RAMPS_OFFRAMPS } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 
 type Record = z.infer<typeof onrampSchema> | z.infer<typeof offrampSchema> | z.infer<typeof scheduleSchema>;
 const sources = {
-  incoming: { procedure: 'ramps.onramps', label: 'activity.incoming', title: 'rooms.incoming.rail.records' },
-  outgoing: { procedure: 'ramps.offramps', label: 'activity.outgoing', title: 'rooms.outgoing.rail.records' },
-  scheduled: { procedure: 'transfers.listSchedules', label: 'activity.scheduled', title: 'rooms.standing.orders' },
+  incoming: { label: 'activity.incoming', title: 'rooms.incoming.rail.records' },
+  outgoing: { label: 'activity.outgoing', title: 'rooms.outgoing.rail.records' },
+  scheduled: { label: 'activity.scheduled', title: 'rooms.standing.orders' },
 } as const;
 type Source = keyof typeof sources;
 const sourceKeys = Object.keys(sources) as Source[];
@@ -33,7 +36,7 @@ export function MoneyActivity() {
       <Page eyebrow={t('rooms.money')} title={t('rooms.money.activity')}>
         <Section title={t(invalid ? 'activity.invalid.context' : 'activity.company.unavailable')}>
           <p>{t(invalid ? 'activity.invalid.help' : 'activity.company.help')}</p>
-          <a className="text-link" href={invalid ? '/uc/record' : '/bank/business'}>
+          <a className="lt-link" href={invalid ? '/uc/record' : '/bank/business'}>
             {t(invalid ? 'activity.all.assets' : 'nav.business')}
           </a>
         </Section>
@@ -49,7 +52,7 @@ export function MoneyActivity() {
           <Button variant="ghost" aria-pressed={hideBalances} onClick={() => savePreferences({ hideBalances: !hideBalances })}>
             {t(hideBalances ? 'index.show.amounts' : 'index.hide.amounts')}
           </Button>
-          <a className="button button--secondary" href={asset ? `/portfolio/${encodeURIComponent(asset)}` : '/portfolio'}>
+          <a className="lt-button lt-button-secondary" href={asset ? `/portfolio/${encodeURIComponent(asset)}` : '/portfolio'}>
             {asset ? t('activity.back.asset', { asset }) : t('rooms.back.to.holdings')}
           </a>
         </>
@@ -88,7 +91,12 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
   const [limit, setLimit] = usePageLimit();
   const [selected, setSelected] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const query = useBankRead(sources[source].procedure, { limit });
+  // Each source reads its own call; only the one shown asks svc-bank.
+  const incoming = useBankRecord(BANK_RAMPS_ONRAMPS, { limit }, source === 'incoming');
+  const outgoing = useBankRecord(BANK_RAMPS_OFFRAMPS, { limit }, source === 'outgoing');
+  const scheduled = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit }, source === 'scheduled');
+  const query: { resource: Resource<readonly Record[]>; reload: () => void } =
+    source === 'incoming' ? incoming : source === 'outgoing' ? outgoing : scheduled;
   const all = query.resource.status === 'ready' ? query.resource.data : [];
   const rows = asset ? all.filter((row) => row.assetId === asset) : all;
   const row = rows.find((record) => record.id === selected);
@@ -108,7 +116,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
           </Button>
         }
       >
-        {source === 'scheduled' && <p className="muted">{t('activity.instructions')}</p>}
+        {source === 'scheduled' && <p className="lt-muted">{t('activity.instructions')}</p>}
         <ResourceView resource={query.resource} reload={query.reload}>
           {() => (
             <>
@@ -146,7 +154,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
                   {asset ? t('activity.no.asset.read', { asset }) : t('activity.no.records.read')}
                 </NoRows>
               )}
-              {asset && <p className="money-caption">{t('activity.matches', { count: rows.length, asset, returned: all.length })}</p>}
+              {asset && <p className="lt-muted">{t('activity.matches', { count: rows.length, asset, returned: all.length })}</p>}
               <Continuation count={all.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
             </>
           )}
@@ -167,7 +175,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
             {row ? (
               <RecordDetails row={row} />
             ) : (
-              <p role="status" className="muted">
+              <p role="status" className="lt-muted">
                 {t(query.resource.status === 'ready' ? 'activity.absent.selected' : 'activity.current.unavailable')}
               </p>
             )}
@@ -176,7 +184,7 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
             </a>
           </>
         ) : (
-          <p className="muted">{t('activity.select')}</p>
+          <p className="lt-muted">{t('activity.select')}</p>
         )}
       </section>
     </div>

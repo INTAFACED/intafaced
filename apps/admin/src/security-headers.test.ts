@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { NextRequest } from 'next/server';
+import { PHASE_PRODUCTION_BUILD } from 'next/constants.js';
 import { afterEach, describe, expect, it } from 'vitest';
-import nextConfig from '../next.config.mjs';
+import config from '../next.config.mjs';
 import { middleware } from './middleware';
 import { STATIC_SECURITY_HEADERS, contentSecurityPolicy, createNonce } from './lib/security-headers.mjs';
 
+// The headers a production build bakes in (next.config.mjs exports the config by phase).
+const nextConfig = config(PHASE_PRODUCTION_BUILD);
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
   if (original === undefined) delete process.env.ADMIN_MODULES;

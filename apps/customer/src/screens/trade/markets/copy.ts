@@ -61,6 +61,7 @@ const messages = {
   Convert: 'Convert',
   'More actions for {pair}': 'More actions for {pair}',
   'Orders are paused on this market': 'Orders are paused on this market',
+  'This market is closed. Orders are not queued while it is closed': 'This market is closed. Orders are not queued while it is closed',
   'Last price': 'Last price',
   '24h change': '24h change',
   'Last 24h': 'Last 24h',

@@ -2,7 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { orderBookSchema, tradeSchema } from '@intafaced/exchange-contract/schemas';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, Panel, Tabs } from '../../shared/ui';
 import { Details, Read } from './common';
@@ -12,7 +12,12 @@ import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { PredictionTicket } from './PredictionTicket';
 import { ticketCopy } from './prediction-ticket-copy';
 import './prediction-catalogue.css';
-export function Prediction() {
+/**
+ * The prediction room's reads and choices: the published markets, the one picked, its outcome, and that outcome's book,
+ * public tape and my fills (refreshed while the page is visible). Shared by the old room the sections still draw and the
+ * /predict room on the kit (`predict-room/PredictRoom.tsx`).
+ */
+export function usePredictionRoom() {
   const api = useApi(),
     { userId } = useSession();
   const [selected, setSelected] = useState(''),
@@ -21,8 +26,6 @@ export function Prediction() {
   const market = markets.resource.status === 'ready' ? markets.resource.data.find((m) => m.id === selected) : undefined,
     instrument = market?.instruments.find((i) => i.outcome === outcome.toLowerCase());
   const terms = market ? JSON.stringify(market) : '';
-  const { Copy } = predictionCatalogueCopy.useCopy();
-  const ticket = ticketCopy.useCopy();
   const sequence = useRef<{ symbol: string; nonce: number | null }>({ symbol: '', nonce: null });
   const book = useResource<z.infer<typeof orderBookSchema> | null>(async (signal) => {
     if (!instrument) return { ok: true as const, data: null };
@@ -86,17 +89,22 @@ export function Prediction() {
     }, 5000);
     return () => clearInterval(timer);
   }, [instrument?.symbol, terms]);
+  const select = (id: string) => {
+    setSelected(id);
+    setOutcome('Yes');
+  };
+  return { markets, market, instrument, outcome, setOutcome, select, book, tape, fills };
+}
+
+/** The room as /predict/positions and /predict/settings draw it until their own rooms land. */
+export function Prediction() {
+  const { markets, market, instrument, outcome, setOutcome, select, book, tape, fills } = usePredictionRoom();
+  const { Copy } = predictionCatalogueCopy.useCopy();
+  const ticket = ticketCopy.useCopy();
   return (
     <div className="prediction-room">
       <div className="prediction-room-reading">
-        <PredictionCatalogue
-          resource={markets.resource}
-          refresh={markets.reload}
-          select={(id) => {
-            setSelected(id);
-            setOutcome('Yes');
-          }}
-        />
+        <PredictionCatalogue resource={markets.resource} refresh={markets.reload} select={select} />
         {market && (
           <>
             <Panel title={market.question}>
@@ -209,7 +217,7 @@ export function Prediction() {
             <h2>
               <ticketCopy.Copy k="title" />
             </h2>
-            <p className="muted">
+            <p className="lt-muted">
               <ticketCopy.Copy k="idleBody" />
             </p>
             <p className="prediction-ticket__blocker" role="status">

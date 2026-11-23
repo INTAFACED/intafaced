@@ -61,6 +61,32 @@ export interface CardPartnerTerms {
    * and it refuses to start outside dev or test.
    */
   readonly secrets?: 'test';
+  /**
+   * The partner's rules for a cardholder's own dispute (J-bank-15 #1, #3): how many days after a charge settles it takes a
+   * dispute, and whether it takes the cardholder's evidence once the representment is submitted. `null` is "not known":
+   * filing then refuses `bank.card_dispute_rules_unset`, never a guessed window.
+   */
+  readonly disputeRules: CardDisputeRules | null;
+  /**
+   * The partner's own conversion rates for card spending (J-bank-29 #2 to #4): one unit of each asset in `in`, the asset
+   * a card settles in, as the partner quotes it. The partner holds, settles and refunds at these rates; the app shows a
+   * quote as an estimate until the partner reports the hold. `null`, or an asset left out, is "not known": the partner
+   * cannot spend that asset for a payment, and nothing here guesses a rate for it. On the TEST stack the TEST partner
+   * stamps each quote with its own clock at the read.
+   */
+  readonly rates: CardPartnerRates | null;
+}
+
+export interface CardPartnerRates {
+  /** The asset every rate is quoted in: what the card settles in. */
+  readonly in: string;
+  /** One unit of each asset, in `in`, as decimal strings above zero. */
+  readonly perUnit: Readonly<Record<string, string>>;
+}
+
+export interface CardDisputeRules {
+  readonly windowDays: number;
+  readonly evidenceAfterSubmission: boolean;
 }
 
 /** TEST: how old the TEST partner card says its figures may be before they are stale. A real partner declares its own. */
@@ -86,6 +112,8 @@ export const NOTHING_REPORTED: CardPartnerTerms = {
   figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS,
   fundingAssetId: null,
   fundingOffers: null,
+  disputeRules: null,
+  rates: null,
 };
 
 const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
@@ -123,6 +151,26 @@ const simShape = z
     fundingOffers: z.object({ fund: z.boolean(), defund: z.boolean(), autoReload: z.boolean() }).strict().nullable(),
     // Optional, unlike the unknowns above: absent is a partner that offers no card secrets, which refuses, never a guess.
     secrets: z.literal('test').optional(),
+    // Optional: absent is "not known", the same as null, so filing a dispute refuses by name.
+    disputeRules: z
+      .object({ windowDays: z.number().int().min(1).max(540), evidenceAfterSubmission: z.boolean() })
+      .strict()
+      .nullable()
+      .optional(),
+    // Optional: absent is "not known", the same as null, so no payment can be taken from an asset by a pay-from order.
+    rates: z
+      .object({
+        in: assetId,
+        perUnit: z
+          .record(
+            assetId,
+            decimal.refine((v) => /[1-9]/.test(v), 'a rate is above zero'),
+          )
+          .refine((m) => Object.keys(m).length <= 50, 'at most 50 assets'),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -162,7 +210,13 @@ export function cardSimPartnerFor(
   if (d.spendFrom && new Set(d.spendFrom).size !== d.spendFrom.length) {
     throw new Error(`${BANK_CARD_SIM_PARTNER_ENV} lists an asset twice in spendFrom`);
   }
-  return { test: true, ...d, figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS };
+  return {
+    test: true,
+    ...d,
+    disputeRules: d.disputeRules ?? null,
+    rates: d.rates ?? null,
+    figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS,
+  };
 }
 
 /** The words every surface shows for an unknown. One constant so no surface can print a 0 or a guess instead. */
@@ -210,8 +264,8 @@ export function partnerTermsView(terms: CardPartnerTerms): CardPartnerTermsView 
 
 /**
  * THE OWNER'S SPENDABLE-ASSET LIST (BK-ccrypto-01, J-bank-29 #1): `BANK_CARD_SPEND_ASSETS`, comma separated. NO DEFAULT.
- * Blank or malformed refuses `bank.card_spend_assets_unset`: Pay from lists nothing without it. (The pay-from order and
- * the authorisation that follows it, J-bank-29 #2 to #8, are not built yet; when they are, they read this same list.)
+ * Blank or malformed refuses `bank.card_spend_assets_unset`: Pay from lists nothing without it, and no payment is taken
+ * by a pay-from order (J-bank-29 #3 to #5 read this same list).
  */
 export const BANK_CARD_SPEND_ASSETS_ENV = 'BANK_CARD_SPEND_ASSETS';
 

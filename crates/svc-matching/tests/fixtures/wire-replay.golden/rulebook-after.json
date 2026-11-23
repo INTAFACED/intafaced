@@ -1,0 +1,182 @@
+{
+  "blank GET /rulebook valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook/versions versions anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "blank GET /rulebook/versions versions founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[]}"
+  },
+  "set GET /rulebook valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\"}]}"
+  },
+  "set GET /rulebook/versions versions anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  },
+  "set GET /rulebook/versions versions founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"current\":null,\"versions\":[{\"version\":\"TEST-v1\",\"status\":\"upcoming\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"publishedAt\":\"2026-11-19T00:00:00.000Z\",\"supersedes\":null,\"changedSections\":[\"participation\",\"matching\",\"cancellation\",\"settlement\",\"liquidation\",\"fees\",\"market_data\"],\"sections\":[{\"id\":\"participation\",\"title\":\"participation\",\"body\":\"TEST-v1 TEST participation.\"},{\"id\":\"matching\",\"title\":\"matching\",\"body\":\"TEST-v1 TEST matching.\"},{\"id\":\"cancellation\",\"title\":\"cancellation\",\"body\":\"TEST-v1 TEST cancellation.\"},{\"id\":\"settlement\",\"title\":\"settlement\",\"body\":\"TEST-v1 TEST settlement.\"},{\"id\":\"liquidation\",\"title\":\"liquidation\",\"body\":\"TEST-v1 TEST liquidation.\"},{\"id\":\"fees\",\"title\":\"fees\",\"body\":\"TEST-v1 TEST fees.\"},{\"id\":\"market_data\",\"title\":\"market data\",\"body\":\"TEST-v1 TEST market data.\"}]}]}"
+  }
+}

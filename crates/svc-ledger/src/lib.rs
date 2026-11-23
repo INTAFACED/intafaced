@@ -1,0 +1,39 @@
+//! svc-ledger: the single wallet graph for the whole platform, where every value movement is a double-entry transaction.
+//! It replaced the TypeScript service (`services/svc-ledger`, ported one slice at a time and deleted in the change that
+//! made this one serve; read it in git history). The
+//! shell holds what every slice stands on: the environment (`env`), the refusals and how each door answers them
+//! (`errors`, with the recorded user copy in `errors_table`), and the doors (`door`): every route `index.ts` serves,
+//! who may call each, and each door's first input check (`refines` holds the ledger's own checks inside those
+//! schemas). The `store` slice adds the book: one pool (`db`), the migrations and their runner (`migrate`), `/health`
+//! and `/ready` (`status`), and what the binary does before it serves (`boot`). The `freeze` slice adds the posting
+//! switch (`freeze`, with `approval` and `clock`); the `history` slice the history reads (`history`); the `reconcile`
+//! slice the proof of the book (`chain`, `reconcile`) and what runs and acts on it (`reconciler`); the `balances` slice
+//! the account and transaction reads (`balances`); the `desk` slice the ledger desk's reads and account metadata writes
+//! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`); the `posting` slice books `post` (`posting`: the
+//! caller binding, the recipe gate, the binding checks, the custody switch, the engine and the `ledgerTxPosted` relay).
+//! Past the door a call is owed by its slice; `README.md` lists the slices and what each ported.
+
+pub mod approval;
+pub mod assets;
+pub mod balances;
+pub mod boot;
+pub mod chain;
+pub mod clock;
+pub mod controls;
+pub mod db;
+pub mod desk;
+pub mod door;
+pub mod env;
+pub mod errors;
+pub mod errors_table;
+pub mod freeze;
+pub mod history;
+pub mod metrics;
+pub mod migrate;
+pub mod ops_reads;
+pub mod posting;
+pub mod reconcile;
+pub mod reconciler;
+pub mod refines;
+pub mod reports;
+pub mod status;

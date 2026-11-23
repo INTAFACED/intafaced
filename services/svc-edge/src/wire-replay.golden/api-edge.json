@@ -1,0 +1,50 @@
+{
+  "headers": [
+    [
+      ["cache-control", "no-store"],
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"],
+      ["x-ratelimit-limit", "1000000"]
+    ],
+    [
+      ["access-control-allow-credentials", "true"],
+      ["access-control-allow-origin", "https://app.example.test"],
+      [
+        "access-control-expose-headers",
+        "x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link"
+      ],
+      ["cache-control", "no-store"],
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"],
+      ["x-ratelimit-limit", "1000000"]
+    ]
+  ],
+  "bodies": [
+    "{\"asOf\":\"<time>\",\"costs\":[]}",
+    "{\"error\":\"Sign in to read a key’s usage\",\"code\":\"token.invalid\",\"message\":\"Sign in to read a key’s usage\",\"docs\":\"/developers/errors#token.invalid\",\"requestId\":\"<uuid>\"}",
+    "{\"error\":\"Access token could not be verified\",\"code\":\"token.invalid\",\"message\":\"Access token could not be verified\",\"docs\":\"/developers/errors#token.invalid\",\"requestId\":\"<uuid>\"}",
+    "{\"state\":\"none\",\"asOf\":\"<time>\",\"keyId\":\"22222222-2222-4222-8222-222222222222\"}"
+  ],
+  "answers": {
+    "GET /api/edge/rate-limits/costs": {
+      "absent anon": [200, 0, 0],
+      "absent bad-token": [200, 0, 0],
+      "absent api-key": [200, 0, 0],
+      "absent no-scope": [200, 0, 0],
+      "absent all": [200, 1, 0]
+    },
+    "GET /api/edge/rate-limits/keys/22222222-2222-4222-8222-222222222222/usage": {
+      "absent anon": [401, 0, 1],
+      "absent bad-token": [401, 0, 2],
+      "absent api-key": [401, 0, 2],
+      "absent no-scope": [200, 0, 3],
+      "absent all": [200, 1, 3]
+    }
+  }
+}

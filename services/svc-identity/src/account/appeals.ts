@@ -14,18 +14,18 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import {
-  appealLiftReason,
-  type AccountControlResult,
-  type Appeal,
-  type AppealDecideInput,
-  type AppealForStaff,
-  type AppealsMine,
-  type AppealRestriction,
-  type AppealSubmitInput,
-  type Context,
-  type IdentityAccountControlInput,
+import type {
+  AccountControlResult,
+  Appeal,
+  AppealDecideInput,
+  AppealForStaff,
+  AppealsMine,
+  AppealRestriction,
+  AppealSubmitInput,
+  Context,
+  IdentityAccountControlInput,
 } from '@intafaced/contracts';
+import { appealLiftReason } from '@intafaced/contracts/identity-appeals';
 import type { KycRejectReasons } from '../kyc/cases.js';
 
 export type AppealErrorCode =

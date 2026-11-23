@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
+import { TOKEN_GOVERNANCE_ROLES } from '@intafaced/contracts/token-procedures';
 
 /**
  * The action names and fields two founders approve for governance (MC-token-02). Kept free of service imports so the founder
- * console's hash test pins against this exact code.
+ * console's hash test pins against this exact code; the role list is the records' own.
  */
 
-/** The governance roles, in rank order. `controller`, `admin` and `moderator` may cancel a proposal; `author` may not. */
-export const GOVERNANCE_ROLES = ['controller', 'admin', 'moderator', 'author'] as const;
+/** The governance roles, in rank order (their record's list). `controller`, `admin` and `moderator` may cancel a proposal; `author` may not. */
+export const GOVERNANCE_ROLES = TOKEN_GOVERNANCE_ROLES;
 
 /** Two founders write the governance voting delay and period (MC-token-02). */
 export const GOVERNANCE_SETTINGS_ACTION = 'token.governance.settings.set';

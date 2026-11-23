@@ -1,9 +1,7 @@
-import { type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusChip } from '@intafaced/ui';
 import { roomCopy } from './copy';
-import { roomRefusal } from './refusals';
-import type { Failure, WriteGuard } from './guard';
+import type { WriteGuard } from './guard';
 import type { Live } from './live';
 import { isDevBuild } from '../../../app/feature-registry';
 import { TradeSubNav } from '../TradeSubNav';
@@ -38,34 +36,8 @@ export function AccountBadge({ paper }: { paper: boolean }) {
   return paper ? <Badge tone="warn">{t('Paper: no money moves')}</Badge> : <Badge tone="neutral">{t('Live account: real orders')}</Badge>;
 }
 
-/** A refusal in customer words. The raw code is only a small support reference; a service sentence is never shown. */
-export function RefusalNote({ failure, retry }: { failure: Failure; retry?: () => void }) {
-  const { t } = roomCopy.useCopy();
-  const words = roomRefusal(failure);
-  return (
-    <div className="cb-note" role="alert" data-tone="warn">
-      <AlertTriangle size={16} aria-hidden="true" />
-      <div>
-        <p className="cb-note-title">{words.title}</p>
-        <p className="cb-note-body">{words.body}</p>
-        {words.code ? <p className="cb-note-ref">{t('Reference {code}', { code: words.code })}</p> : null}
-      </div>
-      {retry ? (
-        <Button variant="secondary" size={32} onClick={retry}>
-          {t('Try again')}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-export function InfoNote({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'warn' }) {
-  return (
-    <p className="cb-note" role="note" data-tone={tone}>
-      <span>{children}</span>
-    </p>
-  );
-}
+// The two notes are drawn from the Volt kit in ./notes, shared with the recurring buy on a coin page.
+export { InfoNote, RefusalNote } from './notes';
 
 /**
  * Shown while an earlier write has no confirmed outcome. New writes stay locked. "Check" asks the service what

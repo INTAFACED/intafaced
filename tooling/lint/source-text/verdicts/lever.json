@@ -1,0 +1,35 @@
+[
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/okx-snapshot-limit-unset.test.ts",
+    "target": "okx-spot.ts",
+    "verdict": "delete",
+    "asserts": "okx-spot.ts refuses a missing book-depth limit with venue.snapshot_book.limit_unset instead of inventing 100",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/okx-snapshot-limit-unset.test.ts#omitted / null / undefined limit refuses (does not invent 100)"
+    },
+    "why": "the test below calls snapshotBook with the limit omitted, null and undefined and asserts the typed refusal and its code; a default of 100 would make it resolve, so it fails"
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/bybit-snapshot-limit-unset.test.ts",
+    "target": "bybit-spot.ts",
+    "verdict": "delete",
+    "asserts": "bybit-spot.ts refuses a missing book-depth limit with venue.snapshot_book.limit_unset instead of inventing 200",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/bybit-snapshot-limit-unset.test.ts#omitted / null / undefined limit refuses (does not invent 200)"
+    },
+    "why": "the test below calls snapshotBook with the limit omitted, null and undefined and asserts the typed refusal and its code; a default of 200 would make it resolve, so it fails"
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/binance-snapshot-limit-unset.test.ts",
+    "target": "binance-spot.ts",
+    "verdict": "delete",
+    "asserts": "binance-spot.ts refuses a missing book-depth limit with venue.snapshot_book.limit_unset instead of inventing 1000",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/binance-snapshot-limit-unset.test.ts#omitted / null / undefined limit refuses (does not invent 1000)"
+    },
+    "why": "the test below calls snapshotBook with the limit omitted, null and undefined and asserts the typed refusal and its code; a default of 1000 would make it resolve, so it fails"
+  }
+]

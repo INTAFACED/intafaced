@@ -18,6 +18,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // through `local-test-stack.mjs bank-transfer`. svc-pay refuses this secret outside APP_ENV dev or test.
     PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: secrets.payBankTransferWebhook,
     PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
+    // The custody switch (OWNER 226), the same value as svc-ledger's (ledger.mjs): on, for the journeys marked Later.
+    // `LOCAL_STACK_PAY_CUSTODY_LAYER=off` on a restart runs svc-pay as at launch, so hosted checkout pays the business's own
+    // wallet or the partner and books only our fee (J-merchant-04); the ledger's own switch is not changed by it.
+    LEDGER_CUSTODY_LAYER: process.env.LOCAL_STACK_PAY_CUSTODY_LAYER === 'off' ? 'off' : 'on',
+    // LOCAL-TEST: our fee rate with the TEST bank, the only partner on this stack (tooling/profiles/test-owner-values/pay.json),
+    // never an owner's contract rate. `LOCAL_STACK_PAY_PARTNER_FEE=off` on a restart leaves it blank, so the refusal shows.
+    ...(process.env.LOCAL_STACK_PAY_PARTNER_FEE === 'off' ? {} : { PAY_PARTNER_FEE_BPS: 'bank-transfer-sandbox=250' }),
     PAY_ALLOW_SANDBOX_RAILS: 'false',
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',
@@ -26,6 +33,26 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // `LOCAL_STACK_PAY_WITHDRAW_DEPTH=off` on a restart leaves it blank, so the refusal can be seen too (J-wallet-05 #8).
     ...(process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH === 'off' ? {} : { PAY_WITHDRAW_MIN_CONFIRMATIONS: '6' }),
     PAY_WEBHOOK_TOLERANCE_SECONDS: '300',
+    // LOCAL-TEST merchant webhook values (tooling/profiles/test-owner-values/pay.json; J-developer-10), never the owner's.
+    // Each `LOCAL_STACK_PAY_WEBHOOK_<X>=off` on a restart leaves that one blank, so its refusal can be seen too.
+    // The cap: at most 10 active endpoints per business (#2).
+    ...(process.env.LOCAL_STACK_PAY_WEBHOOK_CAP === 'off' ? {} : { PAY_WEBHOOK_ENDPOINT_CAP: '10' }),
+    // A rolled secret may keep signing beside the new one for up to 10 minutes (#5).
+    ...(process.env.LOCAL_STACK_PAY_WEBHOOK_OVERLAP_MAX === 'off' ? {} : { PAY_WEBHOOK_SECRET_OVERLAP_MAX_SECONDS: '600' }),
+    // The retry policy: retries 5, 10 and 20 seconds apart, short enough for a journey to watch (#7, #10). Blank sends nothing.
+    ...(process.env.LOCAL_STACK_PAY_WEBHOOK_RETRY_POLICY === 'off' ? {} : { PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS: '5,10,20' }),
+    // Resend and recover reach back 7 days; `LOCAL_STACK_PAY_WEBHOOK_RESEND_WINDOW=<seconds>` shortens it for a restart (#10).
+    PAY_WEBHOOK_RESEND_WINDOW_SECONDS: /^[1-9][0-9]*$/.test(process.env.LOCAL_STACK_PAY_WEBHOOK_RESEND_WINDOW ?? '')
+      ? process.env.LOCAL_STACK_PAY_WEBHOOK_RESEND_WINDOW
+      : '604800',
+    // 20 resends or recoveries an hour per business.
+    PAY_WEBHOOK_RETRY_MAX: '20',
+    PAY_WEBHOOK_RETRY_WINDOW_MS: '3600000',
+    // Deliveries leave this stack from this machine, so that is the TEST sender address the receiver guide publishes (#6).
+    PAY_WEBHOOK_SENDER_IPS: '127.0.0.1',
+    // LOCAL-TEST DNS for one TEST name: an https address whose name resolves to a private address, refused when added (#1).
+    // svc-pay refuses this outside APP_ENV dev or test.
+    PAY_WEBHOOK_TEST_DNS: 'private-receiver.example.com=10.20.30.40',
     PAY_CHECKOUT_SESSION_TTL_SECONDS: '900',
     PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
     PAY_LINK_DEFAULT_TTL_DAYS: '30',

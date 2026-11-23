@@ -1,12 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv } from '@intafaced/config';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { MarketAction } from '@intafaced/exchange-contract';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import {
   assertMarketOpen,
+  assertOutsideOpeningWindow,
+  assertZoneOrder,
   assertNotional,
   assertPrice,
   assertQty,
@@ -163,6 +166,11 @@ export interface SpotOrderPreviewRestDeps {
   feeDiscountBps?(userId: string): Promise<number>;
   /** The fee tier an order placed now would take, the same read place uses. Absent in tests means regular. */
   feeTier?(userId: string): Promise<string>;
+  /**
+   * The caller's own available (free) ledger balance in one asset, read-only: the hold place posts must fit in it, so
+   * a too-large order is refused here, before Confirm (#4679). Absent: the preview does not check the balance.
+   */
+  availableBalance?(userId: string, assetId: string): Promise<Amount>;
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -382,6 +390,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     } catch (error) {
       pushError(refusals, error, 'symbol');
     }
+    try {
+      assertOutsideOpeningWindow(market, typeWire, deps.now());
+    } catch (error) {
+      pushError(refusals, error, 'type');
+    }
 
     const halt = deps.matchingHalt ? await deps.matchingHalt(market.id).catch(() => null) : null;
     if (halt?.venue) {
@@ -484,6 +497,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a market order must not carry a price' });
     }
 
+    // The higher-risk zone, as place judges it: limit orders only, under the owner cap, none while the cap is unset. A
+    // limit order is judged only once its price reads.
+    if (orderType !== 'limit' || limitPrice !== null) {
+      try {
+        assertZoneOrder(market, { type: typeWire, price: orderType === 'limit' ? limitPrice : null, qty });
+      } catch (error) {
+        pushError(refusals, error, error instanceof TradeError && error.code === 'trade.zone_cap_exceeded' ? 'price' : 'type');
+      }
+    }
+
     // The operator's limits for this market (fat finger, price band, open-order cap), the same gate place runs, so a
     // price outside the band or a full cap is said before Confirm. A limit order is judged only once its price reads.
     if (deps.operatorRisk && !market.paper && orderType !== null && (orderType !== 'limit' || limitPrice !== null)) {
@@ -507,6 +530,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
 
     let protectionPrice: Amount | null = null;
     let fundingPrice: Amount | null = limitPrice;
+    // A market sell's best bid: its fee is figured there, the most its proceeds can be (it fills at the bid or lower).
+    let sellBid: Amount | null = null;
     const needsBestAsk =
       (orderType === 'market' && side === 'buy') ||
       (orderType === 'limit' && side === 'buy' && (tif === 'GTC' || tif === 'GTD') && limitPrice !== null);
@@ -526,6 +551,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     } else if (orderType === 'market' && side === 'sell') {
       const bid = deps.bestBid ? await deps.bestBid(market.id) : null;
+      sellBid = bid ?? null;
       try {
         protectionPrice = sellProtectionPriceFor(market, bid ?? null, deps.slippageCapBps);
         const tolerance = validateSlippageTolerance(body.maxSlippageBps, orderType, deps.slippageCapBps);
@@ -555,6 +581,31 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         const hold = holdFor(market, side, fundingPrice ?? 0n, qty);
         holdAsset = hold.assetId;
         holdAmount = hold.amount;
+      }
+    }
+    // The hold place posts comes out of the caller's own available balance; one that does not fit is refused at send
+    // with `ledger.insufficient_funds`, so the preview says it first. A sub-account order holds from that account,
+    // which this read does not cover. A balance that cannot be read is said, never taken as enough.
+    if (
+      deps.availableBalance &&
+      !market.paper &&
+      body.subAccountId == null &&
+      holdAsset !== null &&
+      holdAmount !== null &&
+      holdAmount > 0n
+    ) {
+      try {
+        const free = await deps.availableBalance(principal.userId, holdAsset);
+        if (free < holdAmount) {
+          refusals.push({
+            code: 'ledger.insufficient_funds',
+            field: 'holdAmount',
+            message: `this order holds ${formatAmount(holdAmount)} ${holdAsset} and ${formatAmount(free)} is available`,
+            data: { holdAmount: formatAmount(holdAmount), available: formatAmount(free), asset: holdAsset },
+          });
+        }
+      } catch {
+        refusals.push({ code: 'trade.balance_unavailable', field: 'holdAmount', message: 'your available balance could not be read' });
       }
     }
 
@@ -638,7 +689,9 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         ? limitPrice !== null
         : fundingPrice !== null && (orderType !== 'market' || side === 'sell' || protectionPrice !== null)
     ) {
-      const notionalPrice = orderType === 'limit' ? limitPrice : (protectionPrice ?? fundingPrice);
+      // A market sell fills between its floor and the best bid, so the bid gives the most its fee can be (#4679).
+      const notionalPrice =
+        orderType === 'limit' ? limitPrice : side === 'sell' && protectionPrice !== null ? sellBid : (protectionPrice ?? fundingPrice);
       if (notionalPrice !== null && notionalPrice > 0n) {
         const quoteAmount = mul(notionalPrice, qty, 'floor');
         if (side === 'buy') {

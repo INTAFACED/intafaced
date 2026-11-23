@@ -59,7 +59,7 @@
     "SUPPORT_COMPLAINT_RESPONSE_DAYS": {
       "service": "support",
       "value": "14",
-      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. Not an owner decision; blank, every deadline reads not set."
+      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS=off on a restart leaves it blank, and every new deadline reads not set. Not an owner decision."
     },
     "SUPPORT_MULE_POLICY": {
       "service": "support",

@@ -155,6 +155,7 @@ function populate(world, now) {
     createdAt: iso(now - (50 + i) * DAY),
     // The address the link takes a payer to. The real service will hand this back to the owner; the portal shows it
     // when the field is present.
+    token: `TEST-token-TESTl${i + 1}`,
     checkoutUrl: `/api/pay/checkout?token=TEST-token-TESTl${i + 1}`,
   }));
   const openLinks = [0, 2, 4, 6];
@@ -209,6 +210,7 @@ function populate(world, now) {
             bookedFee: null,
             reserveAmount: null,
             recordedAt: iso(createdAt),
+            parts: null,
           }
         : null,
       failure: status === 'failed' ? { code: 'card_declined', message: 'The card was declined.' } : null,
@@ -276,6 +278,7 @@ function populate(world, now) {
               bookedFee: fromU(fees),
               reserveAmount: null,
               recordedAt: iso(createdAt),
+              parts: null,
             }
           : null,
       members: members.map((p) => p.id),

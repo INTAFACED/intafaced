@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
+import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from '@intafaced/contracts/identity-support-recovery-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -34,7 +34,7 @@ export function RecoverAccount() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'supportRecovery.redeem', { token }, supportRecoveryRedeemSchema);
+    const answer = await api.call(IDENTITY_SUPPORT_RECOVERY_REDEEM, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(true);
@@ -51,20 +51,20 @@ export function RecoverAccount() {
       {done ? (
         <p role="status">
           {t('doneBody')}{' '}
-          <a className="text-link" href="/login">
+          <a className="lt-link" href="/login">
             {t('signIn')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
+          <a className="lt-link" href="/cannot-sign-in">
             {t('link')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('recoverIntro')}</p>
+          <p className="lt-muted">{t('recoverIntro')}</p>
           <Button onClick={() => void recover()} disabled={busy}>
             {busy ? t('recovering') : t('recover')}
           </Button>

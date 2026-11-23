@@ -82,7 +82,7 @@ describe('populate tier changes match svc-pay', () => {
         updatedAt: null,
       }),
     } as unknown as ControlService;
-    const caller = createPayNamespaces({ founderAuthority: async () => userId, control }).createCaller(ctx) as unknown as {
+    const caller = createPayNamespaces({ founderAuthority: async () => userId, control }).createCaller(ctx) as {
       founderAdmin: {
         control: { configure: { submit: (input: unknown) => Promise<unknown> } };
         changes: { submit: (input: unknown) => Promise<unknown> };

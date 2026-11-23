@@ -34,7 +34,8 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
           passkeys: u.webauthn_creds.length,
         }));
     }
-    if (text.includes('from wallet_identities') || text.includes('from social_identities')) return [];
+    if (text.includes('from wallet_identities') || text.includes('from social_identities') || text.includes('from signin_phones'))
+      return [];
     if (text.includes('select') && text.includes('webauthn_creds')) {
       const userId = values[0];
       return users.filter((u) => u.id === userId).map((u) => ({ webauthn_creds: u.webauthn_creds }));
@@ -112,7 +113,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     sessions,
     keys,
     written,
-  }) as unknown as Parameters<typeof unenrollPasskeyAndRevokeKeys>[0] & {
+  }) as Parameters<typeof unenrollPasskeyAndRevokeKeys>[0] & {
     sessionWrites: number;
     keyWrites: number;
     users: UserRow[];

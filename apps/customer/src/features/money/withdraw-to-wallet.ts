@@ -28,10 +28,10 @@ export type WalletFill =
 /** What the wallet fill holds now, from the wallet connection's own state. An account that is not a 0x address fills nothing. */
 export function walletFill(
   asked: boolean,
-  wallet: { status: 'disconnected' | 'connecting' | 'connected'; address: string | null; chainId: number | null },
+  wallet: { status: 'restoring' | 'disconnected' | 'connecting' | 'connected'; address: string | null; chainId: number | null },
 ): WalletFill {
   if (!asked) return { state: 'off' };
-  if (wallet.status === 'connecting') return { state: 'checking' };
+  if (wallet.status === 'connecting' || wallet.status === 'restoring') return { state: 'checking' };
   if (wallet.status === 'connected' && wallet.address && /^0x[0-9a-fA-F]{40}$/.test(wallet.address))
     return { state: 'filled', address: wallet.address, chainId: wallet.chainId };
   return { state: 'none', code: WALLET_NOT_CONNECTED };

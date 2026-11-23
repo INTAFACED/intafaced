@@ -23,7 +23,7 @@ function harness(responses: Array<Response | Error>, over: Partial<Parameters<ty
     if (!next) throw new Error('no more responses queued');
     if (next instanceof Error) throw next;
     return next;
-  }) as unknown as typeof globalThis.fetch;
+  }) as typeof globalThis.fetch;
   const options = {
     baseUrl: 'http://ledger.internal:4001/',
     sign: (payload: string) => ({ 'x-sig': `sig-${(signed += 1)}:${payload.length}` }),
@@ -435,7 +435,7 @@ describe('deadlineMs', () => {
           n += 1;
           vi.setSystemTime(Date.now() + 1_000);
           throw new TypeError(`slow failure ${n}`);
-        }) as unknown as typeof globalThis.fetch,
+        }) as typeof globalThis.fetch,
       };
       await expect(createLedgerTransport(options)('/trpc/post', {})).rejects.toThrow('slow failure 1');
       expect(n).toBe(1);

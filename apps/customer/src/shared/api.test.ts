@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createApiClient, setScopedBearer } from './api';
+import { defineProcedure, NO_INPUT } from '@intafaced/contracts/procedure';
+import { callAs, createApiClient, setScopedBearer } from './api';
 import { savePreferences } from './preferences';
 
 describe('customer transport boundary', () => {
@@ -245,5 +246,60 @@ describe('a call with its own bearer', () => {
       setScopedBearer(null);
     }
     expect(seen).toEqual(['Bearer confirm-token', 'Bearer session-token', 'Bearer session-token', 'Bearer session-token']);
+  });
+});
+
+describe("a record's own accept checks", () => {
+  const SAVED = defineProcedure({
+    name: 'plant.saved',
+    service: 'svc-tax',
+    module: 'tax',
+    transport: 'trpc',
+    kind: 'query',
+    path: 'plantSaved',
+    access: { caller: 'public' },
+    refusals: {},
+    input: NO_INPUT,
+    output: z.object({ saved: z.boolean() }),
+    accept: {
+      'plant.saved_true': { says: 'the reply says saved', holds: (reply) => z.object({ saved: z.literal(true) }).safeParse(reply).success },
+    },
+    samples: [{ verdict: 'accept' }],
+  });
+  const answering = (saved: boolean) =>
+    createApiClient({ fetch: async () => new Response(JSON.stringify({ result: { data: { saved } } })) });
+
+  it('run in api.call: a reply one refuses reads as unverified, never as data', async () => {
+    expect(await answering(true).call(SAVED, undefined)).toEqual({ ok: true, data: { saved: true } });
+    expect(await answering(false).call(SAVED, undefined)).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+});
+
+describe("callAs: a call by its record, read through the caller's own stricter schema", () => {
+  const COUNT = defineProcedure({
+    name: 'plant.count',
+    service: 'svc-tax',
+    module: 'tax',
+    transport: 'trpc',
+    kind: 'query',
+    path: 'plantCount',
+    access: { caller: 'public' },
+    refusals: {},
+    input: NO_INPUT,
+    output: z.object({ n: z.number() }),
+    samples: [{ verdict: 'accept' }],
+  });
+  const answering = (n: number) => createApiClient({ fetch: async () => new Response(JSON.stringify({ result: { data: { n } } })) });
+  const positive = z.object({ n: z.number().positive() });
+
+  it("an answer the record and the caller's schema both accept is the data", async () => {
+    expect(await callAs(answering(2), COUNT, undefined, positive)).toEqual({ ok: true, data: { n: 2 } });
+  });
+  it("an answer the record accepts but the caller's schema refuses reads as unverified, never as data", async () => {
+    expect(await callAs(answering(0), COUNT, undefined, positive)).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+  it('a refusal is passed on as it came', async () => {
+    const api = createApiClient({ fetch: async () => new Response('', { status: 503 }) });
+    expect(await callAs(api, COUNT, undefined, positive)).toMatchObject({ ok: false, reason: 'unreachable' });
   });
 });

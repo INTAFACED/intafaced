@@ -115,7 +115,7 @@ describe('mandate lifecycle law (SPEC §4 Done bar pieces)', () => {
   it('dunning is bounded then stalls — not an infinite retry invent', () => {
     expect(mandateDunningBound()).toEqual({
       maxAttemptsPerCycle: MAX_ATTEMPTS_PER_CYCLE,
-      then: 'stall_named',
+      afterLimit: 'stall_named',
       stallReason: DUNNING_STALL_REASON,
     });
     expect(dunningAttemptsExhausted(MAX_ATTEMPTS_PER_CYCLE - 1)).toBe(false);

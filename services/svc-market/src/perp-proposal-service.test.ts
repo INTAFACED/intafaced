@@ -16,7 +16,7 @@ const noDatabase = new Proxy(
       throw new Error('proposal reached the database before refusing');
     },
   },
-) as unknown as Sql;
+) as Sql;
 
 function vendors(listed = true): VendorService {
   return {
@@ -56,7 +56,7 @@ function memorySql(): MemorySql {
       return [];
     }
     throw new Error(`unexpected query: ${query}`);
-  }) as unknown as Sql;
+  }) as Sql;
   (sql as unknown as { begin: (options: string, run: (tx: Sql) => Promise<unknown>) => Promise<unknown> }).begin = async (_options, run) =>
     run(sql);
   (sql as MemorySql).proposalEventCount = () => proposalEvents;

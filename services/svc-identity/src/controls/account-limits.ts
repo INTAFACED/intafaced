@@ -1,7 +1,20 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { compare, parseAmount } from '@intafaced/ledger-client';
+import type {
+  AccountLimitCeiling,
+  AccountLimitOverride,
+  AccountLimitOverrideClearInput,
+  AccountLimitOverrideRead,
+  AccountLimitOverrideSetInput,
+  AccountLimitPolicy,
+  AccountLimitRail,
+  AccountLimitResult,
+  AccountLimitsState,
+  Context,
+} from '@intafaced/contracts';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -16,17 +29,7 @@ import {
   accountLimitsLookupInputSchema,
   accountLimitsStateSchema,
   ACCOUNT_LIMIT_RAILS,
-  type AccountLimitCeiling,
-  type AccountLimitOverride,
-  type AccountLimitOverrideClearInput,
-  type AccountLimitOverrideRead,
-  type AccountLimitOverrideSetInput,
-  type AccountLimitPolicy,
-  type AccountLimitRail,
-  type AccountLimitResult,
-  type AccountLimitsState,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
 import { IDENTITY_LIMIT_CHANGE_ACTION_TYPE } from '../auth/action-approval-audience.js';
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { FounderControlError, type FounderControls, type UserRow } from './founder-controls.js';
@@ -164,7 +167,7 @@ export class AccountLimitsDesk {
     return this.policy.ceilings.find((row) => row.rail === rail && row.assetId === assetId)?.ceiling ?? null;
   }
 
-  private async row(tx: Sql, userId: string, rail: AccountLimitRail, assetId: string): Promise<OverrideRow | undefined> {
+  private async row(tx: Queryable, userId: string, rail: AccountLimitRail, assetId: string): Promise<OverrideRow | undefined> {
     const [row] = await tx<OverrideRow[]>`SELECT user_id, rail, asset_id, version::text AS version, per_tx, rolling_24h, expires_at,
         set_by, approved_by, set_at, reason, cleared_by, cleared_at
       FROM account_limit_overrides WHERE user_id = ${userId} AND rail = ${rail} AND asset_id = ${assetId} FOR UPDATE`;
@@ -177,7 +180,7 @@ export class AccountLimitsDesk {
     request: { requestId: string; userId: string; action: 'set' | 'clear'; rail: AccountLimitRail; assetId: string; reason: string },
     input: unknown,
     body: (
-      tx: Sql,
+      tx: Queryable,
       kit: {
         actorId: string;
         target: UserRow;

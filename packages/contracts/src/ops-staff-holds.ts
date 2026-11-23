@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * Wire types for staff holds on funds (OPS-accounts-desk-01, ops ENGINE LC-8 and LC-9; ADR 2026-10-22
@@ -105,7 +106,7 @@ export type StaffHoldMovement = z.infer<typeof staffHoldMovementSchema>;
 export const staffHoldSchema = z.object({
   holdNo,
   userId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount,
   /** What is still held. */
   remaining,
@@ -135,7 +136,7 @@ export type StaffHoldList = z.infer<typeof staffHoldListSchema>;
 
 export const staffHoldPlaceInputSchema = z.object({
   userId: uuid,
-  assetId: z.string().regex(STAFF_HOLD_ASSET_PATTERN, 'an asset code'),
+  assetId: assetIdSchema.regex(STAFF_HOLD_ASSET_PATTERN, 'an asset code'),
   amount,
   reason: z.string().trim().min(1).max(STAFF_HOLD_REASON_MAX),
   /** Hours until the hold releases itself; omit or null for no expiry. Measured from the server's clock. */

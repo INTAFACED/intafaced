@@ -71,7 +71,7 @@ export const academyProgrammeCertificateSchema = z.discriminatedUnion('state', [
     state: z.literal('earned'),
     certId: z.string(),
     publicId: z.string().regex(/^[0-9a-f]{32}$/),
-    grantedAt: z.coerce.date(),
+    grantedAt: z.iso.datetime({ offset: true }),
     status: z.enum(['valid', 'revoked']),
   }),
   z.object({ state: z.literal('not_earned'), certId: z.string() }),

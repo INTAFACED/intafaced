@@ -71,7 +71,7 @@ function store(users: string[], orgs: OrgRow[], members: MemberRow[]) {
     },
     orgs,
     members,
-  }) as unknown as Parameters<typeof createOrg>[0] & { writes: number; orgs: OrgRow[]; members: MemberRow[] };
+  }) as Parameters<typeof createOrg>[0] & { writes: number; orgs: OrgRow[]; members: MemberRow[] };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

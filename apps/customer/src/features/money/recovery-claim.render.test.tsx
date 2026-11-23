@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recoveryClaimMessage } from '@intafaced/contracts/identity-recovery';
-import { makeRecoveryKey, readRecoveryKey, signWithRecoveryKey } from '../account/recovery-keys';
+import { makeRecoveryKey, readRecoveryKey, signWithRecoveryKey } from '../account';
 import { refusalCodes } from './RecoveryClaim';
 
 // TEST data only. The heir's claim room (RC-identity-08, J-identity-05 #7): what `bank.recovery.estates` answers decides
@@ -27,8 +27,26 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  call(
+    this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+    return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+      record.module,
+      record.path,
+      input,
+      record.output,
+      opts,
+    ]);
+  },
 };
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: HEIR, api }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: HEIR, api }),
+}));
 
 import { RecoveryClaim } from './RecoveryClaim';
 

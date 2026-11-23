@@ -157,9 +157,9 @@ export function ReceiveContacts() {
       <h3 className="pay-section-title" id={titleId}>
         {payCopy.t('Ways to receive')}
       </h3>
-      <p className="pay-hint">{payCopy.t('Ways to receive hint')}</p>
+      <p className="lt-hint">{payCopy.t('Ways to receive hint')}</p>
       {loaded.status === 'loading' ? (
-        <p className="pay-hint" aria-busy="true">
+        <p className="lt-hint" aria-busy="true">
           {payCopy.t('Checking handle')}
         </p>
       ) : null}
@@ -178,12 +178,12 @@ export function ReceiveContacts() {
       ) : null}
       {list ? (
         <ul aria-labelledby={titleId} className="pay-receive-contacts">
-          {list.contacts.length === 0 ? <li className="pay-hint">{payCopy.t('No ways to receive')}</li> : null}
+          {list.contacts.length === 0 ? <li className="lt-hint">{payCopy.t('No ways to receive')}</li> : null}
           {list.contacts.map((contact) => (
             <li key={contact.id} className="pay-handle-row" data-verified={contact.verified ? '' : undefined}>
               <span className="pay-handle-row__text">
                 <span className="pay-mono">{contact.target}</span>
-                <span className="pay-hint">{contact.verified ? payCopy.t('Ready to receive') : payCopy.t('Waiting for its code')}</span>
+                <span className="lt-hint">{contact.verified ? payCopy.t('Ready to receive') : payCopy.t('Waiting for its code')}</span>
               </span>
               {contact.verified ? null : (
                 <Button variant="secondary" size={40} onClick={() => openCode(contact)}>
@@ -239,7 +239,7 @@ export function ReceiveContacts() {
                   aria-invalid={refusal !== null || undefined}
                   onChange={(event) => setDraft(event.target.value)}
                 />
-                <span className="pay-hint">{payCopy.t('Email or phone hint')}</span>
+                <span className="lt-hint">{payCopy.t('Email or phone hint')}</span>
               </div>
               {refusal ? (
                 <p className="pay-problem" role="alert">

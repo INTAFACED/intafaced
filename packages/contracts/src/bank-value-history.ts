@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /** The range cannot be read: it must start before it ends, and before now. */
 export const BANK_VALUE_RANGE_INVALID = 'bank.value_range_invalid' as const;
@@ -43,7 +44,7 @@ export const bankValueOverTimeInputSchema = z
 export type BankValueOverTimeInput = z.infer<typeof bankValueOverTimeInputSchema>;
 
 export const bankValueMissingSchema = z.object({
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   /** `no_price`: no candle had ended by then on the coin's USDT or USDC market. */
   reason: z.literal('no_price'),
 });
@@ -88,7 +89,7 @@ export type BankValueOverTime = z.infer<typeof bankValueOverTimeSchema>;
  * candle that had ended by then (USDT, USDC and USD at 1); a coin with no price there has a null price and value, never zero.
  */
 export const bankHoldingsChangeRowSchema = z.object({
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   startAmount: z.string().regex(signedDecimal),
   endAmount: z.string().regex(signedDecimal),
   change: z.string().regex(signedDecimal),

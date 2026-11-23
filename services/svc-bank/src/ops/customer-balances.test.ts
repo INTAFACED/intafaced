@@ -53,7 +53,7 @@ function build(rows: Balance[], entries: Array<{ direction: 'debit' | 'credit'; 
       asked.push(`${ownerType}:${ownerId}`);
       return rows.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId);
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const pages: LedgerHistoryPages = {
     page: async () => ({
       entries: entries.map((e, i) => ({
@@ -70,7 +70,7 @@ function build(rows: Balance[], entries: Array<{ direction: 'debit' | 'credit'; 
     }),
   };
   const portfolio = new PortfolioService(ledger, { namedSpaces: async () => [] }, withPages ? { pages } : {});
-  const router = createBankRouter({ portfolio } as unknown as BankServices);
+  const router = createBankRouter({ portfolio } as BankServices);
   return { asked, as: (userId: string, scopes: string[]) => router.createCaller(signed(userId, scopes)) };
 }
 

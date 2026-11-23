@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Charts module owner values (C-ops-04, LD-14): what the founder page shows and what it may send. Client-safe.
  *
@@ -12,6 +13,7 @@ export const CHART_SCALAR_KEYS = [
   'drawingCap',
   'brushPointCap',
   'delayedBoundarySeconds',
+  'staleAgeSeconds',
   'renderBudgetMs',
   'orderProtectionBps',
   'queueFillWindowSeconds',
@@ -34,6 +36,11 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'delayedBoundarySeconds',
     label: 'Delayed boundary (seconds)',
     meaning: 'Age of the newest candle after which a stream reads "delayed".',
+  },
+  {
+    key: 'staleAgeSeconds',
+    label: 'Stale age (seconds)',
+    meaning: 'Age of the newest candle after which a stream reads "stale" and the feed watcher journals a drop.',
   },
   {
     key: 'renderBudgetMs',
@@ -91,7 +98,6 @@ export interface ChartOwnerValuesView {
   readonly dataClasses: readonly ChartDataClassRow[];
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nullableString = (v: unknown): string | null | undefined => (v === null ? null : typeof v === 'string' ? v : undefined);
 const isDataClass = (v: unknown): v is ChartDataClass => typeof v === 'string' && (CHART_DATA_CLASSES as readonly string[]).includes(v);
 

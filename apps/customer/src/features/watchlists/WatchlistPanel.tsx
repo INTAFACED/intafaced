@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle } from '@intafaced/ui';
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, useMarkets, useTickers, type MarketRow, type TickerRow } from '../../data';
 import { compareDecimal } from '../../data/decimal';
 import { navigate } from '../../app/location';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { watchlistsCopy } from './copy';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from './links';
 import {

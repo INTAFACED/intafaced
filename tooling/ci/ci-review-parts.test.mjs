@@ -14,7 +14,6 @@ import {
   readableDiff,
   exactReverse,
   automaticRevert,
-  revertNote,
   MAX_DIFF_BYTES,
   MAX_PARTS,
   VERDICT_SCHEMA,
@@ -258,7 +257,52 @@ test("automaticRevert: only main-bisect's own revert, exactly the reverse of a c
     return p.endsWith(CULPRIT) && accept === 'application/vnd.github.v3.diff' ? { ...r, text: shared(CULPRIT_DIFF) } : r;
   };
   assert.equal(exactReverse(shared(REVERT_DIFF), shared(CULPRIT_DIFF)), true);
-  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: shared(REVERT_DIFF), get: sharedGet }), null, 'shared journey setup');
+  assert.equal(
+    await automaticRevert({ repo: 'o/r', pull: PULL, diff: shared(REVERT_DIFF), get: sharedGet }),
+    CULPRIT,
+    'shared journey setup the commit changed: its reverse restores the setup proved before it (#8149)',
+  );
+  // #8138: main changed the context since, so the diff alone can't tell; the job's git says whether the head is exactly
+  // `git revert` of the commit on its parent. A git that answers another tree, or can't fetch, is no proof.
+  const moved = REVERT_DIFF.replace(/^ /m, ' // a line main changed since\n ');
+  assert.equal(exactReverse(moved, CULPRIT_DIFF), false);
+  const fakeGit = ({ tree = 'a'.repeat(40), fetch = true } = {}) => {
+    const asked = [];
+    const git = (args) => {
+      asked.push(args[0]);
+      if (args[0] === 'fetch') {
+        if (!fetch) throw new Error('fetch failed');
+        return '';
+      }
+      if (args[0] === 'rev-list') return `${args.at(-1)} ${'b'.repeat(40)}\n`;
+      if (args[0] === 'merge-tree') return `${'a'.repeat(40)}\n`;
+      if (args[0] === 'rev-parse') return `${tree}\n`;
+      throw new Error(`unexpected git ${args[0]}`);
+    };
+    return { git, asked };
+  };
+  const ok = fakeGit();
+  assert.equal(
+    await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: ok.git }),
+    CULPRIT,
+    'git revert on its parent makes the head',
+  );
+  assert.deepEqual(ok.asked, ['fetch', 'rev-list', 'rev-list', 'merge-tree', 'rev-parse']);
+  assert.equal(
+    await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: fakeGit({ tree: 'c'.repeat(40) }).git }),
+    null,
+    'planted: the head is not that revert',
+  );
+  assert.equal(
+    await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: fakeGit({ fetch: false }).git }),
+    null,
+    'planted: nothing fetched',
+  );
+  assert.equal(
+    await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get }),
+    null,
+    'no git: the diff alone decides',
+  );
   await none(PULL, REVERT_DIFF.replace('+  expect(a).toBe(1n);', '+  expect(a).toBeTruthy();'));
   await none(PULL, REVERT_DIFF, { status: 'diverged' });
   await none(PULL, REVERT_DIFF, { diffStatus: 404 });
@@ -268,9 +312,9 @@ test("automaticRevert: only main-bisect's own revert, exactly the reverse of a c
   });
 });
 
-test('an automatic revert: the reviewer is told the checked fact, and the test part passes without the call', async () => {
+test('an automatic revert: both parts PASS without the call, and only with the fact', async () => {
   const dir = tmp();
-  await writeReviewInputs(dir, {
+  const said = await writeReviewInputs(dir, {
     diff: REVERT_DIFF,
     base: BASE,
     head: HEAD,
@@ -280,16 +324,17 @@ test('an automatic revert: the reviewer is told the checked fact, and the test p
     ...briefs,
     revertOf: CULPRIT,
   });
-  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
-  assert.ok(prompt.indexOf(revertNote(CULPRIT)) > 0 && prompt.indexOf(revertNote(CULPRIT)) < prompt.indexOf('\nBEGIN UNTRUSTED DIFF\n'));
-  assert.ok(!existsSync(join(dir, 'combined')), 'the review alone is asked');
+  assert.match(said, /without asking the reviewer/);
+  assert.ok(existsSync(join(dir, 'skip-reviewer')), 'the reviewer is not called');
+  assert.ok(!existsSync(join(dir, 'prompt.txt')), 'no prompt is written');
+  const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
+  assert.equal(v.verdict, 'PASS');
+  assert.equal(v.head, HEAD);
+  assert.match(v.findings[0], new RegExp(`exact revert of ${CULPRIT}`));
   const t = JSON.parse(readFileSync(join(dir, 'tests', 'verdict.json'), 'utf8'));
   assert.equal(t.verdict, 'PASS');
   assert.match(t.findings[0], new RegExp(`exact revert of ${CULPRIT}`));
-  // The review part is still the reviewer's: its FAIL stands.
-  writeFileSync(join(dir, 'answer.json'), answer({ verdict: 'FAIL', findings: ['x.ts:1: item 2: a secret'] }));
   assert.equal(readVerdicts(dir).ok, true);
-  assert.equal(JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8')).verdict, 'FAIL');
   // Without the fact, the same diff goes to the test part as any other.
   const plain = tmp();
   let read = 0;

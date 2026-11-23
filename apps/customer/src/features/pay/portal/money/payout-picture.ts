@@ -4,7 +4,7 @@ import type { PortalApi } from '../api';
 import { isNotLive } from '../refusal';
 import type { Approval } from '../schemas';
 import { approvalsBySettlement, tallyPayouts, type PayoutTally } from './model';
-import type { PayoutItem } from './schemas';
+import type { PayPayoutListItem as PayoutItem } from '@intafaced/contracts/pay-portal-reads';
 
 export const PAYOUT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
@@ -38,6 +38,7 @@ async function readStatus(portal: PortalApi, merchantId: string, status: PayoutS
     data: {
       items: derived.data.items.map((s): PayoutItem => ({
         id: s.id,
+        merchantId: s.merchantId,
         window: s.window,
         assetId: s.assetId,
         gross: s.gross,

@@ -30,7 +30,7 @@ function fakeSql(queue: unknown[][]) {
     calls.push({ text: strings.join('?'), values });
     return queue[calls.length - 1] ?? [];
   };
-  return { sql: fn as unknown as Sql, calls };
+  return { sql: fn as Sql, calls };
 }
 
 describe('holdAgentKeyAction (J-developer-15 #6)', () => {

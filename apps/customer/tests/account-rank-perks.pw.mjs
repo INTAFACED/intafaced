@@ -98,8 +98,8 @@ async function login(page, path = original) {
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
 const feature = (page) => page.locator('.rank-perks'),
-  rankHalf = (page) => page.locator('.rank-perks__rank'),
-  perksHalf = (page) => page.locator('.rank-perks__perks');
+  rankHalf = (page) => page.locator('[data-testid="rank-perks__rank"]'),
+  perksHalf = (page) => page.locator('[data-testid="rank-perks__perks"]');
 const count = (state, procedure) => state.reads.filter((row) => row.procedure === procedure).length;
 async function shot(page, name) {
   await page.screenshot({ path: evidence + '/' + name + '.png', fullPage: true });
@@ -211,7 +211,7 @@ for (const [name, procedure, value] of [
     await login(page);
     const broken = procedure === 'rank.get' ? rankHalf(page) : perksHalf(page),
       good = procedure === 'rank.get' ? perksHalf(page) : rankHalf(page);
-    await expect(broken.locator('.rank-perks__failure')).toBeVisible();
+    await expect(broken.locator('[data-testid="rank-perks__failure"]')).toBeVisible();
     await expect(good).toContainText(procedure === 'rank.get' ? '50 bps' : 'Rank 2');
     expect(state.writes).toEqual([]);
   });

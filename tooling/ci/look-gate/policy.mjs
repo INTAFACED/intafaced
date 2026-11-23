@@ -91,6 +91,51 @@ export function verdict({ failing, changed, today, importsLit = () => false }) {
   return { mode: 'block', blocking, rows };
 }
 
+/**
+ * A pull request's look gate (look-gate.mjs --pr, #9325) checks only the rooms whose pictures it changes, at the base and
+ * at the head, and blocks on what the head adds there: a room already failing on main keeps failing in both and blocks
+ * nobody (that debt is the daily run's report). `baseline` never blocks here: the pixels moving is the change itself,
+ * which the CI review judges from the before and after pictures.
+ */
+const PR_NOT_BLOCKING = new Set(['baseline']);
+
+/**
+ * A finding's identity across the base and the head: its words with every number written `#`, so a box that moved, a
+ * ratio that shifted or a count that changed is the same finding, and a new element, text or rule is a new one.
+ */
+const findingKey = (item) => String(item).replace(/\d+(?:\.\d+)?/g, '#');
+
+/**
+ * What the head's rows (`after`) find that the base's rows (`before`) on the same page and viewport did not, kind by
+ * kind, as `{ target, viewport, kind, items }`. A row the base never drew (an error there, a page it lacks) counts all its
+ * findings as new. The "… n more" line of a capped list is not a finding.
+ */
+export function newFindings(before, after) {
+  const was = new Map(before.map((r) => [`${r.target}|${r.viewport}`, r.findings ?? {}]));
+  const out = [];
+  for (const r of after) {
+    const old = was.get(`${r.target}|${r.viewport}`) ?? {};
+    for (const [kind, items] of Object.entries(r.findings ?? {})) {
+      if (PR_NOT_BLOCKING.has(kind)) continue;
+      const seen = new Set((old[kind] ?? []).map(findingKey));
+      const fresh = items.filter((i) => !/^… # more$/.test(findingKey(i)) && !seen.has(findingKey(i)));
+      if (fresh.length) out.push({ target: r.target, viewport: r.viewport, kind, items: fresh });
+    }
+  }
+  return out;
+}
+
+/**
+ * The pull request's verdict: it blocks when the head adds a finding on a page drawn in the new look (`litTargets`, as
+ * the daily gate's isBlockable), once BLOCKING_FROM has passed. An old-look page's new finding is reported only.
+ */
+export function prVerdict({ fresh, litTargets, today }) {
+  const blocking = fresh.filter((f) => litTargets.has(f.target));
+  if (blocking.length === 0) return { mode: 'pass', blocking };
+  if (today < BLOCKING_FROM) return { mode: 'report', why: `report-only until ${BLOCKING_FROM}`, blocking };
+  return { mode: 'block', blocking };
+}
+
 /** WCAG relative luminance of an sRGB colour given as 0-255 channels. */
 export function luminance([r, g, b]) {
   const lin = (c) => {

@@ -1,14 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import postgres from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, formatAmount, merchantProceeds, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
-import { PayError, PayService, type PaymentView } from './payment-service.js';
+import { PayService, type PaymentView } from './payment-service.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { RailRegistry } from './rails/registry.js';
@@ -44,7 +44,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
     if (!name.endsWith('_test')) parsed.pathname = '/intafaced_test';
     return { url: parsed.toString(), stop: async () => undefined };
   }
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_dispute_lifecycle_test')
     .withUsername('intafaced')
     .withPassword('intafaced')

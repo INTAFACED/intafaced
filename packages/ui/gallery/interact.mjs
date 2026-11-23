@@ -3,17 +3,11 @@
  * navigation, jumping inside a virtualised list, and decimal typing that must never lose a digit.
  * Needs the gallery running (see shots.mjs). Exit code 1 if any check fails.
  */
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { chromium } from '@playwright/test';
+import { findChromiumExecutable } from '../../../tooling/uiproof/playwright-browsers.mjs';
 
 const base = process.env.GALLERY_URL ?? 'http://127.0.0.1:3290/';
-const shell = join(
-  homedir(),
-  'Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell',
-);
-const browser = await chromium.launch({ executablePath: existsSync(shell) ? shell : undefined });
+const browser = await chromium.launch({ executablePath: findChromiumExecutable() });
 const results = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail });

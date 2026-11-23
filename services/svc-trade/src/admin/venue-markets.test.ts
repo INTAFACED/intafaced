@@ -373,7 +373,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       { clientOrderKey: 7 },
     ];
     for (const over of malformed) {
-      const intent = { ...order(), ...over } as unknown as PlaceUserOrderIntent;
+      const intent = { ...order(), ...over } as PlaceUserOrderIntent;
       for (const call of [door.preview(customer, owner, intent), door.prepare(customer, { owner, signer, intent })]) {
         const err = await call.then(
           () => null,

@@ -14,8 +14,8 @@ import { z } from 'zod';
  */
 export const ACADEMY_GRADE_TYPES_MAX = 10;
 
-/** A weight: a decimal fraction above 0 and at most 1, up to 4 places. */
-export const ACADEMY_GRADE_WEIGHT = /^(?:0\.(?=\d*[1-9])\d{1,4}|1(?:\.0{1,4})?)$/;
+/** A weight: a decimal fraction above 0 and at most 1, up to 4 places (one of them not 0). No lookaround: see `SERVICE_RUNBOOK`. */
+export const ACADEMY_GRADE_WEIGHT = /^(?:0\.(?:[1-9]\d{0,3}|0[1-9]\d{0,2}|00[1-9]\d?|000[1-9])|1(?:\.0{1,4})?)$/;
 const isoInstant = z.string().datetime({ offset: true });
 
 export const academyGradeTypeSchema = z

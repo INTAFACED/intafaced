@@ -32,7 +32,7 @@ import { ownFundsPlaceAccount, type OwnFundsPlace } from './own-funds.js';
  * - Settle lands only in our treasury wallet or our reserve at that same partner, never at another partner or a venue.
  *
  * What these recipes leave to the partner's rules, which wait for the owner to name the partner (project-state
- * `research/fable-money-2026-11-10/APPROVED.md`): what a chargeback or refund does to our fee, how much the partner holds
+ * `product/fable-money-2026-11-10/APPROVED.md`): what a chargeback or refund does to our fee, how much the partner holds
  * back in a reserve, and when it settles. None is assumed here.
  *
  * What these recipes cannot check, because a recipe does not read the outside world: that the payment and the settlement

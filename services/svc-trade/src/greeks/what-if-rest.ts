@@ -5,7 +5,8 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import type { GreeksAdapter, VanillaEuropeanInput } from '@intafaced/greeks-adapter';
 import { GREEKS_WHAT_IF_PATH, whatIfVanillaGreeks } from './what-if.js';
 import type { EdgeTrust } from '../edge-trust.js';

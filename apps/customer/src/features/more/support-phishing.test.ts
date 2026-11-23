@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORY_VALUES, ticketSchema } from './support-schemas';
+import { SUPPORT_LIST_MINE } from '@intafaced/contracts/support-customer-procedures';
+import { CATEGORY_VALUES } from './support-schemas';
+
+/** The list's own reply schema: a row it refuses would fail the whole list. */
+const ticketSchema = SUPPORT_LIST_MINE.output.element;
 
 describe('a phishing report in the request list', () => {
   const row = {

@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
+import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -322,12 +324,17 @@ describe('svc-pay list/history limit unset refuse', () => {
 
   it('routers do not invent 50/100 when list/history omits limit', () => {
     const router = readFileSync(join(ROOT, 'services/svc-pay/src/router.ts'), 'utf8');
-    const listLinksProc = router.slice(router.indexOf('listLinks: ownMerchantRead'), router.indexOf('deactivateLink:'));
+    const listLinksProc = router.slice(router.indexOf('PAY_MERCHANT_LIST_LINKS,\n'), router.indexOf('deactivateLink:'));
     expect(listLinksProc).toContain('listPaymentLinks(input.merchantId, input)');
     expect(listLinksProc).not.toMatch(/\?\? 50/);
-    const payHist = router.slice(router.indexOf('history: ownMerchantRead'), router.indexOf('settlement: router'));
+    // The record's input keeps limit optional and undefaulted, so an omitted limit reaches pay.payment_link_list_limit_unset.
+    const noLimit = PAY_MERCHANT_LIST_LINKS.input.safeParse({ merchantId: '11111111-1111-4111-8111-111111111111' });
+    expect(noLimit.success && !('limit' in noLimit.data)).toBe(true);
+    const payHist = router.slice(router.indexOf('PAY_PAYMENT_HISTORY,\n'), router.indexOf('settlement: router'));
     expect(payHist).toContain('pay.history(input.paymentId, input.limit)');
-    expect(payHist).toContain('pay.payment_history_limit_unset');
+    // The record's input keeps limit optional and undefaulted, so an omitted limit reaches pay.payment_history_limit_unset.
+    const omitted = PAY_PAYMENT_HISTORY.input.safeParse({ paymentId: '11111111-1111-4111-8111-111111111111' });
+    expect(omitted.success && !('limit' in omitted.data)).toBe(true);
     expect(payHist).not.toMatch(/\?\? 50/);
     expect(payHist).not.toMatch(/\?\? all\.length/);
     const mine = router.slice(router.indexOf('mine: scopedProcedure'), router.indexOf('balance: scopedProcedure'));
@@ -377,7 +384,7 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(subRouter).toContain('limit: input.limit');
     expect(subRouter).not.toMatch(/\?\? 50/);
     const cyclesProc = subRouter.slice(
-      subRouter.lastIndexOf('cycles: ownMerchantRead'),
+      subRouter.lastIndexOf('cycles: mountRecord'),
       subRouter.lastIndexOf('export type SubscriptionRouter'),
     );
     expect(cyclesProc).toContain('listCycles(input.subscriptionId, { limit: input.limit })');

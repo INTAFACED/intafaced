@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { TreasuryLimits } from './config.js';
@@ -27,7 +28,7 @@ export interface ConversionInventorySource {
   /** False until the conversion path provides its own reader. */
   readonly wired: boolean;
   /** Open (placed, not yet paid out or unwound) conversion size in `assetId` terms. Read only when `wired`. */
-  openInventory(conn: Sql, assetId: string): Promise<Amount>;
+  openInventory(conn: Queryable, assetId: string): Promise<Amount>;
 }
 
 export const UNWIRED_CONVERSION_INVENTORY: ConversionInventorySource = Object.freeze({
@@ -35,7 +36,7 @@ export const UNWIRED_CONVERSION_INVENTORY: ConversionInventorySource = Object.fr
   openInventory: async () => ZERO,
 });
 
-export async function pendingPayoutExposure(conn: Sql, assetId: string): Promise<Amount> {
+export async function pendingPayoutExposure(conn: Queryable, assetId: string): Promise<Amount> {
   const rows = await conn<Array<{ total: string }>>`
     SELECT COALESCE(SUM(a.net), 0)::text AS total
       FROM pay.payout_admissions a
@@ -63,7 +64,7 @@ export interface AssetExposure {
 }
 
 export async function assetExposure(
-  conn: Sql,
+  conn: Queryable,
   assetId: string,
   limits: TreasuryLimits,
   inventory: ConversionInventorySource,

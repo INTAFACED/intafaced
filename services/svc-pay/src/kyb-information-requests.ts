@@ -1,12 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
-import {
-  kybInformationRequestSchema,
-  type KybInformationRequest,
-  type KybRequestFileBytes,
-  type KybRequestsView,
-} from '@intafaced/contracts';
+import { transaction, type Queryable } from '@intafaced/db';
+import type { KybInformationRequest, KybRequestFileBytes, KybRequestsView } from '@intafaced/contracts';
+import { kybInformationRequestSchema } from '@intafaced/contracts/kyb-information-requests';
 import { KybError } from './kyb-service.js';
 import { decrypt, encrypt, type KybDocumentService } from './kyb-documents.js';
 import type { KybMalwareScanner } from './kyb-malware-scan.js';
@@ -336,7 +332,7 @@ export class KybInformationRequestService {
     return { requestId: input.requestId, contentType: kept.content_type, sha256: kept.sha256, bytesBase64: bytes.toString('base64') };
   }
 
-  private async readIn(q: Sql, requestId: string): Promise<KybInformationRequest> {
+  private async readIn(q: Queryable, requestId: string): Promise<KybInformationRequest> {
     const [row] = await q<RequestRow[]>`
       SELECT ${q.unsafe(SELECT)}
         FROM pay.kyb_information_requests r LEFT JOIN pay.kyb_request_answers a ON a.request_id = r.id

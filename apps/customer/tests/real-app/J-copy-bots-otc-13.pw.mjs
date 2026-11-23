@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, bestPrices, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fund, journeyState, STACK_PORTS, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { followOnScreen, listLeader, userIdOf } from './copy.mjs';
 import { staffSignIn } from './staff.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-copy-bots-otc-13, in the running app (docs/roadmap/journeys.json): support finds a customer's follows, bots and OTC
 // quotes and reads the module numbers, on the founder console. One test per step, titled "J-copy-bots-otc-13 #<n>", run
@@ -104,7 +105,7 @@ async function founderReads() {
 /** svc-trade's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
 function tradeDb(ctx) {
   const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -478,10 +479,21 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   };
   const quoteId = await ask();
   await acceptQuote(quoteId);
+  const accepted = await read(quoteId);
+  expect(accepted.lifecycle).toBe('bound');
+  expect(accepted.settleBy).toBeTruthy();
+  const { agedMs } = await agePast('trade', 'otc-quote', quoteId, accepted.settleBy);
+  // Past its deadline: still bound at the same price, with its times all moved back by the same amount.
   const bound = await read(quoteId);
-  expect(bound.lifecycle).toBe('bound');
-  expect(bound.settleBy).toBeTruthy();
-  await page.waitForTimeout(Math.max(0, Date.parse(bound.settleBy) - Date.now()) + 1_000);
+  const back = (at) => new Date(Date.parse(at) - agedMs).toISOString();
+  expect(bound).toEqual({
+    ...accepted,
+    createdAt: back(accepted.createdAt),
+    expiresAt: back(accepted.expiresAt),
+    acceptedAt: back(accepted.acceptedAt),
+    settleBy: back(accepted.settleBy),
+  });
+  expect(Date.parse(bound.settleBy)).toBeLessThan(Date.now());
   // A settled quote: asked, accepted and settled now, inside its window.
   const settledId = await ask();
   await acceptQuote(settledId);
@@ -490,13 +502,16 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');
+  // The founders sign in first: each sign-in can wait for a fresh authenticator step, which once outlasted the open
+  // quote's TEST time to live (60 s) and read it back expired (PR #8754's full run, 17 Nov).
+  const reads = await founderReads();
+  await moduleRoom(page);
   // An open quote: asked and left alone, read inside its time to live.
   const openId = await ask();
   expect((await read(openId)).lifecycle).toBe('open');
-
-  const reads = await founderReads();
-  await moduleRoom(page);
-  await page.getByRole('tab', { name: 'Quote desk' }).click();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1, exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Quote desk', exact: true }).click();
   const quotes = page.getByRole('table', { name: 'Quotes', exact: true });
   await expect(cellOf(quotes, openId, 3)).toHaveText(/\S/);
   // svc-trade's own desk read, as the room showed it: each quote's status, and the one exception with its saga key.

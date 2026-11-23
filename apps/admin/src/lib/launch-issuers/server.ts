@@ -1,9 +1,13 @@
 import 'server-only';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import {
+  type ExecuteFn,
+  explainRefusal,
+  failureRefusal,
+  type FounderCallContext,
+  type Part,
+  partFrom,
+  founderRecordRead,
+} from '@/lib/desk';
 import {
   createInputFor,
   readEventRow,
@@ -16,6 +20,14 @@ import {
   type LaunchIssuer,
   type LaunchMove,
 } from './model';
+import {
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+} from '@intafaced/contracts/token-launch-procedures';
 
 /**
  * The launch issuer lens (J-more-catalogue-14), read and written as the signed-in founder through svc-token `launch.*`. Each
@@ -51,7 +63,7 @@ async function trailsOf(
   const out: Record<string, Part<LaunchMove[]>> = {};
   for (let i = 0; i < ids.length; i += PAGE) {
     const batch = ids.slice(i, i + PAGE);
-    const read = partFrom(await founderCall(ctx, 'token', 'launch.admin.moves', 'GET', { kind, ids: batch }, readTrails), (d) => d, LABELS);
+    const read = partFrom(await founderRecordRead(ctx, TOKEN_LAUNCH_ADMIN_MOVES, { kind, ids: batch }, readTrails), (d) => d, LABELS);
     for (const id of batch) out[id] = read.kind === 'ok' ? { kind: 'ok', data: read.data[id] ?? [] } : read;
   }
   return out;
@@ -63,8 +75,8 @@ async function trailsOf(
  */
 export async function readIssuerLens(ctx: FounderCallContext, options: { trails: boolean } = { trails: true }): Promise<IssuerLensRead> {
   const [issuers, events] = await Promise.all([
-    founderCall(ctx, 'token', 'launch.admin.issuers', 'GET', { limit: PAGE }, readIssuers),
-    founderCall(ctx, 'token', 'launch.admin.events', 'GET', { limit: PAGE }, readEvents),
+    founderRecordRead(ctx, TOKEN_LAUNCH_ADMIN_ISSUERS, { limit: PAGE }, readIssuers),
+    founderRecordRead(ctx, TOKEN_LAUNCH_ADMIN_EVENTS, { limit: PAGE }, readEvents),
   ]);
   const issuerPart = partFrom(issuers, (d) => d, LABELS);
   const eventPart = partFrom(events, (d) => d, LABELS);
@@ -93,11 +105,9 @@ export function launchLensExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     const approval = { approvalId: ids.approvalId, operationId: ids.operationId };
     if (request.kind === 'token.launch.issuer.set') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'token',
-        'launch.issuer.set',
-        'POST',
+        TOKEN_LAUNCH_ISSUER_SET,
         { id: request.issuerId, name: request.name, state: request.state, expectedRevision: Number(request.revision), ...approval },
         readIssuer,
       );
@@ -109,24 +119,15 @@ export function launchLensExecute(ctx: FounderCallContext): ExecuteFn {
     if (request.kind === 'token.launch.event.create') {
       const payload = readLaunchEventPayload(request.event);
       if (!payload) return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-      const result = await founderCall(
-        ctx,
-        'token',
-        'launch.events.create',
-        'POST',
-        { ...createInputFor(payload), ...approval },
-        readCreated,
-      );
+      const result = await founderRecordRead(ctx, TOKEN_LAUNCH_EVENTS_CREATE, { ...createInputFor(payload), ...approval }, readCreated);
       if (result.kind !== 'ok') return failureRefusal('svc-token', 'token', result);
       if (result.data.id !== payload.id) return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
       return { ok: true, detail: `Launch ${result.data.id} is saved as a ${result.data.status}, at revision ${result.data.revision}.` };
     }
     if (request.kind === 'token.launch.event.move') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'token',
-        'launch.events.move',
-        'POST',
+        TOKEN_LAUNCH_EVENTS_MOVE,
         { id: request.eventId, to: request.to, expectedRevision: Number(request.revision), ...approval },
         readEventRow,
       );

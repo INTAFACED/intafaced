@@ -3,6 +3,8 @@ import type { Principal } from '@intafaced/auth';
 import {
   VenueRefusalError,
   isTestVenue,
+  positionModesOf,
+  type VenuePositionMode,
   type AsOf,
   type PlaceUserOrderIntent,
   type UserVenueAccount,
@@ -183,14 +185,29 @@ export class UserVenueRouter {
   }
 
   /** Every configured venue's descriptor and health, for the desk's status read. */
-  async venues(): Promise<{ venueId: string | null; displayName: string | null; test: boolean; health: VenueHealth }[]> {
+  async venues(): Promise<
+    {
+      venueId: string | null;
+      displayName: string | null;
+      test: boolean;
+      health: VenueHealth;
+      positionModes?: readonly VenuePositionMode[];
+    }[]
+  > {
     const out = [];
     for (const d of this.deps.doors) {
       try {
         const v = await d.venue();
         const id = v.venue.id;
         if (!this.health.has(id)) this.observe(id, true, null);
-        out.push({ venueId: id, displayName: v.venue.displayName, test: isTestVenue(v.venue), health: this.health.get(id)! });
+        out.push({
+          venueId: id,
+          displayName: v.venue.displayName,
+          test: isTestVenue(v.venue),
+          health: this.health.get(id)!,
+          // J-derivatives-05 #3: the position modes the venue offers.
+          positionModes: positionModesOf(v.venue),
+        });
       } catch (err) {
         const reason = err instanceof VenueRefusalError ? err.refusal.detail : (err as Error).message;
         const id = d.connectedVenueId;

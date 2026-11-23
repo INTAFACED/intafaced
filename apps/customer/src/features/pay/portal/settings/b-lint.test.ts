@@ -2,6 +2,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { createApiClient } from '../../../../shared/api';
+import { settingsBApi, settingsBTools } from './b-client';
+import { analyticsApi } from './analytics/client';
+import { developersApi } from './developers/client';
+import { reportsApi } from './reports/client';
 import { analyticsMessages } from './analytics/copy';
 import { developersMessages } from './developers/copy';
 import { reportsMessages } from './reports/copy';
@@ -59,27 +64,66 @@ describe('copy for the developers, reports and analytics pages', () => {
   });
 });
 
+/** Every call the three clients make, as the wire carries it: the service, the procedure and what it sends. */
+async function everyCall() {
+  const calls: { module: string; procedure: string; body: string }[] = [];
+  const api = createApiClient({
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), 'http://127.0.0.1');
+      const trpc = url.pathname.match(/^\/api\/([a-z0-9-]+)\/trpc\/(.+)$/);
+      calls.push({
+        module: trpc?.[1] ?? url.pathname,
+        procedure: decodeURIComponent(trpc?.[2] ?? ''),
+        body: `${typeof init?.body === 'string' ? init.body : ''}${url.search}`,
+      });
+      return new Response(JSON.stringify({ error: { message: 'TEST: no service' } }), { status: 503 });
+    },
+  });
+  const client = settingsBApi(api, '11111111-1111-4111-8111-111111111111');
+  const parts = [developersApi, reportsApi, analyticsApi].map((part) => Object.keys(part(settingsBTools(api, null))));
+  expect(Object.keys(client).sort(), 'the client is the three parts and nothing else').toEqual(parts.flat().sort());
+  // Each call once, with TEST arguments; a key request even asks for a live key, which the portal must never send.
+  const signal = new AbortController().signal;
+  const asks: Record<string, unknown[]> = {
+    keyCreate: [{ name: 'TEST key', scopes: [], mode: 'live' }],
+    deliveryAttempts: ['TEST-id', signal],
+    analyticsDeclines: ['TEST-id', signal],
+    ...Object.fromEntries(
+      ['keysList', 'webhookHealth', 'webhookPolicy', 'webhookCatalogue', 'webhookGuide', 'reportPeople'].map((n) => [n, [signal]]),
+    ),
+  };
+  for (const [name, call] of Object.entries(client) as [string, (...args: unknown[]) => Promise<unknown>][]) {
+    const before = calls.length;
+    await call(...(asks[name] ?? ['TEST-id', []])).catch((error: unknown) => {
+      throw new Error(`${name}: ${String(error)}`);
+    });
+    expect(calls.length - before, `${name} makes one call`).toBe(1);
+  }
+  return calls;
+}
+
 describe('what these pages may call', () => {
-  const clients = ['developers/client.ts', 'reports/client.ts', 'analytics/client.ts']
-    .map((f) => readFileSync(join(root, f), 'utf8'))
-    .join('\n');
-  it('names only merchant-scoped and own-key procedures', () => {
-    const names = [
-      ...clients.matchAll(
-        /'((?:merchantOps|merchantAnalytics|merchantMetrics|apiKeys|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)[A-Za-z.]*)'/g,
-      ),
-    ].map((m) => m[1]!);
+  it('names only merchant-scoped and own-key procedures', async () => {
+    const calls = await everyCall();
+    const names = calls.map((c) => c.procedure);
     expect(names.length).toBeGreaterThanOrEqual(20);
-    for (const name of names)
-      expect(name).toMatch(
+    for (const call of calls) {
+      expect(call.procedure).toMatch(
         /^(merchantOps\.(webhooks\.|exports\.|team\.list)|merchantAnalytics\.(volume|fees|declines)|merchantMetrics\.series|apiKeys\.(list|create|revoke)|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)/,
       );
-    expect(clients).not.toMatch(/admin:|operator|killswitch/i);
-    expect(clients).not.toMatch(new RegExp(['founder', 'Admin'].join(''), 'i'));
+      // The key and signing calls go to the sign-in service, the merchant calls to pay: no other service.
+      expect(call.module, call.procedure).toBe(
+        /^(apiKeys\.|setApiKey|rotateSigning|bindApiKey|unbindApiKey)/.test(call.procedure) ? 'identity' : 'pay',
+      );
+      expect(`${call.procedure} ${call.body}`).not.toMatch(/admin:|operator|killswitch/i);
+      expect(`${call.procedure} ${call.body}`).not.toMatch(new RegExp(['founder', 'Admin'].join(''), 'i'));
+    }
   });
-  it('never mints a live key from the portal', () => {
-    expect(readFileSync(join(root, 'developers/client.ts'), 'utf8')).toMatch(/mode: 'sandbox'/);
-    expect(readFileSync(join(root, 'developers/client.ts'), 'utf8')).not.toMatch(/mode: 'live'/);
+  it('never mints a live key from the portal', async () => {
+    const created = (await everyCall()).filter((c) => c.procedure === 'apiKeys.create');
+    expect(created).toHaveLength(1);
+    expect(created[0]!.body).toMatch(/"mode":"sandbox"/);
+    expect(created[0]!.body).not.toMatch(/"mode":"live"/);
   });
 });
 

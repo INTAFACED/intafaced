@@ -62,10 +62,10 @@ export function StatRow({ items }: { items: readonly { label: ReactNode; value: 
 export function DisabledAction({ label, reason }: { label: ReactNode; reason: ReactNode }) {
   return (
     <div className="depth-disabled">
-      <button type="button" className="button button--primary" disabled aria-disabled="true">
+      <button type="button" className="lt-button lt-button-primary" disabled aria-disabled="true">
         {label}
       </button>
-      <p className="muted" role="note">
+      <p className="lt-muted" role="note">
         {reason}
       </p>
     </div>

@@ -1,4 +1,6 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { ListQueryError, encodeListCursor, parseListFilters } from '../list-page.js';
@@ -20,6 +22,7 @@ export const INVOICE_STATUSES = ['draft', 'sent', 'void', 'paid'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 const PAID_PAYMENT = new Set(['captured', 'settled']);
+const PaidPaymentRow = z.object({ id: z.string(), currency: z.string(), amount: z.string(), status: z.string() });
 
 export interface InvoiceLinkPort {
   createPaymentLink(input: {
@@ -230,11 +233,11 @@ export class InvoiceService {
             ${caller.merchantId}, 'draft', ${input.assetId}, ${amount}::numeric,
             ${customerRef}, ${customerEmail}, ${description}, ${dueAt}, ${caller.userId}
           )
-          RETURNING ${this.returning(tx as unknown as Sql)}`;
+          RETURNING ${this.returning(tx)}`;
         const inserted = rows[0];
         if (!inserted) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
-        if (lineItems) await this.insertLines(tx as unknown as Sql, inserted.id, lineItems);
-        await this.recordAction(caller, input.requestId, 'create', fp, inserted.id, tx as unknown as Sql);
+        if (lineItems) await this.insertLines(tx, inserted.id, lineItems);
+        await this.recordAction(caller, input.requestId, 'create', fp, inserted.id, tx);
         return inserted;
       });
       return view(row, lineItems ?? []);
@@ -355,11 +358,11 @@ export class InvoiceService {
             ${caller.merchantId}, 'draft', ${source.asset_id}, ${money(source.amount)}::numeric,
             ${source.customer_ref}, NULL, ${source.description}, ${source.due_at}, ${caller.userId}
           )
-          RETURNING ${this.returning(tx as unknown as Sql)}`;
+          RETURNING ${this.returning(tx)}`;
         const inserted = rows[0];
         if (!inserted) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
-        if (lines.length > 0) await this.insertLines(tx as unknown as Sql, inserted.id, lines);
-        await this.recordAction(caller, input.requestId, 'duplicate', fp, inserted.id, tx as unknown as Sql);
+        if (lines.length > 0) await this.insertLines(tx, inserted.id, lines);
+        await this.recordAction(caller, input.requestId, 'duplicate', fp, inserted.id, tx);
         return inserted;
       });
       return view(row, lines);
@@ -409,7 +412,7 @@ export class InvoiceService {
            RETURNING ${this.returning()}`;
         const row = rows[0];
         if (!row) return null;
-        await this.recordAction(caller, input.requestId, 'send', fp, invoice.id, tx as unknown as Sql);
+        await this.recordAction(caller, input.requestId, 'send', fp, invoice.id, tx);
         return row;
       });
     } catch (error) {
@@ -485,7 +488,7 @@ export class InvoiceService {
            RETURNING ${this.returning()}`;
         const row = rows[0];
         if (!row) return null;
-        await this.recordAction(caller, input.requestId, 'reissue_link', fp, invoice.id, tx as unknown as Sql);
+        await this.recordAction(caller, input.requestId, 'reissue_link', fp, invoice.id, tx);
         return row;
       });
     } catch (error) {
@@ -550,7 +553,7 @@ export class InvoiceService {
              WHERE id = ${invoice.id} AND merchant_id = ${caller.merchantId}`;
           throw statusError(current[0]?.status ?? invoice.status);
         }
-        await this.recordAction(caller, input.requestId, 'void', fp, invoice.id, tx as unknown as Sql);
+        await this.recordAction(caller, input.requestId, 'void', fp, invoice.id, tx);
         return row;
       });
       return this.withLines(saved);
@@ -566,7 +569,8 @@ export class InvoiceService {
 
   /**
    * Associate an existing payment and mark the invoice paid. The payment must
-   * already be captured or settled for the same asset and amount. This does
+   * already be captured or settled for the same asset and amount, less any
+   * refund done or in flight. This does
    * not capture, settle, or post.
    */
   async markPaidByPayment(
@@ -583,10 +587,24 @@ export class InvoiceService {
     const invoice = await this.owned(caller, input.invoiceId);
     if (!invoice) throw notFound();
     if (invoice.status !== 'draft' && invoice.status !== 'sent') throw statusError(invoice.status);
-    const payments = await this.sql<Array<{ id: string; currency: string; amount: string; status: string }>>`
-      SELECT id, currency, amount::text, status::text
-        FROM pay.payments
-       WHERE id = ${input.paymentId}::uuid AND merchant_id = ${caller.merchantId}`;
+    // What the payment still holds: its amount less every refund done or in flight (posted, neither refunded nor
+    // reversed yet). A payment a refund has eaten into no longer covers the invoice, though its status stays captured.
+    const payments = PaidPaymentRow.array().parse(
+      await this.sql`
+      SELECT p.id, p.currency, (p.amount - COALESCE((
+               SELECT SUM((e.payload->>'amount')::numeric)
+                 FROM pay.payment_events e
+                WHERE e.payment_id = p.id
+                  AND (e.event = 'refunded'
+                       OR (e.event = 'refund.posted' AND NOT EXISTS (
+                         SELECT 1 FROM pay.payment_events d
+                          WHERE d.payment_id = e.payment_id
+                            AND d.event IN ('refunded', 'refund.reversed')
+                            AND d.payload->>'refundId' = e.payload->>'refundId')))
+             ), 0))::text AS amount, p.status::text
+        FROM pay.payments p
+       WHERE p.id = ${input.paymentId}::uuid AND p.merchant_id = ${caller.merchantId}`,
+    );
     const payment = payments[0];
     if (!payment) throw new MerchantOpsError('pay.invoice_payment_not_found', 'not_found');
     if (!PAID_PAYMENT.has(payment.status)) throw new MerchantOpsError('pay.invoice_payment_not_paid', 'precondition');
@@ -622,14 +640,14 @@ export class InvoiceService {
     return this.withLines(saved[0]);
   }
 
-  private cols(db: Sql = this.sql) {
+  private cols(db: Queryable = this.sql) {
     return db`id, status, asset_id, amount::text, customer_ref, customer_email, description, due_at, payment_link_id, payment_id,
       sent_at, voided_at, paid_at, created_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       updated_at`;
   }
 
-  private returning(db: Sql = this.sql) {
+  private returning(db: Queryable = this.sql) {
     return this.cols(db);
   }
 
@@ -638,7 +656,7 @@ export class InvoiceService {
     return view(row, lines.get(row.id) ?? []);
   }
 
-  private async insertLines(db: Sql, invoiceId: string, lines: readonly InvoiceLineView[]): Promise<void> {
+  private async insertLines(db: Queryable, invoiceId: string, lines: readonly InvoiceLineView[]): Promise<void> {
     await db`
       INSERT INTO pay.merchant_invoice_lines ${db(
         lines.map((line, index) => ({
@@ -735,7 +753,7 @@ export class InvoiceService {
     action: string,
     fp: string,
     invoiceId: string,
-    db: Sql = this.sql,
+    db: Queryable = this.sql,
   ): Promise<void> {
     await db`
       INSERT INTO pay.merchant_invoice_actions (merchant_id, request_id, invoice_id, action, fingerprint)

@@ -1,2 +1,3 @@
 import { defineConfig } from 'vitest/config';
-export default defineConfig({ test: { globals: true } });
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
+export default defineConfig({ test: { ...TEST_BUDGET, globals: true } });

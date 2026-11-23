@@ -7,14 +7,9 @@
  * not act refuse `token.signed_vote_unavailable`. A signature from no linked wallet refuses
  * `token.vote_signature_invalid`. Nothing is stored on a refusal.
  */
-import {
-  serviceCallSigner,
-  WALLET_SIGNATURE_VERIFY_PATH,
-  walletSignatureVerifySchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type WalletSignatureVerify,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner, WalletSignatureVerify } from '@intafaced/contracts';
+import { WALLET_SIGNATURE_VERIFY_PATH, walletSignatureVerifySchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { Ballot } from './ballot-tally.js';
 import type { VoteChoice } from './token-service.js';
 

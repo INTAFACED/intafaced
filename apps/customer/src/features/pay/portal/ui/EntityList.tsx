@@ -53,7 +53,7 @@ export function EntityList<T>({
             <>
               <span className="pe-card-main">
                 <strong>{c.title}</strong>
-                {c.time && <small className="muted">{c.time}</small>}
+                {c.time && <small className="lt-muted">{c.time}</small>}
               </span>
               <span className="pe-card-side">
                 {c.amount && <span className="pe-card-amount">{c.amount}</span>}

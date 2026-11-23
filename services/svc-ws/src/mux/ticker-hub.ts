@@ -7,7 +7,7 @@ import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
 /**
  * ALL-MARKETS TICKER FAN-OUT.
  *
- * One row per market: last price, 24 h change, high, low, volume. The rows come
+ * One row per market: last price, 24 h change, high, low, volume, and the top of the book (bid, ask, spread). The rows come
  * from svc-trade's `GET /api/v1/tickers` (real, non-seeded taker fills — the
  * same numbers the REST ticker and the market table already show), polled by
  * `mux/poller.ts` only while somebody is subscribed. This hub owns no timer and
@@ -57,6 +57,13 @@ export interface TickerRow {
   /** Base-asset volume over the 24 h window. */
   readonly volume: string | null;
   readonly quoteVolume: string | null;
+  /**
+   * Best bid and best ask on the book, and the spread between them (best ask minus best bid, exact in decimal), as
+   * svc-trade's ticker read publishes them (SP-markets-data-01 d; J-cex-spot-14 #8). `null` without both sides.
+   */
+  readonly bid: string | null;
+  readonly ask: string | null;
+  readonly spread: string | null;
 }
 
 export interface TickerHubOptions {
@@ -76,6 +83,8 @@ interface Subscription {
   lagTicks: number;
   lagging: boolean;
   closed: boolean;
+  /** Has had its snapshot: the first frame a subscriber gets is always a full `snapshot`, never an `update`. */
+  primed: boolean;
 }
 
 const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
@@ -90,7 +99,10 @@ function sameRow(a: TickerRow | undefined, b: TickerRow): boolean {
     a.high === b.high &&
     a.low === b.low &&
     a.volume === b.volume &&
-    a.quoteVolume === b.quoteVolume
+    a.quoteVolume === b.quoteVolume &&
+    a.bid === b.bid &&
+    a.ask === b.ask &&
+    a.spread === b.spread
   );
 }
 
@@ -172,7 +184,7 @@ export class TickerHub {
       return null;
     }
 
-    const sub: Subscription = { sink, market, lagTicks: 0, lagging: false, closed: false };
+    const sub: Subscription = { sink, market, lagTicks: 0, lagging: false, closed: false, primed: false };
     this.#subscriptions.add(sub);
 
     if (this.#unavailable) this.#write(sub, statusFrame());
@@ -226,6 +238,13 @@ export class TickerHub {
       this.#dirty.delete(market);
     }
 
+    // A subscriber that joined before anything was cached gets its first rows as a snapshot, not as an update: a client
+    // reads the stream as a snapshot then updates (J-cex-spot-14 #8).
+    const primedNow = new Set<Subscription>();
+    if (!wasUnavailable)
+      for (const sub of this.#subscriptions)
+        if (!sub.closed && !sub.primed && !this.#overHighWater(sub) && this.#sendSnapshot(sub, now)) primedNow.add(sub);
+
     if (wasUnavailable) {
       // Everyone was told the feed was down; the first real state after it is a full snapshot.
       for (const sub of [...this.#subscriptions]) if (!sub.closed) this.#sendSnapshot(sub, now);
@@ -233,15 +252,15 @@ export class TickerHub {
       this.#dirty.clear();
       return;
     }
-    this.flush(now);
+    this.flush(now, primedNow);
   }
 
   /**
    * Send what the throttle allows, and run the lag sweep. Call on every tick —
    * a client that lagged into a quiet feed is still repaired.
    */
-  flush(now: number): void {
-    const repaired = new Set<Subscription>();
+  flush(now: number, snapshotted: ReadonlySet<Subscription> = new Set()): void {
+    const repaired = new Set<Subscription>(snapshotted);
     const overNow = new Set<Subscription>();
 
     for (const sub of [...this.#subscriptions]) {
@@ -324,6 +343,7 @@ export class TickerHub {
     const rows = [...this.#cache.values()].filter((row) => sub.market === null || row.market === sub.market);
     if (rows.length === 0) return false;
     this.#write(sub, rowsFrame('snapshot', now, rows));
+    sub.primed = true;
     return true;
   }
 
