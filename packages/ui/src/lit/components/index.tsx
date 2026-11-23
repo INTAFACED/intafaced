@@ -374,12 +374,18 @@ export type ChangeProps = {
   className?: string;
 };
 
-/** Up or down as words and an arrow, never colour alone. The figures are left to right on any page. */
+/**
+ * Up or down as words and an arrow, never colour alone. The figures are left to right on any page. The arrow is drawn
+ * (lt-arrow-up / lt-arrow-down, templates.css), never typed: Volt's faces carry no ▲ ▼ glyphs.
+ */
 export function Change({ text, dir, spoken, className }: ChangeProps) {
-  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
-      {arrow && <span aria-hidden="true">{arrow} </span>}
+      {dir !== 'flat' && (
+        <>
+          <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+        </>
+      )}
       <span className="lit-sr">{spoken} </span>
       <span dir="ltr" data-ltr="">
         {text}

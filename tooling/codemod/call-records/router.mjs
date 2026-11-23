@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
 import { boundParams, exportOf } from './defined.mjs';
 import { founderAccess } from './founder-guard.mjs';
-import { checkedUse, withCheck } from './guard-check.mjs';
+import { checkedUse, optionCheck, withCheck } from './guard-check.mjs';
 import { wrappedInScope, wrappedUse } from './wrapped-check.mjs';
 
 const LEAF = new Set(['query', 'mutation']);
@@ -268,6 +268,9 @@ export function chainOf(proc) {
   // A wrapped check is written where the record mounts: it must read there what it read at its guard.
   if (guard?.check?.inline && !wrappedInScope(p, node, guard.check))
     problems.push('guard use() chained: its wrapped check reads a name that means something else where the record mounts');
+  // So must a check of this file handed as the guard's `check` option: the mount is handed it by the same name.
+  if (guard?.check?.names && !guard.check.inline && guard.check.file === p.file && !wrappedInScope(p, node, guard.check))
+    problems.push(`guard check ${guard.check.name} means something else where the record mounts`);
   if (!output) problems.push('no .output(): the record has no answer schema to take');
   if (!handler) problems.push('no handler');
   return { kind, input, output, handler, guard, problems };
@@ -393,6 +396,8 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     const v = literalOf(p, n, env);
     return v === undefined ? undefined : String(v);
   };
+  // The service's own check a guard's options hand it (`GuardOptions.check`), as `checkedUse` gives one; set by `opts`.
+  let check;
   const opts = (n, allowed) => {
     if (!n) return '';
     const v = valueOf(p, n, env);
@@ -400,9 +405,11 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     const parts = [];
     for (const prop of v.node.properties) {
       const k = prop.type === 'Property' ? keyOf(prop) : undefined;
-      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts.
+      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts,
+      // or is handed it by name where the record mounts (`partsFor`).
       if (k === 'check' && allowed.has(k) && prop.value.type === 'Identifier') {
         parts.push(`check: '${prop.value.name}'`);
+        check = optionCheck(v.p, prop.value);
         continue;
       }
       const value = k && allowed.has(k) ? literalOf(v.p, prop.value, v.p === p ? env : undefined) : undefined;
@@ -424,15 +431,15 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
       problems.push('scopedProcedure with a scope or options a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'scope', scope: '${scope}'${rest} }`, scope };
+    return { text: `{ caller: 'scope', scope: '${scope}'${rest} }`, scope, ...(check ? { check } : {}) };
   }
   if (name === 'signedInProcedure') {
-    const rest = opts(args[0], new Set(['module', 'plane']));
+    const rest = opts(args[0], new Set(['module', 'plane', 'check']));
     if (rest === null) {
       problems.push('signedInProcedure options a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'signedIn'${rest} }` };
+    return { text: `{ caller: 'signedIn'${rest} }`, ...(check ? { check } : {}) };
   }
   if (name === 'publicJurisdictionProcedure') {
     const mod = lit(args[0]);
@@ -444,12 +451,12 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
   }
   if (name === 'anyScopeProcedure') {
     const list = literals(args[0]);
-    const rest = opts(args[1], new Set(['module', 'plane']));
+    const rest = opts(args[1], new Set(['module', 'plane', 'check']));
     if (!list || rest === null) {
       problems.push('anyScopeProcedure arguments a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'anyScope', scopes: [${list.join(', ')}]${rest} }` };
+    return { text: `{ caller: 'anyScope', scopes: [${list.join(', ')}]${rest} }`, ...(check ? { check } : {}) };
   }
   if (name === 'serviceProcedureFor') {
     const list = literals(args[0]);

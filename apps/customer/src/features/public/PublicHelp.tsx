@@ -221,7 +221,8 @@ export function PublicHelp() {
   const support = (articleRecovery = false) => (
     <div className="lt-stack">
       <ContactSupport />
-      <HostDispatch />
+      {/* The deployment's host check sits under the Help room itself, never under each answer. */}
+      {!articleRecovery && <HostDispatch />}
       {articleRecovery && (
         <a href="/findPwd" className="lt-link lt-link-alone" data-testid="help-link">
           {t('recovery')}
@@ -258,10 +259,6 @@ export function PublicHelp() {
                 {t('publishedVersion')} <span lang="zxx">{helpVersion(article)}</span>
               </>
             )}{' '}
-            ·{' '}
-            <span lang="und" className="lt-mono lt-wrap" data-testid="help-private">
-              {article.id}
-            </span>
           </p>
           {offered && reading && (
             <div className="lt-stack">

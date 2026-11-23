@@ -52,7 +52,6 @@ export function SupportedAssetsView({ resource, reload }: { resource: Resource<S
           </a>
         </div>
       }
-      summary={<p className="lt-hint">{t('eyebrow')}</p>}
       list={
         <section aria-labelledby={heading}>
           <h3 id={heading}>{t('title')}</h3>

@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { countPlanted } from './count-rule.mjs';
 import { mainRef } from '../ci/lint-ratchet.mjs';
+import { judgedCopy } from '../ci/exact-revert.mjs';
 import { CEILINGS, ROOT, countTree, describe, forkPoint, judge, lowered, readCeilings, renamesSince } from './kit-ceilings.mjs';
 
 const skip = !existsSync(join(ROOT, 'node_modules', '.bin', 'oxlint')) && 'no node_modules';
@@ -143,15 +144,9 @@ test('two Volt batches into main that lower different files edit no common file;
 test(`the tree holds ${CEILINGS}: no count over its ceiling, none raised over main's`, { skip }, () => {
   const ref = mainRef();
   assert.ok(ref, "cannot fetch main: main's ceilings are what a change's are judged against");
-  let base = null;
-  try {
-    base = JSON.parse(
-      execFileSync('git', ['show', `${forkPoint(ref)}:${CEILINGS}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-    );
-  } catch (e) {
-    // Only the change that adds the file has no copy on main to compare with.
-    assert.match(String(e.stderr), /does not exist|exists on disk, but not in/u, String(e.stderr));
-  }
+  // A revert of X by main-bisect may restore X^'s ceilings, never more (exact-revert.mjs judgedCopy).
+  const read = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 28 });
+  const base = judgedCopy(CEILINGS, { env: process.env, main: ref, fork: forkPoint(ref), read });
   const problems = judge(countTree(), readCeilings(), base, renamesSince(ref));
   assert.deepEqual(problems.map(describe), []);
 });

@@ -22,7 +22,7 @@
  *
  * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
- * re-ran runs from before the pause and hung or failed). Merge main and push for a fresh run instead.
+ * re-ran runs from before the pause and hung or failed).
  *
  * `--orphans` lists every open PR whose head's newest CI run was made more than three hours ago and was re-run more than
  * three hours after that, in a job other than the seal: nobody has pushed to it, and the re-run tests an old merge commit.
@@ -77,7 +77,7 @@ export function staleLines(runs = {}, checks = []) {
     const jobs = checks.filter((c) => runIdOf(c) === id && c.name !== SEAL && (c.status !== 'completed' || !GREEN.has(c.conclusion)));
     if (jobs.length === 0) continue;
     out.push(
-      `STALE    run ${id} is attempt ${r.run_attempt} of a run made ${r.created_at}: it tests the merge commit made then, against main as it was then. To test today's main, merge main into the branch and push.`,
+      `STALE    run ${id} is attempt ${r.run_attempt} of a run made ${r.created_at}: it tests the merge commit made then, against main as it was then (AGENTS.md, How work flows 4, says when to merge main).`,
     );
   }
   return out;
@@ -105,7 +105,7 @@ export function orphanLines(prs = [], runs = {}, now = Date.now()) {
     if (!jobs.some((j) => j.run_attempt === r.run_attempt && j.name !== SEAL)) continue;
     const hours = ((now - Date.parse(r.created_at)) / 3_600_000).toFixed(1);
     out.push(
-      `ORPHAN   #${pr.number} CI run ${r.id} was made ${hours}h ago (${r.created_at}) and re-run as attempt ${r.run_attempt} with no push since: its owner merges main and pushes, or the lead gives it one. ${pr.title}`.slice(
+      `ORPHAN   #${pr.number} CI run ${r.id} was made ${hours}h ago (${r.created_at}) and re-run as attempt ${r.run_attempt} with no push since. ${pr.title}`.slice(
         0,
         WIDTH,
       ),

@@ -1,9 +1,6 @@
 @layer theme, base, components, utilities;
 @layer components {
   .if-business {
-    .pay-order-tabs {
-      gap: var(--if-space-3) var(--if-space-4);
-    }
     .p2p-order,
     .p2p-order-core,
     .p2p-order-secondary,

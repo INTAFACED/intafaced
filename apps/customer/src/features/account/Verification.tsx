@@ -5,6 +5,7 @@ import { Dialog, FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { Empty, Failure, Loading } from './kit-parts';
 import { uiCopy } from '../../shared/ui-copy';
+import { ShortReference } from '../../shared/ShortReference';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { verificationCopy as copy } from './verification-copy';
@@ -271,6 +272,8 @@ export function Verification() {
           ]);
           // The attempt limit refused it: read the standing again, so the countdown and the held form show.
           if (lockout) setLockRefusals((n) => n + 1);
+          // Read the records again, so "Your requests" and the case history list the request just sent.
+          reload();
         }
         // Every unqualified failure remains unknown. No current list match releases it.
         sync(intent.owner);
@@ -323,7 +326,8 @@ export function Verification() {
         <h3>
           <Copy k={row.tier} /> · <span lang="zxx">{row.jurisdiction}</span>
         </h3>
-        <p className="lt-ref" lang="zxx">
+        {/* The record's id stays for screen readers and support, not on screen. */}
+        <p className="lt-sr" lang="zxx">
           {row.id}
         </p>
         <dl className="lt-kv">
@@ -408,8 +412,8 @@ export function Verification() {
             <p>
               <Copy k="reference" />
             </p>
-            <p className="lt-ref" lang="zxx">
-              {local.requestId}
+            <p className="lt-ref">
+              <ShortReference id={local.requestId} />
             </p>
             <p>
               <Copy k="paused" />
@@ -460,8 +464,8 @@ export function Verification() {
               <p>
                 <Copy k="reference" />
               </p>
-              <p className="lt-ref" lang="zxx">
-                {receipt.local.requestId}
+              <p className="lt-ref">
+                <ShortReference id={receipt.local.requestId} />
               </p>
               <Button tone="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                 <Copy k="finish" />
@@ -729,8 +733,8 @@ export function Verification() {
           <p>
             <Copy k="owner" />
           </p>
-          <p className="lt-ref" lang="zxx">
-            {review.owner}
+          <p className="lt-ref">
+            <ShortReference id={review.owner} />
           </p>
           <h3>
             <Copy k={review.tier} /> · <span lang="zxx">{review.country}</span>
