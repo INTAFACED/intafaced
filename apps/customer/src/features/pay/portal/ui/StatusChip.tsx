@@ -11,7 +11,7 @@ export type StatusTone = 'done' | 'progress' | 'action' | 'failed';
 const toneOf: Record<Tone, StatusTone> = { good: 'done', neutral: 'progress', attention: 'action', bad: 'failed' };
 
 /** The chip itself, for a page that has its own words. */
-export function ToneChip({ tone, label, tip }: { tone: StatusTone; label: string; tip?: string }) {
+function ToneChip({ tone, label, tip }: { tone: StatusTone; label: string; tip?: string }) {
   return (
     <span data-testid="pp-chip" className={`pp-chip pp-chip--${tone}`} title={tip} aria-label={tip ? `${label} (${tip})` : undefined}>
       {label}
