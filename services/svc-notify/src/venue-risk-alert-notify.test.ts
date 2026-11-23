@@ -61,14 +61,12 @@ describe('venue risk alert notice (J-derivatives-06 #6)', () => {
   });
 
   it('the words name every param the row carries, and no venue', () => {
-    const words = {
-      margin: ['symbol', 'margin', 'asset', 'level'],
-      margin_call: ['symbol', 'ratio', 'level', 'asked', 'asset'],
-      liquidation: ['symbol', 'ratio', 'level', 'asked', 'asset'],
-    } as const;
-    for (const [kind, params] of Object.entries(words)) {
-      const title: string = en[`notify.trade.risk.${kind}.title` as keyof typeof en];
-      const body: string = en[`notify.trade.risk.${kind}.body` as keyof typeof en];
+    const words: [string, string, readonly string[]][] = [
+      [en['notify.trade.risk.margin.title'], en['notify.trade.risk.margin.body'], ['symbol', 'margin', 'asset', 'level']],
+      [en['notify.trade.risk.margin_call.title'], en['notify.trade.risk.margin_call.body'], ['symbol', 'ratio', 'level', 'asked', 'asset']],
+      [en['notify.trade.risk.liquidation.title'], en['notify.trade.risk.liquidation.body'], ['symbol', 'ratio', 'level', 'asked', 'asset']],
+    ];
+    for (const [title, body, params] of words) {
       expect(title).toContain('{symbol}');
       for (const p of params) expect(body).toContain(`{${p}}`);
       expect(`${title} ${body}`).not.toMatch(/hyperliquid/i);
