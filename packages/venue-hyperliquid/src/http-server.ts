@@ -37,6 +37,19 @@ export const HL_TESTNET_WALLET_CHAIN_ID = 421_614;
 export interface UserVenueServerInfo {
   readonly chainId: number;
   readonly deposit: UserVenueDepositRoute | null;
+  /** What the venue's answers come from, named on `/health`, and the replay's misses on `GET /replay/misses`. */
+  readonly source?: ReplaySource;
+}
+
+/**
+ * Where a running venue's answers come from: `hl-recorded` or `hl-testnet`, the recording it answers from
+ * or writes (null: none), the trader it was made for (an address), and every request a replay had no answer for.
+ */
+export interface ReplaySource {
+  readonly kind: 'hl-recorded' | 'hl-testnet';
+  readonly recording: string | null;
+  readonly trader: string | null;
+  readonly misses: () => readonly unknown[];
 }
 
 type Answer = readonly [number, unknown];
@@ -65,7 +78,11 @@ export async function answerUserVenue(
   info: UserVenueServerInfo,
   { method, path, rawBody }: UserVenueRequest,
 ): Promise<Answer> {
-  if (method === 'GET' && path === '/health') return [200, { ok: true, label: 'TEST', venue: venue.venue.id, chainId: info.chainId }];
+  if (method === 'GET' && path === '/health') {
+    const source = info.source ? { kind: info.source.kind, recording: info.source.recording, trader: info.source.trader } : null;
+    return [200, { ok: true, label: 'TEST', venue: venue.venue.id, chainId: info.chainId, ...(source ? { source } : {}) }];
+  }
+  if (method === 'GET' && path === '/replay/misses') return [200, { misses: info.source?.misses() ?? [] }];
   if (method === 'GET' && path === '/venue')
     return [200, { label: 'TEST', venue: venue.venue, chainId: info.chainId, deposit: info.deposit }];
   if (method !== 'POST') return [405, { error: 'POST only' }];
@@ -134,6 +151,8 @@ export interface StartHyperliquidVenueOptions {
   readonly betaPosture?: string | null;
   /** Where the venue's answers come from: a recording played back (`replayRecording`), or the live test network (omitted). */
   readonly fetch?: FetchLike;
+  /** Named on `/health`, with the replay's misses on `GET /replay/misses`. */
+  readonly source?: ReplaySource;
   readonly clock?: () => Date;
   readonly nonceSource?: HyperliquidNonceSource;
   readonly timeoutMs?: number;
@@ -156,7 +175,13 @@ export async function startHyperliquidVenueServer(
   });
   // The venue names no deposit route: a deposit to it is a bridge transfer on Arbitrum Sepolia, which this adapter
   // does not read yet (`depositRoutes` is not offered), so the app shows none rather than a guessed address.
-  const server = http.createServer(userVenueHandler(venue, { chainId: HL_TESTNET_WALLET_CHAIN_ID, deposit: null }));
+  const server = http.createServer(
+    userVenueHandler(venue, {
+      chainId: HL_TESTNET_WALLET_CHAIN_ID,
+      deposit: null,
+      ...(opts.source ? { source: opts.source } : {}),
+    }),
+  );
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => resolve());

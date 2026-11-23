@@ -322,8 +322,9 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
-// block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1, J-derivatives-01 #2): svc-protocol, svc-bank and
+// svc-trade hold a TEST business block for the TEST region AA, Edge stamps every request from AA, and nothing else
+// changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
   const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
@@ -334,16 +335,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
     assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
+    assert.equal(envOf(served, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST trade block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol' && name !== 'bank')
+      if (name !== 'protocol' && name !== 'bank' && name !== 'trade')
         assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }
@@ -1973,6 +1976,33 @@ console.log('local-test-stack: customer folder override checks passed');
     else process.env.LOCAL_STACK_USER_VENUE = saved;
   }
   console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
+}
+
+// A Hyperliquid start names its recording and the address it is for, never a key; a running venue that
+// answers for another source (the simulator where Hyperliquid is wanted, another recording or trader) is not kept.
+{
+  const { venueAnswersFor } = await import('./local-test-stack.mjs');
+  const { hlSource, hlRecordingPath } = await import('./local-test-venue.mjs');
+  const trader = `0x${'ab'.repeat(20)}`;
+  assert.deepEqual(hlSource({}), { recording: null, trader: null });
+  assert.deepEqual(hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: trader.toUpperCase().replace('0X', '0x') }), {
+    recording: 'J-x',
+    trader,
+  });
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x' }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: 'ab'.repeat(32) }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlRecordingPath('../x'), /letters, digits/);
+  const hl = { recording: 'J-x', trader };
+  const health = (source) => JSON.stringify({ ok: true, label: 'TEST', ...(source ? { source } : {}) });
+  assert.equal(venueAnswersFor(health(null), 'sim', hl), true);
+  assert.equal(venueAnswersFor(health(null), 'hl-recorded', hl), false, 'the simulator is not kept where Hyperliquid is wanted');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'sim', hl), false, 'Hyperliquid is not kept where the simulator is');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'hl-recorded', hl), true);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-testnet', ...hl }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, recording: 'J-y' }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, trader: `0x${'cd'.repeat(20)}` }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor('not json', 'sim', hl), true);
+  console.log('local-test-stack: a Hyperliquid start names its recording and trader, and a venue answering for another is not kept');
 }
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and

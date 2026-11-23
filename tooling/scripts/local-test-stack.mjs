@@ -114,6 +114,7 @@ import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import {
+  hlSource,
   serveTestVenue,
   testVenueChainId,
   testVenueId,
@@ -181,6 +182,7 @@ import {
   DEFAULT_SERVICES,
 } from './local-test-state.mjs';
 import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
+import { BANNER_TEXT, withTestBanner } from '../../apps/customer/deployment/test-banner.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -258,7 +260,6 @@ const SCHEMAS = [
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
 const serviceOfSchema = (s) => SCHEMA_SERVICE[s] ?? s;
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -2212,7 +2213,23 @@ export function userVenueOn(env = process.env) {
 async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
-  if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
+  // Which venue and source this start wants: a running one that answers for another (the simulator where
+  // Hyperliquid is wanted, another recording or trader) is stopped and started again, never kept.
+  const kind = userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '';
+  let hl;
+  try {
+    hl = hlSource(process.env);
+  } catch (err) {
+    fail(err.message, 2);
+  }
+  if (ownedAlive(procs[name])) {
+    const health = await httpGet(url, 2000);
+    if (health.status === 200) {
+      if (name !== 'test-venue' || venueAnswersFor(health.text, kind, hl)) return;
+      await stopProc(name, procs[name]);
+      for (let i = 0; i < 50 && (await portOpen(PORTS[name])); i++) await sleep(200);
+    }
+  }
   if (await portOpen(PORTS[name])) portTaken(PORTS[name], name);
   // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
   // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
@@ -2234,11 +2251,29 @@ async function startTestVenue(name = 'test-venue') {
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
     // Which venue the first one is: the simulator, or the Hyperliquid test network recorded or live (#10203).
-    TEST_VENUE_KIND: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '',
+    TEST_VENUE_KIND: kind,
+    // The Hyperliquid recording and the address it is for; blank: none. Never a key.
+    LOCAL_STACK_HL_RECORDING: hl.recording ?? '',
+    LOCAL_STACK_HL_TRADER: hl.trader ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
   await waitHealthy(name, url, pid, 20_000);
+}
+
+/**
+ * Whether a running first venue's `/health` answer is the one wanted: the simulator names no Hyperliquid source; a
+ * Hyperliquid venue names its kind, recording and trader (packages/venue-hyperliquid http-server.ts).
+ */
+export function venueAnswersFor(healthText, kind, hl) {
+  let source = null;
+  try {
+    source = JSON.parse(healthText)?.source ?? null;
+  } catch {
+    source = null;
+  }
+  if (kind !== 'hl-recorded' && kind !== 'hl-testnet') return source === null;
+  return source !== null && source.kind === kind && source.recording === hl.recording && source.trader === hl.trader;
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
@@ -3287,16 +3322,13 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const BANNER_HTML =
-  `<style>body{padding-top:28px !important}</style>` +
-  `<div id="local-test-stack-banner" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` +
-  `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` +
-  `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
-  `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
-
-function indexWithBanner(dist) {
+/**
+ * The page a site serves. The Customer build carries its own TEST banner (apps/customer/deployment/test-banner.mjs),
+ * so its page is served as built; the invitation and apex stand-ins get the same banner here.
+ */
+function indexWithBanner(dist, site) {
   const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-  return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
+  return site === SITES.customer ? html : withTestBanner(html, {});
 }
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
@@ -3534,7 +3566,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     if (p.startsWith('/assets/')) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     let html;
     try {
-      html = indexWithBanner(dist);
+      html = indexWithBanner(dist, site);
     } catch {
       return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
@@ -4978,6 +5010,7 @@ async function runCli() {
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
       id: testVenueId(process.env.TEST_VENUE_ID),
       kind: testVenueKind(process.env.TEST_VENUE_KIND),
+      hl: hlSource(process.env),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({
