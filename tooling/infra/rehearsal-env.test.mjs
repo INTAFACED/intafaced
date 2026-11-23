@@ -8,14 +8,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { POSTURE, rehearsalEnv, rolesSql } from './rehearsal-env.mjs';
+import { POSTURE, TEST_STAND_INS, rehearsalEnv, rolesSql } from './rehearsal-env.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const example = readFileSync(join(ROOT, '.env.example'), 'utf8');
 const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
 let n = 0;
 const random = () => `r${++n}`.padEnd(64, '0');
-const { env, roles, generated } = rehearsalEnv({ example, compose, random });
+const { env, roles, generated, standIns } = rehearsalEnv({ example, compose, random });
 
 test('no dev-only secret survives', () => {
   const left = [...env].filter(([, v]) => v.replace(/^["']/, '').startsWith('dev-only-'));
@@ -46,4 +46,13 @@ test('a secret from the runner wins; a blank one leaves the example', () => {
   assert.equal(out.env.get('A'), 'set');
   assert.equal(out.env.has('C'), false);
   assert.notEqual(out.env.get('B'), 'dev-only-x');
+});
+
+test('every variable compose requires has a value, and a stand-in only where the example is blank', () => {
+  const required = [...new Set([...compose.matchAll(/\$\{([A-Z0-9_]+):\?/g)].map((m) => m[1]))];
+  for (const name of required) assert.ok(env.get(name), `${name} is required by compose and blank`);
+  for (const name of standIns) assert.equal(env.get(name), TEST_STAND_INS[name]);
+  const owner = rehearsalEnv({ example: 'EDGE_RATE_LIMIT_MAX=7\n', compose: '', random });
+  assert.equal(owner.env.get('EDGE_RATE_LIMIT_MAX'), '7');
+  assert.ok(!owner.standIns.includes('EDGE_RATE_LIMIT_MAX'));
 });

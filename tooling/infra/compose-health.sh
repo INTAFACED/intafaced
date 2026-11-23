@@ -19,6 +19,16 @@ report() {
   done
 }
 
+# Only the typed refusal codes a bad container logged (`notify.verify_ttl_unset`, `config.s2s_body_bind_not_required`):
+# a code names the setting, never its value, so it is safe in a public log where the full log is not.
+codes() {
+  while read -r name _; do
+    [ -n "$name" ] || continue
+    found=$(docker logs "${name#/}" 2>&1 | grep -oE '\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_required|_refused|_invalid|_missing|_forbidden|_not_allowed|_dev_material|_blank)\b' | sort -u | head -n 20 | tr '\n' ' ' || true)
+    echo "  ${name#/} refusal codes: ${found:-none logged}"
+  done <<< "$1"
+}
+
 for _ in $(seq 1 "$tries"); do
   pending=0
   broken=''
@@ -43,6 +53,7 @@ for _ in $(seq 1 "$tries"); do
   if [ -n "$broken" ]; then
     echo "containers in a terminal bad state:"
     printf '%s' "$broken"
+    codes "$broken"
     echo "all containers:"
     report "$@"
     exit 1

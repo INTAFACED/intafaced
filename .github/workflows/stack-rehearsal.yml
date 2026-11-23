@@ -60,8 +60,9 @@ jobs:
           $COMPOSE up -d --no-build --wait postgres
           $COMPOSE exec -T postgres psql -q -U intafaced -d intafaced -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/roles.sql"
 
+      # `up` stops at the first dependency that fails to start; the health gate below reads every container either way.
       - name: Start the stack
-        run: $COMPOSE up -d --no-build
+        run: $COMPOSE up -d --no-build || echo "::warning::compose up stopped early; the health gate reads why"
 
       - name: Every container is healthy
         run: tooling/infra/compose-health.sh 90 -f docker-compose.apps.yml

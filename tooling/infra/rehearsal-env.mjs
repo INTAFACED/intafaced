@@ -27,12 +27,25 @@ export const POSTURE = {
   WEBAUTHN_ORIGIN: 'https://localhost:8090',
 };
 
+/**
+ * TEST stand-ins for owner values the compose file requires and .env.example leaves blank, so the rehearsal can start at
+ * all. They live on the throwaway runner only and the run lists them as what a hosted stack still needs from the owner.
+ * The values are the local test stack's (tooling/scripts/local-stack-services/). The AI gateway runs only under
+ * `--profile ai`, which the rehearsal does not start; compose still reads its settings, so they point at nothing.
+ */
+export const TEST_STAND_INS = {
+  EDGE_RATE_LIMIT_MAX: '6000',
+  EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+  LITELLM_CONFIG_PATH: '/dev/null',
+  LITELLM_MASTER_KEY: 'TEST-rehearsal-gateway-not-started',
+};
+
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
 const DB_PASSWORD = /\$\{(SVC_([A-Z_]+)_DB_PASSWORD):-/g;
 
 /**
  * @param {{ example: string, compose: string, random?: () => string, extra?: Record<string, string | undefined> }} input
- * @returns {{ env: Map<string, string>, roles: { role: string, name: string }[], generated: string[] }}
+ * @returns {{ env: Map<string, string>, roles: { role: string, name: string }[], generated: string[], standIns: string[] }}
  */
 export function rehearsalEnv({ example, compose, random = () => randomBytes(32).toString('hex'), extra = {} }) {
   const env = new Map();
@@ -48,6 +61,12 @@ export function rehearsalEnv({ example, compose, random = () => randomBytes(32).
       env.set(name, value);
     }
   }
+  const standIns = [];
+  for (const [name, value] of Object.entries(TEST_STAND_INS)) {
+    if (env.get(name)) continue;
+    env.set(name, value);
+    standIns.push(name);
+  }
   for (const [name, value] of Object.entries(POSTURE)) env.set(name, value);
   const roles = [];
   for (const [, name, svc] of compose.matchAll(DB_PASSWORD)) {
@@ -57,7 +76,7 @@ export function rehearsalEnv({ example, compose, random = () => randomBytes(32).
     roles.push({ role: `svc_${svc.toLowerCase()}`, name });
   }
   for (const [name, value] of Object.entries(extra)) if (value) env.set(name, value);
-  return { env, roles, generated };
+  return { env, roles, generated, standIns };
 }
 
 /** One ALTER ROLE per rotated role; the values are hex, so the quoting is plain. */
@@ -71,7 +90,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.error('usage: node tooling/infra/rehearsal-env.mjs <env-file> <roles-sql-file>');
     process.exit(2);
   }
-  const { env, roles, generated } = rehearsalEnv({
+  const { env, roles, generated, standIns } = rehearsalEnv({
     example: readFileSync(join(ROOT, '.env.example'), 'utf8'),
     compose: readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8'),
     extra: {
@@ -87,5 +106,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       .join(' ')}`,
   );
   console.log(`fresh random values (names only): ${generated.join(' ')}`);
+  console.log(`TEST stand-ins for blank owner values (a hosted stack needs the owner's): ${standIns.join(' ') || 'none'}`);
   console.log(`roles rotated: ${roles.map((r) => r.role).join(' ')}`);
 }
