@@ -1,0 +1,108 @@
+# Stack rehearsal: builds every image of the containerised stack and starts it the way a hosted deploy does
+# (APP_ENV=staging, the beta posture), on a throwaway runner, then proves it answers and tears it down (#9166).
+#
+# Nothing else builds the Dockerfiles or boots docker-compose.apps.yml: Real-app journeys start the local process
+# stack, and staging-deploy.yml needs a host that has not been bought. So this is how anyone knows the hosted stack
+# starts. It reaches no host, holds no deploy credential, and is not a required check.
+#
+# Every secret the stack needs is made fresh on the runner (tooling/infra/rehearsal-env.mjs) and dies with it; only
+# names are printed, and no container log is, since this repository's Actions logs are public.
+#
+# Each run also proves its own health gate: it swaps one service onto an image broken on purpose and requires the
+# gate to name that service and fail. A gate that passes a broken image fails the run.
+name: Stack rehearsal
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 19 * * *'
+  pull_request:
+    paths:
+      - Dockerfile
+      - '**/Dockerfile'
+      - .dockerignore
+      - 'docker-compose*.yml'
+      - 'tooling/infra/**'
+      - .env.example
+      - .github/workflows/stack-rehearsal.yml
+
+concurrency:
+  group: stack-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    name: Build, boot and smoke the containerised stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      COMPOSE: docker compose -f docker-compose.apps.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Settings made on the runner
+        env:
+          INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+        run: node tooling/infra/rehearsal-env.mjs .env "$RUNNER_TEMP/roles.sql"
+
+      - name: Build every image
+        run: $COMPOSE build
+
+      - name: Database up, roles rotated off the published passwords
+        run: |
+          set -euo pipefail
+          $COMPOSE up -d --no-build --wait postgres
+          $COMPOSE exec -T postgres psql -q -U intafaced -d intafaced -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/roles.sql"
+
+      - name: Start the stack
+        run: $COMPOSE up -d --no-build
+
+      - name: Every container is healthy
+        run: tooling/infra/compose-health.sh 90 -f docker-compose.apps.yml
+
+      - name: Sign-in smoke through the customer site
+        run: |
+          set -euo pipefail
+          site=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/)
+          echo "customer site / answered $site"
+          [ "$site" = 200 ]
+          body=$(curl -s -w '\n%{http_code}' -X POST http://localhost:8090/api/identity/trpc/auth.login \
+            -H 'content-type: application/json' -H 'origin: https://localhost:8090' \
+            -d '{"identifier":"rehearsal-nobody@example.invalid","password":"not-the-password"}')
+          status=$(printf '%s' "$body" | tail -n1)
+          code=$(printf '%s' "$body" | grep -o '"intafacedCode":"[^"]*"' | head -n1 || true)
+          echo "sign-in with an unknown name answered $status $code"
+          # Identity answered through the site and the edge, with its own typed refusal for a wrong sign-in.
+          case "$code" in
+            '"intafacedCode":"auth.invalid_credentials"'|'"intafacedCode":"auth.challenge_required"') ;;
+            *) echo "::error::sign-in did not reach identity's typed refusal"; exit 1 ;;
+          esac
+
+      - name: The health gate fails on an image broken on purpose
+        run: |
+          set -euo pipefail
+          printf 'FROM intafaced/app:dev\nUSER root\nRUN rm -rf services/svc-notify/dist\nUSER node\n' \
+            | docker build -q -t intafaced/app:rehearsal-broken - >/dev/null
+          printf 'services:\n  svc-notify:\n    image: intafaced/app:rehearsal-broken\n' > "$RUNNER_TEMP/broken.yml"
+          $COMPOSE -f "$RUNNER_TEMP/broken.yml" up -d --no-build --no-deps svc-notify
+          if out=$(tooling/infra/compose-health.sh 30 -f docker-compose.apps.yml); then
+            echo "$out"
+            echo "::error::the health gate passed a stack whose svc-notify image is broken"
+            exit 1
+          fi
+          echo "$out"
+          printf '%s\n' "$out" | sed -n '/terminal bad state/,/all containers/p' | grep -q 'intafaced-svc-notify ' \
+            || { echo "::error::the health gate failed, but did not name svc-notify"; exit 1; }
+          echo "the gate named the broken service and failed, as it must"
+
+      - name: Tear down
+        if: always()
+        run: |
+          $COMPOSE down -v --remove-orphans || true
+          rm -f .env "$RUNNER_TEMP/roles.sql"

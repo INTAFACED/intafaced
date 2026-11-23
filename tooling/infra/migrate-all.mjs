@@ -81,7 +81,10 @@ const database = process.env.POSTGRES_DB ?? 'intafaced';
 const failures = [];
 
 for (const [service, schema] of SERVICES) {
-  const url = `postgres://svc_${schema}:svc_${schema}@${host}:${port}/${database}`;
+  // A deployment that rotated the role's password (SVC_<SCHEMA>_DB_PASSWORD, as every service reads it in
+  // docker-compose.apps.yml) migrates with that password; a local stack keeps the published dev one.
+  const password = process.env[`SVC_${schema.toUpperCase()}_DB_PASSWORD`] || `svc_${schema}`;
+  const url = `postgres://svc_${schema}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
   console.log(`\n── ${service} (schema "${schema}", role "svc_${schema}")`);
 
   const result = spawnSync('pnpm', ['--filter', `@intafaced/${service}`, 'db:migrate'], {
