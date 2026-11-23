@@ -13,8 +13,9 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 One copy of the local test stack (`tooling/scripts/local-test-stack.mjs`) runs on the Linux box, in its own checkout of
 `origin/main` (`~/.intafaced/beta/checkout`), its own state folder (`~/.intafaced/beta/state`) and slot 3, so its ports
 never move. The systemd user service `intafaced-beta.service` runs `tooling/beta/beta-host.mjs serve`, which every 30
-minutes fetches main, moves the checkout to it, installs, and runs `verify launch`, which rebuilds what changed and
-readies the stack the way a journeys shard is readied. A merge to main is on the link within the hour.
+minutes fetches main and runs `verify launch`, which readies the stack the way a journeys shard is readied and restarts
+what is down. At most once every 2 hours it first moves the checkout to main and installs, so the launch rebuilds what
+changed: a merge to main is on the link within about two and a half hours. The mailbox page names the commit served.
 
 **Who can open it (the allow list):** the stack listens only on the box's own loopback, and nothing on the home
 network can reach it. The only way in from outside is a Cloudflare Tunnel, which the box dials out. Cloudflare Access sits
@@ -51,8 +52,9 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
 3. The app asks for the code from the email. Open `https://beta-mail.intafaced.com/` in a second tab: the TEST mailbox
    shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
    later is asked for a device code: it is in the same mailbox.
-4. You are on Home, in Volt, dark. To trade, open **Verification**, request **Full**, enter any country code and submit.
-   Then an agent on the box approves it and adds TEST funds (below). Sign out and in once so the app sees the new level.
+4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
+   **Full**, enter any country code, and submit: the stack's TEST operators approve it within a minute. Sign out and in
+   once so the app sees it. TEST funds are added by an agent (below).
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
 
@@ -63,7 +65,7 @@ An agent's own shell may not read the stack's processes, and then the tools refu
 B=~/.intafaced/beta
 run() { systemd-run --user --quiet --wait --pipe --collect -p WorkingDirectory=$B/checkout \
   --setenv=LOCAL_STACK_SLOT=3 --setenv=LOCAL_STACK_STATE=$B/state /bin/bash -lc "$1"; }
-run 'node tooling/scripts/local-test-gates.mjs verify'                        # TEST operators approve every pending request
+run 'node tooling/scripts/local-test-gates.mjs verify'                        # if a request still waits: TEST operators approve it now
 run 'node tooling/scripts/local-test-stack.mjs fund <email> USDT 1000'        # TEST USDT through the real ledger
 ```
 

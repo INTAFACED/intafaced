@@ -77,7 +77,8 @@ fn unauthenticated() -> Response {
     reply(401, "service credentials required", "bank.unauthenticated")
 }
 
-fn not_ported(slice: Slice) -> Response {
+/// A job door whose slice's work is not ported.
+pub fn not_ported(slice: Slice) -> Response {
     Response {
         status: 500,
         body: Json::obj([(
@@ -363,6 +364,13 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(unauthenticated());
     };
     if let Some(j) = job {
+        if j.slice == Slice::PartnerAccount {
+            return Some(crate::partner_account::job(
+                &door.partner_account(),
+                path,
+                &body,
+            ));
+        }
         if j.path == RUN_DUE_TRANSFERS {
             return Some(run_due_transfers(door));
         }
