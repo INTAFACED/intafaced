@@ -439,19 +439,14 @@ test('a helper name taken in the record file or the shared file never lands twic
   assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
 });
 
-test('a record whose import would close a cycle between two contracts files stays by name, named; one that closes none moves', () => {
-  // svc-bank on main (weed project-state#3755): ops.cardPayFromReconciliation reads `figures`, which reads `signed`. An
-  // earlier run left `signed` in bank-ops-procedures, so `figures` went to the shared file importing `signed` from there,
-  // and the record there imported `figures` back: one was read before it was declared (samples.mjs: "Cannot access
-  // 'figures' before initialization") and the whole bank run failed.
-  const root = mkdtempSync(join(tmpdir(), 'call-records-cycle-'));
+/** svc-agents mid-port: its router, one caller of each procedure, and the contracts files given, planned with --write. */
+function cycleRun(prefix, router, contracts) {
+  const root = mkdtempSync(join(tmpdir(), prefix));
   const here = new URL('.', import.meta.url).pathname;
   const files = {
     'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
     'services/svc-agents/src/router.ts': [
-      "import { z } from 'zod';",
-      'const signed = z.string().regex(/^-?\\d+$/);',
-      'const figures = z.object({ v: signed });',
+      ...router,
       'export function createAgentsRouter() {',
       '  return router({',
       "    own: router({ recon: scopedProcedure('agents:read').output(figures).query(() => ({ v: '1' })) }),",
@@ -467,14 +462,7 @@ test('a record whose import would close a cycle between two contracts files stay
       "export const b = (api) => api.query('agents', 'misc.get', undefined, z.string());",
       '',
     ].join('\n'),
-    'packages/contracts/src/agents-own-procedures.ts': [
-      "import { z } from 'zod';",
-      '',
-      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
-      'export const signed = z.string().regex(/^-?\\d+$/);',
-      '',
-    ].join('\n'),
-    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const other = z.string();\n",
+    ...contracts,
   };
   for (const [f, body] of Object.entries(files)) {
     mkdirSync(dirname(join(root, f)), { recursive: true });
@@ -494,7 +482,69 @@ test('a record whose import would close a cycle between two contracts files stay
     cwd: root,
     stdio: 'pipe',
   });
-  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  const read = (f) => readFileSync(join(root, f), 'utf8');
+  return {
+    summary: JSON.parse(read('.git/summary.json')),
+    own: read('packages/contracts/src/agents-own-procedures.ts'),
+    shared: read('packages/contracts/src/agents-call-schemas.ts'),
+    caller: read('apps/customer/src/features/agents/agent.ts'),
+  };
+}
+
+const OWN_WITH_SIGNED = [
+  "import { z } from 'zod';",
+  '',
+  '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+  'export const signed = z.string().regex(/^-?\\d+$/);',
+  '',
+].join('\n');
+
+test('helpers that would close an import cycle through the shared file go beside their record, which moves', () => {
+  // svc-bank on main (weed project-state#3755): ops.cardPayFromReconciliation reads `figures`, which reads `signed`. An
+  // earlier run left `signed` in bank-ops-procedures, so `figures` went to the shared file importing `signed` from there,
+  // and the record there imported `figures` back: one was read before it was declared (samples.mjs: "Cannot access
+  // 'figures' before initialization") and the whole bank run failed. svc-pay's deposit-freeze inputs, reading the
+  // `userIdSchema` in pay-founder-admin-procedures, were then left by name (weed project-state#3907): `figures` belongs
+  // beside `signed`, in the record's own file, which imports nothing back.
+  const { summary, own, shared, caller } = cycleRun(
+    'call-records-cycle-',
+    ["import { z } from 'zod';", 'const signed = z.string().regex(/^-?\\d+$/);', 'const figures = z.object({ v: signed });'],
+    {
+      'packages/contracts/src/agents-own-procedures.ts': OWN_WITH_SIGNED,
+      'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const other = z.string();\n",
+    },
+  );
+  assert.deepEqual(summary.records.sort(), ['AGENTS_MISC_GET', 'AGENTS_OWN_RECON']);
+  assert.deepEqual(summary.hand, []);
+  assert.ok(own.indexOf('const figures') > own.indexOf('const signed'), 'figures is declared beside signed, after it');
+  assert.doesNotMatch(own, /agents-call-schemas/, 'the record file never imports the file that imports it');
+  assert.doesNotMatch(shared, /agents-own-procedures|figures/, 'nor does the shared file take its helper');
+  assert.match(caller, /api\.call\(AGENTS_OWN_RECON, /);
+  assert.match(caller, /api\.call\(AGENTS_MISC_GET, /);
+});
+
+test('a record whose import would close a cycle both ways stays by name, named; one that closes none moves', () => {
+  // `figures` reads `signed` from the record file and `other` from the shared file, which already imports the record
+  // file: in either file one import closes a cycle.
+  const { summary, own, shared, caller } = cycleRun(
+    'call-records-cycle2-',
+    [
+      "import { z } from 'zod';",
+      "import { other } from '@intafaced/contracts/agents-call-schemas';",
+      'const signed = z.string().regex(/^-?\\d+$/);',
+      'const figures = z.object({ v: signed, o: other });',
+    ],
+    {
+      'packages/contracts/src/agents-own-procedures.ts': OWN_WITH_SIGNED,
+      'packages/contracts/src/agents-call-schemas.ts': [
+        "import { z } from 'zod';",
+        "import { signed } from './agents-own-procedures.js';",
+        '',
+        'export const other = z.object({ s: signed });',
+        '',
+      ].join('\n'),
+    },
+  );
   assert.deepEqual(summary.records, ['AGENTS_MISC_GET'], 'the record that closes no cycle moves');
   assert.deepEqual(
     summary.hand.map((h) => [h.call, h.why]),
@@ -505,11 +555,8 @@ test('a record whose import would close a cycle between two contracts files stay
       ],
     ],
   );
-  const own = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
-  assert.doesNotMatch(own, /agents-call-schemas/, 'the record file never imports the file that imports it');
-  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
-  assert.doesNotMatch(shared, /agents-own-procedures|figures/, 'nor does the shared file take its helper');
-  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.doesNotMatch(own, /agents-call-schemas|figures/, 'the record file never imports the file that imports it');
+  assert.doesNotMatch(shared, /figures/, 'nor does the shared file take its helper');
   assert.match(caller, /api\.query\(["']agents["'], ["']own\.recon["']/, 'its caller stays by name');
   assert.match(caller, /api\.call\(AGENTS_MISC_GET, /);
 });

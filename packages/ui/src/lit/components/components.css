@@ -132,6 +132,13 @@
   outline-offset: 2px;
 }
 
+/* A heading, landmark or section that code moves focus to (tabindex -1) is where reading starts, not a control: it
+   takes no ring (a room's title drew a box round itself on arrival). */
+.lit-root :is(h1, h2, h3, h4, main, section)[tabindex='-1']:focus-visible,
+:root:where([data-look='lit']) :is(h1, h2, h3, h4, main, section)[tabindex='-1']:focus-visible {
+  outline: none;
+}
+
 /* Action keys (Add, Send, Buy). The lit one is the light. */
 .lit-key {
   display: inline-flex;

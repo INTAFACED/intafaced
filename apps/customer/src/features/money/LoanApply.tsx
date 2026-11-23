@@ -312,7 +312,7 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
             <label className="lt-field">
               <span>{t('chooseLabel')}</span>
               <select value={chosen ?? ''} onChange={(event) => setChosen(event.target.value === '' ? null : event.target.value)}>
-                <option value="">—</option>
+                <option value="">{t('choosePlaceholder')}</option>
                 {products.resource.data.map((one) => (
                   <option key={one.id} value={one.id}>
                     {one.name}
@@ -321,6 +321,11 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
               </select>
             </label>
           ))}
+        {products.resource.status === 'ready' && products.resource.data.length > 0 && !chosen && (
+          <p className="lt-muted" data-testid="loan-apply-hint">
+            {t('chooseHint')}
+          </p>
+        )}
       </DepthPanel>
       {chosen && <ProductApplication key={chosen} productId={chosen} open={open} />}
       <p>
