@@ -4,13 +4,14 @@
  * The custodial layer stays built and is switched off at launch. svc-ledger refuses a customer-balance post while
  * `LEDGER_CUSTODY_LAYER` is off (its default). This check is the static half: with the switch's default off, every
  * source file that posts a recipe moving a customer balance must be a site the reviewed inventory names as part of the
- * custodial layer (`tooling/ci/custody-layer-inventory.json`). A NEW customer-balance posting anywhere in services/ or
- * packages/ fails the scan until a reviewed change adds it to the inventory, which says, in review, "this is custody".
+ * custodial layer (`tooling/ci/custody-layer-inventory.json`). A NEW customer-balance posting anywhere in services/,
+ * packages/ or a Rust service's crate (`crates/svc-*`, svc-ledger itself excepted) fails the scan until a reviewed change adds it to the inventory, which says, in review, "this is custody".
  *
  * It fails closed:
- *   · the switch's default is read from source (ledger-client's parser, svc-ledger's env and service) and must be off;
+ *   · the switch's default is read from source (ledger-client's parser, the svc-ledger crate's env, boot and posting)
+ *     and must be off;
  *   · the inventory's list of customer-balance recipes is pinned to the ledger's own recipe samples by
- *     services/svc-ledger/src/custody-layer-inventory.test.ts, so a new recipe that touches a customer account cannot be
+ *     packages/ledger-client/src/gate/custody-layer-inventory.test.ts, so a new recipe that touches a customer account cannot be
  *     left off the list;
  *   · a dynamic recipe call (`recipes[name](...)`) counts as a posting of every customer recipe (`*`).
  *
@@ -87,7 +88,31 @@ export function customerRecipeCalls(text, customerRecipes) {
   return [...found].sort();
 }
 
-/** Every customer-balance posting site under services/ and packages/ (ledger-client itself excluded). */
+/**
+ * The customer-balance recipes a Rust service's source posts: a file that sends through its client's `.post_recipe(`
+ * posts each recipe a string literal names, as the ledger's caller allowlist test reads it, and each `Recipe::<Name>`
+ * variant it builds (`Recipe::FeeCharge` is `feeCharge`). Its `#[cfg(test)]` module is not production. Pure, so the test can plant one.
+ */
+export function rustCustomerRecipeCalls(text, customerRecipes) {
+  const live = text.split('#[cfg(test)]')[0] ?? '';
+  if (!/\.post_recipe\(/.test(live)) return [];
+  const customer = new Set(customerRecipes);
+  const literal = [...live.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)].map((m) => m[1]);
+  const variant = [...live.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
+  return [...new Set([...literal, ...variant].filter((n) => customer.has(n)))].sort();
+}
+
+function* walkRust(dir) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    if (SKIP_DIRS.has(name)) continue;
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) yield* walkRust(full);
+    else if (name.endsWith('.rs')) yield full;
+  }
+}
+
+/** Every customer-balance posting site under services/, packages/ (ledger-client itself excluded) and each Rust service's `src` (svc-ledger excluded: it is the book). */
 export function customerPostingSites(root, customerRecipes) {
   const sites = {};
   for (const top of ['services', 'packages']) {
@@ -98,13 +123,22 @@ export function customerPostingSites(root, customerRecipes) {
       if (calls.length > 0) sites[rel] = calls;
     }
   }
+  const crates = join(root, 'crates');
+  for (const crate of existsSync(crates) ? readdirSync(crates) : []) {
+    if (!crate.startsWith('svc-') || crate === 'svc-ledger') continue;
+    for (const file of walkRust(join(crates, crate, 'src'))) {
+      const rel = relative(root, file).split(sep).join('/');
+      const calls = rustCustomerRecipeCalls(readFileSync(file, 'utf8'), customerRecipes);
+      if (calls.length > 0) sites[rel] = calls;
+    }
+  }
   return sites;
 }
 
 /**
  * Is the switch's default off? Read from source, so the check can't be satisfied by an inventory alone.
- * Returns a list of problems; empty means off by default everywhere it is set: the parser, svc-ledger's env, service and
- * boot, and the compose file staging deploys.
+ * Returns a list of problems; empty means off by default everywhere it is set: the parser, the svc-ledger crate's env,
+ * boot and posting, and the compose file staging deploys.
  */
 export function switchDefaultProblems(root) {
   const problems = [];
@@ -113,19 +147,22 @@ export function switchDefaultProblems(root) {
   if (!parser || !/raw\.trim\(\)\s*===\s*''\)\s*return\s*'off'/.test(parser)) {
     problems.push("packages/ledger-client/src/custody-layer.ts: parseCustodyLayer must read unset or blank as 'off'");
   }
-  const env = read('services/svc-ledger/src/env.ts');
-  // The whole field, up to the next env key: a `.default(...)` anywhere in it, before or after the transform, would
-  // feed a value in when the variable is unset.
-  const envBlock = env?.match(/\n\s*LEDGER_CUSTODY_LAYER:([\s\S]*?)(?=\n\s*(?:\/\*\*|[A-Z][A-Z0-9_]*:))/)?.[1];
-  if (!envBlock || !/parseCustodyLayer\(/.test(envBlock) || /\.(default|catch|preprocess)\(|z\.preprocess\(/.test(envBlock)) {
-    problems.push('services/svc-ledger/src/env.ts: LEDGER_CUSTODY_LAYER must be parsed by parseCustodyLayer, with no default of its own');
+  // svc-ledger is the Rust crate: the env reads the switch through parse_custody_layer, which reads blank as off.
+  const env = read('crates/svc-ledger/src/env.rs');
+  if (!env || !/parse_custody_layer\(o\.f\.get\("LEDGER_CUSTODY_LAYER"\)\)/.test(env)) {
+    problems.push('crates/svc-ledger/src/env.rs: LEDGER_CUSTODY_LAYER must be parsed by parse_custody_layer');
   }
-  const index = read('services/svc-ledger/src/index.ts');
-  if (!index || !/custodyLayer:\s*env\.LEDGER_CUSTODY_LAYER\s*,/.test(index) || /custodyLayer:\s*['"]on['"]/.test(index)) {
-    problems.push('services/svc-ledger/src/index.ts: the service must take custodyLayer from env.LEDGER_CUSTODY_LAYER');
+  const parseFn = env?.match(/pub fn parse_custody_layer\([\s\S]*?\n\}/)?.[0];
+  if (!parseFn || !/is_empty\(\)\)\s*else\s*\{\s*return Ok\("off"\);/.test(parseFn)) {
+    problems.push('crates/svc-ledger/src/env.rs: parse_custody_layer must read unset or blank as "off"');
   }
-  if (!index || !/await\s+ledger\.assertCustodyLayerBootable\(\)/.test(index)) {
-    problems.push('services/svc-ledger/src/index.ts: boot must call ledger.assertCustodyLayerBootable()');
+  const main = read('crates/svc-ledger/src/main.rs');
+  const onFromEnv = 'env\\.str\\("LEDGER_CUSTODY_LAYER"\\)\\s*==\\s*Some\\("on"\\)';
+  if (!main || !new RegExp(`Posting::new\\(\\s*[^,]+,\\s*[^,]+,\\s*${onFromEnv}\\s*,`).test(main)) {
+    problems.push('crates/svc-ledger/src/main.rs: posting must take the custody switch from env LEDGER_CUSTODY_LAYER');
+  }
+  if (!main || !new RegExp(`boot::assert_custody_layer_bootable\\(\\s*[^,]+,\\s*${onFromEnv}\\s*,?\\s*\\)`).test(main)) {
+    problems.push('crates/svc-ledger/src/main.rs: boot must call boot::assert_custody_layer_bootable with the env switch');
   }
   // docker-compose.apps.yml is staging's deployment unit as well as `pnpm platform:up`.
   const compose = read('docker-compose.apps.yml');
@@ -133,12 +170,9 @@ export function switchDefaultProblems(root) {
   if (composeLine !== undefined && composeLine !== '${LEDGER_CUSTODY_LAYER:-off}' && composeLine !== '${LEDGER_CUSTODY_LAYER}') {
     problems.push('docker-compose.apps.yml: LEDGER_CUSTODY_LAYER must default to off (it is the staging deployment unit)');
   }
-  const service = read('services/svc-ledger/src/service.ts');
-  if (!service || !/this\.custodyLayer\s*=\s*options\.custodyLayer\s*\?\?\s*'off'/.test(service)) {
-    problems.push("services/svc-ledger/src/service.ts: LedgerService must default custodyLayer to 'off'");
-  }
-  if (!service || !/this\.custodyLayer\s*===\s*'off'\s*&&\s*movesCustomerBalance\(/.test(service)) {
-    problems.push('services/svc-ledger/src/service.ts: LedgerService.post must refuse a customer-balance post while the layer is off');
+  const posting = read('crates/svc-ledger/src/posting/mod.rs');
+  if (!posting || !/if !p\.custody_layer_on && r\.moves_customer_balance\(\)/.test(posting)) {
+    problems.push('crates/svc-ledger/src/posting/mod.rs: book must refuse a customer-balance post while the layer is off');
   }
   return problems;
 }

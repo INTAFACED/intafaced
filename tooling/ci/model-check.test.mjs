@@ -60,8 +60,8 @@ test('a change to a modelled service runs every model', () => {
 });
 
 test("a path outside the service that a model's COVERS.md names runs the models; its neighbours do not", () => {
-  assert.equal(plan(ROOT, ['services/svc-matching/src/engine/book.ts']).run, true);
-  assert.equal(plan(ROOT, ['services/svc-matching/README.md']).run, false);
+  assert.equal(plan(ROOT, ['crates/svc-matching/src/book/order_book.rs']).run, true);
+  assert.equal(plan(ROOT, ['crates/svc-matching/README.md']).run, false);
 });
 
 test('project-state#3019: a shared package file a COVERS file names runs the models; its neighbours do not', () => {

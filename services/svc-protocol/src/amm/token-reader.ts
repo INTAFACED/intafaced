@@ -1,6 +1,11 @@
 import { parseAbiItem, type Address, type PublicClient } from 'viem';
 import type { TokenBasics, TokenPageData } from '@intafaced/contracts';
-import { TOKENS_BLOCK_AHEAD, TOKENS_BLOCK_TOO_OLD, TOKENS_PAST_BLOCKS_KEPT, TOKENS_READ_TOO_LARGE } from '@intafaced/contracts';
+import {
+  TOKENS_BLOCK_AHEAD,
+  TOKENS_BLOCK_TOO_OLD,
+  TOKENS_PAST_BLOCKS_KEPT,
+  TOKENS_READ_TOO_LARGE,
+} from '@intafaced/contracts/protocol-tokens';
 import { classifyChainError } from '../chain/availability.js';
 import { listPairs, PAIRS_READ_LIMIT, type PairsChain } from './pairs.js';
 import { holdersFrom, MAX_LOGS, TokensReadError, type MarketSnapshot, type PoolRecord, type SwapLog, type SyncLog } from './tokens.js';

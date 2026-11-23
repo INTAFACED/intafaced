@@ -81,6 +81,11 @@ impl Pool {
         }
     }
 
+    /// The most connections it opens at once.
+    pub fn max(&self) -> usize {
+        self.max
+    }
+
     /// The URL it connects to, for a worker that opens its own connection.
     pub fn url(&self) -> &str {
         &self.url

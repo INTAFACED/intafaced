@@ -97,7 +97,7 @@ export function PriceAlerts({ market }: { market: Listing }) {
                   <Copy k={market.paper ? 'simulation' : mode !== 'Personal' ? 'company' : 'signIn'} />
                 </p>
                 {!market.paper && !userId && (
-                  <a className="text-link" href={'/login?redirect=' + encodeURIComponent(location.pathname + location.search)}>
+                  <a className="lt-link" href={'/login?redirect=' + encodeURIComponent(location.pathname + location.search)}>
                     <Copy k="signIn" />
                   </a>
                 )}
@@ -364,7 +364,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
       <strong>
         <Copy k={data.canFire ? 'connected' : 'dark'} />
       </strong>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="availability" />
       </p>
       {data.code && (
@@ -394,7 +394,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
       }}
     >
       <div className="price-alerts" lang={languageFor('title')}>
-        <p className="muted">
+        <p className="lt-muted">
           <span lang="">{market.symbol}</span> · <Copy k="personal" />
         </p>
         {stored.failed && (
@@ -429,7 +429,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
             <p>
               <Copy k="browserAttempt" />: <code lang="">{stored.marker.requestId}</code>
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="lookup" />
             </p>
           </section>
@@ -486,7 +486,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
               </p>
             )}
             <Availability data={review.evaluation} />
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k={review.action === 'create' ? 'oneShot' : review.action === 'cancel' ? 'cancelMeaning' : 'checkMeaning'} />
             </p>
             {review.action === 'create' && !review.evaluation.canFire && (
@@ -518,7 +518,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         ) : (
           !stored.marker && (
             <>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="scope" />
               </p>
               {currentEvaluation && <Availability data={currentEvaluation} />}
@@ -538,7 +538,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 <h3>
                   <Copy k="newAlert" />
                 </h3>
-                <label className="field">
+                <label className="lt-field">
                   <span>
                     <Copy k="direction" />
                   </span>
@@ -597,7 +597,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                         <Copy k={row.status} />
                       </span>
                     </div>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="unit" params={{ quote: market.quote, base: market.base }} />
                     </p>
                     <Button variant="secondary" onClick={() => setSelectedId(row.id)}>
@@ -610,7 +610,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                   <Copy k="emptyBody" />
                 </EmptyState>
               )}
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="window" params={{ limit }} />
               </p>
               {limit < 100 && read.resource.data.items.length >= limit && (
@@ -673,17 +673,17 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 )}
               </>
             ) : (
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="missing" />
               </p>
             )}
           </section>
         )}
         <nav className="price-alerts-exits">
-          <a className="text-link" href={customerRoomHref('/support')}>
+          <a className="lt-link" href={customerRoomHref('/support')}>
             <Copy k="support" />
           </a>
-          <a className="text-link" href="/notifications">
+          <a className="lt-link" href="/notifications">
             <Copy k="settings" />
           </a>
         </nav>

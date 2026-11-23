@@ -17,6 +17,9 @@ import {
 } from './protocol-address-book.js';
 import {
   protocolAddressReportInputSchema,
+  protocolBlockedTokenSchema,
+  protocolBlocklistAddInputSchema,
+  protocolBlocklistOutputSchema,
   protocolAddressReportReceiptSchema,
   protocolAddressRiskInputSchema,
   protocolAddressRiskSchema,
@@ -431,6 +434,33 @@ export const PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE = defineProcedure({
   ],
 });
 
+export const PROTOCOL_COMPLIANCE_BLOCKLIST_LIST = defineProcedure({
+  ...base,
+  name: 'protocol.compliance.blocklist.list',
+  kind: 'query',
+  path: 'compliance.blocklist.list',
+  access: OPERATOR_READ,
+  refusals: join(),
+  input: NO_INPUT,
+  output: protocolBlocklistOutputSchema,
+  samples: [{ verdict: 'accept' }],
+});
+
+export const PROTOCOL_COMPLIANCE_BLOCKLIST_ADD = defineProcedure({
+  ...base,
+  name: 'protocol.compliance.blocklist.add',
+  kind: 'mutation',
+  path: 'compliance.blocklist.add',
+  access: OPERATOR_WRITE,
+  refusals: refuse('CONFLICT', 'protocol.blocklist.already_blocked'),
+  input: protocolBlocklistAddInputSchema,
+  output: protocolBlockedTokenSchema,
+  samples: [
+    { verdict: 'accept', input: { token: ADDRESS, reason: 'TEST' } },
+    { verdict: 'refuse', input: { token: ADDRESS, reason: '' } },
+  ],
+});
+
 export const PROTOCOL_COMPLIANCE_NAME_TAGS_LIST = defineProcedure({
   ...base,
   name: 'protocol.compliance.nameTags.list',
@@ -620,6 +650,8 @@ export const PROTOCOL_WALLET_PROCEDURES = [
   PROTOCOL_COMPLIANCE_ONBOARDING_LIST,
   PROTOCOL_COMPLIANCE_ONBOARDING_OPEN,
   PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE,
+  PROTOCOL_COMPLIANCE_BLOCKLIST_LIST,
+  PROTOCOL_COMPLIANCE_BLOCKLIST_ADD,
   PROTOCOL_COMPLIANCE_NAME_TAGS_LIST,
   PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST,
   PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE,

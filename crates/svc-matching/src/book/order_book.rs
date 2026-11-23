@@ -23,11 +23,19 @@ use super::rules::{
     visible_remaining, wants_iceberg,
 };
 use super::types::{
-    AmendResult, CancelReason, CancelResult, CancelledRef, EngineAmend, EngineOrder, Fill,
+    AmendResult, CancelReason, CancelResult, CancelledRef, EngineAmend, EngineOrder, Fill, Opt,
     OrderType, Priority, Reject, RestKind, RestingRef, Side, SubmitResult, SurveillanceCase, Tif,
     TriggerBy, TriggerFact, TriggerOutcome, TriggerRole, seq_json,
 };
 use crate::journal::replay::js_sort_cmp;
+
+mod combo;
+mod option;
+mod spread_book;
+
+pub use combo::{ComboRest, ComboRestLeg, combo_identity, combo_intent_refuse, wants_combo};
+pub use option::wants_option;
+pub use spread_book::{outright_on_spread_refuse, spread_amend_refuse, spread_order_refuse};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RestingOrder {
@@ -176,6 +184,17 @@ pub struct LiveOrder {
     pub version: u64,
     /// The limit a hold was sized at: the level for a rest, the stop's limit (none for a market stop).
     pub funding_price: Option<Amount>,
+}
+
+/// A live trailing stop, as [`OrderBook::trailing_stops`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrailingStop {
+    pub order_id: String,
+    pub side: Side,
+    pub trail: Amount,
+    pub peak: Amount,
+    pub stop_price: Amount,
+    pub version: u64,
 }
 
 /// One level of the queue: its price and each order's id, remaining and sequence, in queue order.
@@ -441,6 +460,29 @@ fn would_increase() -> Reject {
     )
 }
 
+/// `activationOrder`: the order a fired stop becomes, market for a stop and limit for a stop-limit.
+fn activation_order(stop: &StopOrder) -> EngineOrder {
+    let limit = stop.order_type == OrderType::StopLimit;
+    let mut o = EngineOrder::new(
+        stop.order_id.clone(),
+        stop.account_id.clone(),
+        if limit {
+            OrderType::Limit
+        } else {
+            OrderType::Market
+        },
+        stop.side,
+        stop.qty,
+        if limit { stop.price } else { None },
+        stop.tif,
+    );
+    o.oco_sibling_id = stop.oco_sibling_id.clone();
+    o.reduce_only = stop.reduce_only;
+    o.min_qty = stop.min_qty.map_or(Opt::Absent, Opt::Some);
+    o.aon = Opt::Some(stop.aon);
+    o
+}
+
 /// `Date.parse(at) <= now`: a time that is not a date is never due.
 fn due(expire_at: Option<&String>, now: i64) -> bool {
     expire_at
@@ -474,6 +516,16 @@ pub struct OrderBook {
     positions: HashMap<String, Amount>,
     /// Open self-trade cases: evidence only, never a fine and never closed here.
     surveillance_cases: Vec<SurveillanceCase>,
+    /// The option layer's rows (`option.ts`): not part of the durable state.
+    option: option::OptionState,
+    /// The combo layer's resting combos (`combo-book.ts`): not part of the durable state.
+    combo: combo::ComboState,
+    /// The identity of the spread listing this book trades, once it took a spread order (`spread-book.ts`). Not part of
+    /// the durable state: a book restored from it takes no spread order (`spread_book_outright_refused`).
+    spread_mark: Option<String>,
+    /// What the trigger wrappers remember beside the book and never snapshot (`bracket.ts`'s and
+    /// `trailing-stop.ts`'s `WeakMap`s): a restored or rehearsal book starts without it, as the TypeScript's does.
+    pub(super) triggers: super::triggers::TriggerState,
 }
 
 impl OrderBook {
@@ -497,6 +549,10 @@ impl OrderBook {
             futures_positions: HashMap::new(),
             positions: HashMap::new(),
             surveillance_cases: Vec::new(),
+            option: option::OptionState::default(),
+            combo: combo::ComboState::default(),
+            spread_mark: None,
+            triggers: super::triggers::TriggerState::default(),
         }
     }
 
@@ -637,8 +693,9 @@ impl OrderBook {
 
     // ── submit ──────────────────────────────────────────────────────────
 
-    /// Place one order. `now` is the engine clock in milliseconds, when it has one.
-    pub fn submit(&mut self, incoming: &EngineOrder, now: Option<i64>) -> SubmitResult {
+    /// The core book's submit (`book.ts`), under the trigger wrappers ([`OrderBook::submit`]). `now` is the engine
+    /// clock in milliseconds, when it has one.
+    pub(super) fn submit_core(&mut self, incoming: &EngineOrder, now: Option<i64>) -> SubmitResult {
         if let Some(r) = peg_intent_refuse(incoming) {
             return SubmitResult::refused(r);
         }
@@ -663,7 +720,7 @@ impl OrderBook {
         if is_stop && !triggers_now {
             let displaced = self.displace_reduce_only(&order);
             let sequence = self.next_sequence();
-            let (trail, peak) = trail_peak(order.trail, order.mark);
+            let (trail, peak) = trail_peak(order.trail.get(), order.mark.get());
             let stop = StopOrder {
                 order_id: order.order_id.clone(),
                 account_id: order.account_id.clone(),
@@ -766,7 +823,13 @@ impl OrderBook {
 
     // ── cancel ──────────────────────────────────────────────────────────
 
+    /// Pull one live order, through the combo and option layers.
     pub fn cancel(&mut self, order_id: &str, reason: CancelReason) -> CancelResult {
+        self.combo_cancel(order_id, reason)
+    }
+
+    /// The core book's cancel.
+    fn cancel_core(&mut self, order_id: &str, reason: CancelReason) -> CancelResult {
         if let Some((account, remaining)) = self
             .resting(order_id)
             .map(|r| (r.account_id.clone(), r.remaining))
@@ -869,7 +932,8 @@ impl OrderBook {
 
     // ── amend ───────────────────────────────────────────────────────────
 
-    pub fn amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
+    /// The core book's amend, under the bracket wrapper ([`OrderBook::amend`]).
+    pub(super) fn amend_core(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
         let expired = now.map(|n| self.expire_due(n)).unwrap_or_default();
         let result = if self.resting(&cmd.order_id).is_some() {
             self.amend_resting(cmd)
@@ -1236,13 +1300,7 @@ impl OrderBook {
     // ── checks ──────────────────────────────────────────────────────────
 
     fn validate(&self, order: &EngineOrder, now: Option<i64>) -> Option<Reject> {
-        if order.spread {
-            return Some(Reject::new(
-                "spread_order_unsupported",
-                "spread orders need the spread book hitch; the core book does not price legs",
-            ));
-        }
-        if order.option_instrument && order.order_type.is_stop() {
+        if order.instrument.is_some() && order.order_type.is_stop() {
             return Some(Reject::new(
                 "option_trigger_unsupported",
                 "stop_limit, stop_market, take_limit, take_market, and trailing_stop are not supported on option or option_combo",
@@ -1290,7 +1348,8 @@ impl OrderBook {
                         format!("a {kind} order requires a price"),
                     ));
                 }
-                Some(p) if p <= 0 => {
+                // A spread price is a weighted leg-price difference and may be zero or negative (`book::spread`).
+                Some(p) if p <= 0 && order.spread.is_none() => {
                     return Some(Reject::new(
                         "invalid_price",
                         "price must be strictly positive",
@@ -1562,6 +1621,7 @@ impl OrderBook {
                     taker_side: order.side,
                     price: maker.price,
                     qty: clip,
+                    legs: None,
                 });
                 if let Some(s) = self.sibling_of(&maker.order_id, Some(incoming)) {
                     removed.insert(s);
@@ -1760,6 +1820,7 @@ impl OrderBook {
                     taker_side: order.side,
                     price: maker.price,
                     qty,
+                    legs: None,
                 });
                 if let Some(m) = self.resting_mut(&maker.order_id) {
                     m.remaining = sub(m.remaining, qty);
@@ -2064,6 +2125,9 @@ impl OrderBook {
     }
 
     fn activate(&mut self, stop: &StopOrder) -> TriggerOutcome {
+        if let Some(refused) = self.combo_activation_refuse(stop) {
+            return refused;
+        }
         let effective = Effective {
             order_id: stop.order_id.clone(),
             account_id: stop.account_id.clone(),
@@ -2099,6 +2163,25 @@ impl OrderBook {
                     CancelReason::TriggerRejected,
                 )],
                 rejected: Some(v),
+                surveillance_cases: Vec::new(),
+            };
+        }
+        if let Some(taken) = self.option_activation_refuse(&activation_order(stop)) {
+            let sequence = self.next_sequence();
+            return TriggerOutcome {
+                order_id: stop.order_id.clone(),
+                trigger: None,
+                sequence,
+                fills: Vec::new(),
+                resting: None,
+                cancellations: vec![cancelled(
+                    &stop.order_id,
+                    &stop.account_id,
+                    stop.qty,
+                    sequence,
+                    CancelReason::TriggerRejected,
+                )],
+                rejected: Some(taken),
                 surveillance_cases: Vec::new(),
             };
         }
@@ -2687,6 +2770,37 @@ impl OrderBook {
             }
             _ => false,
         }
+    }
+
+    /// The OCO sibling a live order stores, when it stores one.
+    pub fn live_sibling(&self, order_id: &str) -> Option<String> {
+        self.resting(order_id)
+            .and_then(|r| r.oco_sibling_id.clone())
+            .or_else(|| {
+                self.stop_at(order_id)
+                    .and_then(|at| self.stops.get(at))
+                    .and_then(|s| s.oco_sibling_id.clone())
+            })
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Each live stop that walks (a positive trail and peak), in acceptance order: its id, side, trail, peak, trigger
+    /// and version.
+    pub fn trailing_stops(&self) -> Vec<TrailingStop> {
+        self.stops
+            .iter()
+            .filter_map(|s| match (s.trail, s.peak) {
+                (Some(trail), Some(peak)) if trail > 0 && peak > 0 => Some(TrailingStop {
+                    order_id: s.order_id.clone(),
+                    side: s.side,
+                    trail,
+                    peak,
+                    stop_price: s.stop_price,
+                    version: s.version,
+                }),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Every live order: resting by side and level (bids, then asks), then the stops in acceptance order.

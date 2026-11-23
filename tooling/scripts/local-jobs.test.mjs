@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localJobs, localWorkers } from './local-jobs.mjs';
+import { localJobs, localNextBuild, localWorkers } from './local-jobs.mjs';
 
 const BUDGET = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', 'vitest', 'budget.mjs')).href;
 
@@ -35,4 +35,16 @@ test("TEST_BUDGET, which every package's vitest config spreads, carries the boun
   };
   assert.deepEqual(read({}), { testTimeout: 30_000, hookTimeout: 30_000 });
   assert.deepEqual(read({ INTAFACED_LOCAL_JOBS: '3' }), { testTimeout: 30_000, hookTimeout: 30_000, maxWorkers: 3 });
+});
+
+test("the console's next build takes the bound only when it is set, keeping a thread count already given", () => {
+  assert.deepEqual(localNextBuild({}), { env: {}, experimental: {} });
+  assert.deepEqual(localNextBuild({ INTAFACED_LOCAL_JOBS: '2' }), {
+    env: { TURBO_TASKS_AVAILABLE_PARALLELISM: '2' },
+    experimental: { turbopackFileSystemCacheForBuild: false, turbopackSourceMaps: false },
+  });
+  assert.equal(
+    localNextBuild({ INTAFACED_LOCAL_JOBS: '2', TURBO_TASKS_AVAILABLE_PARALLELISM: '6' }).env.TURBO_TASKS_AVAILABLE_PARALLELISM,
+    '6',
+  );
 });

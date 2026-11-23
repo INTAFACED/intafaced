@@ -46,7 +46,7 @@ use crate::freeze::Bus;
 use crate::errors::{self, Failure};
 use crate::refines::LedgerRefines;
 
-/// The slices the port is cut into (`PORT.md`, `## Slices`): which one owes a call past the door.
+/// The slices the port is cut into (`README.md`, `## Slices`): which one owes a call past the door.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Slice {
     Store,
@@ -79,7 +79,7 @@ impl Slice {
         Slice::Desk,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Store => "store",

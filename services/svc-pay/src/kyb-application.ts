@@ -1,13 +1,13 @@
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  kybApplicationSectionDataSchema,
-  type KybApplicationSection,
-  type KybApplicationSectionData,
-  type KybApplicationView,
-  type KybEntityType,
-  type KybEntityTypeRequirements,
+import type {
+  KybApplicationSection,
+  KybApplicationSectionData,
+  KybApplicationView,
+  KybEntityType,
+  KybEntityTypeRequirements,
 } from '@intafaced/contracts';
+import { kybApplicationSectionDataSchema } from '@intafaced/contracts/kyb-application';
 import { KybError, type KybService } from './kyb-service.js';
 import type { KybEntityTypeService } from './kyb-entity-types.js';
 import { currentDocuments } from './kyb-documents.js';

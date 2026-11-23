@@ -3,9 +3,11 @@
 
 pub mod order_book;
 pub mod rules;
+pub mod spread;
+pub mod triggers;
 pub mod types;
 pub mod wire;
 
 pub use order_book::{
-    AmendTarget, Ladder, LiveOrder, OrderBook, QueueLevel, QueueOrder, StateError,
+    AmendTarget, Ladder, LiveOrder, OrderBook, QueueLevel, QueueOrder, StateError, TrailingStop,
 };

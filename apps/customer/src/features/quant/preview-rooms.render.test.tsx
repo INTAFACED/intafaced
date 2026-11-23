@@ -14,6 +14,16 @@ vi.mock('../session/session', () => ({
       session.calls.push(args);
       return { ok: false, message: 'preview.engine_not_built — quant.tick_engine:start', code: 'preview.engine_not_built' };
     },
+    call(
+      this: { mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own mutate, as the client sends it; it has no other.
+      if (record.kind !== 'mutation') throw new TypeError('this API double has no query');
+      return Reflect.apply(this.mutate, this, [record.module, record.path, input, record.output, opts]);
+    },
   }),
 }));
 vi.mock('./QuantRooms', () => ({ QuantRooms: () => null }));

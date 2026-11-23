@@ -10,7 +10,7 @@
  * limit of that kind for that customer, read by `quote` and by the transfer
  * check; with no published terms for the asset nothing changes.
  */
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql, TransactionSql } from 'postgres';
 import { z } from 'zod';

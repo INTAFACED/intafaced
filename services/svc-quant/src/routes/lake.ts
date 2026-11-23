@@ -1,15 +1,16 @@
 import { LAKE_KINDS, coverageOf } from '../lake/lake.js';
 import { QUANT_LAKE_RETENTION_UNSET, QUANT_LAKE_STORE_UNSET, QUANT_LAKE_SYMBOL_UNKNOWN, QuantError } from '../errors.js';
-import { publicJurisdictionProcedure, quantLakeCatalogueInputSchema, quantLakeCatalogueSchema, router } from '@intafaced/contracts';
-import { toTrpc, type QuantCore } from './core.js';
+import { router } from '@intafaced/contracts/trpc';
+import { toTrpc, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_LAKE_CATALOGUE } from '@intafaced/contracts/quant-lake-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function lakeRoutes(core: QuantCore) {
   const { deps, now } = core;
   return router({
-    catalogue: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantLakeCatalogueInputSchema)
-      .output(quantLakeCatalogueSchema)
-      .query(async ({ input }) => {
+    catalogue: mountRecord(
+      QUANT_LAKE_CATALOGUE,
+      async ({ input }) => {
         try {
           const lake = deps.dataLake;
           if (!lake || lake.settings.symbols.length === 0 || lake.settings.captureSeconds === null) {
@@ -63,6 +64,8 @@ export function lakeRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

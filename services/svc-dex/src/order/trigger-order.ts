@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { TRPCError, publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { TRPCError, publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { MoneyError, formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { OrderBook, RESTING_ORDER_COPY, RATE_COPY, poolKey, priceOrderHash, type OrderView } from './order-book.js';
 import { recoverOrderMaker } from './order-signature.js';

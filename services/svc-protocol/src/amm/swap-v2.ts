@@ -10,6 +10,18 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
+import type {
+  ProtocolApprovalRoute,
+  ProtocolApprovalRouteOutput,
+  ProtocolBuildPermitInput,
+  ProtocolBuildPermitOutput,
+  ProtocolBuildSwapV2Input,
+  ProtocolBuildSwapV2Output,
+  ProtocolPathOutput,
+  ProtocolPathsInput,
+  ProtocolSwapPairs,
+  ProtocolTypedData,
+} from '@intafaced/contracts';
 import {
   DEADLINE_PAST,
   DEADLINE_REQUIRED,
@@ -23,18 +35,8 @@ import {
   ROUTE_NO_PATH,
   ROUTE_OVER_MAX_HOPS,
   ROUTER_V2_UNSET,
-  type ProtocolApprovalRoute,
-  type ProtocolApprovalRouteOutput,
-  type ProtocolBuildPermitInput,
-  type ProtocolBuildPermitOutput,
-  type ProtocolBuildSwapV2Input,
-  type ProtocolBuildSwapV2Output,
-  type ProtocolPathOutput,
-  type ProtocolPathsInput,
-  type ProtocolSwapPairs,
-  type ProtocolTypedData,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-swap-v2';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
@@ -141,6 +143,8 @@ export interface SwapV2Deps {
   slippageCeilingBps: () => number;
   /** The factory's pools, read from the chain; refuses by name when the factory is unset. */
   pairs: () => Promise<ProtocolSwapPairs>;
+  /** Refuses `protocol.token_blocked` when any token is on the blocklist (D-launch-listing-02). */
+  routable: (tokens: readonly string[]) => Promise<void>;
   toTrpcError: (err: unknown) => TRPCError;
 }
 
@@ -354,6 +358,7 @@ export async function bestPath(deps: SwapV2Deps, input: ProtocolPathsInput): Pro
   if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
     throw refuse('BAD_REQUEST', 'protocol.route_same_token', 'Pay and receive name the same token.');
   const setting = requireSetting(deps);
+  await deps.routable([input.tokenIn, input.tokenOut]);
   const client = deps.client();
   const pairs = await deps.pairs();
   const blockNumber = BigInt(pairs.blockNumber);
@@ -441,6 +446,7 @@ function refusalFor(name: string, args: readonly unknown[] | undefined): TRPCErr
  */
 export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2Input): Promise<ProtocolBuildSwapV2Output> {
   const setting = requireSetting(deps);
+  await deps.routable(input.path);
   const client = deps.client();
   if (input.deadline === '0') throw refuse('BAD_REQUEST', DEADLINE_REQUIRED, 'Every swap has a deadline; zero is not one.');
   const ceiling = deps.slippageCeilingBps();

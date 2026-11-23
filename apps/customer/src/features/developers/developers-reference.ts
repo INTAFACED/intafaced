@@ -950,6 +950,23 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
   },
   {
+    name: 'venueMarginRules',
+    method: 'GET',
+    path: '/api/v1/venue/margin-rules',
+    product: 'accounts',
+
+    summary:
+      'The maximum leverage and the one maintenance level the venue publishes on its listed perpetual on one asset: null where it publishes none',
+  },
+  {
+    name: 'venueSpotCandles',
+    method: 'GET',
+    path: '/api/v1/venue/spot-candles',
+    product: 'accounts',
+
+    summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1096,6 +1113,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
   },
   {
+    name: 'venueStakingAccount',
+    method: 'GET',
+    path: '/api/v1/venue/staking-account',
+    product: 'accounts',
+
+    summary: 'Your staking balance, delegations with each lock-up’s end, the unstaking queue and rewards, as the venue reports them',
+  },
+  {
     name: 'venueVaultHoldings',
     method: 'GET',
     path: '/api/v1/venue/vault-holdings',
@@ -1150,6 +1175,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
+  },
+  {
+    name: 'venueStaking',
+    method: 'GET',
+    path: '/api/v1/venue/staking',
+    product: 'accounts',
+
+    summary: 'The venue’s validators, reward rate, staking fee-discount tiers, lock-up and unstaking queue as it publishes them',
   },
   {
     name: 'venueVaults',

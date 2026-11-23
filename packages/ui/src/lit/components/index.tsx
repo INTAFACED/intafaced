@@ -6,6 +6,8 @@
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import type { DataMarks } from './b2-table.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
@@ -114,18 +116,32 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
+  /** Each pill's words, and its full name where the words are short (`1D` named "One day", also its tooltip). */
+  options: readonly { value: T; label: string; name?: string }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
   className?: string;
+  /** The row's own marks (`data-testid`), where a room's tests find it. */
+  marks?: DataMarks;
 };
 
-export function Segmented<T extends string>({ options, value, onChange, label, className }: SegmentedProps<T>) {
+/**
+ * One choice that is always made (a chart's range, Buy or Sell, Simple or Pro): a named group of pressed buttons
+ * (`aria-pressed`), one pressed at a time. The arrow keys move focus between them (`arrow-focus.ts`).
+ */
+export function Segmented<T extends string>({ options, value, onChange, label, className, marks }: SegmentedProps<T>) {
   return (
-    <div className={clsx('lit-segmented', className)} role="group" aria-label={label}>
+    <div {...marks} className={clsx('lit-segmented', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          aria-label={o.name}
+          title={o.name}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}
@@ -133,17 +149,72 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
   );
 }
 
-export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string };
+export type ToggleChipsProps<T extends string> = {
+  options: readonly { value: T; label: string }[];
+  /** The chip in force, or null when the filter is off. */
+  value: T | null;
+  onChange: (next: T | null) => void;
+  /** The group's name (`Filter by change`). */
+  label: string;
+  /** Pressing the chip in force again turns the filter off (`onChange(null)`); without it one chip always stays on. */
+  clearable?: boolean;
+  className?: string;
+};
 
-export function Field({ label, hint, error, id, className, ...rest }: FieldProps) {
+/**
+ * A row of filter chips: a named group of pressed buttons (`aria-pressed`), one on at a time, wrapping to a second line
+ * rather than scrolling. Segmented is for a choice that is always made (a range, Buy or Sell); chips filter a list. The
+ * arrow keys move focus between the chips (`arrow-focus.ts`).
+ */
+export function ToggleChips<T extends string>({ options, value, onChange, label, clearable = false, className }: ToggleChipsProps<T>) {
+  return (
+    <div className={clsx('lit-chips', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          onClick={() => (o.value !== value ? onChange(o.value) : clearable ? onChange(null) : undefined)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  hint?: string;
+  error?: string;
+  /** A mark inside the box before the text (the @ of a handle). Decorative: the label says what the box holds. */
+  before?: React.ReactNode;
+  /** A control inside the box after the text (a Paste key). */
+  after?: React.ReactNode;
+};
+
+export function Field({ label, hint, error, before, after, id, className, ...rest }: FieldProps) {
   const auto = React.useId();
   const inputId = id ?? auto;
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+  const input = <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>
-      <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />
+      {before || after ? (
+        <div data-part="box">
+          {before ? (
+            <span data-part="before" aria-hidden="true">
+              {before}
+            </span>
+          ) : null}
+          {input}
+          {after}
+        </div>
+      ) : (
+        input
+      )}
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}
@@ -155,6 +226,98 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
         </span>
       )}
     </div>
+  );
+}
+
+export type SelectOption = string | { value: string; label: string };
+
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'children'> & {
+  label: string;
+  options: readonly SelectOption[];
+  onChange?: (value: string) => void;
+  hint?: string;
+};
+
+/**
+ * A choice from a short list: the browser's own select, in the kit's field, its words above it. The words name it
+ * through `aria-labelledby` (unless the caller names it with `aria-label`): a select inside its label would otherwise be named by the label and its chosen option
+ * ("Status All statuses").
+ */
+export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
+  const labelId = `${React.useId()}-label`;
+  return (
+    <label className={clsx('lt-field', className)}>
+      <span id={labelId}>{label}</span>
+      <select aria-labelledby={rest['aria-label'] ? undefined : labelId} {...rest} onChange={(e) => onChange?.(e.target.value)}>
+        {options.map((o) => {
+          const value = typeof o === 'string' ? o : o.value;
+          return (
+            <option key={value} value={value}>
+              {typeof o === 'string' ? o : o.label}
+            </option>
+          );
+        })}
+      </select>
+      {hint ? <small>{hint}</small> : null}
+    </label>
+  );
+}
+
+export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the box. A box whose words don't name it alone (a column of "Allowed" ticks) also takes an `aria-label`. */
+  children: React.ReactNode;
+  onCheckedChange?: (checked: boolean) => void;
+};
+
+/** A tick box and its words, one row, the browser's own control in the kit's accent. */
+export function Checkbox({ children, onCheckedChange, className, ...rest }: CheckboxProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input {...rest} type="checkbox" onChange={(e) => onCheckedChange?.(e.target.checked)} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
+export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the button; they name it. Buttons of one choice share a `name` inside a `fieldset`. */
+  children: React.ReactNode;
+  /** Called when this button becomes the chosen one. */
+  onSelect?: () => void;
+};
+
+/** One answer of a short choice, one row: the browser's own radio button in the kit's accent, its words beside it. */
+export function Radio({ children, onSelect, className, ...rest }: RadioProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input {...rest} type="radio" onChange={(e) => e.target.checked && onSelect?.()} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
+export type TextAreaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'children'> & {
+  label: string;
+  /** The line under the box: a hint, or why what was typed is refused (with `aria-invalid`). */
+  hint?: string;
+  onChange?: (value: string) => void;
+};
+
+/** A few lines of free text: the browser's own text box, in the kit's field, its words above it and its hint below. */
+export function TextArea({ label, hint, onChange, className, id, ...rest }: TextAreaProps) {
+  const auto = React.useId();
+  const hintId = `${id ?? auto}-hint`;
+  return (
+    <label className={clsx('lt-field', className)}>
+      <span>{label}</span>
+      <textarea
+        {...rest}
+        id={id}
+        aria-describedby={[rest['aria-describedby'], hint ? hintId : null].filter(Boolean).join(' ') || undefined}
+        onChange={(e) => onChange?.(e.target.value)}
+      />
+      {hint ? <small id={hintId}>{hint}</small> : null}
+    </label>
   );
 }
 

@@ -11,25 +11,34 @@
 //!    lifecycle proof's binding to the route and the order, the post-only rule, a list's published window, the
 //!    position read's account, and the founder doors' idempotency key and market.
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
+//! Past those the call is its slice's module's (`book`, `liquidity`, `venue`, `spreads`, `rulebook`, `operator`), and
+//! the serve slice's own `/health` and `/ready`. Nothing here reads or moves a book.
 
 pub mod book;
+pub mod liquidity;
+pub mod operator;
+pub mod rulebook;
+pub mod spreads;
+pub mod venue;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use service_kit::edge::{self, EdgeKey};
 use service_kit::json::{self, Json};
+use service_kit::metrics::Metrics;
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::{Outcome as Parsed, Schema, Value};
-use service_kit::server::{Request, Response};
+use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 
+use crate::approval::Approvals;
 use crate::engine::MatchingEngine;
 use crate::errors;
 use crate::refines::MatchingRefines;
+use crate::status::{self, OperationLatency};
 
-/// The slices the port is cut into (`PORT.md`, `## Slices`): which one owes a call past the door.
+/// The slices the door's calls are cut into (`README.md`): which module serves a call past the door.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Slice {
     Journal,
@@ -355,7 +364,8 @@ pub const ROUTES: [Route; 46] = [
     ),
 ];
 
-/// The door's answer: decided here, or the named slice's to give.
+/// The door's answer, or the slice whose module the route table names but which serves no such call: a table and its
+/// module out of step, which the wire replay proves no recorded route reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Answer(Response),
@@ -381,12 +391,25 @@ pub struct DoorConfig {
     pub edge_key: Option<EdgeKey>,
     /// Milliseconds since the epoch.
     pub clock: fn() -> i64,
+    /// svc-identity's two-person approvals (`IDENTITY_URL`; unwired without it).
+    pub approvals: Box<dyn Approvals>,
+    /// `MATCHING_OPERATOR_IDS`: who may ask for and approve a venue action.
+    pub operator_ids: Vec<String>,
 }
 
 /// The door.
 pub struct MatchingDoor {
     cfg: DoorConfig,
     engine: Mutex<MatchingEngine>,
+    /// `SERVICE_NAME`, as `/health` and the scrape name the process.
+    service: String,
+    /// Submit, cancel and depth latency since the door was made (`OperationLatency`), carried on `/health`.
+    latency: Mutex<OperationLatency>,
+    /// The scrape (`registerMetrics`): every reply the server sends is observed into it.
+    metrics: Metrics,
+    ids: RequestIds,
+    /// The founder brakes' idempotency keys (`founderIdem`), for the life of the process.
+    founder_keys: operator::FounderKeys,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -638,14 +661,40 @@ impl MatchingDoor {
     /// read.
     pub fn new(cfg: DoorConfig, engine: MatchingEngine) -> Result<MatchingDoor, String> {
         INPUTS.as_ref().map_err(Clone::clone)?;
+        let started = (cfg.clock)();
         Ok(MatchingDoor {
             cfg,
             engine: Mutex::new(engine),
+            service: "svc-matching".to_owned(),
+            latency: Mutex::new(OperationLatency::new(started)),
+            metrics: Metrics::default(),
+            ids: RequestIds::new(),
+            founder_keys: operator::FounderKeys::default(),
         })
     }
 
-    /// Decides one request, or names the slice that owes its answer.
+    /// `env.SERVICE_NAME`, as `/health` and the scrape name the process.
+    #[must_use]
+    pub fn with_service_name(mut self, service: &str) -> MatchingDoor {
+        service.clone_into(&mut self.service);
+        self
+    }
+
+    /// The name `/health` and the scrape carry.
+    pub fn service_name(&self) -> &str {
+        &self.service
+    }
+
+    /// The scrape's registry.
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
+    }
+
+    /// Decides one request, or names the slice that owes its answer. A reply of the three timed operations is observed
+    /// from the request's arrival, the auth checks and input parsing included, as Fastify's `onResponse` hook times it;
+    /// a path no route serves, or one whose parameter is too long, reaches no route and is not timed.
     pub fn decide(&self, req: &Request<'_>) -> Outcome {
+        let started = std::time::Instant::now();
         let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
         let Some((route, params)) = find(req.method, path) else {
             return answer(errors::route_not_found(req.method, req.url));
@@ -656,24 +705,56 @@ impl MatchingDoor {
         {
             return answer(errors::param_too_long(req.url));
         }
+        let outcome = self.routed(req, route, &params);
+        if let Some(op) = status::operation_of(req.method, Some(route.path)) {
+            let code = match &outcome {
+                Outcome::Answer(r) => r.status,
+                Outcome::Owed(_) => 503,
+            };
+            let engine = self.engine();
+            let market = params
+                .iter()
+                .find(|(n, _, _)| *n == "marketId")
+                .map(|(_, _, v)| v.as_str())
+                .filter(|m| engine.markets().iter().any(|k| k == m));
+            self.latency
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .observe(op, started.elapsed(), code, market);
+        }
+        outcome
+    }
+
+    /// What a request answers once its route is found.
+    fn routed(&self, req: &Request<'_>, route: &Route, params: &[Param]) -> Outcome {
         let (body, raw) = match read_body(req) {
             Ok(b) => b,
             Err(refused) => return answer(refused),
         };
         let checked = match route.guard {
-            Guard::Open => Ok(()),
-            Guard::Service(allowed) => self.service(req, allowed, &raw),
+            Guard::Open => Ok(String::new()),
+            Guard::Service(allowed) => self.service(req, allowed, &raw).map(|()| String::new()),
             Guard::Founder(scope) => self.founder(req, scope),
         };
-        if let Err(refused) = checked {
-            return answer(refused);
-        }
-        let parsed = match input(req, route, &body, &params) {
+        let user_id = match checked {
+            Ok(user_id) => user_id,
+            Err(refused) => return answer(refused),
+        };
+        let parsed = match input(req, route, &body, params) {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if route.slice != Slice::Book {
-            return Outcome::Owed(route.slice);
+        if route.slice == Slice::Rulebook {
+            let publisher = rulebook::Publisher {
+                user_id: &user_id,
+                approvals: self.cfg.approvals.as_ref(),
+                operator_ids: &self.cfg.operator_ids,
+            };
+            let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+            return rulebook::serve(route, &parsed, &publisher, &mut engine);
+        }
+        if route.slice == Slice::Serve {
+            return answer(self.serve(route.path));
         }
         let param = |name: &str| {
             params
@@ -682,7 +763,51 @@ impl MatchingDoor {
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-        book::serve(route, req, &param, &parsed, &mut engine)
+        match route.slice {
+            Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            Slice::Spreads => {
+                let approvals = spreads::Approvals {
+                    consumer: self.cfg.approvals.as_ref(),
+                    operator_ids: &self.cfg.operator_ids,
+                };
+                spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
+            }
+            Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
+            Slice::Operator => operator::serve(
+                &self.cfg,
+                &self.founder_keys,
+                route,
+                &user_id,
+                &parsed,
+                &mut engine,
+            ),
+            _ => book::serve(route, req, &param, &parsed, &mut engine),
+        }
+    }
+
+    /// `/health`, `/ready` and `/metrics`: the process's own doors.
+    fn serve(&self, path: &str) -> Response {
+        let engine = self.engine();
+        match path {
+            "/ready" => status::ready(&engine),
+            "/metrics" => Response {
+                status: 200,
+                body: self.metrics.render(),
+            },
+            _ => {
+                let latency = self.latency.lock().unwrap_or_else(PoisonError::into_inner);
+                Response {
+                    status: 200,
+                    body: status::health_body(
+                        &self.service,
+                        &engine,
+                        Some(&latency),
+                        (self.cfg.clock)(),
+                    )
+                    .compact(),
+                }
+            }
+        }
     }
 
     /// The engine, for what runs beside the doors (the cold start, the tests).
@@ -716,8 +841,8 @@ impl MatchingDoor {
         }
     }
 
-    /// `founderPrincipal(req, scope)`: the edge principal, believed, with the door's scope.
-    fn founder(&self, req: &Request<'_>, scope: Scope) -> Result<(), Response> {
+    /// `founderPrincipal(req, scope)`: the edge principal, believed, with the door's scope; its user id.
+    fn founder(&self, req: &Request<'_>, scope: Scope) -> Result<String, Response> {
         if self.cfg.edge_secret.is_none() && self.cfg.edge_key.is_none() {
             return Err(errors::operator_auth_unconfigured());
         }
@@ -735,13 +860,14 @@ impl MatchingDoor {
         let refused = |r: service_kit::access::Refused| errors::auth_error(&r.code, &r.message);
         match scope {
             Scope::Read => {
-                service_kit::access::require_scope(&principal, "admin:read").map_err(refused)
+                service_kit::access::require_scope(&principal, "admin:read").map_err(refused)?;
             }
             Scope::Write => {
                 service_kit::access::require_scope(&principal, "admin:write").map_err(refused)?;
-                service_kit::access::require_mfa(&principal).map_err(refused)
+                service_kit::access::require_mfa(&principal).map_err(refused)?;
             }
         }
+        Ok(principal.user_id)
     }
 }
 
@@ -866,13 +992,36 @@ fn bound(parsed: &Value, rule: ProofRule, route_value: &str) -> Result<(), Respo
     }
 }
 
-/// What a call past the door answers until its slice is ported: 503, and which slice owes it.
+/// The door as the server serves it: a route its slice's module does not serve answers [`not_ported`].
+impl Door for MatchingDoor {
+    fn next_request_id(&self) -> String {
+        self.ids.next()
+    }
+
+    fn handle_as(&self, req: &Request<'_>, _request_id: &str) -> Response {
+        match self.decide(req) {
+            Outcome::Answer(r) => r,
+            Outcome::Owed(slice) => not_ported(slice),
+        }
+    }
+
+    /// `/health` and `/ready` are this door's, read from the engine.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        Some(self.handle_as(req, ""))
+    }
+
+    fn metrics(&self) -> Option<&Metrics> {
+        Some(&self.metrics)
+    }
+}
+
+/// What a route its slice's module does not serve answers: 503, and which slice it names.
 pub fn not_ported(slice: Slice) -> Response {
     let body = Json::Object(vec![
         (
             "message".to_owned(),
             Json::str(format!(
-                "svc-matching's Rust port does not serve this yet (slice {})",
+                "svc-matching does not serve this call (slice {})",
                 slice.name()
             )),
         ),

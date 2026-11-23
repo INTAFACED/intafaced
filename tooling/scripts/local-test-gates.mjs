@@ -64,7 +64,7 @@
  *   - open: svc-matching POST /markets/:id/open consumes an identity action approval proposed by
  *     operator A and approved by a different signed-in operator B who passed a TOTP second factor
  *     (services/svc-identity/src/action-approval-router.ts). Only svc-trade may call that route, so the
- *     stack signs as svc-trade with its own internal secret (services/svc-matching/src/router.ts, TRADE_ONLY).
+ *     stack signs as svc-trade with its own internal secret (crates/svc-matching/src/door/mod.rs, TRADE_ONLY).
  *   - verify: identity kyc.submit by the account itself, then kyc.approve by operator A, which needs
  *     scope admin:compliance, a TOTP session and a consumed approval from operator B
  *     (services/svc-identity/src/router.ts, kyc.approve). User sessions never carry admin:compliance, so the
@@ -222,7 +222,7 @@ export function lifecycleIsFresh(publication, now = new Date(), renewBelowDays =
   return Date.parse(publication.expiresAt) - now.getTime() > renewBelowDays * 86_400_000;
 }
 
-/** Same hash services/svc-matching/src/action-approval-consume.ts computes for a matching action. */
+/** Same hash crates/svc-matching/src/approval.rs computes for a matching action. */
 export function matchingPayloadHash(actionType, fields) {
   return `sha256:${crypto
     .createHash('sha256')
@@ -237,7 +237,7 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (crates/svc-matching/src/door/venue.rs). */
 export function bookProposal(action, marketId) {
   if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
@@ -3404,6 +3404,11 @@ export async function scopedConsoleSession(ctx, without) {
   };
 }
 
+/** The CLI's help: every command and its arguments, printed for one this script does not know. */
+export function gatesUsage() {
+  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -3605,10 +3610,7 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
-        2,
-      );
+      die(gatesUsage(), 2);
     }
   } catch (err) {
     die(String(err.message ?? err));

@@ -1102,20 +1102,32 @@ fn a_settlement_appends_one_chained_log_row_and_publishes_the_settled_window() {
     assert_eq!(params.get("asset"), Some(&Json::str(ASSET)));
     // The hash is the chain's: recomputed from the stored row it matches.
     let occurred = service_kit::time::js_date(&row.get::<_, String>(10)).unwrap();
+    let (user, agent): (String, String) = (row.get(0), row.get(1));
     let recomputed = audit::hash_action(
-        &session,
-        &row.get::<_, String>(0),
-        &row.get::<_, String>(1),
-        i64::from(row.get::<_, i32>(2)),
-        &kind,
-        &status,
-        s.amount,
-        &key,
-        &[
-            ("amount".to_owned(), format_amount(s.amount)),
-            ("asset".to_owned(), ASSET.to_owned()),
-        ],
-        occurred,
+        &audit::Hashable {
+            session_id: &session,
+            user_id: &user,
+            agent_id: &agent,
+            sequence: i64::from(row.get::<_, i32>(2)),
+            kind: &kind,
+            status: &status,
+            tool: None,
+            task: None,
+            provider_id: None,
+            model: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: s.amount,
+            refusal_code: None,
+            user_message_key: &key,
+            params: &[
+                audit::param("amount", format_amount(s.amount)),
+                audit::param("asset", ASSET),
+            ],
+            input_digest: None,
+            output_digest: None,
+            occurred_at: occurred,
+        },
         row.get::<_, Option<String>>(8).as_deref(),
     );
     assert_eq!(recomputed, row.get::<_, String>(9));
@@ -1455,6 +1467,12 @@ fn door_of(w: World) -> (AgentsDoor, FakeLedger, TestDb) {
         gateway: svc_agents::gateway::desk::GatewaySlice::unwired("USDC"),
         ready: svc_agents::gateway::readiness::ReadyInput::unwired(),
         metering: m,
+        runtime: svc_agents::runtime::Runtime::unwired(),
+        ops: svc_agents::ops::Ops::unwired(),
+        background: svc_agents::background::Settings::default(),
+        advisors: svc_agents::advisors::Advisors::unwired(),
+        own: svc_agents::own::Own::unwired(),
+        team: svc_agents::team::Team::unwired(),
     })
     .unwrap();
     (door, ledger, db)

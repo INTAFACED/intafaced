@@ -1,10 +1,8 @@
 //! The svc-agents process: `svc-agents` serves; `svc-agents migrate [--down]` applies (or reverses) the agents schema's
 //! migrations.
 //!
-//! Serving starts as `services/svc-agents/src/index.ts` does, as far as the ported slices reach: the pool, the schema
-//! check, the bus, the boot upsert of the agents' guardrails, the door, then the port, then the timers. The TypeScript
-//! service stays the one that runs until the switch; until each slice is ported its calls answer "not ported" (500),
-//! and a timer whose work is not ported does not run.
+//! Serving starts as the TypeScript service's `index.ts` did: the pool, the schema check, the bus, the boot upsert of
+//! the agents' guardrails, the door, then the port, then the timers.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -15,16 +13,29 @@ use std::time::Duration;
 use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
-use service_kit::nats::{JetStream, stream_config};
+use service_kit::money::parse_amount;
+use service_kit::nats::{
+    Consumed, ConsumerSpec, Envelope, JetStream, NatsError, consume, stream_config,
+};
 use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::ServiceVerifier;
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_agents::advisors::Advisors;
+use svc_agents::advisors::grounding::AcademyCurriculum;
+use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
+use svc_agents::background;
 use svc_agents::boot;
+use svc_agents::bus::{SELF_FREEZE_APPLIED, TAKEN, on_fill_settled, on_self_freeze};
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::factories::Factories;
+use svc_agents::factories::copy_intel::{LeaderFixtures, LeaderFixturesHttp, LivePlane};
+use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
+use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
+use svc_agents::factories::support::{Desk, DeskHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
@@ -33,9 +44,33 @@ use svc_agents::gateway::providers::{
 use svc_agents::gateway::readiness::{self, ReadyInput};
 use svc_agents::gateway::routing::{self, RoutingTable};
 use svc_agents::metering::Metering;
-use svc_agents::metering::ports::{AffiliatesHttp, JetStreamBus, LedgerHttp, UsagePaymentHttp};
+use svc_agents::metering::ports::{
+    AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
+};
 use svc_agents::migrate;
+use svc_agents::navigator::Navigator;
+use svc_agents::navigator::onchain::ports::{
+    HttpSender, LinkedWalletsHttp, RpcChain, SelfFreezeHttp, parse_market,
+};
+use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
+use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
+use svc_agents::ops::{Ops, alerts, log as oplog};
+use svc_agents::own::Own;
+use svc_agents::own::automation::{AutoRuns, Cadence, tick_schedules};
+use svc_agents::own::background::{self as own_background, Settings as OwnBackground};
+use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::controls::memory::Retention;
+use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
+use svc_agents::own::gates::parse_policy_baseline;
+use svc_agents::runtime::chain_balance::{ChainBalance, PaymentToken, RpcChainBalance};
+use svc_agents::runtime::eligibility::parse_tier_laws;
+use svc_agents::runtime::funds::{BalancesHttp, FUNDS_READ_DEADLINE_MS, PersonFunds};
+use svc_agents::runtime::{Rt, Runtime};
+use svc_agents::self_freeze::IdentitySelfFreezeRead;
+use svc_agents::team::Team;
+use svc_agents::team::membership::TeamMembershipHttp;
 use svc_agents::timers::{self, Timer};
+use svc_agents::webhooks::RunWebhooks;
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -64,21 +99,176 @@ fn main() -> ExitCode {
     }
 }
 
+/// The bus's lines (`jetstream-bus.ts`): `bus.delivered` for each message handed to its work, a failure that
+/// JetStream delivers again, and `bus.message_abandoned` once `max_deliver` is spent.
+fn bus_report(log: &Logger, spec: &ConsumerSpec, c: Consumed<'_>) {
+    let at = |attempt: u64| {
+        vec![
+            ("subject", Json::str(spec.filter_subject.clone())),
+            ("durable", Json::str(spec.durable.clone())),
+            (
+                "attempt",
+                Json::int(i64::try_from(attempt).unwrap_or(i64::MAX)),
+            ),
+        ]
+    };
+    match c {
+        Consumed::Delivered { attempt } => {
+            let mut fields = vec![("event", Json::str("bus.delivered"))];
+            fields.extend(at(attempt));
+            log.info(fields, "bus delivered");
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: false,
+        } => {
+            let mut fields = at(attempt);
+            fields.push(("reason", Json::str(reason)));
+            log.warn(
+                fields,
+                "svc-agents bus delivery failed; JetStream delivers it again",
+            );
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: true,
+        } => {
+            let mut fields = vec![("event", Json::str("bus.message_abandoned"))];
+            fields.extend(at(attempt));
+            fields.push(("reason", Json::str(reason)));
+            log.error(
+                fields,
+                "event bus gave up on this message: max_deliver is spent and JetStream will not redeliver it; the \
+                 stream retains it for 90 days, to be replayed by resetting this durable consumer once the cause is fixed",
+            );
+        }
+        Consumed::Bus(e) => log.warn(
+            vec![
+                ("durable", Json::str(spec.durable.clone())),
+                ("err", Json::str(e)),
+            ],
+            "svc-agents bus pull failed; the next pull dials again",
+        ),
+    }
+}
+
 /// One timer's work, handed in by the slice that ports it.
 type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
-fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
-    vec![(
-        "route table sync",
-        Box::new(move || {
-            door.gateway()
-                .refresh(door.store())
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }),
-    )]
+fn jobs<'a>(
+    door: &'a AgentsDoor,
+    env: &'a AgentsEnv,
+    log: &'a Logger,
+) -> Vec<(&'static str, Job<'a>)> {
+    vec![
+        (
+            "route table sync",
+            Box::new(move || {
+                door.gateway()
+                    .refresh(door.store())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "transcript purge",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                oplog::purge_expired_transcripts(pool, door.ops().retention_days)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "alert evaluation",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                alerts::evaluate_alert_rules(pool).map_err(|e| e.to_string())?;
+                alerts::publish_pending_agent_alerts(pool, door.metering(), system_now())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        // `advanceSessionRuns`, then `publishCompletedRuns` whether or not the advance failed; the timer runs only while
+        // both owner values are set (`timers::timers`).
+        (
+            "background ticker",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let m = door.metering();
+                let x = Rt {
+                    rt: door.runtime(),
+                    pool,
+                    gateway: &door.gateway().gateway,
+                    m,
+                    now: system_now(),
+                };
+                let step_ms = door.background().step_ms.unwrap_or(0);
+                let advanced = background::advance(&x, step_ms, 50)
+                    .map(|_| ())
+                    .map_err(|e| format!("background session runs did not advance: {e:?}"));
+                background::publish_completed(pool, m.bus.as_ref(), &m.producer, system_now(), 100)
+                    .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
+                advanced
+            }),
+        ),
+        // `runWebhooks.drain()`: every ended run's delivery, posted; one a crash left leased is posted when its lease ends.
+        (
+            "run webhooks",
+            Box::new(move || {
+                let Some(hooks) = door.webhooks() else {
+                    return Ok(());
+                };
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                hooks
+                    .drain(pool, svc_agents::webhooks::DRAIN_BATCH)
+                    .map(|_| ())
+                    .map_err(|e| format!("run webhooks not delivered: {e}"))
+            }),
+        ),
+        (
+            "unpublished sweep",
+            Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
+        ),
+        // `advanceBackgroundRuns(sql)`: each running background test run re-reads its agent's switches, then steps.
+        (
+            "own background test runs",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                own_background::advance(pool, 100)
+                    .map(|_| ())
+                    .map_err(|e| format!("background test runs did not advance: {}", e.message))
+            }),
+        ),
+        // `tickSchedules(autoRuns, AGENTS_SCHEDULE_WORKERS ?? 1)`: the due-run workers.
+        (
+            "schedule workers",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let warn =
+                    |msg: &str, detail: &str| log.warn(vec![("detail", Json::str(detail))], msg);
+                let runs = AutoRuns {
+                    x: Rt {
+                        rt: door.runtime(),
+                        pool,
+                        gateway: &door.gateway().gateway,
+                        m: door.metering(),
+                        now: system_now(),
+                    },
+                    cadence: door.own().cadence,
+                    log: Some(&warn),
+                    pause: None,
+                };
+                tick_schedules(&runs, timers::schedule_workers(env))
+                    .map(|_| ())
+                    .map_err(|e| format!("own agent schedules did not tick: {e:?}"))
+            }),
+        ),
+    ]
 }
 
 /// A record value of the environment (`AGENTS_UPSTREAM_HEADERS`, `AGENTS_UPSTREAM_MODELS`), in its order.
@@ -247,15 +437,357 @@ fn metering(
     Ok(m)
 }
 
+/// The runtime as `index.ts` builds it: a spend gate, the funds read as `teamFunds` over `paymentMethodFunds` (how
+/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is read from
+/// the chain under one deadline), the transcript's retention, the overage grace and the tier laws.
+fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let payment: Box<dyn UsagePayment> = match env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        Some(url) => Box::new(UsagePaymentHttp::new(
+            url,
+            signer("svc-bank"),
+            fetch.clone(),
+        )),
+        None => Box::new(LedgerOnly),
+    };
+    let grace = env
+        .str("AGENTS_OVERAGE_GRACE")
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(parse_amount)
+        .transpose()?;
+    Ok(Runtime {
+        spend: true,
+        funds: Some(Box::new(PersonFunds {
+            payment,
+            balances: Box::new(BalancesHttp::new(
+                &str_of("LEDGER_URL"),
+                signer("svc-ledger"),
+                fetch.clone(),
+            )),
+            // Identity's list of a person's linked wallets; unset IDENTITY_URL reads unread.
+            wallets: env
+                .str("IDENTITY_URL")
+                .filter(|u| !u.is_empty())
+                .map(|url| {
+                    Arc::new(LinkedWalletsHttp::new(
+                        url,
+                        signer("svc-identity"),
+                        fetch.clone(),
+                    ))
+                        as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+                }),
+            chain: payment_chain(env, fetch),
+            deadline_ms: FUNDS_READ_DEADLINE_MS,
+        })),
+        transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
+        overage_grace: grace,
+        tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+        navigator: navigator(env, fetch, &signer)?,
+        // `env.IDENTITY_URL ? createIdentitySelfFreezeRead(...) : null`.
+        self_freeze: env
+            .str("IDENTITY_URL")
+            .filter(|u| !u.is_empty())
+            .map(|url| {
+                Box::new(IdentitySelfFreezeRead::new(
+                    url,
+                    signer("svc-identity"),
+                    fetch.clone(),
+                )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
+            }),
+    })
+}
+
+/// The factories' live ports as \`index.ts\` builds them, each outside call signed as svc-agents (with its own key when
+/// S2S is on): svc-trade's tickers and copy leaders while \`TRADE_URL\` is set (with the owner's live leader plane), svc-pay's merchant metrics while \`PAY_URL\` is, and svc-support's desk while \`SUPPORT_URL\` is.
+fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, String> {
+    let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    Ok(Factories {
+        spot_tickers: url("TRADE_URL")
+            .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        copy_leaders: url("TRADE_URL").map(|u| {
+            Box::new(LeaderFixturesHttp::new(
+                u,
+                signer("svc-trade"),
+                fetch.clone(),
+            )) as Box<dyn LeaderFixtures>
+        }),
+        copy_leader_plane: LivePlane::from_lookup(|k| env.raw.get(k).cloned()),
+        pay_metrics: url("PAY_URL").map(|u| {
+            Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
+                as Box<dyn PayMetrics>
+        }),
+        support_desk: url("SUPPORT_URL").map(|u| {
+            Box::new(DeskHttp::new(
+                u,
+                url("IDENTITY_URL"),
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Box<dyn Desk>
+        }),
+    })
+}
+
+/// The payment token's chain reader (`index.ts` `paymentChain`): all four owner values, or none, and a wallet payment
+/// method then refuses `payment_token_unset`.
+fn payment_chain(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Option<Arc<dyn ChainBalance>> {
+    let rpc_url = env
+        .str("AGENTS_PAYMENT_RPC_URL")
+        .filter(|u| !u.is_empty())?;
+    let chain_id = env.int("AGENTS_PAYMENT_CHAIN_ID")?;
+    let token_address = env
+        .str("AGENTS_PAYMENT_TOKEN_ADDRESS")
+        .filter(|a| !a.is_empty())?;
+    let token_decimals = u32::try_from(env.int("AGENTS_PAYMENT_TOKEN_DECIMALS")?).ok()?;
+    Some(Arc::new(RpcChainBalance::new(
+        PaymentToken {
+            rpc_url: rpc_url.to_owned(),
+            chain_id,
+            token_address: token_address.to_owned(),
+            token_decimals,
+        },
+        fetch.clone(),
+    )))
+}
+
+/// The navigator as `index.ts` builds it: svc-trade's public REST while `TRADE_URL` is set, svc-identity's session
+/// read, linked wallets and freeze while `IDENTITY_URL` is set, and the on-chain signer, its sender, the chain and the
+/// market from `AGENTS_NAVIGATOR_ONCHAIN_*`. A malformed market stops the boot.
+fn navigator(
+    env: &AgentsEnv,
+    fetch: &Arc<dyn Fetch>,
+    signer: &dyn Fn(&str) -> CallSigner,
+) -> Result<Navigator, String> {
+    let set = |k: &str| env.str(k).map(str::trim).filter(|v| !v.is_empty());
+    let mut nav = Navigator::unwired();
+    if let Some(url) = set("TRADE_URL") {
+        nav.trade_url = Some(url.to_owned());
+        nav.trade_data = Some(Box::new(TradeHttp::new(url, fetch.clone())));
+    }
+    if let Some(url) = set("IDENTITY_URL") {
+        nav.identity_session = Some(Box::new(IdentitySessionHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.linked_wallets = Some(Box::new(LinkedWalletsHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.self_freeze = Some(Box::new(SelfFreezeHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+    }
+    nav.research = Research {
+        scale: parse_uncertainty_scale(env.str("AGENTS_RESEARCH_UNCERTAINTY_SCALE"))?,
+        environment: research_environment(env.str("APP_ENV").unwrap_or_default()).to_owned(),
+    };
+    nav.onchain.signer = set("AGENTS_NAVIGATOR_ONCHAIN_SIGNER").map(str::to_owned);
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL") {
+        nav.onchain.sender = Some(Box::new(HttpSender {
+            url: url.to_owned(),
+            fetch: fetch.clone(),
+        }));
+    }
+    nav.onchain.market = set("AGENTS_NAVIGATOR_ONCHAIN_MARKET")
+        .map(parse_market)
+        .transpose()?;
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_RPC_URL") {
+        nav.onchain.chain = Some(Box::new(RpcChain::new(url, fetch.clone())));
+    }
+    Ok(nav)
+}
+
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
+/// The advisors' reads (`index.ts`): svc-academy's curriculum when `ACADEMY_URL` is set; the person's balances in
+/// svc-ledger and svc-trade's prices when `TRADE_URL` and `PORTFOLIO_QUOTE_ASSET` are both set; planning switched on
+/// only by `AGENTS_PORTFOLIO_ENABLED`.
+fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let mut a = Advisors::unwired();
+    if let Some(url) = env.str("ACADEMY_URL").filter(|u| !u.is_empty()) {
+        a.curriculum = Box::new(AcademyCurriculum {
+            base_url: url.to_owned(),
+            signer: signer("svc-academy"),
+            fetch: fetch.clone(),
+        });
+    }
+    a.portfolio_killed =
+        portfolio::killed(env.raw.get("AGENTS_PORTFOLIO_ENABLED").map(String::as_str));
+    if let (Some(trade), Some(quote)) = (
+        env.str("TRADE_URL").filter(|u| !u.is_empty()),
+        env.str("PORTFOLIO_QUOTE_ASSET").filter(|q| !q.is_empty()),
+    ) {
+        a.holdings = Some((
+            Box::new(LedgerBalancesHttp::new(
+                &str_of("LEDGER_URL"),
+                signer("svc-ledger"),
+                fetch.clone(),
+            )),
+            Box::new(TradeTickerPrices {
+                base_url: trade.to_owned(),
+                quote_asset_id: quote.to_owned(),
+                fetch: fetch.clone(),
+                timeout_ms: 3_000,
+            }),
+        ));
+    }
+    Ok(a)
+}
+
+/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`: the support desk
+/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`); absent refuses as `index.ts` leaves it unwired.
+/// The owner's freeze is read through the runtime's one reader.
+fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let identity = env.str("IDENTITY_URL").filter(|u| !u.is_empty());
+    let support_desk: Option<Box<dyn SupportDesk>> = env
+        .str("SUPPORT_URL")
+        .filter(|u| !u.is_empty())
+        .map(|url| -> Box<dyn SupportDesk> {
+            Box::new(SupportDeskHttp {
+                support_url: url.to_owned(),
+                identity_url: identity.map(str::to_owned),
+                identity_signer: signer("svc-identity"),
+                fetch: fetch.clone(),
+            })
+        });
+    Ok(Own {
+        templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
+        assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
+        baseline: parse_policy_baseline(env.str("AGENTS_POLICY_BASELINE"))?,
+        reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
+        approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
+        support_desk,
+        token_lifetime_minutes: env.int("AGENTS_OWN_TOKEN_LIFETIME_MINUTES"),
+        cadence: Cadence {
+            min_interval_minutes: env.int("AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES"),
+            daily_limit: env.int("AGENTS_SCHEDULE_DAILY_LIMIT"),
+        },
+        background: OwnBackground {
+            steps: env.int("AGENTS_BACKGROUND_TEST_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
+        retention: Retention::from_env(|k| env.int(k)),
+        linked_wallets: identity.map(|url| {
+            Arc::new(LinkedWalletsHttp::new(
+                url,
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+        }),
+    })
+}
+
+/// The team's read (`index.ts`): svc-bank's team membership while `BANK_URL` is set, else none, so every team call
+/// refuses `agents.membership_unavailable`.
+fn team(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Team, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let mut team = Team::unwired();
+    if let Some(url) = env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        team.membership = Some(Box::new(TeamMembershipHttp::new(
+            url,
+            CallSigner::new("svc-agents", "svc-bank", secret, keyed),
+            fetch.clone(),
+        )));
+    }
+    Ok(team)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the door is built once from each part the binary made, in index.ts's order"
+)]
 fn door(
     env: &AgentsEnv,
     store: Store,
     metering: Metering,
     gateway: GatewaySlice,
     ready: ReadyInput,
+    runtime: Runtime,
+    (advisors, team): (Advisors, Team),
+    fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    // The operator desks' owner values; a malformed baseline stops the start.
+    let ops = Ops::from_env(
+        env.str("AGENTS_LOG_READ_REASONS"),
+        env.int("AGENTS_OPS_ACTIONS_LIMIT"),
+        env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS"),
+        env.int("AGENTS_REGISTRY_LIST_LIMIT"),
+        env.str("AGENTS_POLICY_BASELINE"),
+    )?;
     let door = AgentsDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -265,6 +797,15 @@ fn door(
         metering,
         gateway,
         ready,
+        runtime,
+        ops,
+        background: background::Settings {
+            max_steps: env.int("AGENTS_SESSION_RUN_MAX_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
+        advisors,
+        own: own(env, fetch)?,
+        team,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -324,6 +865,22 @@ fn serve(
     })
     .map_err(|e| e.0)?;
     let bus = Arc::new(bus);
+    // `subscribeSelfFreezeApplied` and the `fillSettled` trigger consumer: each durable is made, or reconciled, before
+    // the port opens, as `subscribe` awaits it; each pulls on its own connection, so a pull never holds up a publish.
+    let consumers = TAKEN
+        .iter()
+        .map(|taken| {
+            let spec = taken.spec(&str_of("NATS_STREAM_PREFIX"));
+            let js = JetStream::connect(
+                &str_of("NATS_URL"),
+                &str_of("SERVICE_NAME"),
+                Duration::from_secs(5),
+            )?;
+            js.ensure_consumer(&spec)?;
+            Ok((*taken, spec, js))
+        })
+        .collect::<Result<Vec<_>, NatsError>>()
+        .map_err(|e| e.0)?;
     // Before the listener opens: `openSession` binds from `agent_definitions`, so a process with no rows 404s every run.
     let boot_agents = boot::boot_agents()?;
     // The founders' confirmed changes over the configured table (J-agents-20), read before the port opens.
@@ -339,7 +896,25 @@ fn serve(
     };
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
-    let door = door(env, store, metering, gateway, ready)?;
+    let runtime = runtime(env, &fetch)?;
+    let advisors = advisors(env, &fetch)?;
+    let team = team(env, &fetch)?;
+    let door = door(
+        env,
+        store,
+        metering,
+        gateway,
+        ready,
+        runtime,
+        (advisors, team),
+        &fetch,
+    )?
+    .with_factories(factories(env, &fetch)?)
+    // The run webhooks (J-agents-12 #5). Loopback over http is the URL guard's dev/test hatch only.
+    .with_webhooks(RunWebhooks::new(
+        matches!(env.str("APP_ENV"), Some("dev" | "test"))
+            && env.str("NODE_ENV") != Some("production"),
+    ));
 
     let app = App {
         wire: door,
@@ -373,7 +948,7 @@ fn serve(
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
     let table = timers::timers(env);
-    let jobs = jobs(&app.wire, env);
+    let jobs = jobs(&app.wire, env, log);
     for t in table.iter().filter(|t| t.every.is_some()) {
         if !jobs.iter().any(|(name, _)| *name == t.name) {
             log.warn(
@@ -405,8 +980,44 @@ fn serve(
                 });
             });
         }
+        // The bus consumers: the owner's own freeze (J-wallet-13 #1), applied once under the freeze's id, and the own
+        // agents' fill triggers, run once under the fill's id. Each delivery is acked only once its work committed.
+        for (taken, spec, js) in &consumers {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || {
+                let work = |env: &Envelope| -> Result<(), String> {
+                    let pool = door.store().pool().map_err(|e| e.to_string())?;
+                    if *taken == SELF_FREEZE_APPLIED {
+                        return on_self_freeze(pool, env);
+                    }
+                    let warn = |msg: &str, detail: &str| {
+                        log.warn(vec![("detail", Json::str(detail))], msg)
+                    };
+                    let runs = AutoRuns {
+                        x: Rt {
+                            rt: door.runtime(),
+                            pool,
+                            gateway: &door.gateway().gateway,
+                            m: door.metering(),
+                            now: system_now(),
+                        },
+                        cadence: door.own().cadence,
+                        log: Some(&warn),
+                        pause: None,
+                    };
+                    on_fill_settled(&runs, env)
+                };
+                consume(js, spec, Duration::from_secs(2), stop, &work, &|c| {
+                    bus_report(log, spec, c);
+                });
+            });
+        }
         server::serve(&server, &app, log, telemetry, &stop);
     });
+    for (_, _, js) in &consumers {
+        js.close();
+    }
     // Draining, not dropping: in-flight requests and timer runs finish before the bus and the pool close.
     drop(server);
     bus.close();

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type http from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
@@ -325,6 +326,47 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     await printAt('90');
     await s.tick();
     expect(await door.stored(person, spotKeys.fire(store.rows.get(made.conditional.id)!))).toBeNull();
+  });
+
+  it('an engine pass that runs while the person’s OCO is being placed leaves its take profit to that request (#9113)', async () => {
+    await approveAgent();
+    // The engine's pass starts the moment the new OCO is stored, before the request sends its take profit. Any venue
+    // send the pass makes is held open, so a pass that took the take profit's key would still hold it when the request
+    // sends: the race the failing run hit, every time.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let passSending!: () => void;
+    const passSent = new Promise<void>((r) => (passSending = r));
+    let pass: Promise<unknown> = Promise.resolve();
+    const inPass = new AsyncLocalStorage<true>();
+    const venue = await door.venue();
+    const submit = venue.submit.bind(venue);
+    venue.submit = async (...x: Parameters<typeof submit>) => {
+      if (inPass.getStore()) {
+        passSending();
+        await held;
+      }
+      return submit(...x);
+    };
+    const createOnce = store.createOnce.bind(store);
+    store.createOnce = async (row) => {
+      const stored = await createOnce(row);
+      pass = inPass.run(true, () => s.tick());
+      await Promise.race([passSent, pass]);
+      return stored;
+    };
+    try {
+      const made = await s.create(person, req({ kind: 'oco', takeProfitPrice: '110', triggerPrice: '95' }), REGION);
+      if (made.restsOn !== 'engine') throw new Error('expected the engine');
+      expect(made.conditional).toMatchObject({ kind: 'oco', status: 'open' });
+      expect(made.conditional.legs[0]).toMatchObject({ role: 'take_profit', status: 'open', locked: '1' });
+    } finally {
+      release();
+      await pass;
+      venue.submit = submit;
+    }
+    expect((await sim.openOrders(account())).value.filter((o) => o.symbol === SYM)).toHaveLength(1);
+    expect((await balance(BASE)).locked).toBe(a('1'));
   });
 
   it('a partial take-profit fill keeps the remaining lock for the remaining leg, and a cancel releases exactly that', async () => {

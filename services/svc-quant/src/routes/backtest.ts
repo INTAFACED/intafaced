@@ -1,4 +1,5 @@
 import {
+  accountRulesFor,
   BAR_BACKTEST_KEY_PREFIX,
   type StoredBacktest,
   isBarBacktest,
@@ -16,7 +17,8 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import { QUANT_RUN_LABEL_MAX, publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { QUANT_RUN_LABEL_MAX } from '@intafaced/contracts/quant-algo';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_BACKTEST_ACCOUNT_RULES,
@@ -180,7 +182,8 @@ export function backtestRoutes(core: QuantCore) {
     ),
 
     /** The simulated account's published margin rules (ENGINE RK-5), read only; a blank one reads null. */
-    accountRules: mountRecord(QUANT_BACKTEST_ACCOUNT_RULES, () => judgement.account, quantRefusal),
+    // The venue's rules for the market, read from it now, and our warning beside them (J-algo-dev-02 #5).
+    accountRules: mountRecord(QUANT_BACKTEST_ACCOUNT_RULES, ({ input }) => accountRulesFor(judgement.account, input.symbol), quantRefusal),
 
     /**
      * Runs a saved signal-rules version on the exchange's own closed bars (AL-backtest-01, AL-backtest-02). The run key

@@ -295,6 +295,8 @@ export class LeaderDirectory {
         }
       }
       const store = tx.boundSql && followStore instanceof SqlCopyFollowStore ? new SqlCopyFollowStore(tx.boundSql) : followStore;
+      // Before anything is written: a second new follow of this leader waits here for the first to commit.
+      await store.lockFollowerLeader(follow.followerId, follow.leaderId);
       await beforeSave?.(store, follow);
       await store.saveFollow(follow, 0n);
       return 'ok' as const;

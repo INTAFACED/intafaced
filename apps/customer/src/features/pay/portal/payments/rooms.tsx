@@ -1,8 +1,7 @@
 import './payments.css';
 import { Button } from '@intafaced/ui';
 import { Requires } from '../access/MerchantAccess';
-import { NoMerchant, WithAccount } from '../access/WithAccount';
-import { Gate, PortalFailure, PortalLoading } from '../components';
+import { WithAccount } from '../access/WithAccount';
 import { paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Customers, CustomerDetailPage } from './Customers';
@@ -12,7 +11,7 @@ import { Invoices } from './Invoices';
 import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
-import { CheckoutSettingsPage, HomePanels } from './HomePanels';
+import { CheckoutSettingsRoom } from './CheckoutSettings';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -92,22 +91,8 @@ export const paymentsRooms: RoomTable = {
       action: link('/pay/links/new', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
-    render: (_route, { portal, access }) => (
-      <Gate resource={access.merchant} retry={access.reloadMerchant} rows={5}>
-        {(record) => {
-          const a = access.access;
-          if (a.status === 'loading') return <PortalLoading rows={5} />;
-          if (a.status === 'failed') return <PortalFailure result={a.failure} />;
-          if (a.status === 'none') return <NoMerchant />;
-          return (
-            <div className="stack">
-              <Dashboard portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
-              <HomePanels portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
-            </div>
-          );
-        }}
-      </Gate>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <Dashboard portal={portal} />,
   },
   disputes: {
     header: () => ({ title: t('pageDisputes'), purpose: t('purposeDisputes') }),
@@ -165,14 +150,7 @@ export const paymentsRooms: RoomTable = {
       purpose: paymentsCopy.t('checkoutSettingsPurpose'),
     }),
     here: '/pay/checkout',
-    render: (_route, { portal, authority }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="profile.read">
-            <CheckoutSettingsPage portal={portal} merchantId={merchantId} authority={authority} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal, authority }) => <CheckoutSettingsRoom portal={portal} authority={authority} />,
   },
 };

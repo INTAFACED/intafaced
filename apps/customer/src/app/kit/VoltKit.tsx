@@ -32,6 +32,24 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
+import {
+  Book,
+  CandleChart,
+  ComputerRail,
+  Controls,
+  Icons,
+  MarketList,
+  MoneyParts,
+  Overlays,
+  PayParts,
+  ScanCodes,
+  SmallCandles,
+  StepsAndSpark,
+  TypeRoles,
+} from './KitParts';
+import { TimeLines } from './KitTimeLine';
+import { ChartBoxes } from './KitChartBox';
+import { RoomBarAndRanges } from './KitRoomBar';
 import './kit.css';
 
 /**
@@ -289,26 +307,12 @@ export default function VoltKit() {
         <Contrast />
       </Block>
 
-      <Block id="type" title="Type" note="Figures in Archivo at its widest; words in Archivo at its normal width.">
-        <dl className="vk-type">
-          {(
-            [
-              ['Figure', 'Archivo, widest, 600', <p className="vk-type__figure">$12,468.50</p>],
-              ['Title', 'Archivo, 600', <p className="vk-type__title">Buy crypto in a few steps</p>],
-              ['Heading', 'Archivo, 600', <p className="vk-type__heading">Recent activity</p>],
-              ['Body', 'Archivo, 400', <p className="vk-type__body">Bitcoin, Ether and more, paid from your USDT or USDC balance.</p>],
-              ['Label', 'Archivo, capitals, tracked', <p className="vk-type__micro">Est. total value</p>],
-            ] as const
-          ).map(([name, spec, sample]) => (
-            <div key={name} className="vk-type__row">
-              <dt>
-                <strong>{name}</strong>
-                <small>{spec}</small>
-              </dt>
-              <dd>{sample}</dd>
-            </div>
-          ))}
-        </dl>
+      <Block
+        id="type"
+        title="Type roles"
+        note="A room sets type with one of these, never with raw type classes. Figures in Archivo at its widest."
+      >
+        <TypeRoles />
       </Block>
 
       <Block id="balance" title="The big balance" note="Heavy and wide, its cents a step back.">
@@ -330,6 +334,22 @@ export default function VoltKit() {
             <VoltStack portfolio={{ status: 'loading' }} hidden={false} />
           </figure>
         </div>
+      </Block>
+
+      <Block
+        id="money-parts"
+        title="Money parts"
+        note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
+      >
+        <MoneyParts />
+      </Block>
+
+      <Block
+        id="pay-parts"
+        title="Pay parts"
+        note="The money box with its unit, what is available and Max, and a refusal; the handle box; the person found; where a send stands; a confirmation."
+      >
+        <PayParts />
       </Block>
 
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
@@ -415,6 +435,30 @@ export default function VoltKit() {
         </div>
       </Block>
 
+      <Block id="controls" title="Text fields, boxes, switches, choices and tabs" note="Each with its error or disabled state.">
+        <Controls />
+      </Block>
+
+      <Block
+        id="overlays"
+        title="Menu, tooltip, popover, search and the money review"
+        note="The review shows what you send, the fee and what arrives before you confirm."
+      >
+        <Overlays />
+      </Block>
+
+      <Block id="steps" title="Stepper and sparklines">
+        <StepsAndSpark />
+      </Block>
+
+      <Block
+        id="list"
+        title="A markets list: filter chips, a sortable table and row sparklines"
+        note="120 TEST rows; only those near the view are drawn."
+      >
+        <MarketList />
+      </Block>
+
       <Block id="rows" title="Rows, lists, a table and tags">
         <ul className="vk-list">
           {[
@@ -463,6 +507,14 @@ export default function VoltKit() {
         </div>
       </Block>
 
+      <Block id="rail" title="Computer navigation" note="On a computer the doors sit in a rail at the side.">
+        <ComputerRail />
+      </Block>
+
+      <Block id="icons" title="Icons" note="One line weight, drawn decorative beside their words.">
+        <Icons />
+      </Block>
+
       <Block id="chart" title="Balance over time" note="One line in the spark, a soft fill under it. New.">
         <div className="vk-chart">
           <div className="vk-chart__head">
@@ -490,8 +542,53 @@ export default function VoltKit() {
         </div>
       </Block>
 
+      <Block
+        id="time-line"
+        title="A line over time"
+        note="TEST profit and loss placed by time, so a gap keeps its width, with its dashed zero line. Point at it, or focus it and use the arrow keys, to read a point. Below, its empty line."
+      >
+        <TimeLines />
+      </Block>
+
+      <Block
+        id="chart-box"
+        title="A box for a drawn chart"
+        note="A definite size a charting library draws into, the coin page's: TEST drawing, and a state in its place at the same size."
+      >
+        <ChartBoxes />
+      </Block>
+
+      <Block
+        id="room-bar"
+        title="A room bar, and range pills"
+        note="The coin page's bar: in a room it stays right under the top bar while the page scrolls. Its range pills are pressed buttons; the arrow keys move between them, Home and End to the ends. TEST coin."
+      >
+        <RoomBarAndRanges />
+      </Block>
+
+      <Block
+        id="candles"
+        title="The candle chart"
+        note="TEST hourly candles, with volume and moving averages. Below, the small one for a pool or a token: placed by time, so a quiet stretch is a gap, and its empty line."
+      >
+        <CandleChart />
+        <SmallCandles />
+      </Block>
+
+      <Block id="book" title="The order book" note="TEST levels: asks above the price, bids below, the depth bar behind each row.">
+        <Book />
+      </Block>
+
       <Block id="people" title="Quick send" note="The people you send to most, a tap away. New.">
         <QuickSend label="Quick send" people={TEST_PEOPLE} add={{ label: 'Add new', href: '/pay/send' }} />
+      </Block>
+
+      <Block
+        id="qr"
+        title="A code to scan"
+        note="Dark on a light ground in every theme, so a phone reads it; its words underneath when asked, and its failure line."
+      >
+        <ScanCodes />
       </Block>
 
       <Block id="states" title="Empty, loading and error">

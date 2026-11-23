@@ -20,7 +20,8 @@
  * (erasure.ts) list and delete the caller's own rows.
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
-import { forwardedPrincipalHeaders, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
 import { IDENTITY_ME } from '@intafaced/contracts/identity-handles';
 import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import type { P2P_ELIGIBILITY_CHECK_IDS, P2P_ELIGIBILITY_STATES } from '@intafaced/contracts/p2p-procedures';

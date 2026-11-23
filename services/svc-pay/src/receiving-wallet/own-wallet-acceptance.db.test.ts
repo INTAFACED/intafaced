@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   MemoryLedger,
@@ -57,7 +57,7 @@ const PROFILES = REFERENCE_RAIL_ROUTING_PROFILES.map((p) =>
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_own_wallet_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -251,6 +251,26 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
       code: 'pay.payment_not_in_our_custody',
     });
     expect(posts).toHaveLength(1);
+  });
+
+  it('shows final own-wallet funds before capture', async () => {
+    const pay = service();
+    const merchant = await business(pay);
+    await setWallet(merchant.id);
+    const link = await pay.createPaymentLink({ merchantId: merchant.id, label: 'TEST', amount: amt('100'), currency: 'USDT' });
+    const { session, sessionToken } = await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'DE', method: 'crypto' });
+    chain.creditAnother({
+      address: session.instruction!.reference,
+      assetId: 'USDT',
+      amount: amt('100'),
+      confirmations: 12,
+      txHash: '0xconfirmed',
+    });
+    const payment = await paymentOf(sessionToken);
+    expect((await pay.authorize(payment.id)).status).toBe('authorized');
+    expect((await outsideFundsOf(sql, ownerOf(merchant.id))).rows).toEqual([
+      expect.objectContaining({ holder: 'own_wallet', clearing: '0', available: '100', payments: 1 }),
+    ]);
   });
 
   it('with the custodial layer on, the same checkout is the custodial one, unchanged', async () => {

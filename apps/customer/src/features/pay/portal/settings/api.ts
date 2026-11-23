@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
@@ -7,8 +6,14 @@ import { accountApi } from './account/account-api';
 import { applicationApi } from './onboarding/application-api';
 import { categoryApi } from './onboarding/category-api';
 import { requestsApi } from './onboarding/requests-api';
+import {
+  PAY_MERCHANT_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
+  PAY_MERCHANT_SUBMIT_KYB,
+} from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
-const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: PortalTools) => ({
+const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryRecord, mutateRecord }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
   createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
     mutate(
@@ -17,11 +22,11 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: Port
       p.merchantCreatedSchema,
     ),
   /** The business step's draft, kept by svc-pay for the signed-in person before an account exists (J-merchant-02 #1). */
-  onboardingDraft: (signal?: AbortSignal) => query('merchant.onboardingDraft', {}, p.onboardingDraftSchema, signal),
+  onboardingDraft: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_ONBOARDING_DRAFT, undefined, signal),
   /** `seq` rises with each change, so the service keeps the newest; sent keepalive so a save made while leaving lands. */
   saveOnboardingDraft: (fields: p.OnboardingDraftFields, seq: number) =>
-    mutate('merchant.saveOnboardingDraft', { fields, seq }, p.onboardingDraftSchema, { keepalive: true }),
-  submitKyb: (merchantId: string, kybRef: string) => mutate('merchant.submitKyb', { merchantId, kybRef }, p.kybSubmitSchema),
+    mutateRecord(PAY_MERCHANT_SAVE_ONBOARDING_DRAFT, { fields, seq }, { keepalive: true }),
+  submitKyb: (merchantId: string, kybRef: string) => mutateRecord(PAY_MERCHANT_SUBMIT_KYB, { merchantId, kybRef }),
   /** Confirms the destination with the owner's code or passkey, then saves it with that single-use approval. */
   setPayoutDestination: async (merchantId: string, railId: string, kind: string, ref: string, proof: DestinationProof) => {
     const approved = await confirmDestinationStepUp({ merchantId, railId, kind, ref }, proof);
@@ -33,7 +38,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: Port
     );
   },
   kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
-  activation: (signal?: AbortSignal) => query('merchantOps.activation.get', {}, merchantActivationSchema, signal),
+  activation: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_ACTIVATION_GET, {}, signal),
   kybHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.kyb.history', p.kybEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
   teamList: (cursor: string | undefined, status: string, signal?: AbortSignal) =>

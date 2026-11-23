@@ -50,7 +50,7 @@ export type CertPathRow = z.infer<typeof certPathRow>;
 export type CertProgressRow = AcademyCertProgress;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
 export const publicCertCode = z.string().regex(/^[0-9a-f]{32}$/);
-export const certGrant = z.object({
+const certGrant = z.object({
   userId: z.string().guid(),
   certId: ref,
   grantedAt: z.string().datetime({ offset: true }),
@@ -81,7 +81,6 @@ export type CertGrant = z.infer<typeof certGrant>;
 
 /** One lesson completion Academy lists for this account. */
 const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
-export const completionPage = z.object({ items: z.array(completionRow).max(200), nextCursor: z.string().min(1).nullable() });
 export type CompletionRow = z.infer<typeof completionRow>;
 
 /** What the service tells us about this account's lesson completions. */

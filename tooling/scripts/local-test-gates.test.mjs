@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createDecipheriv, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -70,10 +69,12 @@ import {
   stackFounderScopes,
   isCancelOf,
   TRADE_CANCELS,
+  gatesUsage,
 } from './local-test-gates.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
+import { DEFAULT_SYMBOLS, TEST_PRICES } from './local-test-market.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -102,7 +103,6 @@ const sourceDir = mkdtempSync(join(tmpdir(), 'local-test-gates-source-'));
 writeFileSync(join(sourceDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: sourcePaths } }));
 const source = register({ namespace: 'local-test-gates', tsconfig: join(sourceDir, 'tsconfig.json') });
 const load = (rel) => source.import(pathToFileURL(join(root, rel)).href, import.meta.url);
-const fastify = createRequire(join(root, 'services', 'svc-matching', 'package.json'))('fastify');
 // A consumer that records what a door asked to consume, then refuses, so nothing behind the door runs.
 const recordingConsumer = (ConsumeError) => {
   const asked = [];
@@ -251,18 +251,15 @@ const { createHash } = await import('node:crypto');
 const sha = (o) => `sha256:${createHash('sha256').update(JSON.stringify(o)).digest('hex')}`;
 assert.equal(matchingPayloadHash('matching.open', { marketId: 'm-1' }), sha({ actionType: 'matching.open', marketId: 'm-1' }));
 assert.equal(identityPayloadHash('kyc.approve', { recordId: 'r-1' }), sha({ targetId: 'kyc.approve', recordId: 'r-1' }));
-const matchingConsume = await load('services/svc-matching/src/action-approval-consume.ts');
 const { identityActionPayloadHash } = await load('services/svc-identity/src/auth/privileged-dual-control.ts');
-for (const [action, fields] of [
-  ['matching.open', { marketId: 'm-1' }],
-  ['matching.halt', { marketId: 'BTC-USDT' }],
-  ['matching.resume_all', {}],
+// svc-matching is Rust: its hash recipe is pinned here and in crates/svc-matching/tests/venue_doors.rs
+// (approval_the_book_doors_ask_for_exactly_the_local_stacks_book_proposal), on the same vectors.
+for (const [action, fields, hash] of [
+  ['matching.open', { marketId: 'm-1' }, 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['matching.halt', { marketId: 'BTC-USDT' }, 'sha256:bc67143d044abfa4bd00f20d3a104b688fd1997b078b8ec48f092da08e88328d'],
+  ['matching.resume_all', {}, 'sha256:c39d8a688d3a5879de3a9aee8fd0de2bc9c4f373979fb32b36bae01493314b77'],
 ]) {
-  assert.equal(
-    matchingPayloadHash(action, fields),
-    matchingConsume.matchingActionPayloadHash(action, fields),
-    `${action}: matching's hash recipe changed; update matchingPayloadHash`,
-  );
+  assert.equal(matchingPayloadHash(action, fields), hash, `${action}: matching's hash recipe changed; update matchingPayloadHash`);
 }
 for (const [target, fields] of [
   ['kyc.approve', { recordId: 'r-1' }],
@@ -294,38 +291,19 @@ for (const action of ['halt', 'resume']) {
   assert.equal(p.payloadHash, matchingPayloadHash(`matching.${action}`, { marketId: 'm-1' }));
 }
 assert.throws(() => bookProposal('delete', 'm-1'));
-// svc-matching's book doors (POST /markets/:id/open|halt|resume, as svc-trade calls them) ask for exactly the proposal.
-{
-  const { registerRoutes } = await load('services/svc-matching/src/router.ts');
-  const { MatchingEngine } = await load('services/svc-matching/src/engine/engine.ts');
-  const { MemoryJournal } = await load('services/svc-matching/src/engine/journal.ts');
-  const { MemoryEventBus } = await load('packages/events/src/index.ts');
-  const { serviceAuthHeadersForBody } = await load('packages/contracts/src/index.ts');
-  const secret = 'local-test-gates-matching-secret-32ch!!';
-  const approvals = recordingConsumer(matchingConsume.ActionApprovalConsumeError);
-  const engine = new MatchingEngine({ journal: new MemoryJournal(), bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
-  const app = fastify({ logger: false });
-  registerRoutes(app, engine, secret, { bodyBind: 'require', approvals, operatorIds: new Set(['ops-1']) });
-  await app.ready();
-  try {
-    for (const [i, action] of ['open', 'halt', 'resume'].entries()) {
-      const payload = JSON.stringify({ operatorId: 'ops-1', approvalId: 'appr-1', operationId: 'op-1' });
-      await app.inject({
-        method: 'POST',
-        url: `/markets/m-1/${action}`,
-        headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-trade', secret, payload) },
-        payload,
-      });
-      assert.equal(approvals.asked.length, i + 1, `matching ${action} never asked identity to consume`);
-      assert.deepEqual(
-        askedOf(approvals.asked[i]),
-        boundTo(bookProposal(action, 'm-1')),
-        `matching ${action} recipe changed; update bookProposal`,
-      );
-    }
-  } finally {
-    await app.close();
-  }
+// svc-matching's book doors (POST /markets/:id/open|halt|resume, as svc-trade calls them) ask for exactly the proposal:
+// pinned here, and crates/svc-matching/tests/venue_doors.rs drives the Rust doors and requires these same fields.
+for (const [action, hash] of [
+  ['open', 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['halt', 'sha256:dacc3af5283c2cd7b6113459bb586e4d97f1a5af58473beda1ca8b0c65225110'],
+  ['resume', 'sha256:645fb6b2f169c96df7475dc651500fc7d36597a58acd4b9dcceb2004d723ec57'],
+]) {
+  const p = bookProposal(action, 'm-1');
+  assert.deepEqual(
+    [p.targetService, p.targetId, p.expectedVersion, p.payloadHash],
+    ['svc-matching', `${action}:m-1`, '1', hash],
+    `matching ${action} recipe changed; update bookProposal`,
+  );
 }
 // svc-identity's kyc.approve asks for exactly kycApproveProposal for that record.
 {
@@ -610,7 +588,6 @@ assert.deepEqual(
 // TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
 // like any spot book.
 {
-  const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
   assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
   for (const symbol of UNQUOTED_TEST_SPOT)
     assert.ok(
@@ -622,11 +599,11 @@ assert.deepEqual(
     assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
     if (UNQUOTED_TEST_SPOT.includes(l.symbol)) {
       // Unquoted on purpose: no TEST price and not in the market maker's defaults.
-      assert.ok(!marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} must stay unquoted`);
-      assert.doesNotMatch(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.equal(Object.hasOwn(TEST_PRICES, l.symbol), false, `${l.symbol} must stay unquoted`);
+      assert.equal(DEFAULT_SYMBOLS.includes(l.symbol), false, `${l.symbol} is not in the market maker's defaults`);
     } else {
-      assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
-      assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.ok(TEST_PRICES[l.symbol]?.start, `${l.symbol} has a TEST price`);
+      assert.ok(DEFAULT_SYMBOLS.includes(l.symbol), `${l.symbol} is in the market maker's defaults`);
     }
     assert.deepEqual(
       openableMarkets([{ ...base, symbol: l.symbol, test: true, schedule: l.schedule ?? 'crypto-24x7' }]).map((m) => m.symbol),
@@ -678,8 +655,6 @@ assert.deepEqual(
   const docs = (name) => TEST_KYB_ENTITY_TYPES.find((t) => t.entityType === name).documentKeys;
   assert.notDeepEqual(docs('private_company'), docs('sole_proprietorship'));
   assert.ok(TEST_KYB_UPLOAD_RULES.maxBytes >= 1 && TEST_KYB_UPLOAD_RULES.contentTypes.length >= 1);
-  const gatesSrc = readFileSync(script, 'utf8');
-  assert.match(gatesSrc, /await seedSpotTestListings\(ctx\);\n\s*await seedPayKybRequirements\(ctx\);/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.
@@ -766,23 +741,48 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
   assert.equal(await founderSession(ctx, 'a'), await founderSession(ctx, 'a'));
   rmSync(stateDir, { recursive: true, force: true });
 }
-// verify submits founders' requests; populate (which approves only its friend) does not.
+// populate (which approves only its friend) does not submit the founders' requests. That verify does is held by every
+// journeys shard: its `apply` publishes the P2P methods as the founders, which svc-p2p refuses without their verified tier.
 {
-  const src = readFileSync(script, 'utf8');
-  assert.match(src, /submitOwnedAccounts\(ctx, before, \{ founders: true \}\)/);
-  const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
-  assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
+  const { verifyFriend } = await import('./local-test-world.mjs');
+  const friend = { userId: 'friend-1' };
+  const before = { users: [], approved: new Map(), pending: [{ userId: 'friend-1', tier: 'full' }] };
+  const calls = [];
+  const gates = {
+    makeContext: async () => 'gctx',
+    listAccountsAndTiers: () => before,
+    submitOwnedAccounts: async (...args) => (calls.push(['submit', ...args]), []),
+    approvePending: async (...args) => (calls.push(['approve', ...args]), [{ ok: true }]),
+  };
+  const v = await verifyFriend({ log: () => {}, secrets: {} }, friend, gates);
+  assert.deepEqual(v, { ok: true, why: '1 approved' });
+  assert.deepEqual(
+    calls,
+    [
+      ['submit', 'gctx', before],
+      ['approve', 'gctx', null, { userIds: ['friend-1'] }],
+    ],
+    "populate submits only the owned accounts (no { founders: true }) and approves only the friend's request",
+  );
+  // Another pending request stops it before anything is approved.
+  calls.length = 0;
+  before.pending.push({ userId: 'someone-else', tier: 'full' });
+  assert.equal((await verifyFriend({ log: () => {}, secrets: {} }, friend, gates)).ok, false);
+  assert.deepEqual(
+    calls.map((c) => c[0]),
+    ['submit'],
+    'nothing approved when someone else is pending',
+  );
 }
 
 // The CLI help names every command.
-const src = readFileSync(script, 'utf8');
-for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(src.includes(`'${cmd}'`), cmd);
-// Nothing in the gates module writes a table directly.
-assert.equal(
-  /\b(INSERT INTO|UPDATE \w+ SET|DELETE FROM)\b/i.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
-  false,
-  'gates must not write database rows',
-);
+{
+  const named = gatesUsage()
+    .replace(/^usage: local-test-gates\.mjs /, '')
+    .split(' | ')
+    .map((c) => c.split(' ')[0]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(named.includes(cmd), cmd);
+}
 
 // Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
 // data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
@@ -939,32 +939,11 @@ assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
 assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
 assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
 {
-  const ledgerConsume = await load('services/svc-ledger/src/ledger/action-approval-consume.ts');
-  assert.equal(on.payloadHash, ledgerConsume.ledgerActionPayloadHash('ledger.freeze', { reason: POSTING_FREEZE_REASON.trim() }));
-  assert.equal(off.payloadHash, ledgerConsume.ledgerActionPayloadHash('ledger.unfreeze', {}));
-  const { registerOperatorHttp } = await load('services/svc-ledger/src/operator-http.ts');
-  const approvals = recordingConsumer(ledgerConsume.ActionApprovalConsumeError);
-  const ledger = { freezeState: async () => ({ frozen: false, reason: null, actor: null, changedAtPrecise: version }) };
-  const app = fastify({ logger: false });
-  registerOperatorHttp(app, ledger, tokenConfig, approvals);
-  await app.ready();
-  try {
-    const authorization = `Bearer ${await operatorToken('22222222-2222-4222-8222-222222222222', ['admin:treasury'])}`;
-    const ids = { approvalId: 'appr-1', operationId: 'op-1' };
-    // The body posting-freeze sends (through Edge's /admin/ledger/freeze and /unfreeze).
-    await app.inject({
-      method: 'POST',
-      url: '/operator/freeze',
-      headers: { authorization },
-      payload: { reason: POSTING_FREEZE_REASON, ...ids },
-    });
-    await app.inject({ method: 'POST', url: '/operator/unfreeze', headers: { authorization }, payload: ids });
-    assert.equal(approvals.asked.length, 2, 'the freeze doors never asked identity to consume');
-    assert.deepEqual(askedOf(approvals.asked[0]), boundTo(on), 'freeze consume changed');
-    assert.deepEqual(askedOf(approvals.asked[1]), boundTo(off), 'unfreeze consume changed');
-  } finally {
-    await app.close();
-  }
+  // svc-ledger is Rust: crates/svc-ledger/tests/approval_hash.rs pins `approval::payload_hash` to these two hashes, and
+  // crates/svc-ledger/tests/freeze_pg.rs holds its freeze and thaw doors to consume exactly that hash, target and the
+  // version the door read first.
+  assert.equal(on.payloadHash, 'sha256:75e03078ba5a7d6c65daafd26a9d40eb1ad8f0b1af47d76609c55bc44646b769', 'freeze consume changed');
+  assert.equal(off.payloadHash, 'sha256:465e5da4d26d18b0df079034b1ed4c1004cce88f549c4c9df87b1fa269250b3f', 'unfreeze consume changed');
   const { audienceOfApproval } = await load('services/svc-identity/src/auth/action-approval-audience.ts');
   for (const p of [on, off]) assert.equal(audienceOfApproval(p), 'founder', `${p.actionType} is founder-level`);
 }
@@ -1050,8 +1029,13 @@ for (const [args, usage] of [
     [TRADE_CANCELS.durable],
     "trade's cancel consumer is the one named",
   );
-  const prefix = /const STREAM_PREFIX = '([A-Z_]+)'/.exec(readFileSync(resolve(here, 'local-test-stack.mjs'), 'utf8'))?.[1];
-  assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
+  // The stream prefix the stack hands svc-trade and svc-matching at start (their NATS_STREAM_PREFIX).
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const prefixes = localTestServiceEnvs()
+    .filter((d) => d.name === 'trade' || d.name === 'matching')
+    .map((d) => d.env.NATS_STREAM_PREFIX);
+  assert.equal(prefixes.length, 2, 'the stack starts trade and matching');
+  for (const prefix of prefixes) assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
 }
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {

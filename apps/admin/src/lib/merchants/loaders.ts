@@ -1,13 +1,6 @@
 import 'server-only';
 import {
   founderApprovalQueueSchema,
-  founderGlobalMetricsSchema,
-  founderMerchantDrilldownSchema,
-  founderMerchantListSchema,
-  founderTreasuryExposureSchema,
-  merchantMetricsSeriesSchema,
-  merchantControlProfileSchema,
-  merchantMetricsSnapshotSchema,
   type FounderGlobalMetrics,
   type FounderMerchantDrilldown,
   type FounderMerchantList,
@@ -24,7 +17,7 @@ import { asPricingRule, asTier, asUsage, type PricingRuleView, type TierView, ty
 import { addDays, dayOf, midnight } from './dates';
 import { listInputFor, type MerchantListQuery } from './list-params';
 import { PAY_HALTS_HISTORY, PAY_HALTS_OPERATOR_STATUS } from '@intafaced/contracts/pay-halt-procedures';
-import { payCall, payRecordCall, parseWith, type PayCallContext, type PayCallResult } from './pay-call';
+import { payCall, payRecordCall, parseWith, type PayCallContext, type PayCallResult, payRecordRead } from './pay-call';
 import { loadPendingClears } from '@/lib/founder-ops';
 import {
   asEvent,
@@ -39,6 +32,19 @@ import {
   type VenueView,
   type WalletRouteView,
 } from './registry-model';
+import {
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_METRICS_GLOBAL,
+  PAY_FOUNDER_ADMIN_MERCHANTS_LIST,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES,
+  PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN,
+  PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY,
+  PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
+  PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
+  PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * One loader per page. Each returns named outcomes (`PayCallResult`), never
@@ -73,7 +79,8 @@ export async function loadDashboard(
   days: 1 | 7 | 30 = DASHBOARD_DAYS,
 ): Promise<DashboardData> {
   const todayDay = dayOf(now);
-  const read = (window: unknown) => payCall(ctx, 'founderAdmin.metrics.global', 'GET', { window }, parseWith(founderGlobalMetricsSchema));
+  const read = (window: ReturnType<typeof presetWindow> | ReturnType<typeof dayWindow>) =>
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_METRICS_GLOBAL, { window });
   const earlier = Array.from({ length: days - 1 }, (_, i) => addDays(todayDay, i - (days - 1)));
   const [today, ...rest] = await Promise.all([read(presetWindow('today')), ...earlier.map((day) => read(dayWindow(day)))]);
   return {
@@ -84,7 +91,7 @@ export async function loadDashboard(
 }
 
 export function loadMerchantList(ctx: PayCallContext, query: MerchantListQuery): Promise<PayCallResult<FounderMerchantList>> {
-  return payCall(ctx, 'founderAdmin.merchants.list', 'GET', listInputFor(query), parseWith(founderMerchantListSchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_LIST, listInputFor(query));
 }
 
 export interface MerchantDetailData {
@@ -107,28 +114,15 @@ export async function loadMerchantDetail(
 ): Promise<MerchantDetailData> {
   const today = dayOf(now);
   const [metrics, series, drilldown, identity] = await Promise.all([
-    payCall(
-      ctx,
-      'founderAdmin.metrics.merchant',
-      'GET',
-      { merchantId, window: presetWindow(preset) },
-      parseWith(merchantMetricsSnapshotSchema),
-    ),
-    payCall(
-      ctx,
-      'founderAdmin.metrics.merchantSeries',
-      'GET',
-      { merchantId, from: midnight(addDays(today, -(SERIES_DAYS - 1))), to: midnight(addDays(today, 1)), bucket: 'day' },
-      parseWith(merchantMetricsSeriesSchema),
-    ),
-    payCall(
-      ctx,
-      'founderAdmin.merchants.drilldown',
-      'GET',
-      { merchantId, window: presetWindow(preset) },
-      parseWith(founderMerchantDrilldownSchema),
-    ),
-    payCall(ctx, 'founderAdmin.merchants.list', 'GET', { limit: 1, filter: { merchantId } }, parseWith(founderMerchantListSchema)),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_METRICS_MERCHANT, { merchantId, window: presetWindow(preset) }),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES, {
+      merchantId,
+      from: midnight(addDays(today, -(SERIES_DAYS - 1))),
+      to: midnight(addDays(today, 1)),
+      bucket: 'day',
+    }),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN, { merchantId, window: presetWindow(preset) }),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_LIST, { limit: 1, filter: { merchantId } }),
   ]);
   return { metrics, series, drilldown, identity };
 }
@@ -156,7 +150,7 @@ export function loadRegistryHistory(
   kind: RegistryKind,
   entryKey: string,
 ): Promise<PayCallResult<RegistryEventView[]>> {
-  return payCall(ctx, 'founderAdmin.registries.history', 'GET', { registry: kind, entryKey, limit: 50 }, (raw) => asList(raw, asEvent));
+  return payRecordRead(ctx, PAY_FOUNDER_ADMIN_REGISTRIES_HISTORY, { registry: kind, entryKey, limit: 50 }, (raw) => asList(raw, asEvent));
 }
 
 export interface TreasuryData {
@@ -172,7 +166,7 @@ export interface TreasuryData {
 
 export async function loadTreasury(ctx: PayCallContext, now: Date = new Date()): Promise<TreasuryData> {
   const [exposure, halts, status, pending] = await Promise.all([
-    payCall(ctx, 'founderAdmin.treasury.exposure', 'GET', {}, parseWith(founderTreasuryExposureSchema)),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE, {}),
     payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 50 }),
     payRecordCall(ctx, PAY_HALTS_OPERATOR_STATUS, undefined),
     loadPendingClears(ctx),
@@ -195,17 +189,17 @@ const parseRules = (raw: unknown) => asList(raw, asPricingRule);
 
 export async function loadMerchantControls(ctx: PayCallContext, merchantId: string, now: Date = new Date()): Promise<ControlsData> {
   const [profile, usage, tiers] = await Promise.all([
-    payCall(ctx, 'founderAdmin.control.merchant.get', 'GET', { merchantId }, parseWith(merchantControlProfileSchema)),
-    payCall(ctx, 'founderAdmin.control.merchant.usage', 'GET', { merchantId }, asUsage),
-    payCall(ctx, 'founderAdmin.control.tiers.list', 'GET', {}, (raw) => asList(raw, asTier)),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET, { merchantId }),
+    payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE, { merchantId }, asUsage),
+    payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST, {}, (raw) => asList(raw, asTier)),
   ]);
   // The tier layer is only asked for when the merchant has a tier; the first failure of the three layers is the one shown.
   const layers: Array<Promise<PayCallResult<PricingRuleView[]>>> = [
-    payCall(ctx, 'founderAdmin.control.pricing.rules', 'GET', { layer: 'global' }, parseRules),
-    payCall(ctx, 'founderAdmin.control.pricing.rules', 'GET', { layer: 'merchant', scopeId: merchantId }, parseRules),
+    payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES, { layer: 'global' }, parseRules),
+    payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES, { layer: 'merchant', scopeId: merchantId }, parseRules),
   ];
   if (profile.kind === 'ok' && profile.data.tierId !== null) {
-    layers.push(payCall(ctx, 'founderAdmin.control.pricing.rules', 'GET', { layer: 'tier', scopeId: profile.data.tierId }, parseRules));
+    layers.push(payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES, { layer: 'tier', scopeId: profile.data.tierId }, parseRules));
   }
   const results = await Promise.all(layers);
   const failed = results.find((r) => r.kind !== 'ok');
@@ -250,13 +244,7 @@ export async function loadMerchantNames(ctx: PayCallContext, ids: readonly strin
   const out = new Map<string, string | null>();
   await Promise.all(
     unique.map(async (merchantId) => {
-      const r = await payCall(
-        ctx,
-        'founderAdmin.merchants.list',
-        'GET',
-        { limit: 1, filter: { merchantId } },
-        parseWith(founderMerchantListSchema),
-      );
+      const r = await payRecordCall(ctx, PAY_FOUNDER_ADMIN_MERCHANTS_LIST, { limit: 1, filter: { merchantId } });
       const row = r.kind === 'ok' ? r.data.rows[0] : undefined;
       if (row) out.set(merchantId, row.displayName);
     }),
@@ -316,7 +304,7 @@ export interface MerchantListPageData {
 export async function loadMerchantListPage(ctx: PayCallContext, query: MerchantListQuery): Promise<MerchantListPageData> {
   const [list, counts] = await Promise.all([
     loadMerchantList(ctx, query),
-    payCall(ctx, 'founderAdmin.metrics.global', 'GET', { window: presetWindow('today') }, parseWith(founderGlobalMetricsSchema)),
+    payRecordCall(ctx, PAY_FOUNDER_ADMIN_METRICS_GLOBAL, { window: presetWindow('today') }),
   ]);
   return { list, counts };
 }

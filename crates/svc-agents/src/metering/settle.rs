@@ -58,7 +58,8 @@ pub fn metering_off_stub(session_id: &str, window_id: &str) -> Settlement {
     }
 }
 
-fn random_uuid() -> Result<String, String> {
+/// A random version-4 uuid (`crypto.randomUUID()`), an event's id.
+pub fn random_uuid() -> Result<String, String> {
     let mut b = [0u8; 16];
     getrandom::fill(&mut b).map_err(|e| e.to_string())?;
     b[6] = (b[6] & 0x0f) | 0x40;
@@ -128,8 +129,8 @@ pub fn settle_window(
             (
                 "agents.usage.settled",
                 vec![
-                    ("amount".to_owned(), format_amount(result.amount)),
-                    ("asset".to_owned(), m.fee_asset_id.clone()),
+                    audit::param("amount", format_amount(result.amount)),
+                    audit::param("asset", m.fee_asset_id.clone()),
                 ],
             )
         } else {
@@ -144,9 +145,10 @@ pub fn settle_window(
             cost: result.amount,
             user_message_key: key,
             user_message_params: params,
+            ..audit::Entry::default()
         };
         db::transaction_retrying(pool, IsolationLevel::ReadCommitted, 5, |tx| {
-            audit::append(tx, &entry, now).map_err(StoreError::from)
+            audit::append(tx, &entry, now).map(|_| ())
         })?;
         if result.amount > 0 {
             let envelope = usage_settled_envelope(m, &result, &session.user_id, now)

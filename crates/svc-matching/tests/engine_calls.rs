@@ -7,6 +7,12 @@
 //! market in a mode the way the Rust engine reads it: the record the TypeScript door journals is appended to a copy of
 //! the engine's journal and the engine recovers from it. The doors' own answers (approvals, operators) are the venue
 //! slice's and are not ported.
+//!
+//! Not ported: `core-tif.test.ts`, "overlapping submits with one clientOrderId do not both rest". The TypeScript claim
+//! guards submits that interleave at an `await`; the Rust engine's `submit` takes `&mut self`, so two submits never
+//! overlap. What the test still asks, that the second use of an id refuses and a sibling id or no id rests, is held by
+//! `core_tif::client_order_id_reuse_on_same_account_after_cancel_refuses_different_account_may_reuse` and
+//! `core_tif::missing_client_order_id_still_accepts`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -73,6 +79,7 @@ fn engine_on(journal: MemoryJournal, clock: Option<fn() -> i64>, enabled: bool) 
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled,
+        spread_fills: false,
     })
 }
 
@@ -1583,6 +1590,10 @@ mod core_tif {
     const UNKNOWN: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const RETRY_BAD: &str = "17171717-1717-4717-8717-171717171717";
     const RETRY_OK: &str = "18181818-1818-4818-8818-181818181818";
+    const CLID_FIRST: &str = "66666666-6666-4666-8666-666666666666";
+    const CLID_AGAIN: &str = "77777777-7777-4777-8777-777777777777";
+    const CLID_OTHER: &str = "88888888-8888-4888-8888-888888888888";
+    const CLID_FRESH: &str = "12121212-1212-4212-8212-121212121212";
 
     const TIF_MISSING: &str = "tif_missing";
     const CLIENT_ORDER_ID_REUSE: &str = "client_order_id_reuse";
@@ -1670,7 +1681,73 @@ mod core_tif {
         assert_eq!(live_ids(&engine), strs(&[GTD]));
     }
 
-    /// The order has no client order id here: that field is not part of the Rust order.
+    fn clid(mut o: EngineOrder, client_order_id: &str, environment: Option<&str>) -> EngineOrder {
+        o.client_order_id = Some(client_order_id.to_owned());
+        o.environment = environment.map(str::to_owned);
+        o
+    }
+
+    fn assert_reuse(r: &svc_matching::book::types::SubmitResult) {
+        assert!(!r.accepted);
+        assert_eq!(r.rejected.as_ref().unwrap().code, CLIENT_ORDER_ID_REUSE);
+        assert_eq!(r.sequence, None);
+        assert_eq!(r.resting, None);
+        assert!(r.fills.is_empty());
+    }
+
+    #[test]
+    fn client_order_id_reuse_on_same_account_after_cancel_refuses_different_account_may_reuse() {
+        let mut engine = build();
+        let first = engine
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_FIRST, "desk", Side::Sell, "1", "100"),
+                    "desk-1",
+                    None,
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(first.accepted);
+        let cancelled = engine
+            .cancel(MARKET, CLID_FIRST, CancelReason::Requested)
+            .unwrap();
+        assert!(cancelled.cancelled);
+        assert!(live_ids(&engine).is_empty());
+
+        let records = engine.journal().read().len();
+        let reuse = engine
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_AGAIN, "desk", Side::Sell, "1", "100"),
+                    "desk-1",
+                    None,
+                ),
+                None,
+            )
+            .unwrap();
+        assert_reuse(&reuse);
+        assert_eq!(engine.journal().read().len(), records);
+        assert!(live_ids(&engine).is_empty());
+
+        let other = engine
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_OTHER, "mm", Side::Sell, "1", "101"),
+                    "desk-1",
+                    None,
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(other.accepted);
+        assert_eq!(other.resting.as_ref().unwrap().order_id, CLID_OTHER);
+        assert_eq!(live_ids(&engine), strs(&[CLID_OTHER]));
+    }
+
     #[test]
     fn missing_client_order_id_still_accepts() {
         let mut engine = build();
@@ -1688,15 +1765,141 @@ mod core_tif {
         assert_eq!(live_ids(&engine), strs(&[CLID_NONE]));
     }
 
-    /// Ported without the client order id and environment, which the Rust order does not carry: what is left is the
-    /// refusal and the retry that rests.
+    #[test]
+    fn recover_refuses_the_same_account_and_environment_client_order_id_and_still_accepts_one_that_was_never_used()
+     {
+        let mut engine = build();
+        let first = engine
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_FIRST, "desk", Side::Sell, "1", "100"),
+                    "desk-1",
+                    Some("paper"),
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(first.accepted);
+        let submitted = engine
+            .journal()
+            .read()
+            .iter()
+            .find(|r| r.kind() == Some("submit"))
+            .unwrap()
+            .clone();
+        let order = submitted.field("order").unwrap();
+        assert_eq!(order.get("clientOrderId"), Some(&Json::str("desk-1")));
+        assert_eq!(order.get("environment"), Some(&Json::str("paper")));
+        assert_eq!(order.get("price"), Some(&Json::str("100")));
+        assert_eq!(order.get("expireAt"), None);
+
+        let mut recovered = reboot(&engine);
+        let reuse = recovered
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_AGAIN, "desk", Side::Buy, "1", "100"),
+                    "desk-1",
+                    Some("paper"),
+                ),
+                None,
+            )
+            .unwrap();
+        assert_reuse(&reuse);
+        assert_eq!(live_ids(&recovered), strs(&[CLID_FIRST]));
+        assert_eq!(recovered.journal().read().len(), 1);
+
+        let other_env = recovered
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_OTHER, "desk", Side::Buy, "1", "99"),
+                    "desk-1",
+                    Some("live"),
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(other_env.accepted);
+        assert_eq!(other_env.resting.as_ref().unwrap().order_id, CLID_OTHER);
+
+        let fresh = recovered
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_NONE, "other", Side::Sell, "1", "102"),
+                    "fresh-1",
+                    Some("paper"),
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(fresh.accepted);
+        assert_eq!(fresh.resting.as_ref().unwrap().order_id, CLID_NONE);
+
+        let fresh_again = recovered
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_FRESH, "other", Side::Sell, "1", "103"),
+                    "fresh-1",
+                    Some("paper"),
+                ),
+                None,
+            )
+            .unwrap();
+        assert_reuse(&fresh_again);
+    }
+
+    #[test]
+    fn cancel_still_blocks_client_order_id_reuse_after_recover() {
+        let mut engine = build();
+        let first = engine
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_FIRST, "desk", Side::Sell, "1", "100"),
+                    "desk-1",
+                    None,
+                ),
+                None,
+            )
+            .unwrap();
+        assert!(first.accepted);
+        let cancelled = engine
+            .cancel(MARKET, CLID_FIRST, CancelReason::Requested)
+            .unwrap();
+        assert!(cancelled.cancelled);
+
+        let mut recovered = reboot(&engine);
+        assert!(live_ids(&recovered).is_empty());
+        let reuse = recovered
+            .submit(
+                MARKET,
+                &clid(
+                    limit(CLID_AGAIN, "desk", Side::Sell, "1", "100"),
+                    "desk-1",
+                    None,
+                ),
+                None,
+            )
+            .unwrap();
+        assert_reuse(&reuse);
+        assert!(live_ids(&recovered).is_empty());
+    }
+
     #[test]
     fn a_submit_that_does_not_accept_releases_the_client_order_id_for_a_later_retry() {
         let mut engine = build_clock(before_ms);
         let refused = engine
             .submit(
                 MARKET,
-                &limit_tif(RETRY_BAD, "desk", Side::Sell, "1", "100", Tif::Gtt),
+                &clid(
+                    limit_tif(RETRY_BAD, "desk", Side::Sell, "1", "100", Tif::Gtt),
+                    "retry-1",
+                    Some("paper"),
+                ),
                 None,
             )
             .unwrap();
@@ -1709,14 +1912,18 @@ mod core_tif {
         let retry = engine
             .submit(
                 MARKET,
-                &dated(limit_tif(
-                    RETRY_OK,
-                    "desk",
-                    Side::Sell,
-                    "1",
-                    "100",
-                    Tif::Gtt,
-                )),
+                &clid(
+                    dated(limit_tif(
+                        RETRY_OK,
+                        "desk",
+                        Side::Sell,
+                        "1",
+                        "100",
+                        Tif::Gtt,
+                    )),
+                    "retry-1",
+                    Some("paper"),
+                ),
                 None,
             )
             .unwrap();

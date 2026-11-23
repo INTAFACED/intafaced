@@ -13,7 +13,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -96,6 +96,12 @@ impl Desk {
             },
             ready: ReadyInput::unwired(),
             metering: svc_agents::metering::Metering::unwired("USDC", 15),
+            runtime: svc_agents::runtime::Runtime::unwired(),
+            ops: svc_agents::ops::Ops::unwired(),
+            background: svc_agents::background::Settings::default(),
+            advisors: svc_agents::advisors::Advisors::unwired(),
+            own: svc_agents::own::Own::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap();
         door.gateway().refresh(door.store()).unwrap();
@@ -308,14 +314,12 @@ fn the_desk_refuses_a_customer_session_and_a_key() {
     let Some(d) = Desk::new() else { return };
     let (status, _) = d.call_as(CUSTOMER, &["agents:read"], None, "routes.desk", None);
     assert_eq!(status, 403);
-    // A key is refused before the desk's own check: `admin:read` is for an interactive session only.
+    // A key is refused before its scope is read: the desk is a person's own (`ownSession`).
     let (status, body) = d.call_as(FOUNDER_A, FOUNDER, Some("key-1"), "routes.desk", None);
     assert_eq!(status, 403);
     assert_eq!(
-        body.get("error")
-            .and_then(|e| e.get("data"))
-            .and_then(|e| e.get("intafacedCode")),
-        Some(&Json::str("scope.interactive_only"))
+        body.get("error").and_then(|e| e.get("message")),
+        Some(&Json::str("agents.route_change_person_only"))
     );
 }
 

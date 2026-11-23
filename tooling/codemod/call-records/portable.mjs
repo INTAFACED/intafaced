@@ -9,6 +9,16 @@
 //   - `/^(?!-)[a-z0-9-]+.../` (a lookahead that only bars the first character of the class after it) becomes the same
 //     language without the lookahead: `/^[a-z0-9][a-z0-9-]*.../`.
 //
+//   - `z.date()` or `z.coerce.date()` in the answer of a call a Rust door serves (`--door`) becomes
+//     `z.iso.datetime({ offset: true })`: the answer reaches the caller as JSON, where a Date is its ISO string, and that
+//     string is what every caller already reads (`z.string().datetime({ offset: true })`, as the hand records write it).
+//     A service that mounts its records checks its handler's Date against the answer, so there it stays, named.
+//
+//   - a `.refine(..., message)` stays as written and is named in the record, in its message's words: an answer's in
+//     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
+//     that check alone refuses. A `.superRefine` is named the same way, in the words of each issue it raises
+//     (`ctx.addIssue({ message })`); one that raises an issue with no message written, or a refine with none, is left.
+//
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
 //   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] <record file.ts> ...
@@ -21,6 +31,8 @@ const CONTRACTS = join(REPO, 'packages/contracts/src');
 const UNKNOWN = 'z.unknown (no shape: accepts anything)';
 const REFINEMENT = '.refine/.superRefine (a TypeScript predicate the export drops)';
 const LOOKAROUND = /^regex \/(.*)\/ uses lookaround/;
+const DATE = 'Date object (not JSON)';
+const ISO = 'z.iso.datetime({ offset: true })';
 
 /** `label cannot be exported without losing meaning: at (construct); ...` as `{ label, findings }`. */
 export function parseWhy(why) {
@@ -194,6 +206,22 @@ export function withoutLeadingLookahead(source) {
 }
 
 /** The edit that makes one finding portable, or the reason it stays. */
+/** The call that starts a schema's chain (`z.unknown()` under `.optional()`), with the methods chained on it. */
+function chainStart(node) {
+  let start = node;
+  const methods = [];
+  while (
+    start?.type === 'CallExpression' &&
+    start.callee.type === 'MemberExpression' &&
+    unwrap(start.callee.object)?.type === 'CallExpression'
+  ) {
+    methods.push(start.callee.property.name);
+    start = unwrap(start.callee.object);
+  }
+  return { start, methods };
+}
+const WRAPPERS = ['optional', 'nullable', 'nullish', 'describe', 'meta'];
+
 function fix(target, construct) {
   // A name for the schema (`domain` for `z.string().regex(...)`): the edit lands where it is written.
   const found = follow(target.q, target.n);
@@ -201,23 +229,19 @@ function fix(target, construct) {
   const { q } = found;
   const node = unwrap(found.n);
   if (construct === UNKNOWN) {
-    // The call that starts the chain: `z.unknown()` itself, under any `.optional()`, `.nullable()` or `.describe()`.
-    let start = node;
-    const methods = [];
-    while (
-      start?.type === 'CallExpression' &&
-      start.callee.type === 'MemberExpression' &&
-      unwrap(start.callee.object)?.type !== 'Identifier'
-    ) {
-      methods.push(start.callee.property.name);
-      start = unwrap(start.callee.object);
-    }
+    const { start, methods } = chainStart(node);
     if (!(start?.type === 'CallExpression' && text(q, start.callee) === 'z.unknown' && start.arguments.length === 0))
       return { why: 'its z.unknown() is not written here as z.unknown()' };
-    if (methods.some((m) => !['optional', 'nullable', 'nullish', 'describe', 'meta'].includes(m)))
-      return { why: `its z.unknown() carries ${methods.join(', ')}` };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its z.unknown() carries ${methods.join(', ')}` };
     // zod 4: a key `z.unknown()` is required (absent is refused), so `jsonValueSchema` with the same chain is exact.
     return { q, edit: { start: start.start, end: start.end, text: 'jsonValueSchema' }, needs: 'jsonValueSchema' };
+  }
+  if (construct === DATE) {
+    const { start, methods } = chainStart(node);
+    if (!(start?.type === 'CallExpression' && /^z(\.coerce)?\.date$/.test(text(q, start.callee)) && start.arguments.length === 0))
+      return { why: 'its Date is not written here as z.date() or z.coerce.date()' };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its Date carries ${methods.join(', ')}` };
+    return { q, edit: { start: start.start, end: start.end, text: ISO } };
   }
   const look = LOOKAROUND.exec(construct);
   if (look) {
@@ -235,14 +259,19 @@ function fix(target, construct) {
 
 /**
  * The `.refine(..., message)` a refined schema carries where it is written: its words, and a name for the check (the
- * schema's own name when it has one, else the key it sits under). `.superRefine` says nothing a record can quote.
+ * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
  */
 function refinementOf(target) {
   const found = follow(target.q, target.n);
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];
   for (const m of chainOf(found.n).methods) {
-    if (m.name === 'superRefine') return { why: 'a .superRefine names no rule in words' };
+    if (m.name === 'superRefine') {
+      const r = superRefineWords(found.q, m.call.arguments[0]);
+      if (r.why) return r;
+      says.push(...r.says);
+      continue;
+    }
     if (m.name !== 'refine') continue;
     const msg = m.call.arguments[1];
     const words =
@@ -260,7 +289,48 @@ function refinementOf(target) {
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
 }
 
-/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits. */
+/**
+ * The words of a `.superRefine`: the `message` of each `ctx.addIssue({ ..., message })` its function raises, written as
+ * a string. The function is written inline, or named (a function or const in its file, or imported). One issue raised
+ * without written words leaves the whole refinement, as a `.refine` with no message does: its rule has no words to name.
+ */
+function superRefineWords(q, fn) {
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') fn = b.declaration;
+    else if (b.kind === 'var' && b.declarator.init) fn = b.declarator.init;
+    else if (b.kind === 'import' && b.from.startsWith('.')) {
+      const file = resolveRelative(q.file, b.from);
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      fn = d.kind === 'function' ? d.declaration : d.kind === 'var' ? d.declarator.init : undefined;
+    } else break;
+  }
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type))
+    return { why: 'its .superRefine is not a function the codemod can read' };
+  const says = [];
+  let unnamed = false;
+  walk(fn.body, (n) => {
+    if (n.type !== 'CallExpression' || n.callee.type !== 'MemberExpression') return;
+    const prop = n.callee.property?.name;
+    if (prop === 'push' && n.callee.object.type === 'MemberExpression' && n.callee.object.property?.name === 'issues') unnamed = true;
+    if (prop !== 'addIssue') return;
+    const arg = unwrap(n.arguments[0]);
+    const words =
+      arg?.type === 'ObjectExpression'
+        ? literal(arg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : literal(arg);
+    if (words === undefined) unnamed = true;
+    else if (!says.includes(words)) says.push(words);
+  });
+  if (unnamed) return { why: 'its .superRefine raises an issue with no message written as a string' };
+  if (!says.length) return { why: 'its .superRefine raises no issue the codemod can read' };
+  return { says };
+}
+
+/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits, and the names it gave. */
 function checksText(named) {
   const used = new Set();
   const entries = [...named.values()].map((c) => {
@@ -270,14 +340,14 @@ function checksText(named) {
     const at = c.at.length === 1 ? JSON.stringify(c.at[0]) : `[${c.at.map((a) => JSON.stringify(a)).join(', ')}]`;
     return `${name}: { at: ${at}, says: ${JSON.stringify(c.says)} }`;
   });
-  return `{ ${entries.join(', ')} }`;
+  return { text: `{ ${entries.join(', ')} }`, names: [...used] };
 }
 
 /** Where a file imports `jsonValueSchema` from. */
 const jsonValueFrom = (file) =>
   file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
 
-export function plan(skipped, recordFiles) {
+export function plan(skipped, recordFiles, { door = false } = {}) {
   const edits = new Map();
   const left = [];
   const replays = new Set();
@@ -299,15 +369,32 @@ export function plan(skipped, recordFiles) {
       const steps = f.at.startsWith(root) ? stepsOf(f.at, root) : undefined;
       let target = start && steps ? { q: start.q, n: start.n } : undefined;
       for (const step of steps ?? []) target = target && down(target.q, target.n, step);
-      if (target && side === 'output' && f.construct === REFINEMENT) {
-        // An answer's refinement stays where it is and is named in the record's `outputChecks`, in its own words.
+      if (target && side && f.construct === REFINEMENT) {
+        // A refinement stays where it is and is named in the record, in its own words: an answer's in `outputChecks`, an
+        // input's in `checks` (samples.mjs then finds the input that check alone refuses).
         const r = refinementOf(target);
         if (r.why) left.push({ record: name, at: f.at, why: r.why });
         else {
-          const at = `output${f.at.slice(root.length)}`;
+          const at = `${side}${f.at.slice(root.length)}`;
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
           named.get(r.key).at.push(at);
         }
+        continue;
+      }
+      // A door's input is its own zod tree (`schemas.json`), held to the record part for part: it keeps its z.unknown().
+      if (door && side === 'input' && f.construct === UNKNOWN) {
+        left.push({ record: name, at: f.at, why: "the door's input runs z.unknown() here, and a door record's input is the door's" });
+        continue;
+      }
+      if (f.construct === DATE && !(door && side === 'output')) {
+        left.push({
+          record: name,
+          at: f.at,
+          why:
+            side === 'output'
+              ? "a Date answer of a service that mounts its records: its handler's Date is checked against it"
+              : 'a Date in the input',
+        });
         continue;
       }
       const r = target ? fix(target, f.construct) : { why: 'the codemod cannot follow the schema to it' };
@@ -319,9 +406,24 @@ export function plan(skipped, recordFiles) {
       else left.push({ record: name, at: f.at, why: r.why });
     }
     if (named.size) {
-      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === 'outputChecks')) {
-        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: 'the record already has outputChecks' });
-      } else add(start.q, { start: start.prop.end, end: start.prop.end, text: `, outputChecks: ${checksText(named)}` });
+      const key = side === 'input' ? 'checks' : 'outputChecks';
+      const samples = start.record.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'samples')?.value;
+      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === key)) {
+        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: `the record already has ${key}` });
+      } else if (side === 'input' && samples?.type !== 'ArrayExpression') {
+        for (const c of named.values())
+          for (const at of c.at) left.push({ record: name, at, why: 'its samples are not written as a list' });
+      } else {
+        const { text: checks, names } = checksText(named);
+        add(start.q, { start: start.prop.end, end: start.prop.end, text: `, ${key}: ${checks}` });
+        // An input check needs a sample it alone refuses, or the record does not load: a placeholder per check, which
+        // samples.mjs replaces with the real one.
+        if (side === 'input') {
+          const end = samples.elements.length ? samples.elements.at(-1).end : samples.start + 1;
+          const sep = samples.elements.length ? ', ' : '';
+          add(start.q, { start: end, end, text: `${sep}${names.map((n) => `{ verdict: 'refuse', input: 42, by: '${n}' }`).join(', ')}` });
+        }
+      }
     }
   }
   return { edits, left, replays };
@@ -404,8 +506,9 @@ function main() {
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--unportable');
   const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
-  const files = argv.filter((a, j) => j !== i && j !== i + 1 && !a.startsWith('--')).map((f) => resolve(f));
-  const { edits, left, replays } = plan(skipped, files);
+  const d = argv.indexOf('--door');
+  const files = argv.filter((a, j) => j !== i && j !== i + 1 && (d < 0 || j !== d + 1) && !a.startsWith('--')).map((f) => resolve(f));
+  const { edits, left, replays } = plan(skipped, files, { door: argv.includes('--door') });
   const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
   console.log(
     JSON.stringify(

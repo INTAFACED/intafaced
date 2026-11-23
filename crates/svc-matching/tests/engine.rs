@@ -1,7 +1,8 @@
 //! The engine's own tests, ported test for test from `services/svc-matching/src/engine/`: `engine.test.ts`,
 //! `engine-l2-limit-unset-refuse.test.ts`, `engine-snapshot-every-ctor-refuse.test.ts`, `gtd-journal-clock.test.ts`
 //! and the real-book replay of `journal-gaps.test.ts` (the journal-only ones are in `journal_replay.rs`).
-//! `oco-replay.test.ts` needs OCO submits, which are the triggers slice's: none of it is ported here.
+//! `oco-replay.test.ts` is the triggers slice's and is ported in `triggers_oco.rs`; the triggers slice's stop-limit,
+//! trailing-stop and GTD engine tests are in `triggers_engine.rs`.
 //!
 //! The TypeScript `replay` and `replayFrom` hand back books; here they are `replay_journal` and `replay_from` over a
 //! plain map of `OrderBook`s ([`Books`]), as the engine's own cold start feeds its books.
@@ -188,6 +189,7 @@ fn engine_on(options: Options, bus: Box<dyn EventBus + Send>) -> MatchingEngine 
         snapshot_every: options.snapshot_every,
         sink: Box::new(options.sink),
         enabled: options.enabled,
+        spread_fills: false,
     })
 }
 
@@ -382,8 +384,12 @@ impl ReplayBooks for Books {
         self.drop_if_never_traded(market_id);
     }
 
-    fn mark(&mut self, _market_id: &str, _record: &JournalRecord) {
-        panic!("a trailing-stop mark is the triggers slice's");
+    /// `applyMark(existing, parseAmount(record.mark))`.
+    fn mark(&mut self, market_id: &str, record: &JournalRecord) {
+        let mark = parse_amount(&text(&record.0, "mark")).unwrap();
+        if let Some(book) = self.0.get_mut(market_id) {
+            book.apply_mark(Some(mark));
+        }
     }
 
     fn mass_cancel(&mut self, market_id: &str, record: &JournalRecord) {

@@ -4,14 +4,14 @@ import { supportRefusal } from './record-refusal.js';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
-  scopedProcedure,
   supportFieldDefineInputSchema,
   supportFieldSchema,
   supportFormDefineInputSchema,
   supportFormSchema,
   supportRequestFormsSchema,
   supportTicketFieldValuesSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-forms';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { requireLead } from './help-centre-router.js';
 import { RequestFormError, type RequestForms } from './request-forms.js';
 import { requireSupportOps, type SupportService } from './support-service.js';

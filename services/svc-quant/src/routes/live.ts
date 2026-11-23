@@ -1,11 +1,12 @@
 import {
+  QUANT_APPROVAL_REQUIRED,
   QUANT_LIVE_DEPLOY_UNAVAILABLE,
   QUANT_LIVE_DISABLED,
   QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
   QUANT_LIVE_PLAN_UNSUPPORTED,
   QuantError,
 } from '../errors.js';
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY } from '@intafaced/contracts/quant-live-procedures';
 import { withQuantSpan } from '../tracing.js';
@@ -29,7 +30,9 @@ export function liveRoutes(core: QuantCore) {
     ),
 
     /**
-     * Deploy (AL-live-02; J-algo-dev-06 #7). With the platform's live switch off it refuses `quant.live_disabled` and
+     * Deploy (AL-live-02; J-algo-dev-06 #3 #7). A version the account's second-approver rule holds back (no different
+     * member's approval matching it now) refuses `quant.approval_required`; with the rule off it asks no approval. With
+     * the platform's live switch off it refuses `quant.live_disabled` and
      * nothing is written: no deploy intent, no run, nothing asked of the wallet. A version the runner can't trade
      * refuses with the compile check's code. With live on and a version that compiles, the funding move and the live
      * run after it are absent from this service (J-algo-dev-06 #8 builds them), so it refuses `quant.live_deploy_unavailable`
@@ -41,6 +44,12 @@ export function liveRoutes(core: QuantCore) {
         withQuantSpan('quant.live.deploy', { language: 'none' }, async () => {
           try {
             const check = await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+            if (!check.approval.allowed) {
+              throw new QuantError(
+                QUANT_APPROVAL_REQUIRED,
+                `version ${check.strategyVersion} needs a different member's approval before it goes live; nothing was deployed and nothing was stored`,
+              );
+            }
             if (!check.liveEnabled) {
               throw new QuantError(
                 QUANT_LIVE_DISABLED,

@@ -1,17 +1,6 @@
 [
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-matching/src/action-approval-consume.ts",
-    "verdict": "rewrite",
-    "asserts": "The approval hash the stack signs for matching is the one svc-matching recomputes, so its open/halt/resume approvals are consumable.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#matching's hash recipe changed; update matchingPayloadHash"
-    },
-    "why": "Calls svc-matching's matchingActionPayloadHash and the tool's matchingPayloadHash on the same inputs and requires equal hashes."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
     "target": "../../services/svc-identity/src/auth/privileged-dual-control.ts",
     "verdict": "rewrite",
     "asserts": "The approval hash the stack signs for identity's privileged doors is the one svc-identity recomputes.",
@@ -20,17 +9,6 @@
       "ref": "tooling/scripts/local-test-gates.test.mjs#identity's hash recipe changed; update identityPayloadHash"
     },
     "why": "Calls svc-identity's identityActionPayloadHash and the tool's identityPayloadHash on the same inputs and requires equal hashes."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-matching/src/router.ts",
-    "verdict": "rewrite",
-    "asserts": "svc-matching's open, halt and resume doors consume exactly the proposal the stack has approved (target id, hash, version).",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#matching ${action} recipe changed; update bookProposal"
-    },
-    "why": "Mounts svc-matching's routes with a recording consumer, POSTs /markets/m-1/open|halt|resume signed as svc-trade, and requires the consume request to equal bookProposal's."
   },
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",
@@ -108,28 +86,6 @@
       "ref": "tooling/scripts/local-test-gates.test.mjs#the gates wait exactly as long as Edge's authority cache can hold a session's tier"
     },
     "why": "Imports Edge's AUTHORITY_POSITIVE_CACHE_MAX_MS and requires it to equal EDGE_AUTHORITY_CACHE_MAX_MS."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-ledger/src/ledger/action-approval-consume.ts",
-    "verdict": "rewrite",
-    "asserts": "The posting-freeze approval hash the stack signs is the one svc-ledger recomputes.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#freeze consume changed"
-    },
-    "why": "Calls svc-ledger's ledgerActionPayloadHash for freeze and unfreeze and requires the proposals' hashes to equal it."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-ledger/src/operator-http.ts",
-    "verdict": "rewrite",
-    "asserts": "svc-ledger's freeze and thaw doors consume exactly the posting-freeze proposals, bound to the version the ledger reports.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#unfreeze consume changed"
-    },
-    "why": "Mounts svc-ledger's operator routes with a ledger reporting a version and a recording consumer, POSTs /operator/freeze and /operator/unfreeze with an MFA admin:treasury token, and requires each consume request to equal the proposal's."
   },
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",

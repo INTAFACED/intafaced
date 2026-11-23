@@ -3,18 +3,32 @@ import {
   edgeCall,
   explainRefusal,
   failureRefusal,
+  founderAskedCall,
   founderCall,
   founderRecordCall,
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   type FounderCallContext,
+  founderRecordRead,
 } from '@/lib/desk';
 import { treasuryTransport } from '@/lib/ledger';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { MARKET_OPS_TAKEDOWN_LISTING, MARKET_VET } from '@intafaced/contracts/market-procedures';
 import { normaliseCostAmount } from '@/lib/venue-economics';
 import { isRecord } from '@intafaced/contracts/guards';
+import { ACADEMY_ADMIN_GRANT_CERT_EXCEPTION } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
+import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
+import { OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
+import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
+import { BANK_OPS_SET_CARD_STATUS } from '@intafaced/contracts/bank-ops-procedures';
+import {
+  OPS_PROTOCOL_LISTING_POOLS_HIDE,
+  OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+  OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+  OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+} from '@intafaced/contracts/ops-protocol-listing-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -140,34 +154,21 @@ export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer
     : null;
 }
 
-interface ListingAnswer {
-  readonly action: string;
-  readonly targetId: string;
-  readonly state: string;
-  readonly outcome: string;
-  readonly note: string | null;
-}
-
-export function readListingAnswer(raw: unknown): ListingAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { action, targetId, state, outcome, note } = raw;
-  return typeof action === 'string' &&
-    typeof targetId === 'string' &&
-    typeof state === 'string' &&
-    typeof outcome === 'string' &&
-    (note === null || typeof note === 'string')
-    ? { action, targetId, state, outcome, note }
-    : null;
-}
-
 type ListingRequest = Extract<
   DeskRequest,
   { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
 >;
 
-/** The svc-ops procedure, its input (before the approval ids) and the state the answer must show for one listing request. */
+/** The svc-ops call each listing request is sent as. */
+const LISTING_CALLS = {
+  'protocol.pool.hide': { record: OPS_PROTOCOL_LISTING_POOLS_HIDE },
+  'protocol.pool.restore': { record: OPS_PROTOCOL_LISTING_POOLS_RESTORE },
+  'protocol.market.delist': { record: OPS_PROTOCOL_LISTING_MARKETS_DELIST },
+  'protocol.market.restore': { record: OPS_PROTOCOL_LISTING_MARKETS_RESTORE },
+} as const;
+
+/** The input (before the approval ids) and the state the answer must show for one listing request. */
 function listingCall(request: ListingRequest): {
-  procedure: string;
   input: Record<string, unknown>;
   targetId: string;
   state: 'hidden' | 'visible';
@@ -175,28 +176,24 @@ function listingCall(request: ListingRequest): {
   switch (request.kind) {
     case 'protocol.pool.hide':
       return {
-        procedure: 'protocolListing.pools.hide',
         input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'hidden',
       };
     case 'protocol.pool.restore':
       return {
-        procedure: 'protocolListing.pools.restore',
         input: { chainId: request.chainId, poolAddress: request.poolAddress },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'visible',
       };
     case 'protocol.market.delist':
       return {
-        procedure: 'protocolListing.markets.delist',
         input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
         targetId: marketTargetId(request.symbol),
         state: 'hidden',
       };
     case 'protocol.market.restore':
       return {
-        procedure: 'protocolListing.markets.restore',
         input: { symbol: request.symbol },
         targetId: marketTargetId(request.symbol),
         state: 'visible',
@@ -242,25 +239,16 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.ambassador.appoint') {
-      const result = await founderCall(
-        ctx,
-        'academy',
-        'appointAmbassador',
-        'POST',
-        { userId: request.userId, ...ids },
-        readAmbassadorAnswer,
-      );
+      const result = await founderRecordRead(ctx, ACADEMY_APPOINT_AMBASSADOR, { userId: request.userId, ...ids }, readAmbassadorAnswer);
       if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
       const a = result.data;
       if (a.userId !== request.userId || a.status !== 'active') return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.residency.decide') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'decideResidency',
-        'POST',
+        ACADEMY_DECIDE_RESIDENCY,
         { id: request.id, decision: request.decision, ...ids },
         readResidencyAnswer,
       );
@@ -284,11 +272,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
     }
     if (request.kind === 'academy.cert.exception') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'admin.grantCertException',
-        'POST',
+        ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
         { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
         readCertExceptionAnswer,
       );
@@ -301,13 +287,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       };
     }
     if (request.kind === 'bank.card.status') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'bank',
-        'ops.setCardStatus',
-        'POST',
-        // The operation id is the client key, so running the same approved request twice replays the first
-        // result at the service instead of acting twice.
+        BANK_OPS_SET_CARD_STATUS,
         { cardId: request.cardId, status: request.status, reason: request.reason, ...ids, clientRequestId: ids.operationId },
         readCardStatusAnswer,
       );
@@ -365,11 +347,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
     }
     if (request.kind === 'ops.capital.threshold.set') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'ops',
-        'capital.setThreshold',
-        'POST',
+        OPS_CAPITAL_SET_THRESHOLD,
         {
           assetId: request.assetId,
           minimum: request.minimum,
@@ -395,11 +375,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
     }
     if (request.kind === 'ops.venue_cost.record') {
       const amount = normaliseCostAmount(request.amount);
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'ops',
-        'recordVenueCost',
-        'POST',
+        OPS_RECORD_VENUE_COST,
         {
           period: request.period,
           category: request.category,
@@ -428,7 +406,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       request.kind === 'protocol.market.restore'
     ) {
       const call = listingCall(request);
-      const result = await founderCall(ctx, 'ops', call.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      const spec = LISTING_CALLS[request.kind];
+      // The record checks the input the request built and parses the answer svc-ops sends.
+      const result = await founderAskedCall(ctx, spec.record, { ...call.input, ...ids });
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;

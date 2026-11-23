@@ -14,7 +14,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -671,6 +671,7 @@ fn a_freeze_or_thaw_without_approval_ids_refuses_and_writes_nothing() {
     assert!(approvals.seen.lock().unwrap().is_empty());
     assert!(state(d.store()).frozen);
 
+    let prior = state(d.store());
     let (status, b) = call(
         &d,
         "POST",
@@ -682,7 +683,18 @@ fn a_freeze_or_thaw_without_approval_ids_refuses_and_writes_nothing() {
     assert_eq!(b.get("frozen"), Some(&Json::Bool(false)));
     assert_eq!(b.get("reason"), Some(&Json::Null));
     assert_eq!(b.get("confirmOperatorId"), Some(&Json::str(APPROVER)));
-    assert_eq!(approvals.seen.lock().unwrap()[0].3, "posting_unfreeze");
+    // The thaw is bound to the empty payload, its target and the version the door read first, as the stack's
+    // proposal binds it (tooling/scripts/local-test-gates.test.mjs).
+    assert_eq!(
+        approvals.seen.lock().unwrap()[0],
+        (
+            "appr-1".to_owned(),
+            "op-1".to_owned(),
+            approval::payload_hash("ledger.unfreeze", &[]),
+            "posting_unfreeze".to_owned(),
+            prior.changed_at_precise
+        )
+    );
 }
 
 #[test]

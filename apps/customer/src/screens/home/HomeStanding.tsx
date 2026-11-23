@@ -3,7 +3,8 @@ import { classifyRefusal } from '../../data/refusal-codes';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
 import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
-import { WalletBar, useOwner } from '../../features/trade/venue/VenueKit';
+import { useOwner } from '../../features/trade/venue/VenueKit';
+import { WalletBar } from '../../features/trade/venue/WalletBar';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { usePreferences } from '../../shared/preferences';
@@ -49,8 +50,8 @@ function Standing({ status, chainId, hidden, pro }: { status: VenueUp; chainId: 
   const owner = useOwner();
   if (!owner)
     return (
-      <div data-testid="home-standing-connect" className="form-stack">
-        <p className="muted">{t('Connect first')}</p>
+      <div data-testid="home-standing-connect" className="lt-stack">
+        <p className="lt-hint">{t('Connect first')}</p>
         <WalletBar />
       </div>
     );

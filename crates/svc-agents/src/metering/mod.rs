@@ -1,4 +1,4 @@
-//! The `metering` slice (`PORT.md`): exact per-session usage, each window sealed and billed once through svc-ledger's
+//! The `metering` slice (`README.md`): exact per-session usage, each window sealed and billed once through svc-ledger's
 //! `postRecipe`, a person's own spend caps, and what their agents cost.
 //!
 //! - [`pricing`]: cost in scaled integers, rounded once per window and rate; window ids; the charge key.

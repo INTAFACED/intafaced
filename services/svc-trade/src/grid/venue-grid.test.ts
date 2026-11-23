@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -434,6 +434,28 @@ describe('the spot grid on the venue (J-copy-bots-otc-14)', { timeout: 60_000 },
     expect(await ourOpen()).toEqual([]);
     expect((await balance('USDC')).locked).toBe(lockedBefore);
     expect(stopped.orders.every((o) => o.status === 'cancelled')).toBe(true);
+  });
+
+  it('a stop retried after a cancel timed out finishes cancelling every order still open on the venue (#9864)', async () => {
+    await approveBuilder();
+    const made = await sign(await create());
+    expect((await ourOpen()).length).toBe(5);
+    // The first cancel gets no definite answer from the venue: the bot is stopped, its orders still rest there.
+    const submit = vi.spyOn(sim, 'submit').mockResolvedValueOnce({ definite: false, reason: 'timeout' });
+    try {
+      await grid.stop(person, made.botId).catch(() => undefined);
+      expect(submit).toHaveBeenCalledWith(
+        expect.objectContaining({ intent: expect.objectContaining({ kind: 'cancel_order' }) }),
+        expect.anything(),
+      );
+      expect((await ourOpen()).length).toBeGreaterThan(0);
+    } finally {
+      submit.mockRestore();
+    }
+    const again = await grid.stop(person, made.botId);
+    expect(again).toMatchObject({ status: 'stopped', statusReason: 'user_stop' });
+    expect(await ourOpen()).toEqual([]);
+    expect(again.orders.every((o) => o.status !== 'open')).toBe(true);
   });
 
   it('pairProfit rounds the cost share up, so a profit is never overstated', () => {

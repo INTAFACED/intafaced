@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { createMinimalOriginalJournal, type JournalPorts } from '../../shared/minimal-original-journal';
 import type { ApiKeyRecord } from './api-key-records-api';
+import { IDENTITY_API_KEYS_REVOKE } from '@intafaced/contracts/identity-api-keys-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const uuid = z.string().guid();
 const timestamp = z.string().refine((value) => {
@@ -39,13 +41,12 @@ export function createApiKeyRevokeJournal(owner: string, ports: JournalPorts) {
   return createMinimalOriginalJournal(apiKeyRevokeStorageKey(owner), (raw) => decodeApiKeyRevokeOriginal(raw, owner), ports);
 }
 
-const resultSchema = z.object({ revoked: z.boolean() }).strict();
-export type ApiKeyRevokeResult = z.infer<typeof resultSchema>;
+export type ApiKeyRevokeResult = ProcedureOutput<typeof IDENTITY_API_KEYS_REVOKE>;
 
 export async function revokeApiKey(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<ApiKeyRevokeResult>> {
   // Original identity is local only. No operation ID/idempotency protocol is
   // mounted here; do not put local correlation or an owner into the wire body.
-  return api.mutate('identity', 'apiKeys.revoke', { keyId: uuid.parse(keyId) }, resultSchema, { signal });
+  return api.call(IDENTITY_API_KEYS_REVOKE, { keyId: uuid.parse(keyId) }, { signal });
 }
 
 export type DirectApiKeyRevokeProof = 'marked-revoked' | 'no-matching-change' | 'denied-before-effect';

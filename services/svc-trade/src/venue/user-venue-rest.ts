@@ -9,6 +9,8 @@
  *   GET  /api/v1/venue/builder-fees?owner=&since=<ISO>  our builder fee on each fill of the caller's own orders on the
  *                                                      account, with the ledger transaction it posted (J-derivatives-12 #4)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
+ *   GET  /api/v1/venue/margin-rules?base=BTC              public: the venue's maximum leverage and one maintenance rate
+ *                                                        on our listed perpetual on that asset (null: not published)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
  *   GET  /api/v1/venue/price-history?symbol=BTC-PERP&kind=mark|index&since=<ISO>  public: the venue's mark or index
@@ -72,7 +74,8 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, StepUpCheckError } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts/edge';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   VenueRefusalError,
   hasSubAccountReads,
@@ -387,6 +390,41 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     });
   });
 
+  // J-algo-dev-02 #5: the venue's published margin rules for the perpetual on an asset, public market data as the
+  // funding history is; no account and no sign-in. A margin backtest reads them.
+  app.get<{ Querystring: Query & { base?: string } }>('/api/v1/venue/margin-rules', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const base = req.query.base ?? '';
+        if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+        return d.marginRules(base);
+      },
+      req.query.venueId,
+    );
+  });
+
+  const isCandleInterval = (raw: string): raw is VenueCandleInterval => Object.hasOwn(VENUE_CANDLE_INTERVALS, raw);
+  // J-algo-dev-04 #2: the venue's candles on the spot market we list on an asset, public market data as the margin rules
+  // are; no account and no sign-in. A paper run prices from them.
+  app.get<{ Querystring: Query & { base?: string; interval?: string; limit?: string } }>(
+    '/api/v1/venue/spot-candles',
+    publicRead,
+    async (req, reply) => {
+      return answer(
+        reply,
+        async (d) => {
+          const base = req.query.base ?? '';
+          if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+          const interval = req.query.interval ?? '';
+          if (!isCandleInterval(interval)) throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+          return d.spotCandles(base, interval, whole(req.query.limit, 'limit', 500, 240));
+        },
+        req.query.venueId,
+      );
+    },
+  );
+
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
   app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
     return answer(reply, async (d) => {
@@ -443,6 +481,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
             detail: `${venue.venue.displayName} lists no vaults`,
           });
         return venue.vaults();
+      },
+      req.query.venueId,
+    );
+  });
+
+  // J-cex-spot-21 #1: the venue's staking terms, signed in or not: its validators with their commission, stake and status,
+  // its reward rate, discount tiers, lock-up, queue and limit as it publishes them (null: not published).
+  app.get<{ Querystring: Query }>('/api/v1/venue/staking', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        if (!venue.staking)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} lists no staking`,
+          });
+        return venue.staking();
       },
       req.query.venueId,
     );
@@ -725,6 +782,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.vaultHoldings(a);
     },
+    // J-cex-spot-21 #2 #3 #6 #7 #8: the account's staking balance, delegations with their lock-up ends, queued and arrived
+    // withdrawals and rewards; a venue that reads none refuses not_offered.
+    '/api/v1/venue/staking-account': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.stakingAccount)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no staking`,
+        });
+      return venue.stakingAccount(a);
+    },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
     '/api/v1/venue/liquidation': async (d, q, a) => {
@@ -846,6 +915,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
     '/api/v1/venue/vault-holdings',
+    '/api/v1/venue/staking-account',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',

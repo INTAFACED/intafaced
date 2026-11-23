@@ -88,7 +88,7 @@ describe('index.ts wiring', () => {
     expect(source.indexOf('retainRawBody(app);')).toBeLessThan(source.indexOf('registerTestAgeDoor(app'));
     expect(source).toMatch(/registerTestAgeDoor\(app, \{\n\s+open: testAgeDoor,/);
     expect(source).toMatch(
-      /'shared-pot-invite': ageSharedPotInvite\(sql\),\s+'business-invite': ageBusinessInvite\(sql\),\s+'pay-yourself-rule': agePayYourselfRule\(sql\)/,
+      /'shared-pot-invite': ageSharedPotInvite\(sql\),\s+'business-invite': ageBusinessInvite\(sql\),\s+'pay-yourself-rule': agePayYourselfRule\(sql\),\s+'scheduled-transfer': ageScheduledTransfer\(sql\)/,
     );
   });
 });

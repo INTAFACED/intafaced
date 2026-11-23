@@ -1,17 +1,14 @@
 import type { Sql } from 'postgres';
-import {
-  checkoutBrandingGetInputSchema,
-  checkoutBrandingSaveInputSchema,
-  checkoutBrandingSavedSchema,
-  checkoutBrandingSchema,
-  router,
-} from '@intafaced/contracts';
+import { checkoutBrandingSaveInputSchema, checkoutBrandingSavedSchema } from '@intafaced/contracts/merchant-checkout-branding';
+import { router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import { CheckoutBrandings } from './branding.js';
 import type { CheckoutLogoRule } from './logo-rules.js';
+import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from '@intafaced/contracts/pay-merchant-checkout-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 export interface CheckoutBrandingMountDeps {
   readonly sql: Sql;
@@ -30,17 +27,17 @@ export function createCheckoutBrandingRouter(deps: CheckoutBrandingMountDeps | u
     if (!brandings || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
     return { brandings, sql: deps.sql };
   };
-  const read = ownMerchantRead();
   const write = teamMemberWrite(() => need().sql);
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({
     merchantCheckout: router({
       branding: router({
-        get: read
-          .input(checkoutBrandingGetInputSchema)
-          .output(checkoutBrandingSchema)
-          .query(({ ctx }) => wrapOps(async () => need().brandings.get(await callerOf(ctx)))),
+        get: mountRecord(
+          PAY_MERCHANT_CHECKOUT_BRANDING_GET,
+          ({ ctx }) => wrapOps(async () => need().brandings.get(await callerOf(ctx))),
+          payRefusal,
+        ),
         save: write
           .input(checkoutBrandingSaveInputSchema)
           .output(checkoutBrandingSavedSchema)

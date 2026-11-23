@@ -127,15 +127,6 @@ const PINNED = {
   // 1 — packages/db
   'packages/db': [[1, "src/db.test.ts | TS2339 | Property 'dbCredentials' does not exist on type 'Config'."]],
 
-  // 5 — services/svc-agents
-  'services/svc-agents': [
-    [
-      2,
-      'src/crew-events.test.ts | TS2345 | Argument of type \'{ crewId: string; userId: string; role: string; crewSize: number; matchRunId: string; }\' is not assignable to parameter of type \'{ crewId: string; userId: string; role: "anchor" | "builder" | "catalyst" | "scout"; crewSize: number; matchRunId: string; }\'.',
-    ],
-    [3, "src/providers/providers.test.ts | TS2339 | Property 'message' does not exist on type 'CompletionResult | ProviderError'."],
-  ],
-
   // 1 — services/svc-bank
   'services/svc-bank': [
     [
@@ -178,9 +169,6 @@ const PINNED = {
       "src/chain/evm/abi.test.ts | TS7016 | Could not find a declaration file for module '../../../scripts/contract-sources.mjs'. '<repo>/services/svc-indexer/scripts/contract-sources.mjs' implicitly has an 'any' type.",
     ],
   ],
-
-  // 1 — services/svc-ledger
-  'services/svc-ledger': [[1, 'src/s2s-http.test.ts | TS2554 | Expected 4 arguments, but got 3.']],
 
   // 0 — services/svc-notify (Wave 13 L12: spawnSync arity fixed; pin deleted)
   'services/svc-notify': [],

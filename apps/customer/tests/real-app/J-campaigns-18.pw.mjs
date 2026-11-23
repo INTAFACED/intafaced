@@ -9,7 +9,7 @@ import { chosePro, signIn, signUp } from './desk.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { ROOT, STACK_PORTS, api, journeyState, restartWith, staffFreeze, staffRestore, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
-import { testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { chainBalance, sameDecimal, testVenue, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 
 // J-campaigns-18, in the running app (docs/roadmap/journeys.json): stop an abuser and review a flagged account. One test
@@ -440,6 +440,11 @@ test(`${J} #4 revokes the abuser's rewards: the owed one cancelled once; the pai
 }) => {
   test.setTimeout(300_000);
   const { abe, first, second, paidKey, owedKey } = state('abe', 'first', 'second', 'paidKey', 'owedKey');
+  // ABE's own money as the outside records report it before the revoke: their wallet on the TEST chain, and their
+  // account on the TEST venue, each read straight from its own record, never through our door or our ledger.
+  const walletBefore = await chainBalance(TOKEN_USD.address, abe.wallet);
+  const venueBefore = await venueBalance(abe.wallet, ASSET);
+  expect(walletBefore >= 10_000n, `ABE's wallet holds ${walletBefore}, not the paid reward`).toBe(true);
   const { page, founder } = await desk(browser, 'a', abe.accountId);
   await page.getByLabel('Reason').fill(`TEST ${J} one person behind three accounts' signals`);
   await page.getByRole('button', { name: 'Revoke this account’s rewards' }).click();
@@ -468,6 +473,11 @@ test(`${J} #4 revokes the abuser's rewards: the owed one cancelled once; the pai
   expect(receipt.transfers).toEqual([{ token: TOKEN_USD.address, from: receipt.from, to: abe.wallet, value: 10_000n }]);
   // The cancelled one is never sent to the wallet.
   expect((await rewardRow(owedKey)).paid_chain_tx).toBeNull();
+  // Nothing was pulled back, from the wallet or from ABE's venue account: both outside records read exactly as before.
+  expect(await chainBalance(TOKEN_USD.address, abe.wallet)).toBe(walletBefore);
+  const venueAfter = await venueBalance(abe.wallet, ASSET);
+  expect(sameDecimal(venueAfter.total, venueBefore.total), `venue ${venueBefore.total} -> ${venueAfter.total}`).toBe(true);
+  expect(sameDecimal(venueAfter.free, venueBefore.free), `venue free ${venueBefore.free} -> ${venueAfter.free}`).toBe(true);
 });
 
 test(`${J} #5 an appeal is filed inside the window; a second person decides: the record shows both people; a blank window refuses disqualification`, async ({

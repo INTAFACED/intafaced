@@ -5,16 +5,16 @@
 import { useMemo } from 'react';
 import {
   classifyRefusal,
-  createTradeApi,
   defaultPoller,
   refusalCopy,
   useDataEnv,
   usePortfolio,
   useSource,
-  type ApiResult,
   type Loadable,
   type RefusalContext,
-} from './deps';
+} from '../../../data';
+import { createTradeApi } from '../../../features/trade/trade-api';
+import type { ApiResult } from '../../../shared/api';
 import type { RefusalCopy } from '../../../data/types';
 
 export interface MarketLimits {

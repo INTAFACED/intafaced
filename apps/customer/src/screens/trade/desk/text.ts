@@ -1,4 +1,5 @@
-import { dec, fmtAmount, fmtPct, fmtPrice, fmtUsd, type TickerRow } from './deps';
+import { fmtAmount, fmtPct, fmtPrice, fmtUsd, type TickerRow } from '../../../data';
+import { dec } from '../../../data/decimal';
 import type { DeskMarket } from './market';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

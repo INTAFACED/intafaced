@@ -132,7 +132,7 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
             <EmptyState title={t('historyEmpty')} />
           ) : (
             <>
-              <p className="muted">{t('historyNote')}</p>
+              <p className="lt-muted">{t('historyNote')}</p>
               <DataTable label={t('history')} headers={[t('hProposal'), t('hFixed'), t('hPower')]}>
                 {rows.map((row) => (
                   <tr key={row.proposalId} data-proposal-id={row.proposalId}>
@@ -337,8 +337,8 @@ export function ChoiceBallot({
       )}
       <section className="token-ballot-sign" aria-label={t('message')}>
         <h4>{t('message')}</h4>
-        {message ? <pre lang="zxx">{message}</pre> : <p className="muted">{t('messagePending')}</p>}
-        <p className="muted">{t('messageNote')}</p>
+        {message ? <pre lang="zxx">{message}</pre> : <p className="lt-muted">{t('messagePending')}</p>}
+        <p className="lt-muted">{t('messageNote')}</p>
         <Read resource={power.resource} retry={power.reload}>
           {(p) =>
             p.signing.code ? (
@@ -349,7 +349,7 @@ export function ChoiceBallot({
           }
         </Read>
       </section>
-      <div className="actions">
+      <div className="lt-actions">
         <Button type="submit" disabled={!open || busy || !ballot}>
           {t('sign')}
         </Button>
@@ -401,7 +401,7 @@ export function ChoiceTallyView({
           [t('voters'), String(tally.voterCount)],
         ]}
       />
-      {tally.rounds && <p className="muted">{t('rounds', { count: String(tally.rounds.length) })}</p>}
+      {tally.rounds && <p className="lt-muted">{t('rounds', { count: String(tally.rounds.length) })}</p>}
       {closedRanked && <p role="status">{t('closedRanked')}</p>}
     </section>
   );

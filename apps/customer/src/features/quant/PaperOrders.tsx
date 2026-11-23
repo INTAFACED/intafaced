@@ -46,9 +46,9 @@ export function PaperOrders({
   return (
     <>
       <h3>{t('eventsTitle')}</h3>
-      <p className="muted">{t('eventsNote')}</p>
+      <p className="lt-muted">{t('eventsNote')}</p>
       {events.length === 0 ? (
-        <p className="muted">{t('eventsNone')}</p>
+        <p className="lt-muted">{t('eventsNone')}</p>
       ) : (
         <ol data-testid="quant-order-events">
           {events.map((e) => (
@@ -102,7 +102,7 @@ export function PaperOrders({
         </>
       )}
       <h3>{t('ticksTitle')}</h3>
-      <p className="muted">{t('ticksNote')}</p>
+      <p className="lt-muted">{t('ticksNote')}</p>
       <ul data-testid="quant-paper-ticks" data-label={ticks.label}>
         {Object.entries(ticks.path).map(([symbol, path]) => (
           <li key={symbol} lang="zxx">

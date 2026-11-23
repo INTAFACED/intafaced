@@ -1293,6 +1293,137 @@
         }
       ]
     },
+    "token.distributeRevenue": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "distributeRevenue",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:treasury"
+      },
+      "refusals": {
+        "action_approval.consume_failed": "PRECONDITION_FAILED",
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "token.yield_source_underfunded": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sources": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "module": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["module", "amount"]
+            }
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["windowId", "sources"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowId": {
+            "type": "string"
+          },
+          "distributed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "recipients": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "alreadyPaid": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["windowId", "distributed", "recipients", "skipped", "alreadyPaid", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "windowId": "USDC",
+            "sources": [
+              {
+                "module": "USDC",
+                "amount": "1"
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "token.editProposal": {
       "service": "svc-token",
       "module": "token",
@@ -2931,6 +3062,1780 @@
         }
       ]
     },
+    "token.launch.admin.events": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.admin.events",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {
+        "launch.events_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["applied", "reviewing", "onboarded", "suspended"]
+                }
+              },
+              "required": ["id", "name", "state"],
+              "additionalProperties": false
+            },
+            "type": {
+              "type": "string",
+              "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "periods": {
+              "type": "object",
+              "properties": {
+                "announceAt": {
+                  "type": "string"
+                },
+                "snapshotAt": {
+                  "type": "string"
+                },
+                "openAt": {
+                  "type": "string"
+                },
+                "closeAt": {
+                  "type": "string"
+                },
+                "distributionAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["announceAt", "snapshotAt", "openAt", "closeAt", "distributionAt"],
+              "additionalProperties": false
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["upcoming", "open", "past"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "allocation": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["pro_rata", "tickets", "tiered"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "perUserCap": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ticketSize": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tierWeights": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "minBasis": {
+                            "type": "string",
+                            "pattern": "^\\d+(\\.\\d{1,18})?$"
+                          },
+                          "weight": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["minBasis", "weight"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["method", "perUserCap", "ticketSize", "tierWeights"],
+              "additionalProperties": false
+            },
+            "terms": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "paymentAsset": {
+                  "type": ["string", "null"]
+                },
+                "rateSource": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["price", "paymentAsset", "rateSource"],
+              "additionalProperties": false
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "total": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "takenAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["count", "total", "takenAt"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "issuer",
+            "type",
+            "projectName",
+            "symbol",
+            "periods",
+            "status",
+            "state",
+            "allocation",
+            "terms",
+            "snapshot",
+            "revision"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.admin.issuers": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.admin.issuers",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {
+        "launch.events_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["applied", "reviewing", "onboarded", "suspended"]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["id", "name", "state", "revision"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.admin.moves": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.admin.moves",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["issuer", "event"]
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 63
+            }
+          }
+        },
+        "required": ["kind", "ids"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ordinal": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "from": {
+                "type": ["string", "null"]
+              },
+              "to": {
+                "type": "string"
+              },
+              "actorId": {
+                "type": "string"
+              },
+              "approverId": {
+                "type": "string"
+              },
+              "cause": {
+                "type": ["string", "null"]
+              },
+              "at": {
+                "type": "string"
+              }
+            },
+            "required": ["ordinal", "from", "to", "actorId", "approverId", "cause", "at"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "kind": "issuer",
+            "ids": ["USDC"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.basis": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.basis",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["pro_rata", "tickets", "tiered"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "perUserCap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticketSize": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tierWeights": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minBasis": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "weight": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["minBasis", "weight"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["snapshot_not_taken", "no_holdings_at_snapshot"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "takenAt": {
+            "type": ["string", "null"]
+          },
+          "tickets": {
+            "type": ["string", "null"]
+          },
+          "tierWeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["eventId", "method", "perUserCap", "ticketSize", "tierWeights", "basis", "reason", "takenAt", "tickets", "tierWeight"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.eligibility": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.eligibility",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read"
+      },
+      "refusals": {
+        "launch.eligibility_unavailable": "PRECONDITION_FAILED",
+        "launch.min_kyc_tier_unset": "PRECONDITION_FAILED",
+        "launch.restricted_regions_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": ["identity_verification", "region", "account_active", "main_account", "issuer_onboarded", "event_open"]
+                },
+                "met": {
+                  "type": "boolean"
+                },
+                "required": {
+                  "type": "string"
+                },
+                "actual": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "met", "required", "actual"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["eventId", "eligible", "requirements"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.events.create": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "launch.events.create",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write"
+      },
+      "refusals": {
+        "launch.event_invalid": "BAD_REQUEST",
+        "launch.issuer_not_found": "NOT_FOUND",
+        "missing_operator": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          },
+          "issuerId": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          },
+          "type": {
+            "type": "string",
+            "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+          },
+          "projectName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 12
+          },
+          "periods": {
+            "type": "object",
+            "properties": {
+              "announceAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "snapshotAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "openAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "closeAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "distributionAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": ["announceAt", "snapshotAt", "openAt", "closeAt", "distributionAt"],
+            "additionalProperties": false
+          },
+          "allocation": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["pro_rata", "tickets", "tiered"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "perUserCap": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ticketSize": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tierWeights": {
+                "anyOf": [
+                  {
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "minBasis": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["minBasis", "weight"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["method", "perUserCap", "ticketSize", "tierWeights"],
+            "additionalProperties": false
+          },
+          "terms": {
+            "type": "object",
+            "properties": {
+              "price": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paymentAsset": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 12
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rateSource": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["price", "paymentAsset", "rateSource"],
+            "additionalProperties": false
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "issuerId", "type", "projectName", "symbol", "periods", "allocation", "terms"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "revision", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "issuerId": "USDC",
+            "type": "token_sale",
+            "projectName": "USDC",
+            "symbol": "USDC",
+            "periods": {
+              "announceAt": "2026-01-01T00:00:00.000Z",
+              "snapshotAt": "2026-01-01T00:00:00.000Z",
+              "openAt": "2026-01-01T00:00:00.000Z",
+              "closeAt": "2026-01-01T00:00:00.000Z",
+              "distributionAt": "2026-01-01T00:00:00.000Z"
+            },
+            "allocation": {
+              "method": "pro_rata",
+              "perUserCap": "1",
+              "ticketSize": "1",
+              "tierWeights": []
+            },
+            "terms": {
+              "price": "1",
+              "paymentAsset": "USDC",
+              "rateSource": "USDC"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.events.get": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.events.get",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "launch.event_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": ["applied", "reviewing", "onboarded", "suspended"]
+              }
+            },
+            "required": ["id", "name", "state"],
+            "additionalProperties": false
+          },
+          "type": {
+            "type": "string",
+            "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "object",
+            "properties": {
+              "announceAt": {
+                "type": "string"
+              },
+              "snapshotAt": {
+                "type": "string"
+              },
+              "openAt": {
+                "type": "string"
+              },
+              "closeAt": {
+                "type": "string"
+              },
+              "distributionAt": {
+                "type": "string"
+              }
+            },
+            "required": ["announceAt", "snapshotAt", "openAt", "closeAt", "distributionAt"],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["upcoming", "open", "past"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allocation": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["pro_rata", "tickets", "tiered"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "perUserCap": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ticketSize": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tierWeights": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "minBasis": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["minBasis", "weight"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["method", "perUserCap", "ticketSize", "tierWeights"],
+            "additionalProperties": false
+          },
+          "terms": {
+            "type": "object",
+            "properties": {
+              "price": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paymentAsset": {
+                "type": ["string", "null"]
+              },
+              "rateSource": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["price", "paymentAsset", "rateSource"],
+            "additionalProperties": false
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "takenAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "takenAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "issuer",
+          "type",
+          "projectName",
+          "symbol",
+          "periods",
+          "status",
+          "state",
+          "allocation",
+          "terms",
+          "snapshot",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.events.list": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "launch.events.list",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "launch.events_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["upcoming", "open", "past"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["applied", "reviewing", "onboarded", "suspended"]
+                }
+              },
+              "required": ["id", "name", "state"],
+              "additionalProperties": false
+            },
+            "type": {
+              "type": "string",
+              "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+            },
+            "projectName": {
+              "type": "string"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "periods": {
+              "type": "object",
+              "properties": {
+                "announceAt": {
+                  "type": "string"
+                },
+                "snapshotAt": {
+                  "type": "string"
+                },
+                "openAt": {
+                  "type": "string"
+                },
+                "closeAt": {
+                  "type": "string"
+                },
+                "distributionAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["announceAt", "snapshotAt", "openAt", "closeAt", "distributionAt"],
+              "additionalProperties": false
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["upcoming", "open", "past"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "allocation": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["pro_rata", "tickets", "tiered"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "perUserCap": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ticketSize": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tierWeights": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "minBasis": {
+                            "type": "string",
+                            "pattern": "^\\d+(\\.\\d{1,18})?$"
+                          },
+                          "weight": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["minBasis", "weight"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["method", "perUserCap", "ticketSize", "tierWeights"],
+              "additionalProperties": false
+            },
+            "terms": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "paymentAsset": {
+                  "type": ["string", "null"]
+                },
+                "rateSource": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["price", "paymentAsset", "rateSource"],
+              "additionalProperties": false
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "total": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "takenAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["count", "total", "takenAt"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "issuer",
+            "type",
+            "projectName",
+            "symbol",
+            "periods",
+            "status",
+            "state",
+            "allocation",
+            "terms",
+            "snapshot",
+            "revision"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.events.move": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "launch.events.move",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write"
+      },
+      "refusals": {
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "launch.event_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          },
+          "to": {
+            "type": "string",
+            "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "to", "expectedRevision"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": ["applied", "reviewing", "onboarded", "suspended"]
+              }
+            },
+            "required": ["id", "name", "state"],
+            "additionalProperties": false
+          },
+          "type": {
+            "type": "string",
+            "enum": ["token_sale", "whitelist_drop", "primary_subscription"]
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "object",
+            "properties": {
+              "announceAt": {
+                "type": "string"
+              },
+              "snapshotAt": {
+                "type": "string"
+              },
+              "openAt": {
+                "type": "string"
+              },
+              "closeAt": {
+                "type": "string"
+              },
+              "distributionAt": {
+                "type": "string"
+              }
+            },
+            "required": ["announceAt", "snapshotAt", "openAt", "closeAt", "distributionAt"],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "announced", "snapshot", "open", "closed", "allocated", "distributing", "complete", "cancelled"]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["upcoming", "open", "past"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allocation": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["pro_rata", "tickets", "tiered"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "perUserCap": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ticketSize": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tierWeights": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "minBasis": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["minBasis", "weight"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["method", "perUserCap", "ticketSize", "tierWeights"],
+            "additionalProperties": false
+          },
+          "terms": {
+            "type": "object",
+            "properties": {
+              "price": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paymentAsset": {
+                "type": ["string", "null"]
+              },
+              "rateSource": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["price", "paymentAsset", "rateSource"],
+            "additionalProperties": false
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "takenAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "takenAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "issuer",
+          "type",
+          "projectName",
+          "symbol",
+          "periods",
+          "status",
+          "state",
+          "allocation",
+          "terms",
+          "snapshot",
+          "revision",
+          "confirmOperatorId"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "to": "draft",
+            "expectedRevision": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.launch.issuer.set": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "launch.issuer.set",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write"
+      },
+      "refusals": {
+        "launch.issuer_move_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "state": {
+            "type": "string",
+            "enum": ["applied", "reviewing", "onboarded", "suspended"]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "name", "state", "expectedRevision"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["applied", "reviewing", "onboarded", "suspended"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state", "revision", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC",
+            "name": "USDC",
+            "state": "applied",
+            "expectedRevision": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "token.listProposals": {
       "service": "svc-token",
       "module": "token",
@@ -3311,6 +5216,89 @@
           "input": {
             "limit": 0
           }
+        }
+      ]
+    },
+    "token.mintEpoch": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "mintEpoch",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-token"],
+        "forbidden": "token job is callable only as svc-token"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "minted": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["epoch", "minted"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "token.nextEmissionEpoch": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "nextEmissionEpoch",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["epoch"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },

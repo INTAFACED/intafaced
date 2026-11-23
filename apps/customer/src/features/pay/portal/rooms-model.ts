@@ -30,6 +30,12 @@ export type RoomDef = {
    * where the account is made). A function draws its own body (the team page, for invitations).
    */
   withoutBusiness?: 'render' | ((ctx: RoomContext) => ReactNode);
+  /**
+   * The page is on its Volt template and draws its own title row from the heading the frame hands it
+   * (`volt/heading.ts`), so the frame draws only the navigation. A person with no business account still gets the
+   * frame's own heading over the calm "No business account yet" state, since the page's own code never runs.
+   */
+  ownTitle?: true;
 };
 export type RoomTable = Partial<Record<PortalRoom, RoomDef>>;
 

@@ -1,4 +1,4 @@
-//! The wire replay. `services/svc-ledger/src/wire-replay.golden/` is what the TypeScript service's served doors
+//! The wire replay. `tests/fixtures/wire-replay.golden/` is what the TypeScript service's served doors
 //! answered (`wire-replay.test.ts`): every route `index.ts` registers, six bodies, every caller kind, under three
 //! settings (`blank`: the shared secret alone; `set-dual` and `set-keypair`: per-service keys in each mode), with the
 //! database and the bus refusing every call. This sends the same requests, built the same way (signed with fresh
@@ -9,7 +9,7 @@
 //! input check. Any other answer is a slice's: the door names the slice that owes it, and it is counted, printed and
 //! fails nothing. One difference the door decided fails the test.
 //!
-//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test wire_replay -- --nocapture` prints that slice's owed
+//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test it -- wire_replay:: --nocapture` prints that slice's owed
 //! answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any. The recording is read from the TypeScript
 //! service while it exists; the switch copies it here before that service is deleted.
 #![allow(
@@ -44,8 +44,7 @@ const OPERATOR: &str = "11111111-1111-4111-8111-111111111111";
 const TOKEN_SECRET: &str = "placeholder-ledger-wire-replay-operator-secret";
 
 fn golden_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../services/svc-ledger/src/wire-replay.golden")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wire-replay.golden")
 }
 
 /// One recorded answer.

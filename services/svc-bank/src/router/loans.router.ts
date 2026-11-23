@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { loanServicingPreviewProcedures } from '../loans/loan-servicing-preview.js';
 import { loanCustomerReadProcedures } from '../loans/loan-reads.router.js';

@@ -337,6 +337,8 @@ pub struct Thrown(pub String);
 enum Check {
     MinLength(usize),
     MaxLength(usize),
+    /// `.length(n)`: exactly `n` (code points for a string, as the length checks count them).
+    LengthEquals(usize),
     Regex(Regex, Option<String>),
     StartsWith(String, Option<String>),
     Format(&'static str, Regex, Option<String>),
@@ -485,6 +487,7 @@ fn read_check(c: &Json) -> Result<Check, String> {
     Ok(match k {
         "min_length" => Check::MinLength(field_usize(c, "n")?),
         "max_length" => Check::MaxLength(field_usize(c, "n")?),
+        "length_equals" => Check::LengthEquals(field_usize(c, "n")?),
         "regex" => Check::Regex(
             Regex::new(field_str(c, "src").ok_or("a regex without its source")?)?,
             msg,
@@ -500,6 +503,7 @@ fn read_check(c: &Json) -> Result<Check, String> {
                 Some("guid") => "guid",
                 Some("datetime") => "datetime",
                 Some("uuid") => "uuid",
+                Some("date") => "date",
                 other => return Err(format!("an unknown format {other:?}")),
             };
             Check::Format(
@@ -605,7 +609,8 @@ fn read_node(n: &Json) -> Result<Node, String> {
             field_usize(n, "in")?,
             n.get("value").cloned().unwrap_or(Json::Null),
         ),
-        "lazy" => Kind::Lazy(field_usize(n, "in")?),
+        // `.readonly()` parses as its inner part does (it only freezes the output), as a lazy part does.
+        "lazy" | "readonly" => Kind::Lazy(field_usize(n, "in")?),
         "union" => Kind::Union(ids(n, "options")?),
         "dunion" => Kind::Dunion(
             field_str(n, "disc")
@@ -838,7 +843,10 @@ impl Schema {
     ) -> Result<Payload, Thrown> {
         let mut is_aborted = aborted(&p.issues, 0);
         for ch in checks {
-            if matches!(ch, Check::MinLength(_) | Check::MaxLength(_)) {
+            if matches!(
+                ch,
+                Check::MinLength(_) | Check::MaxLength(_) | Check::LengthEquals(_)
+            ) {
                 if explicitly_aborted(&p.issues) || matches!(length_of(&p.value), Length::None) {
                     continue;
                 }
@@ -906,6 +914,38 @@ impl Schema {
                     Cont::Yes,
                 ));
             }
+            Check::LengthEquals(n) => {
+                let length = match length_of(&p.value) {
+                    Length::None => return Ok(()),
+                    Length::Str(u, cp) => usize_f64(if u >= *n && u <= n * 2 { cp } else { u }),
+                    Length::Count(c) => c,
+                };
+                if length == usize_f64(*n) {
+                    return Ok(());
+                }
+                let o = origin(&p.value);
+                let big = length > usize_f64(*n);
+                let (code, bound, word) = if big {
+                    ("too_big", "maximum", "Too big")
+                } else {
+                    ("too_small", "minimum", "Too small")
+                };
+                let message = match units(o) {
+                    Some(u) => format!("{word}: expected {o} to have exactly {n} {u}"),
+                    None => format!("{word}: expected {o} to be exactly {n}"),
+                };
+                p.issues.push(Issue::new(
+                    vec![
+                        ("origin", Json::str(o)),
+                        ("code", Json::str(code)),
+                        (bound, num(*n)),
+                        ("inclusive", Json::Bool(true)),
+                        ("exact", Json::Bool(true)),
+                    ],
+                    message,
+                    Cont::Yes,
+                ));
+            }
             Check::Regex(re, msg) => {
                 let Some(s) = p.value.as_str() else {
                     return Ok(());
@@ -937,6 +977,7 @@ impl Schema {
                 let name = match *format {
                     "guid" => "GUID",
                     "uuid" => "UUID",
+                    "date" => "ISO date",
                     _ => "ISO datetime",
                 };
                 p.issues.push(Issue::new(

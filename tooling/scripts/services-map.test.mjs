@@ -89,12 +89,13 @@ const STILL_REQUIRED = {
   'svc-edge': ['EDGE_BODY_LIMIT_BYTES', 'EDGE_RATE_LIMIT_MAX', 'EDGE_RATE_LIMIT_WINDOW_MS'],
   'svc-ledger': ['RECONCILE_CRON_MINUTES'],
   'svc-matching': ['MATCHING_SNAPSHOT_EVERY'],
-  'svc-agents': ['AGENTS_METERING_ENABLED'],
+  'svc-agents': ['AGENTS_FEE_ASSET_ID', 'AGENTS_METERING_ENABLED', 'AGENTS_USAGE_WINDOW_MINUTES', 'LEDGER_URL'],
   'svc-bank': ['LOAN_QUOTE_ASSET_ID', 'LOAN_SWEEP_BATCH_SIZE', 'TRANSFER_BATCH_SIZE'],
 };
 
 function envCell(table, service) {
-  const row = table.split('\n').find((l) => l.startsWith(`| \`${service}\` |`));
+  // A Rust service's row names its crate after the service: `| `svc-x` (Rust, `crates/svc-x`) |`.
+  const row = table.split('\n').find((l) => l.startsWith(`| \`${service}\` |`) || l.startsWith(`| \`${service}\` (Rust, `));
   assert.ok(row, `${service} has a row`);
   return row.split(' | ').pop();
 }
@@ -126,6 +127,18 @@ test("a Rust service's required env is each field env.rs refuses when unset, and
     let b = field("B_PORT", get("B_PORT").map_or(Ok(4020), |v| coerce_int(v)));
     let c = get("C_NAME").unwrap_or("x");`;
   assert.deepEqual(rustRequiredEnv(env), ['A_SECRET']);
+  // A blank read as NaN, and a blank integer with no default, refuse when unset; one with a default does not.
+  const ints = `
+    let v = coerce_int(f.blank("D_POOL").unwrap_or("NaN"), Some((1, false)), Some(200));
+    o.blank_int("E_MINUTES", None, 1, None);
+    o.blank_int("F_MINUTES", Some(5), 1, None);`;
+  assert.deepEqual(rustRequiredEnv(ints), ['D_POOL', 'E_MINUTES']);
+  // An unset field read as empty text is required only when the same source refuses it by name.
+  const listed = `
+    let ids = o.f.get("G_IDS").unwrap_or("").to_owned();
+    if parse(&ids).len() < 2 { o.issue("G_IDS", MESSAGE); }
+    let note = o.f.get("H_NOTE").unwrap_or("").to_owned();`;
+  assert.deepEqual(rustRequiredEnv(listed), ['G_IDS']);
   const kit = `
 pub fn edge(f: &mut Fields<'_>) -> EdgeEnv {
     let v = f.get("K_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32));
