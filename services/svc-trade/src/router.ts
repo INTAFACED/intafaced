@@ -9,6 +9,7 @@ import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { tradeRefusal } from './record-refusal.js';
 import { COPY_MY_COPY_FEES } from '@intafaced/contracts/trade-copy-procedures';
 import type { GridService } from './grid/grid-service.js';
@@ -1788,23 +1789,15 @@ export function createTradeRouter(
 
       /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
       setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.unknown())
+        .input(jsonValueSchema.optional())
         .output(refusedAlwaysAnswer)
-        .mutation(() =>
-          guard(async () => {
-            refusePnlLinkedCopyFee();
-          }),
-        ),
+        .mutation(() => guard(async () => refusePnlLinkedCopyFee())),
 
       /** A maximum ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #5). */
       setMaxRatio: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.unknown())
+        .input(jsonValueSchema.optional())
         .output(refusedAlwaysAnswer)
-        .mutation(() =>
-          guard(async () => {
-            refusePnlLinkedCopyFee();
-          }),
-        ),
+        .mutation(() => guard(async () => refusePnlLinkedCopyFee())),
 
       /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
       closeCopiedPosition: mountRecord(
