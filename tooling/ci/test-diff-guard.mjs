@@ -57,7 +57,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
-import { countCall } from './api-count.mjs';
+import { githubFetch } from './github-fetch.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -255,14 +255,13 @@ export const SERVER_ERROR_WAITS_MS = [2_000, 6_000];
  */
 export function restReader(
   token,
-  { fetchImpl = fetch, waits = SERVER_ERROR_WAITS_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+  { fetchImpl = githubFetch, waits = SERVER_ERROR_WAITS_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
 ) {
   const get = async (path) => {
     for (let attempt = 0; ; attempt++) {
       const res = await fetchImpl(`https://api.github.com${path}`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
       });
-      countCall(res);
       if (res.ok) return res;
       if (res.status >= 500 && attempt < waits.length) {
         await sleep(waits[attempt]);
