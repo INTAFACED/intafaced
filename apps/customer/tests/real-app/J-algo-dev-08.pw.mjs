@@ -237,6 +237,26 @@ test(`${J} #2 changes the teammate to edit without live control: they can save; 
     [2, MATE_NAME, 'TEST teammate edit'],
   ]);
 
+  // A manual order to the owner's running paper run is refused as permission denied, and nothing reaches the run.
+  const traded = await ok(owner, 'paper.get', { runId });
+  const order = shared.getByTestId('quant-shared-order');
+  await order.getByLabel('Paper run').selectOption(runId);
+  await order.getByLabel('Side').selectOption('buy');
+  await order.getByLabel('Order size').fill('0.01');
+  await order.getByRole('button', { name: 'Send manual order' }).click();
+  const orderRefusal = order.getByTestId('quant-shared-order-refusal');
+  await expect(orderRefusal).toHaveAttribute('data-code', 'quant.permission_denied');
+  await expect(orderRefusal).toHaveText(
+    'You were given no live control of this strategy, so you cannot send its runs a manual order. Nothing was sent.',
+  );
+  const directOrder = await quant(mate, 'team.order', { strategyId, runId, side: 'buy', size: '0.01' }, 'POST');
+  expect(directOrder.status).toBe(403);
+  expect(JSON.stringify(directOrder.body)).toMatch(/quant\.permission_denied — /);
+  const untouched = await ok(owner, 'paper.get', { runId });
+  expect(untouched.state).toBe('running');
+  // Trades come only from the run's own rules on closed bars, so none can be newer than the bars the run had read.
+  expect(untouched.trades.slice(0, traded.trades.length)).toEqual(traded.trades);
+
   // A stop of the owner's running paper run is refused as permission denied, and the run keeps running.
   const runs = shared.getByTestId('quant-shared-runs');
   const runRow = runs.locator(`[data-testid="quant-shared-run"][data-run-id="${runId}"]`);

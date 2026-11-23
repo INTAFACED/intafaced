@@ -215,7 +215,10 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   await box.getByLabel('Start when the price reaches').fill(trigger);
 
   await page.getByRole('button', { name: 'Review schedule' }).click();
-  const sizes = await page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem').allInnerTexts();
+  // The dialog reads the sizes from the service after it opens ("Reading the slice sizes…"), so wait for the list.
+  const slices = page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem');
+  await expect(slices).toHaveCount(10);
+  const sizes = await slices.allInnerTexts();
   expect(sizes.length).toBe(10);
   const sum = sizes.reduce((acc, s) => acc + toUnits(s.replace(/[^\d.]/g, '')), 0n);
   expect(sum).toBe(toUnits('0.003'));
@@ -263,6 +266,10 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   expect(restarted.status).toBe('active');
   expect(restarted.awaitingTrigger).toBe(true);
   expect(restarted.children).toHaveLength(0);
+  // The room shows it too: its next 10 s read after the restart replaces the read the restart broke.
+  await expect(schedules(page).getByText('Could not read', { exact: true })).toHaveCount(0, { timeout: 30_000 });
+  // The value cell also holds the trigger price as its hint, so the words are matched as a part.
+  await expect(detail(page).getByText(/Waiting for the trigger price/)).toBeVisible({ timeout: 30_000 });
   run.write({ triggered: id });
 });
 
@@ -912,7 +919,9 @@ async function progressOf(who, algoId) {
 
 /** The schedule id each row of the list names for assistive technology, in row order. */
 async function rowIds(list) {
-  const names = await list.getByRole('row').evaluateAll((rows) => rows.map((r) => r.querySelector('.sr-only')?.textContent ?? null));
+  const names = await list
+    .getByRole('row')
+    .evaluateAll((rows) => rows.map((r) => r.querySelector(':is(.sr-only, .lt-sr)')?.textContent ?? null));
   return names.filter((n) => n !== null).map((n) => n.replace(/^Schedule /, ''));
 }
 

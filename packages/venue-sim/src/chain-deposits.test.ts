@@ -306,6 +306,22 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     expect(await w.free()).toBe(a('14'));
   });
 
+  it('J-bank-31 #4: while withdrawals are held (TEST switch) nothing is paid and each stays pending; released, it is paid once', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const nonce = await w.withdraw('10', 1);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.sim.switches.withdrawalsHeld = true;
+    w.advance(60_000);
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
+    expect(chain.sent).toEqual([]);
+    expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('pending');
+    w.sim.switches.withdrawalsHeld = false;
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
+    expect(chain.sent).toHaveLength(1);
+  });
+
   it('a payment whose answer was lost is found on chain and never sent again', async () => {
     const w = world();
     creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);

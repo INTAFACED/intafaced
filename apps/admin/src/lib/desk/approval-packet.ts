@@ -4,10 +4,10 @@ import {
   reconciliationDecimalSchema,
   type ReconciliationLifecycle,
 } from '@intafaced/contracts/ledger-reconciliation';
-import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
+import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics';
 import { OPS_CAPITAL_ASSET, OPS_CAPITAL_CONTACT_MAX, OPS_CAPITAL_MINIMUM } from '@intafaced/contracts/ops-capital';
-import { METADATA_KEY } from '@/lib/ledger/account-metadata';
-import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance/model';
+import { DEPOSIT_ADDRESS, METADATA_KEY, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
+import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance';
 import {
   LAUNCH_ID,
   LAUNCH_ISSUER_STATES,
@@ -15,8 +15,8 @@ import {
   readLaunchEventPayload,
   type LaunchIssuerState,
   type LaunchMoveTarget,
-} from '@/lib/launch-issuers/model';
-import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
+} from '@/lib/launch-issuers';
+import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import { approvalPolicySetFieldsSchema, type ConsoleSettablePolicyActionType } from '@intafaced/contracts/action-approval-policy';
@@ -26,6 +26,7 @@ import {
   ACCOUNT_LIMIT_RAILS,
   type AccountLimitRail,
 } from '@intafaced/contracts/account-controls';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The request a founder hands to the other founder.
@@ -50,8 +51,6 @@ export const ARCHIVE_REASON_CODES = ['dormant', 'customer_request', 'duplicate',
 export type AccountArchiveReasonCode = (typeof ARCHIVE_REASON_CODES)[number];
 
 export const PACKET_PREFIX = 'ifa1.';
-export const REASON_MIN = 12;
-export const REASON_MAX = 500;
 const MAX_PACKET_CHARS = 6_000;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
@@ -317,16 +316,12 @@ const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CERT_PUBLIC_ID = /^[0-9a-f]{32}$/;
 const CERT_ID = /^[a-z0-9:_-]{1,64}$/;
 /** svc-ops' reconciliation alert evidence hash: SHA-256 hex of the contract's canonical evidence. */
 const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
 const HOLD_NO = /^[1-9][0-9]{0,18}$/;
-/** svc-pay's network id and deposit address shapes (`custody/deposits/freezes.ts`), and the platform's user and freeze ids. */
-export const NETWORK_ID = /^[A-Za-z0-9_-]{1,32}$/;
-export const DEPOSIT_ADDRESS = /^\S{1,256}$/;
 /**
  * svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it), and a watermark: printable with no spaces, at
  * most 256 characters. Every service reports its position as a decimal string (contracts `restoreWatermarkReadSchema`), and a
@@ -354,10 +349,6 @@ export interface ApprovalPacket {
   readonly expiresAt: string;
   /** Who proposed it (identity user id). Display only; identity decides. */
   readonly requesterId: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 /** Identity's tier ids: lowercase letters, digits, `_` and `-`, at most 32. */

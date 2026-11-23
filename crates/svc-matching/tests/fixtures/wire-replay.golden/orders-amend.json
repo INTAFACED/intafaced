@@ -1,0 +1,902 @@
+{
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"sequence\":1,\"version\":2,\"priority\":\"retained\",\"fills\":[],\"resting\":{\"kind\":\"book\",\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"side\":\"buy\",\"price\":\"30000\",\"remaining\":\"1\",\"sequence\":1,\"version\":2},\"rejected\":null,\"cancellations\":[],\"triggered\":[]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": amend must change qty, price, stopPrice, or tif\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"lifecycleProof.action: must be AMEND for this order\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"OrderNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"expectedVersion: Invalid input: expected number, received undefined\",\"lifecycleProof: Invalid input: expected object, received undefined\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"sequence\":null,\"version\":null,\"priority\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"version_mismatch\",\"message\":\"order bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb is at version 2\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"expectedVersion: Invalid input: expected number, received null\",\"qty: Invalid input: expected string, received null\",\"lifecycleProof: Invalid input: expected object, received null\"]}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"sequence\":2,\"version\":2,\"priority\":\"retained\",\"fills\":[],\"resting\":{\"kind\":\"book\",\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"side\":\"buy\",\"price\":\"30000\",\"remaining\":\"1\",\"sequence\":2,\"version\":2},\"rejected\":null,\"cancellations\":[],\"triggered\":[]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": amend must change qty, price, stopPrice, or tif\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb nothing-changed founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"lifecycleProof.action: must be AMEND for this order\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb place-proof founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"OrderNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd unknown-order founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"expectedVersion: Invalid input: expected number, received undefined\",\"lifecycleProof: Invalid input: expected object, received undefined\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":false,\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"sequence\":null,\"version\":null,\"priority\":null,\"fills\":[],\"resting\":null,\"rejected\":{\"code\":\"version_mismatch\",\"message\":\"order bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb is at version 2\"},\"cancellations\":[],\"triggered\":[]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"expectedVersion: Invalid input: expected number, received null\",\"qty: Invalid input: expected string, received null\",\"lifecycleProof: Invalid input: expected object, received null\"]}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set PATCH /markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  }
+}

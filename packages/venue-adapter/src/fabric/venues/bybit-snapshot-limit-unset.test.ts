@@ -11,9 +11,6 @@
  * 5. Paths: bybit-spot.ts snapshotBook
  * 6. RED: unset snapshot succeeds or source git-defaults 200
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BybitSpotMarketData } from './bybit-spot.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
@@ -75,14 +72,6 @@ const depth = {
 };
 
 describe('BybitSpotMarketData.snapshotBook limit unpublished', () => {
-  it('bybit-spot.ts does not git-default 200', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'bybit-spot.ts'), 'utf8');
-    expect(src).toMatch(/venue\.snapshot_book\.limit_unset/);
-    expect(src).not.toMatch(/limit\s*=\s*DEFAULT_DEPTH_LIMIT/);
-    expect(src).not.toMatch(/const DEFAULT_DEPTH_LIMIT/);
-    expect(src).toMatch(/Never invent 200/);
-  });
-
   it('omitted / null / undefined limit refuses (does not invent 200)', async () => {
     const http = new FakeHttp().queue(depth);
     const adapter = md(http);

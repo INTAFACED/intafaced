@@ -3,9 +3,10 @@ import { ChevronRight } from 'lucide-react';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { noticeCopy } from './notice-copy';
-import { StatusTag } from './deps';
+import { StatusTag } from './volt-parts';
 import { homeNotices, type HomeNotice } from './notice-model';
-import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import { NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { NOTICE_LIST_LIMIT, readLatestAnnouncements, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -48,10 +49,7 @@ function useLogged(resource: Resource<unknown>, what: string) {
 export function HomeNotices() {
   const { api } = useSession();
   const status = useResource((signal) => readNoticeStatus(api, signal), 'home-notice-status');
-  const config = useResource(
-    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
-    'home-config',
-  );
+  const config = useResource((signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'home-config');
   const limit = config.resource.status === 'ready' ? config.resource.data.noticeStripLimit : null;
   const announcement = useResource(
     (signal) =>
@@ -81,7 +79,7 @@ export function HomeNotices() {
   );
   if (banner.length === 0 && strip.length === 0 && !stripUnset) return null;
   return (
-    <div data-testid="home-notices" className="home-notices">
+    <div data-testid="home-notices" className="lt-stack">
       {banner.map((notice) => (
         <NoticeRow key={notice.id} notice={notice} banner />
       ))}
@@ -98,9 +96,9 @@ function StripUnset() {
   const { t } = homeCopy.useCopy();
   const { t: strip } = noticeCopy.useCopy();
   return (
-    <section data-testid="home-notice-strip-unset" className="home-notice" role="status" data-code={NOTICE_STRIP_LIMIT_UNSET}>
-      <p className="home-notice__title">{strip('Notice strip unset')}</p>
-      <a className="home-notice__link" href="/notice">
+    <section data-testid="home-notice-strip-unset" className="lt-held" role="status" data-code={NOTICE_STRIP_LIMIT_UNSET}>
+      <p data-testid="home-notice__title">{strip('Notice strip unset')}</p>
+      <a className="lt-link" href="/notice">
         {t('Notice all')}
       </a>
     </section>
@@ -112,23 +110,29 @@ export function NoticeRow({ notice, banner, all = !banner }: { notice: HomeNotic
   const { timeZone } = usePreferences();
   const kind = KIND[notice.kind];
   const until = notice.endsAt ? dayTime(notice.endsAt, timeZone) : null;
+  // A banner is drawn as the kit's notice; a strip row is one line of its parts.
+  const look = banner ? 'lt-refusal' : 'lt-actions';
   return (
     <section
       data-testid="home-notice"
-      className={banner ? 'home-notice home-notice--banner' : 'home-notice'}
+      className={look}
+      data-refusal={banner ? (notice.kind === 'incident' ? 'unreachable' : 'platform-pause') : undefined}
+      data-banner={banner || undefined}
       role={kind.role}
       aria-label={t(kind.label)}
       data-kind={notice.kind}
     >
       <StatusTag status={kind.status} label={t(kind.label)} />
-      <p className="home-notice__title">{notice.title}</p>
-      {banner ? <p className="home-notice__until">{until ? t('Notice until {time}', { time: until }) : t('Notice no end')}</p> : null}
-      <a className="home-notice__link" href={`/notice/${notice.id}`}>
+      <p data-testid="home-notice__title" className="lt-refusal-title">
+        {notice.title}
+      </p>
+      {banner ? <p className="lt-hint">{until ? t('Notice until {time}', { time: until }) : t('Notice no end')}</p> : null}
+      <a className="lt-link" href={`/notice/${notice.id}`}>
         {t('Notice read')}
         <ChevronRight size={14} aria-hidden="true" />
       </a>
       {banner || !all ? null : (
-        <a className="home-notice__link" href="/notice">
+        <a className="lt-link" href="/notice">
           {t('Notice all')}
         </a>
       )}

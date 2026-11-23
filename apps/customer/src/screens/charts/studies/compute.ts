@@ -10,6 +10,7 @@
  *   (a percentage point), before it is shown or drawn; the drawn value is the shown value.
  */
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
+import { chartValue } from '../../../shared/chart-value';
 import { fractionDigits } from '../../../data/decimal';
 import type { Candle, Loadable } from '../../../data/types';
 import { toSeconds } from '../../trade/chart/chart-data';
@@ -226,7 +227,7 @@ function track(bars: readonly Candle[], values: readonly Maybe[], o: TrackOption
     const value = text === null ? null : Number(text);
     let tone: SeriesPoint['tone'] = null;
     if (value !== null && o.tone === 'sign') tone = value >= 0 ? 'up' : 'down';
-    if (value !== null && o.tone === 'candle') tone = Number(bar.c) >= Number(bar.o) ? 'up' : 'down';
+    if (value !== null && o.tone === 'candle') tone = chartValue(bar.c) >= chartValue(bar.o) ? 'up' : 'down';
     points.push({
       time: toSeconds(bar.t) + shift * o.stepSec,
       value: value === null ? null : roundToDecimals(value, o.digits),
@@ -466,7 +467,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       const p = readPeriod(i.period);
       if (p === null) return refuse('enterPeriod');
       if (bars.length <= p) return refuse('needsBars', { count: String(p + 1) });
-      const closes = bars.map((b) => Number(b.c));
+      const closes = bars.map((b) => chartValue(b.c));
       return ready([track(bars, rsi(closes, p), { ...base, key: study.id, name: `RSI ${p}`, pane: 'sub', digits: PERCENT_DIGITS })]);
     }
 
@@ -476,7 +477,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       const g = readPeriod(i.signal);
       if (f === null || s === null || g === null) return refuse('enterPeriod');
       if (bars.length < s) return refuse('needsBars', { count: String(s) });
-      const closes = bars.map((b) => Number(b.c));
+      const closes = bars.map((b) => chartValue(b.c));
       const m = macd(closes, f, s, g);
       return ready([
         track(bars, m.line, { ...base, key: `${study.id}:m`, name: `MACD ${f} ${s} ${g}`, pane: 'sub', digits }),
@@ -513,7 +514,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       if (m === null) return refuse('enterValue');
       if (bars.length < p) return refuse('needsBars', { count: String(p) });
       const b = bollinger(
-        bars.map((x) => Number(x.c)),
+        bars.map((x) => chartValue(x.c)),
         p,
         m,
       );

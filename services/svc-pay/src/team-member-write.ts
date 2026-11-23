@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { hasScope, requireScope, type Scope } from '@intafaced/auth';
-import { anyScopeProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { anyScopeProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { wrapOps } from './merchant-ops/errors.js';
 import { SHUT } from './owner-pay-grant-recheck.js';
 
@@ -47,6 +47,16 @@ export function teamMemberWrite(sql: () => Sql) {
     if (!member[0]) refuse();
     return next();
   });
+}
+
+/**
+ * A person's own notification preferences (J-merchant-01 #6): `pay:write` or `pay:onboard`, both rechecked live, so an
+ * owner whose verification is not done yet saves their own choices like any teammate. A preference is the caller's own
+ * row, moves no money and changes nothing anyone else sees, so it takes no KYB gate; the role table still decides it
+ * (`notifications.manage`, in the service method), and a suspended or closed business loses `pay:onboard` at once.
+ */
+export function ownPreferenceWrite() {
+  return anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' });
 }
 
 /**

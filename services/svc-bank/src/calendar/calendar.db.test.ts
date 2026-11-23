@@ -55,8 +55,9 @@ beforeEach(async () => {
   ledger = new MemoryLedger();
 });
 
-function services() {
+function services(options: { scheduleEditCutoffMinutes?: string } = {}) {
   return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+    ...options,
     recipients: memoryRecipientState(),
     directDebitScheme: directDebitSimScheme({
       label: 'TEST direct debit stand-in',
@@ -146,6 +147,40 @@ describe('the calendar over the real sources', () => {
     // Another person's calendar holds none of it.
     const theirs = await window(bank, OTHER);
     expect(theirs.items).toEqual([]);
+  });
+  it('shows a run that already happened at the amount it booked after the order amount changes (#9854)', async () => {
+    const bank = services({ scheduleEditCutoffMinutes: '60' }); // TEST cutoff
+    const from = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const to = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Rent' });
+    await fund('100', 'cal-booked');
+    const weekly = await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: amt('10'),
+      cadence: 'weekly',
+      startsAt: new Date('2026-11-02T08:00:00.000Z'),
+      scheduleId: randomUUID(),
+    });
+    await bank.transfers.runDueTransfers({ now: new Date('2026-11-02T08:05:00.000Z'), limit: 10 });
+    await bank.transfers.runDueTransfers({ now: new Date('2026-11-09T08:05:00.000Z'), limit: 10 });
+    await bank.transfers.updateSchedule({
+      scheduleId: weekly.id,
+      userId: USER,
+      revision: weekly.revision,
+      amount: amt('25'),
+      endsAt: null,
+      now: NOW,
+    });
+
+    const view = await window(bank);
+    expect(view.items.filter((i) => i.source === 'standing_orders').map((i) => [i.date.slice(0, 10), i.status, i.amount])).toEqual([
+      ['2026-11-02', 'done', '10'],
+      ['2026-11-09', 'done', '10'],
+      ['2026-11-16', 'upcoming', '25'],
+      ['2026-11-23', 'upcoming', '25'],
+      ['2026-11-30', 'upcoming', '25'],
+    ]);
   });
 });
 

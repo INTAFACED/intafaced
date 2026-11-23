@@ -34,7 +34,6 @@ import {
   assertActiveLocalStack,
   localEmailOutboxPath,
   localPgBin,
-  localStackState,
   readLatestEmailConfirmToken,
   stackCustodyOff,
   custodyOffRefusal,
@@ -43,13 +42,14 @@ import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { STACK_PORTS, stackUrl } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
 const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
-const EDGE = `http://${LOCAL_HOST}:14500`;
-const CUSTOMER_ORIGIN = `http://${LOCAL_HOST}:3210`;
+const EDGE = stackUrl('edge', LOCAL_HOST);
+const CUSTOMER_ORIGIN = stackUrl('customer', LOCAL_HOST);
 const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
 const POLL_MS = 5000;
@@ -257,10 +257,27 @@ function writePrivateAtomic(file, obj) {
 function psql(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
-    ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', LOCAL_HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql],
+    [
+      '-X',
+      '-At',
+      '-F',
+      '\t',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-h',
+      LOCAL_HOST,
+      '-p',
+      String(STACK_PORTS.postgres),
+      '-U',
+      role,
+      '-d',
+      DB_NAME,
+      '-c',
+      sql,
+    ],
     {
       encoding: 'utf8',
-      env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
+      env: { PATH: `${path.dirname(PSQL)}:/usr/bin:/bin`, PGPASSWORD: secrets.pgService },
     },
   );
   if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);
@@ -273,8 +290,8 @@ function psql(secrets, role, sql) {
 }
 
 // Read-only SELECTs, as each service's own role (the same way `local:fund` reads identity.users).
-const listUsers = (secrets) =>
-  psql(
+const listUsers = (secrets, run = psql) =>
+  run(
     secrets,
     'svc_identity',
     'SELECT id::text, handle::text, email::text, created_at::text FROM identity.users ORDER BY created_at, id',
@@ -317,6 +334,21 @@ export function pickStackScript({ marker, env = process.env, fallback = STACK_SC
 
 /** Set by guard(): where `fund` runs from and the environment it sees. */
 const RUNTIME = { script: STACK_SCRIPT, env: process.env };
+
+/**
+ * What the populate flow reaches outside itself: the Edge (fetch), the stack ownership check before a write, the gates module,
+ * psql reads, the local mail outbox and the stack guard. These are the real ones; a test passes its own on ctx.deps.
+ */
+export const WORLD_DEPS = Object.freeze({
+  fetch: (url, init) => fetch(url, init),
+  assertStack: (opts) => assertActiveLocalStack(opts),
+  gates: () => gatesApi(),
+  psql: (secrets, role, sql) => psql(secrets, role, sql),
+  outboxPath: () => localEmailOutboxPath(),
+  guard: () => guard(),
+  now: () => Date.now(),
+  wait: (ms) => sleep(ms),
+});
 
 /** Credit through the real ledger by calling `local:fund` (idempotent on --ref). Returns { ok, txId, text }. */
 function fundViaStack(userId, asset, amount, ref) {
@@ -455,20 +487,21 @@ export function readMerchantOwner(file) {
   };
 }
 
-class EdgeClient {
-  constructor(account, factor = null) {
+export class EdgeClient {
+  constructor(account, factor = null, deps = WORLD_DEPS) {
     this.account = account;
     this.factor = factor;
+    this.deps = deps;
     this.token = null;
     this.tokenAt = 0;
   }
   /** `bearer` replaces the session token for this one request (the step-up token, or a checker's). The session is not touched. */
   async http(method, route, body, auth = true, bearer = null) {
-    if (method !== 'GET') assertActiveLocalStack({ services: ['edge', 'identity', 'ledger', 'bank'] });
+    if (method !== 'GET') this.deps.assertStack({ services: ['edge', 'identity', 'ledger', 'bank'] });
     if (auth && !bearer && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: CUSTOMER_ORIGIN, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${bearer ?? this.token}`;
-    const res = await fetch(`${EDGE}${route}`, {
+    const res = await this.deps.fetch(`${EDGE}${route}`, {
       redirect: 'error',
       method,
       headers,
@@ -685,7 +718,7 @@ async function verifyPass({ secrets, state, log }) {
 function guard() {
   try {
     const found = assertLocalTarget({
-      urls: [EDGE, `http://${LOCAL_HOST}:14501`, `http://${LOCAL_HOST}:14502`, `http://${LOCAL_HOST}:14509`],
+      urls: [EDGE, ...['ledger', 'identity', 'bank'].map((name) => stackUrl(name, LOCAL_HOST))],
     });
     RUNTIME.script = pickStackScript({ marker: found.marker });
     RUNTIME.env = process.env.LOCAL_STACK_STATE === undefined ? process.env : { ...process.env, LOCAL_STACK_STATE: found.paths.stateDir };
@@ -1900,9 +1933,9 @@ async function gatesApi() {
 }
 
 /** Verification tier "full" for the friend only, through the two labelled test operators. Never approves anyone else's request. */
-async function verifyFriend(ctx, friend) {
+export async function verifyFriend(ctx, friend, gates = undefined) {
   const { log, secrets } = ctx;
-  const gates = await gatesApi();
+  gates ??= await (ctx.deps ?? WORLD_DEPS).gates();
   const gctx = await gates.makeContext({ log });
   const before = gates.listAccountsAndTiers(secrets);
   const submitted = await gates.submitOwnedAccounts(gctx, before);
@@ -2504,7 +2537,7 @@ export function ownerFactorRefusal(refusal) {
  * A factor that exists but whose secret populate lacks is a REFUSED, never a reset.
  * Returns { ok, changed }.
  */
-async function ensureOwnerSecondFactor(ctx) {
+export async function ensureOwnerSecondFactor(ctx) {
   const { user, record, factor } = ctx;
   const item = 'second factor (TEST TOTP)';
   if (!factor) {
@@ -2560,14 +2593,16 @@ async function ensureOwnerSecondFactor(ctx) {
 }
 
 /** The owner's second-factor store: LOCAL TEST file, mode 600. The TOTP generator loads lazily from the built identity service. */
-function makeOwnerFactor(file, log) {
+function makeOwnerFactor(file, log, deps = WORLD_DEPS) {
   let totpFn = null;
   return new OwnerFactor({
     file,
     log,
+    now: deps.now,
+    wait: deps.wait,
     totp: async (secret, t) => {
       if (!totpFn) {
-        const gates = await gatesApi();
+        const gates = await deps.gates();
         totpFn = (await gates.makeContext({ log })).totp.totp;
       }
       return totpFn(secret, { at: new Date(t) });
@@ -2582,14 +2617,15 @@ function makeOwnerFactor(file, log) {
  */
 async function ensureMerchantOwner(ctx) {
   const { p, record, log } = ctx;
+  const deps = ctx.deps ?? WORLD_DEPS;
   const item = 'merchant owner account (TEST)';
-  const factor = makeOwnerFactor(p.merchantOwner, log);
+  const factor = makeOwnerFactor(p.merchantOwner, log, deps);
   let account = factor.account;
   if (!account) {
     account = { ...MERCHANT_OWNER, password: crypto.randomBytes(18).toString('base64url'), userId: null };
     factor.setAccount(account);
   }
-  const client = new EdgeClient(account, factor);
+  const client = new EdgeClient(account, factor, deps);
   let how;
   try {
     if (factor.secret || factor.pendingSecret) {
@@ -2626,7 +2662,7 @@ async function ensureMerchantOwner(ctx) {
 async function ensureOwnerKycFull(ctx) {
   const { user, record, secrets, log } = ctx;
   const item = 'verification tier full (TEST, local operators)';
-  const gates = await gatesApi();
+  const gates = await (ctx.deps ?? WORLD_DEPS).gates();
   const userId = user.account.userId;
   const tiers = () => gates.listAccountsAndTiers(secrets);
   const has = (t) => {
@@ -2667,13 +2703,14 @@ async function ensureOwnerKycFull(ctx) {
   return { ok: true, changed: true };
 }
 
-async function populateMerchantStep(baseCtx) {
+export async function populateMerchantStep(baseCtx) {
   const { record, secrets, log } = baseCtx;
+  const deps = baseCtx.deps ?? WORLD_DEPS;
   const owner = await ensureMerchantOwner(baseCtx);
   if (!owner) return;
   const ctx = { ...baseCtx, user: owner.client, factor: owner.factor };
   const { user } = ctx;
-  const emailState = await confirmSeededOwnerEmail(user, record);
+  const emailState = await confirmSeededOwnerEmail(user, record, deps.outboxPath());
   const factorState = await ensureOwnerSecondFactor(ctx);
   if (!factorState.ok) return;
   const kycState = await ensureOwnerKycFull(ctx);
@@ -2732,7 +2769,7 @@ async function populateMerchantStep(baseCtx) {
   }
 
   const userId = user.account.userId;
-  const friend = listUsers(secrets).find((u) => u.handle === FRIEND.handle);
+  const friend = listUsers(secrets, deps.psql).find((u) => u.handle === FRIEND.handle);
   const health = await call(user, 'q', 'pay', 'railHealth');
   if (!health.ok) return record('merchant', 'rail health', 'refused', health.refusal);
   const sandboxRail = health.data.some((r) => r.id === 'card-sandbox' && r.mode === 'sandbox');
@@ -2868,8 +2905,8 @@ async function approverScopedToken(gctx, session, scope) {
  * else the stack's two TEST operators; never a real account). One proposes, the other approves, the
  * approval is consumed by the open call. Called only after a read found no dispute with this id.
  */
-async function openDisputeByApprovalPair(log, fields, reasonCode) {
-  const gates = await gatesApi();
+async function openDisputeByApprovalPair(log, fields, reasonCode, deps = WORLD_DEPS) {
+  const gates = await deps.gates();
   const gctx = await gates.makeContext({ log: (m) => log(`merchant dispute: ${m}`) });
   const founders = loadEnrolledFounders(gctx);
   const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
@@ -2888,16 +2925,16 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
   const payloadHash = openDisputePayloadHash(bound);
   let open = [];
   try {
-    open = psql(gctx.secrets, 'svc_identity', openDisputeApprovalSql(payloadHash)).map(
-      ([approvalId, operationId, actionType, payloadHashRow, status, requesterId]) => ({
+    open = deps
+      .psql(gctx.secrets, 'svc_identity', openDisputeApprovalSql(payloadHash))
+      .map(([approvalId, operationId, actionType, payloadHashRow, status, requesterId]) => ({
         approvalId,
         operationId,
         actionType,
         payloadHash: payloadHashRow,
         status,
         requesterId,
-      }),
-    );
+      }));
   } catch (err) {
     return { ok: false, refusal: `dispute not opened: could not read open approvals (${oneLine(err.message)})` };
   }
@@ -2951,7 +2988,7 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
  * merchant, after the catalogue exists. Each item reads first (EXISTS) and records the service's own refusal when the
  * door is shut. Refund and payout go through the owner's "Confirm it's you" token (auth.stepUpPay), see populateMerchantStepUpMoney.
  */
-async function populateMerchantMoneyBlock(ctx, merchantId) {
+export async function populateMerchantMoneyBlock(ctx, merchantId) {
   const { user, record, log } = ctx;
   const userId = user.account.userId;
   const payments = [];
@@ -3023,7 +3060,7 @@ async function populateMerchantMoneyBlock(ctx, merchantId) {
   } else if (dplan.kind === 'skip') {
     record('merchant', 'dispute', 'skipped', dplan.reason);
   } else {
-    const out = await openDisputeByApprovalPair(log, dplan.fields, MERCHANT_DISPUTE.reasonCode);
+    const out = await openDisputeByApprovalPair(log, dplan.fields, MERCHANT_DISPUTE.reasonCode, ctx.deps ?? WORLD_DEPS);
     record(
       'merchant',
       'dispute',
@@ -3042,7 +3079,7 @@ const OPERATORS_MISSING =
  * A service that predates #5011 has no auth.stepUpPay: that is detected with an empty-input call, which the service rejects
  * before any factor is read, and it is reported as such, never worked around.
  */
-async function ensurePayStepUp(ctx, merchantId) {
+export async function ensurePayStepUp(ctx, merchantId) {
   // A held token is reused only while it has at least 30 s left; a failed answer is kept for the run.
   const held = ctx.payStepUp;
   if (held && (!held.ok || Date.parse(held.expiresAt) - Date.now() >= 30_000)) return held;
@@ -3095,7 +3132,7 @@ async function savePayoutDestination(ctx, merchantId, spec) {
 /** The two TEST operators signed in once per run, with their MFA sessions. Cached on ctx; the sign-in spends their TOTP steps. */
 export async function operatorPair(ctx) {
   if (ctx.opPair) return ctx.opPair;
-  const gates = await gatesApi();
+  const gates = await (ctx.deps ?? WORLD_DEPS).gates();
   const gctx = await gates.makeContext({ log: (m) => ctx.log(`merchant operators: ${m}`) });
   const signedIn = await signInTestOperatorPair(gctx, gates);
   if (!signedIn) return (ctx.opPair = { ok: false, refusal: OPERATORS_MISSING });
@@ -3318,7 +3355,7 @@ async function populateTierPricing(ctx, tier, merchantId) {
  * five-minute pay:write token minted for the operator's own session (the dispute path's stand-in). Everything after that,
  * the step-up, the request and the owner's approval, runs on real sessions. Returns { ok } or { ok:false, refusal }.
  */
-async function ensurePayoutTeammate(ctx, pair) {
+export async function ensurePayoutTeammate(ctx, pair) {
   const { user } = ctx;
   const mate = pair.b;
   const members = async () => {
@@ -3395,7 +3432,7 @@ const shortRef = (ref) => `${String(ref).slice(0, 6)}...${String(ref).slice(-4)}
  * Order matters: the destination (own TOTP step) comes first, then one step-up token serves refund, request and send.
  * Every refusal is recorded in the service's words, mapped to a plain cause when it is one of the step-up codes.
  */
-async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements }) {
+export async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements }) {
   const { user, record } = ctx;
   const userId = user.account.userId;
   const spec = MERCHANT_PAYOUT_DESTINATION;
@@ -3656,7 +3693,7 @@ export function enrolledTestOperatorPair(file) {
 }
 
 /** Operator A and B signed in with their TOTP (replay-safe, through gates). Sessions carry the admin-scoped approval token. */
-async function signInTestOperatorPair(gctx, gates) {
+export async function signInTestOperatorPair(gctx, gates) {
   const pair = enrolledTestOperatorPair(readJson(gctx.paths.operators, null));
   if (!pair) return null;
   let sessions;
@@ -3694,8 +3731,8 @@ function loadEnrolledFounders(gctx) {
   return null;
 }
 
-function listOpenKybApprovals(secrets, payloadHash) {
-  return psql(secrets, 'svc_identity', openKybApprovalSql(payloadHash)).map(
+function listOpenKybApprovals(secrets, payloadHash, run = psql) {
+  return run(secrets, 'svc_identity', openKybApprovalSql(payloadHash)).map(
     ([approvalId, operationId, actionType, payloadHashRow, status, requesterId]) => ({
       approvalId,
       operationId,
@@ -3795,8 +3832,8 @@ async function ensureDecidersKycFull(log) {
  * returns before any proposal, so no PENDING row is left. An open proposal for the same binding
  * is approved or consumed instead of filing another.
  */
-async function decideKybByFounderPair(log, merchantId) {
-  const gates = await gatesApi();
+export async function decideKybByFounderPair(log, merchantId, deps = WORLD_DEPS) {
+  const gates = await deps.gates();
   const gctx = await gates.makeContext({ log: (m) => log(`merchant kyb: ${m}`) });
   const founders = loadEnrolledFounders(gctx);
   // No founder vault: the stack's two LOCAL TEST operators are the pair (in memory, no second credentials file).
@@ -3823,7 +3860,7 @@ async function decideKybByFounderPair(log, merchantId) {
 
   let pending = [];
   try {
-    pending = listOpenKybApprovals(gctx.secrets, kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash }));
+    pending = listOpenKybApprovals(gctx.secrets, kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash }), deps.psql);
   } catch (err) {
     return { ok: false, refusal: `KYB pending: could not read open approvals (${oneLine(err.message)})` };
   }
@@ -3916,7 +3953,7 @@ async function runMerchantAction(ctx, action, merchantId) {
       record('merchant', 'KYB decision', 'refused', stub.refusal);
       return {};
     }
-    const founders = await decideKybByFounderPair(log, merchant);
+    const founders = await decideKybByFounderPair(log, merchant, ctx.deps ?? WORLD_DEPS);
     if (!founders.ok) {
       record('merchant', 'KYB pending', 'refused', founders.refusal);
       return { moneyClosed: true };
@@ -4141,7 +4178,7 @@ function renderTable(results) {
   return lines.join('\n');
 }
 
-async function cmdPopulate(argv) {
+export async function cmdPopulate(argv, deps = WORLD_DEPS) {
   let opts;
   try {
     opts = parsePopulateArgs(argv);
@@ -4151,7 +4188,7 @@ async function cmdPopulate(argv) {
   const unknown = (opts.only ?? []).filter((k) => !POPULATE_STEPS.includes(k));
   if (unknown.length) die(`unknown step(s): ${unknown.join(', ')}. Steps: ${POPULATE_STEPS.join(', ')}`, 2);
   const steps = opts.only ?? POPULATE_STEPS;
-  const { paths: p } = guard();
+  const { paths: p } = deps.guard();
   const log = makeLogger(p.log);
   if (opts.dryRun) {
     console.log(`populate (dry run, nothing is changed). ${LABEL}\nstate: ${p.stateDir}\nsteps: ${steps.join(', ')}`);
@@ -4172,7 +4209,7 @@ async function cmdPopulate(argv) {
   }
   if (!login) die(`no Email / Password lines in ${opts.loginFile} (the test account note). Nothing was changed.`);
   const account = { handle: 'local_test_account', email: login.email, password: login.password, userId: null };
-  const user = new EdgeClient(account);
+  const user = new EdgeClient(account, null, deps);
   try {
     await user.login();
   } catch (err) {
@@ -4181,7 +4218,7 @@ async function cmdPopulate(argv) {
   log(`populate started for ${account.email} (${account.userId}). ${LABEL}. Steps: ${steps.join(', ')}`);
 
   const results = [];
-  const ctx = { user, p, secrets, log, spaces: null, friend: null, record: null };
+  const ctx = { user, p, secrets, log, spaces: null, friend: null, record: null, deps };
   let room = 'run';
   ctx.record = (r, item, status, detail = '') => {
     const row = { room: r, item, status, detail };

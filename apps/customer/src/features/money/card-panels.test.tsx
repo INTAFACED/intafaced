@@ -5,8 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   return { ...real, useSession: () => ({ api: { canWrite: () => true, query: async () => ({ ok: false }) }, userId: 'user-1' }) as never };
 });
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';

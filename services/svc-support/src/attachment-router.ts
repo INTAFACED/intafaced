@@ -1,11 +1,12 @@
+import { SUPPORT_ATTACHMENT_LIMITS } from '@intafaced/contracts/support-customer-procedures';
 import { TRPCError } from '@trpc/server';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  scopedProcedure,
-  supportAttachmentLimitsSchema,
-  supportAttachmentSettingsSetInputSchema,
-  supportAttachmentStatusSchema,
-} from '@intafaced/contracts';
+  SUPPORT_DESK_ATTACHMENT_STATUS,
+  SUPPORT_DESK_SET_ATTACHMENT_SETTINGS,
+} from '@intafaced/contracts/support-desk-settings-procedures';
 import { AttachmentSettingsStaleError, attachmentChangesOf, type AttachmentSettingsBook } from './attachment-settings.js';
+import { supportRefusal } from './record-refusal.js';
 import { requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -21,23 +22,22 @@ export function attachmentProcedures(
   support: Pick<SupportService, 'listStaff' | 'attachmentLimits' | 'attachmentStatus'>,
 ) {
   return {
-    attachmentLimits: scopedProcedure('support:read')
-      .output(supportAttachmentLimitsSchema)
-      .query(() => support.attachmentLimits()),
+    attachmentLimits: mountRecord(SUPPORT_ATTACHMENT_LIMITS, () => support.attachmentLimits(), supportRefusal),
 
-    attachmentStatus: scopedProcedure('support:ops')
-      .output(supportAttachmentStatusSchema)
-      .query(({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    attachmentStatus: mountRecord(
+      SUPPORT_DESK_ATTACHMENT_STATUS,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return support.attachmentStatus();
-      }),
+      },
+      supportRefusal,
+    ),
 
-    setAttachmentSettings: scopedProcedure('support:ops')
-      .input(supportAttachmentSettingsSetInputSchema)
-      .output(supportAttachmentLimitsSchema)
-      .mutation(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
-        const actorId = ctx.principal!.userId;
+    setAttachmentSettings: mountRecord(
+      SUPPORT_DESK_SET_ATTACHMENT_SETTINGS,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        const actorId = ctx.principal.userId;
         const actor = (await support.listStaff()).find((member) => member.userId === actorId);
         if (actor?.role !== 'lead') {
           throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
@@ -57,6 +57,8 @@ export function attachmentProcedures(
           throw err;
         }
         return support.attachmentLimits();
-      }),
+      },
+      supportRefusal,
+    ),
   };
 }

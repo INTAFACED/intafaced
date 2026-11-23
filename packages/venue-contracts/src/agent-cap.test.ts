@@ -56,6 +56,9 @@ const market = (symbol: string, kind: 'spot' | 'perpetual', base: string): UserV
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
+  minOrderNotional: null,
+  priceBandBps: null,
+  maxOpenOrders: null,
   builderFeeCapBps: { known: false },
   listedBy: { known: false },
   oracleRule: { known: false },
@@ -101,7 +104,12 @@ let nonce = 0;
 function prepared(intent: VenueIntent, opts: { account?: UserVenueAccount; signer?: VenueSigner } = {}): PreparedVenueAction {
   nonce += 1;
   const account = opts.account ?? sub;
-  const cloid = 'clientOrderKey' in intent ? venueClientOrderId('test-sim', intent.clientOrderKey) : null;
+  const cloid =
+    'venueClientOrderId' in intent
+      ? intent.venueClientOrderId
+      : 'clientOrderKey' in intent
+        ? venueClientOrderId('test-sim', intent.clientOrderKey)
+        : null;
   return {
     venueId: 'test-sim',
     account,
@@ -346,11 +354,29 @@ describe('CappedAgentSigner: an agent order past the cap is refused before the k
       reduceOnly: false,
     };
     const { raw, signer } = setup({ openOrders: [resting] });
-    await signer.sign(prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.1'), price: A('2000') }), cap);
+    await signer.sign(
+      prepared({
+        kind: 'amend_order',
+        symbol: 'ETH-USDC',
+        venueClientOrderId: venueClientOrderId('test-sim', key),
+        amount: A('0.1'),
+        price: A('2000'),
+      }),
+      cap,
+    );
     expect(
       (
         await refusal(
-          signer.sign(prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.11'), price: A('2000') }), cap),
+          signer.sign(
+            prepared({
+              kind: 'amend_order',
+              symbol: 'ETH-USDC',
+              venueClientOrderId: venueClientOrderId('test-sim', key),
+              amount: A('0.11'),
+              price: A('2000'),
+            }),
+            cap,
+          ),
         )
       ).code,
     ).toBe('agent_cap_exceeded');
@@ -361,7 +387,7 @@ describe('CappedAgentSigner: an agent order past the cap is refused before the k
             prepared({
               kind: 'amend_order',
               symbol: 'ETH-USDC',
-              clientOrderKey: 'order:agent-1:am:none',
+              venueClientOrderId: venueClientOrderId('test-sim', 'order:agent-1:am:none'),
               amount: A('0.01'),
               price: A('2000'),
             }),
@@ -485,7 +511,13 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
   it('blocker 1: an amend that raises a resting order is counted at its new size until settled, so a new order cannot use the old room', async () => {
     const { raw, signer } = setup({ balances: rich, openOrders: [restingOrder('order:agent-1:r1:1', 'ETH-USDC', '0.05', '2000', '100')] });
     await signer.sign(
-      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: 'order:agent-1:r1:1', amount: A('0.1'), price: A('2000') }),
+      prepared({
+        kind: 'amend_order',
+        symbol: 'ETH-USDC',
+        venueClientOrderId: venueClientOrderId('test-sim', 'order:agent-1:r1:1'),
+        amount: A('0.1'),
+        price: A('2000'),
+      }),
       cap300,
     );
     const r = await refusal(signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:r1:2')), cap300));
@@ -568,11 +600,23 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
     const key = 'order:agent-1:two:1';
     const { raw, signer } = setup({ balances: rich, openOrders: [restingOrder(key, 'ETH-USDC', '0.05', '2000', '100')] });
     await signer.sign(
-      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.1'), price: A('2000') }),
+      prepared({
+        kind: 'amend_order',
+        symbol: 'ETH-USDC',
+        venueClientOrderId: venueClientOrderId('test-sim', key),
+        amount: A('0.1'),
+        price: A('2000'),
+      }),
       cap300,
     ); // 200
     await signer.sign(
-      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.01'), price: A('2000') }),
+      prepared({
+        kind: 'amend_order',
+        symbol: 'ETH-USDC',
+        venueClientOrderId: venueClientOrderId('test-sim', key),
+        amount: A('0.01'),
+        price: A('2000'),
+      }),
       cap300,
     ); // 20: an amend down signs
     const r = await refusal(signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:two:2')), cap300)); // 200 more
@@ -611,7 +655,13 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
     });
     const r = await refusal(
       signer.sign(
-        prepared({ kind: 'amend_order', symbol: 'BTC-PERP', clientOrderKey: 'order:agent-1:am2:1', amount: A('1'), price: A('2000') }),
+        prepared({
+          kind: 'amend_order',
+          symbol: 'BTC-PERP',
+          venueClientOrderId: venueClientOrderId('test-sim', 'order:agent-1:am2:1'),
+          amount: A('1'),
+          price: A('2000'),
+        }),
         cap300,
       ),
     );

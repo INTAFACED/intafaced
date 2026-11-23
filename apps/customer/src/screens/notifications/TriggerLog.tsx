@@ -3,7 +3,8 @@ import { ServiceOffNotice } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
 import { alertsCopy } from './alerts-copy';
-import { StateBlock } from './deps';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { LoadFailed, Loading } from './parts';
 import type { AlertCondition, AlertTrigger, Delivery, WebhookCause } from './notify-api';
 import { sortDeliveries } from './prefs';
 import type { TriggersState } from './use-triggers';
@@ -40,40 +41,38 @@ function FiringDelivery({ row, zone }: { row: AlertTrigger; zone: ReturnType<typ
   const name = (d: Delivery) => copy.t(d.channel === 'email' ? 'deliveryEmail' : d.channel === 'push' ? 'deliveryPush' : 'deliveryInApp');
   if (channels.length === 0 && !row.webhook) return null;
   return (
-    <ul className="nf-deliveries" data-testid="alert-trigger-delivery">
+    <ul className="lt-rows" data-testid="alert-trigger-delivery">
       {channels.map((d) => (
         <li key={d.channel} data-testid="alert-trigger-channel" data-channel={d.channel} data-status={d.status}>
           {d.channel === 'inapp' ? (
-            <span className="nf-body nf-body--wrap">
-              {d.status === 'accepted' ? copy.t('logInApp') : copy.t('logChannelPending', { channel: name(d) })}
-            </span>
+            <span>{d.status === 'accepted' ? copy.t('logInApp') : copy.t('logChannelPending', { channel: name(d) })}</span>
           ) : d.status === 'accepted' ? (
-            <span className="nf-body nf-body--wrap">{copy.t('logChannelHanded', { channel: name(d) })}</span>
+            <span>{copy.t('logChannelHanded', { channel: name(d) })}</span>
           ) : d.status === 'refused' ? (
             <>
-              <span className="nf-body nf-body--wrap">{copy.t('logChannelNotSent', { channel: name(d) })}</span>
+              <span>{copy.t('logChannelNotSent', { channel: name(d) })}</span>
               {d.refusalCode === 'channel.not_configured' && (d.channel === 'email' || d.channel === 'push') ? (
                 <ServiceOffNotice
                   code={d.channel === 'email' ? 'vendor.email' : 'vendor.push'}
                   sentence={copy.t(d.channel === 'email' ? 'deliveryEmailOff' : 'deliveryPushOff')}
-                  className="nf-why"
+                  className="lt-hint"
                 />
               ) : (
-                <span className="nf-muted" lang="zxx">
+                <span className="lt-hint" lang="zxx">
                   {d.refusalCode ?? ''}
                 </span>
               )}
             </>
           ) : d.status === 'pending' ? (
-            <span className="nf-body nf-body--wrap">{copy.t('logChannelPending', { channel: name(d) })}</span>
+            <span>{copy.t('logChannelPending', { channel: name(d) })}</span>
           ) : (
-            <span className="nf-body nf-body--wrap">{copy.t('logChannelFailed', { channel: name(d) })}</span>
+            <span>{copy.t('logChannelFailed', { channel: name(d) })}</span>
           )}
         </li>
       ))}
       {row.webhook ? (
         <li data-testid="alert-trigger-webhook" data-status={row.webhook.status}>
-          <span className="nf-body nf-body--wrap" data-testid="alert-webhook-state">
+          <span data-testid="alert-webhook-state">
             {row.webhook.status === 'delivered'
               ? copy.t('logWebhookDelivered')
               : row.webhook.status === 'failed'
@@ -83,17 +82,17 @@ function FiringDelivery({ row, zone }: { row: AlertTrigger; zone: ReturnType<typ
                   : copy.t('logWebhookSending')}
           </span>
           {row.webhook.attempts.length > 0 ? (
-            <ol className="nf-list" data-testid="alert-webhook-attempts">
+            <ol className="lt-rows" data-testid="alert-webhook-attempts">
               {row.webhook.attempts.map((a) => (
                 <li key={a.n} data-testid="alert-webhook-attempt" data-status={a.status ?? ''} data-cause={a.cause}>
-                  <span className="nf-muted">
+                  <span className="lt-hint">
                     {copy.t('logWebhookAttempt', {
                       n: String(a.n),
                       when: stamp(a.at, zone, Date.now(), true),
                       result: a.status === null ? copy.t('logWebhookNoAnswer') : copy.t('logWebhookStatus', { status: String(a.status) }),
                     })}
                   </span>
-                  <span className="nf-body nf-body--wrap">{copy.t(CAUSE_KEY[a.cause])}</span>
+                  <span>{copy.t(CAUSE_KEY[a.cause])}</span>
                 </li>
               ))}
             </ol>
@@ -127,45 +126,42 @@ export function TriggerLog({
     return () => clearTimeout(timer);
   }, [sending, state, onRetry]);
   return (
-    <section
-      className="nf-card"
-      aria-label={copy.t('logTitle')}
-      aria-busy={state.status === 'loading' || undefined}
-      data-testid="alerts-log"
-    >
-      <div className="nf-listhead">
-        <h2 className="nf-h2 nf-h2--flush">{copy.t('logTitle')}</h2>
-        <button type="button" className="nf-link nf-linkbutton" data-testid="alerts-log-refresh" onClick={onRetry}>
+    <section aria-label={copy.t('logTitle')} aria-busy={state.status === 'loading' || undefined} data-testid="alerts-log">
+      <div className="lt-title-row">
+        <h2>{copy.t('logTitle')}</h2>
+        <Button tone="quiet" data-testid="alerts-log-refresh" onClick={onRetry}>
           {copy.t('refresh')}
-        </button>
+        </Button>
       </div>
       {state.status === 'loading' ? (
-        <StateBlock kind="loading" rows={2} rowHeight={56} label={copy.t('logLoading')} className="nf-card__loading" />
+        <Loading label={copy.t('logLoading')} rows={2} />
       ) : state.status === 'failed' ? (
-        <StateBlock kind="error" title={copy.t('logFailed')} onRetry={onRetry} retryLabel={copy.t('retry')} />
+        <LoadFailed title={copy.t('logFailed')} onRetry={onRetry} retryLabel={copy.t('retry')} />
       ) : state.status === 'off' ? (
-        <StateBlock kind="empty" title={copy.t('logOffTitle')} body={copy.t('logOffBody')} />
+        <EmptyState title={copy.t('logOffTitle')} body={copy.t('logOffBody')} />
       ) : state.page.items.length === 0 ? (
-        <StateBlock kind="empty" title={copy.t('logEmptyTitle')} body={copy.t('logEmptyBody')} />
+        <EmptyState title={copy.t('logEmptyTitle')} body={copy.t('logEmptyBody')} />
       ) : (
         <>
-          <ul className="nf-list" data-testid="alerts-log-list">
+          <ul className="lt-rows" data-testid="alerts-log-list">
             {state.page.items.map((row) => (
-              <li key={`${row.alertId}:${row.seq ?? 1}`} className="nf-alertrow" data-testid="alert-trigger">
-                <div className="nf-text">
-                  <span data-testid="nf-title" className="nf-title">
-                    {marketLabel(row.marketId)}
-                  </span>
-                  <span data-testid="nf-body" className="nf-body nf-body--wrap">
+              <li key={`${row.alertId}:${row.seq ?? 1}`} data-testid="alert-trigger">
+                <div className="lt-lines">
+                  <span data-testid="nf-title">{marketLabel(row.marketId)}</span>
+                  <span data-testid="nf-body">
                     {copy.t('logRow', { side: copy.t(CONDITION_KEY[row.condition]), price: row.targetPrice, mark: row.markPrice })}
                   </span>
-                  <span className="nf-muted">{copy.t('logWhen', { when: stamp(row.firedAt, timeZone) })}</span>
+                  <span className="lt-hint" data-testid="alert-trigger-when">
+                    {copy.t('logWhen', { when: stamp(row.firedAt, timeZone) })}
+                  </span>
                   <FiringDelivery row={row} zone={timeZone} />
                 </div>
               </li>
             ))}
           </ul>
-          <p className="nf-note">{copy.t('logKept', { days: String(state.page.retentionDays) })}</p>
+          <p className="lt-hint" data-testid="alerts-log-kept">
+            {copy.t('logKept', { days: String(state.page.retentionDays) })}
+          </p>
         </>
       )}
     </section>

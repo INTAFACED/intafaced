@@ -85,6 +85,17 @@ const en = {
   stop: 'Stop run {run}',
   stoppedNote: 'The run is stopped.',
   noLiveControl: 'You were given no live control of this strategy, so you cannot stop its runs. Nothing was stopped.',
+  orderTitle: 'Manual order',
+  orderIntro: 'Send one order to a running paper run of this strategy. It needs live control.',
+  orderRun: 'Paper run',
+  orderRunOf: 'Run {run}',
+  orderSide: 'Side',
+  orderBuy: 'Buy',
+  orderSell: 'Sell',
+  orderSize: 'Order size',
+  orderSend: 'Send manual order',
+  orderNoLiveControl: 'You were given no live control of this strategy, so you cannot send its runs a manual order. Nothing was sent.',
+  orderPaperOnly: 'A paper run trades only by its own rules and takes no manual order. Nothing was sent.',
   gone: 'This strategy is no longer shared with you.',
 } as const;
 

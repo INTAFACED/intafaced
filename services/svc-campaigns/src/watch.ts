@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   ALERT_KINDS,
@@ -49,9 +49,9 @@ import { effectiveState, type CampaignService } from './campaigns.js';
 type Sql = postgres.Sql;
 
 /** Reward states that hold budget but are not booked yet; and those that booked it. The rest hold none. */
-const RESERVED: readonly RewardState[] = ['held', 'qualified', 'posting', 'pending_funding', 'pending_retry', 'unknown'];
-const SPENT: readonly RewardState[] = ['posted', 'owed', 'paid', 'locked', 'settling'];
-const HOLDS_NOTHING: readonly RewardState[] = ['failed', 'forfeited', 'withheld'];
+const RESERVED: readonly RewardState[] = ['held', 'review', 'qualified', 'posting', 'pending_funding', 'pending_retry', 'unknown'];
+const SPENT: readonly RewardState[] = ['posted', 'owed', 'reclaiming', 'paid', 'locked', 'settling'];
+const HOLDS_NOTHING: readonly RewardState[] = ['failed', 'forfeited', 'withheld', 'cancelled'];
 /** Campaigns that went live: what the desk watches. */
 const RUNNING: readonly CampaignState[] = ['scheduled', 'active', 'paused', 'ended', 'closed'];
 
@@ -188,7 +188,7 @@ export function splitOf(asset: string, limit: string, reserved: string, spent: s
   return { asset, limit: formatAmount(l), reserved: formatAmount(r), spent: formatAmount(s), left: formatAmount(l - r - s) };
 }
 
-const SELECT_BATCH = (sql: Sql) => sql`
+const SELECT_BATCH = (sql: Queryable) => sql`
   SELECT b.*, p.published_by, p.published_at FROM campaigns.code_batches b
   LEFT JOIN campaigns.code_publications p ON p.batch_id = b.id`;
 
@@ -558,19 +558,19 @@ export class WatchService {
     input: { campaignId: string; reference: string; actor: string },
     source: CodeBatch['source'],
     count: number,
-    fill: (tx: Sql, insert: (tx: Sql, codes: readonly string[], offset: number) => Promise<Set<string>>) => Promise<void>,
+    fill: (tx: Queryable, insert: (tx: Queryable, codes: readonly string[], offset: number) => Promise<Set<string>>) => Promise<void>,
   ): Promise<CodeBatchResult> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`codes:batch:${input.campaignId}:${input.reference}`}))`;
       const [raced] = await tx<BatchRow[]>`
         ${SELECT_BATCH(tx)} WHERE b.campaign_id = ${input.campaignId} AND b.reference = ${input.reference}`;
       if (raced) return this.again(raced, source, count);
-      const { row, face, feeSaver } = await this.campaigns.voucherTerms(tx, input.campaignId);
+      const { row, face, kindColumns } = await this.campaigns.voucherTerms(tx, input.campaignId);
       const batchId = `cbt_${randomUUID()}`;
       await tx`
         INSERT INTO campaigns.code_batches (id, campaign_id, reference, source, count, created_by, created_at)
         VALUES (${batchId}, ${row.id}, ${input.reference}, ${source}, ${count}, ${input.actor}, ${this.now()})`;
-      const insert = async (t: Sql, codes: readonly string[], offset: number) => {
+      const insert = async (t: Queryable, codes: readonly string[], offset: number) => {
         const rows = codes.map((code, i) => ({
           id: `vch_${randomUUID()}`,
           campaign_id: row.id,
@@ -581,8 +581,7 @@ export class WatchService {
           revision: row.revision,
           face_asset: face.asset,
           face_amount: face.amount,
-          kind: feeSaver ? 'fee_saver' : 'cash',
-          fee_discount_bps: feeSaver?.discountBps ?? null,
+          ...kindColumns,
           state: 'generated',
           issued_by: input.actor,
           claim_by: row.vouchers?.claimBy ?? null,

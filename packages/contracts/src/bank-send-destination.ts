@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import type { ServiceName } from './service-keys.js';
 
 /**
  * May money be sent to this address now? Asked by svc-pay before it claims a withdrawal to a wallet outside the platform
- * (J-wallet-05 #6, issue #6517), answered by svc-bank, which owns the customer's address book (`ramps.destinations`: saved
- * per asset and network, approved by an emailed link or another device, then a cooling-off; W-withdraw-09). It is the first PR
- * of the two-PR order: svc-bank serves it, svc-pay asks it, and svc-pay never reads the address book tables.
+ * (J-wallet-05 #6), answered by svc-bank, which owns the customer's address book (`ramps.destinations`: saved
+ * per asset and network, approved by an emailed link or another device, then a cooling-off; W-withdraw-09).
+ * svc-pay never reads the address book tables.
  *
  * ONE QUESTION, NO WRITE. The answer is about one address of one asset on one network, for the person named:
  * - `ready`: an entry of that asset, network and address (no tag: a send carries none) is saved, approved and past its
@@ -30,7 +31,7 @@ export const bankSendDestinationInputSchema = z
   .object({
     /** The person sending. Bank user ids are opaque text. */
     userId: z.string().min(1).max(128),
-    assetId: z.string().regex(/^[A-Za-z0-9]{1,16}$/),
+    assetId: assetIdSchema.regex(/^[A-Za-z0-9]{1,16}$/),
     /** The network chosen for the send, as the address book names networks. */
     network: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,31}$/),
     /** The address the money goes to, as the person sent it. */

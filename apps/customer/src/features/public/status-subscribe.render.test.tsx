@@ -17,6 +17,7 @@ const answer = (procedure: string, input: unknown) => {
 const api = {
   query: async (_module: string, procedure: string, input: unknown) => answer(procedure, input),
   mutate: async (_module: string, procedure: string, input: unknown) => answer(procedure, input),
+  call: async (record: { path: string }, input: unknown) => answer(record.path, input),
 };
 vi.mock('../../data/hooks', () => ({ useDataEnv: () => ({ api, poller: {}, userId: null }) }));
 vi.mock('../../shared/preferences', async (original) => {
@@ -24,9 +25,9 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { StatusSubscribe } from './StatusSubscribe';
+import { StatusSubscribe } from './status-room/StatusSubscribe';
 import { StatusSubscriptionPage } from './StatusSubscription';
-import { StatusBadgeShare } from './StatusBadgeShare';
+import { StatusBadgeShare } from './status-room/StatusBadgeShare';
 
 const POLICY = { email: null, sms: 'vendor.sms', push: 'vendor.push', challengeBits: 4, rateLimitSet: true };
 const COMPONENTS = [{ id: 'trading', name: 'Trading', group: null, basis: 'reading', state: 'operational', source: null, uptime: [] }];

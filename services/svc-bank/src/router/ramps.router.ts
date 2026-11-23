@@ -3,10 +3,8 @@ import {
   BANK_SEND_DESTINATION_CALLERS,
   bankSendDestinationInputSchema,
   bankSendDestinationSchema,
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-send-destination';
+import { router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { ONRAMP_METHODS } from '../ramps/customer-ports.js';
 import { destinationViewOutput, amountString } from './shared.js';

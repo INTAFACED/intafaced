@@ -1,27 +1,28 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
-import { useSession } from '../session/session';
-import { date, useBankRead, type ActionSpec } from './components';
-import {
-  approvalMailAskedSchema,
-  destinationCheckSchema,
-  destinationReadinessSchema,
-  destinationRemovedSchema,
-  destinationSchema,
-  type Destination,
-  type DestinationCheck,
-  type DestinationReadiness,
-  type WithdrawAsset,
-  walletProofStartedSchema,
-  walletProofVerifiedSchema,
-} from './contracts';
+import { useSession } from '../session';
+import { date, type ActionSpec, useBankRecord } from './components';
+import { type Destination, type DestinationCheck, type DestinationReadiness, type WithdrawAsset } from './contracts';
 import { moneyRefusalWords } from './money-refusal-copy';
 import { DepthPanel } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { SAVED_STATE_WORDS, checkAddress, checkLabel, checkTag, coolingOf, shortenAddress, shownState } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
+import {
+  BANK_RAMPS_DESTINATIONS_NETWORKS,
+  BANK_RAMPS_DESTINATIONS_LIST,
+  BANK_RAMPS_DESTINATIONS_READINESS,
+  BANK_RAMPS_DESTINATIONS_APPROVAL_ON_DEVICE,
+  BANK_RAMPS_DESTINATIONS_APPROVAL_REQUEST_MAIL,
+  BANK_RAMPS_DESTINATIONS_OWNERSHIP_START,
+  BANK_RAMPS_DESTINATIONS_OWNERSHIP_VERIFY,
+  BANK_RAMPS_DESTINATIONS_CHECK,
+  BANK_RAMPS_DESTINATIONS_SAVE,
+  BANK_RAMPS_DESTINATIONS_REMOVE,
+} from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_RAMPS_DESTINATIONS_RENAME } from '@intafaced/contracts/bank-ramps-destinations-procedures';
 
 const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as const;
 
@@ -99,7 +100,7 @@ export function AddressTable({
                         ? [row.assetId, row.network, row.tag].filter((part) => part).join(' · ')
                         : t('aNotReturned')}
                     </td>
-                    <td className="numeric" lang="und" data-withdrawal-private>
+                    <td className="lt-num" lang="und" data-withdrawal-private>
                       {shortenAddress(row.ref)}
                     </td>
                     <td>{date(row.addedAt)}</td>
@@ -225,7 +226,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
   useEffect(() => {
     let live = true;
     api
-      .query('bank', 'ramps.destinations.readiness', { destinationId: row.destinationId }, destinationReadinessSchema)
+      .call(BANK_RAMPS_DESTINATIONS_READINESS, { destinationId: row.destinationId })
       .then((result) => {
         if (!live) return;
         if (result.ok) setAnswer(result.data);
@@ -241,7 +242,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
   const problem = failed === null ? null : (moneyRefusalWords(failed) ?? t('aUseFailed'));
   const words = answer ? readinessWords(answer, row.label ?? shortenAddress(row.ref), t) : null;
   return (
-    <div className="bd-stack" data-testid="address-use">
+    <div className="lt-stack" data-testid="address-use">
       {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
       {words && !approvedHere && <p role={answer?.state === 'ready' ? 'status' : 'alert'}>{words.text}</p>}
       {problem && <p role="alert">{problem}</p>}
@@ -259,7 +260,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
       )}
       <p>
         {words?.locked && (
-          <a className="button button--secondary" href="/uc/safe">
+          <a className="lt-button lt-button-secondary" href="/uc/safe">
             {t('aUseSecurity')}
           </a>
         )}
@@ -304,7 +305,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
   const label = row.label ?? shortenAddress(row.ref);
   if (done) {
     return (
-      <div className="bd-stack" data-testid="address-approve-here">
+      <div className="lt-stack" data-testid="address-approve-here">
         <p role="status">
           {done.coolingOffEndsAt ? t('apDone', { label, time: date(done.coolingOffEndsAt) }) : t('apDoneNoTime', { label })}
         </p>
@@ -312,7 +313,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
     );
   }
   return (
-    <div className="bd-stack" data-testid="address-approve-here">
+    <div className="lt-stack" data-testid="address-approve-here">
       {refused && <p role="alert">{refused}</p>}
       <p>
         <Button
@@ -329,13 +330,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
         <WithdrawStepUp
           why={t('aApproveWhy')}
           run={async (bearer) => {
-            const answer = await api.mutate(
-              'bank',
-              'ramps.destinations.approval.onDevice',
-              { destinationId: row.destinationId },
-              destinationSchema,
-              { bearer },
-            );
+            const answer = await api.call(BANK_RAMPS_DESTINATIONS_APPROVAL_ON_DEVICE, { destinationId: row.destinationId }, { bearer });
             if (answer.ok) {
               answered.current = answer.data;
               return answer;
@@ -396,7 +391,7 @@ export function ApprovalMail({ destinationId, openUntil }: { destinationId: stri
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.mutate('bank', 'ramps.destinations.approval.requestMail', { destinationId }, approvalMailAskedSchema);
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_APPROVAL_REQUEST_MAIL, { destinationId });
       if (answer.ok) setAsked(answer.data.expiresAt);
       else setProblem(approvalMailWords(answer.code, t));
     } catch {
@@ -406,7 +401,7 @@ export function ApprovalMail({ destinationId, openUntil }: { destinationId: stri
     }
   }
   return (
-    <div className="bd-stack" data-testid="address-approval-mail">
+    <div className="lt-stack" data-testid="address-approval-mail">
       {until && (
         <p role="status">{asked ? t('aApprovalMailAsked', { time: date(asked) }) : t('aUseApprovalOpen', { time: date(until) })}</p>
       )}
@@ -465,7 +460,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     setOffer(null);
     setSignature('');
     void api
-      .mutate('bank', 'ramps.destinations.ownership.start', { destinationId: row.destinationId }, walletProofStartedSchema)
+      .call(BANK_RAMPS_DESTINATIONS_OWNERSHIP_START, { destinationId: row.destinationId })
       .then((answer) => (answer.ok ? setOffer(answer.data) : setProblem(words(answer.code))))
       .catch(() => setProblem(t('aProveFailed')));
   };
@@ -482,12 +477,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.mutate(
-        'bank',
-        'ramps.destinations.ownership.verify',
-        { proofId: offer.proofId, signature: signature.trim() },
-        walletProofVerifiedSchema,
-      );
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_OWNERSHIP_VERIFY, { proofId: offer.proofId, signature: signature.trim() });
       if (!answer.ok) {
         setProblem(words(answer.code));
         // A lapsed offer can never be signed now: the form goes, and Start again asks for a new message.
@@ -503,13 +493,13 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     }
   }
   return (
-    <div className="bd-stack" data-testid="wallet-proof">
+    <div className="lt-stack" data-testid="wallet-proof">
       <strong>{t('aProveTitle', { label: row.label ?? address })}</strong>
       <p>{t('aProveLead', { address })}</p>
       {!offer && !problem && <p role="status">{t('aProveStarting')}</p>}
       {offer && !provedUntil && !lapsed && (
-        <form className="bd-stack" onSubmit={verify} noValidate>
-          <label data-testid="field" className="field">
+        <form className="lt-stack" onSubmit={verify} noValidate>
+          <label data-testid="field" className="lt-field">
             <span>{t('aProveMessage')}</span>
             <textarea readOnly value={offer.message} rows={6} lang="und" data-testid="wallet-proof-message" />
             <small>{t('aProveUntil', { time: date(offer.expiresAt) })}</small>
@@ -528,7 +518,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
             </Button>
             {copied && <small role="status"> {t('aProveCopied')}</small>}
           </p>
-          <label data-testid="field" className="field">
+          <label data-testid="field" className="lt-field">
             <span>{t('aProveSignature')}</span>
             <textarea
               value={signature}
@@ -596,7 +586,7 @@ export function draftProblems(draft: Draft, assets: readonly WithdrawAsset[]) {
 function AddForm({ onSaved }: { onSaved: () => void }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const networks = useBankRead('ramps.destinations.networks', undefined);
+  const networks = useBankRecord(BANK_RAMPS_DESTINATIONS_NETWORKS, undefined);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [tried, setTried] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -654,7 +644,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
     setChecking(true);
     setCheckProblem(null);
     try {
-      const answer = await api.query('bank', 'ramps.destinations.check', { ref, network: input.network }, destinationCheckSchema);
+      const answer = await api.call(BANK_RAMPS_DESTINATIONS_CHECK, { ref, network: input.network });
       if (typed.current !== asked) return;
       if (!answer.ok) {
         // The sanctions refusals before the confirmation code, in the same words as on save.
@@ -685,8 +675,8 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   }
   return (
     <>
-      <form className="bd-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
-        <label data-testid="field" className="field">
+      <form className="lt-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
+        <label data-testid="field" className="lt-field">
           <span>{t('aLabel')}</span>
           <input
             value={draft.label}
@@ -699,7 +689,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('label') ?? 'aLabelHint')}
           </small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aAsset')}</span>
           <select
             value={draft.assetId}
@@ -718,7 +708,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           {shown('asset') && <small role="alert">{t('aAssetPick')}</small>}
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aNetwork')}</span>
           <select
             value={draft.network}
@@ -736,7 +726,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           <small id="address-network-hint">{t('aNetworkHint')}</small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aAddress')}</span>
           <input
             value={draft.address}
@@ -751,7 +741,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('address') ?? 'aAddressHint')}
           </small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aTag')}</span>
           <input
             value={draft.tag}
@@ -765,7 +755,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </small>
         </label>
         {lookalike && (
-          <div className="bd-stack" role="alert" data-testid="address-lookalike">
+          <div className="lt-stack" role="alert" data-testid="address-lookalike">
             <strong>{t('aLookalikeTitle')}</strong>
             <p>
               {lookalike.label
@@ -798,7 +788,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
         <WithdrawStepUp
           why={t('aSaveWhy')}
           run={async (token) => {
-            const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
+            const answer = await api.call(BANK_RAMPS_DESTINATIONS_SAVE, input, { bearer: token });
             // The address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
@@ -832,7 +822,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
 export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => void } = {}) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const book = useBankRead('ramps.destinations.list', undefined);
+  const book = useBankRecord(BANK_RAMPS_DESTINATIONS_LIST, undefined);
   const [removing, setRemoving] = useState<Destination | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [proving, setProving] = useState<Destination | null>(null);
@@ -842,7 +832,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
     ? (row: Destination) =>
         open({
           title: t('aRenameTitle'),
-          procedure: 'ramps.destinations.rename',
+          record: BANK_RAMPS_DESTINATIONS_RENAME,
           facts: [[t('aRenameAddress'), shortenAddress(row.ref)]],
           initial: { label: row.label ?? '' },
           fields: [
@@ -884,12 +874,9 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
           <WithdrawStepUp
             why={t('aRemoveWhy', { address: shortenAddress(removing.ref) })}
             run={(token) =>
-              api.mutate(
-                'bank',
-                'ramps.destinations.remove',
-                // One removal of one entry: a retry of it is the same request.
+              api.call(
+                BANK_RAMPS_DESTINATIONS_REMOVE,
                 { destinationId: removing.destinationId, idempotencyKey: `destination-remove:${removing.destinationId}` },
-                destinationRemovedSchema,
                 { bearer: token },
               )
             }

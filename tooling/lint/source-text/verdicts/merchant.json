@@ -1,0 +1,13 @@
+[
+  {
+    "file": "tooling/scripts/local-test-world.test.mjs",
+    "target": "./local-test-world.mjs",
+    "verdict": "rewrite",
+    "asserts": "The merchant setup reaches money only through the real doors in a safe order: the owner is a separate LOCAL TEST account whose credentials and second factor are written down (atomically, mode 600, never deleted) before they are used, its email is confirmed through identity, only its own verification is approved, it signs in again before any pay door, KYB is decided by two distinct stack approvers before money opens, settlement, refund, payout and dispute each read before they write, refund and payout carry the owner's step-up token, the payout is requested by the teammate and approved by the owner on their own session, and no money door opens while KYB is pending.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-world.test.mjs#populate merchant: a new owner is confirmed, enrolled and verified, then signs in again before any pay door"
+    },
+    "why": "Runs cmdPopulate and populateMerchantStep, populateMerchantMoneyBlock, ensureOwnerSecondFactor, EdgeClient.login, ensurePayoutTeammate, founderChange, operatorPair and verifyFriend on a scripted stack passed in as ctx.deps (fetch, gates, psql, outbox, clock) and asserts every request's door, order, bearer and body, what is recorded, what is written to disk, and that a pending KYB, a missing pair, another pending verification or a mismatched payout request each stop before the write."
+  }
+]

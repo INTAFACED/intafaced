@@ -1,5 +1,4 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { z } from 'zod';
 import { P2P } from './P2P';
 import { BusinessPay } from './BusinessPay';
 import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
@@ -11,13 +10,10 @@ import { payCopy } from './copy';
 import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
 import { MerchantAccessProvider, useMerchantAccess } from './portal/access/MerchantAccess';
 import { authorityFromAccess } from './portal/access/authority';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import './pay.css';
-
-const starterFeeRead = z.object({
-  starterFee: z.object({ bps: z.number().int().min(0).max(10_000), source: z.literal('local_test') }).nullable(),
-});
+import { PAY_MERCHANT_STARTER_FEE } from '@intafaced/contracts/pay-merchant-procedures';
 
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);
 /** A future authoritative company membership source may supply this context.
@@ -68,10 +64,7 @@ function PayRooms({ path }: { path: string }) {
 /** The fee INTAFACED has published for new accounts (#4897), read once so onboarding can show it. */
 function PortalEntry({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { api, userId } = useSession();
-  const fee = useResource(
-    (signal) => api.query('pay', 'merchant.starterFee', undefined, starterFeeRead, { signal }),
-    `pay:starter-fee:${userId ?? 'anon'}`,
-  );
+  const fee = useResource((signal) => api.call(PAY_MERCHANT_STARTER_FEE, undefined, { signal }), `pay:starter-fee:${userId ?? 'anon'}`);
   const starterFee = fee.resource.status === 'ready' ? (fee.resource.data.starterFee ?? null) : null;
   return <MerchantPortal path={path} authority={authority} starterFee={starterFee} />;
 }

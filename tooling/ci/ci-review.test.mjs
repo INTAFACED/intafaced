@@ -42,6 +42,12 @@ import {
   MAX_IMAGE_BYTES,
   MAX_IMAGES_TOTAL_BYTES,
   COMPARE_FILES_CAP,
+  failStreak,
+  findingsInLog,
+  clearedLines,
+  whereTheyFall,
+  premiseLines,
+  readStreak,
 } from './ci-review.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -86,17 +92,21 @@ const SECURITY_PR = [
   'packages/config/src/freeze-authority.ts',
   'packages/db/src/migrate.ts',
 ];
-const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml', 'apps/customer/Dockerfile']; // security code under 2026-11-06
+const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml']; // security code under 2026-11-06
+// A change that draws a Customer room: the review judges the look gate's pictures of it, and the seal reads that verdict
+// (#9910 merged over a FAIL on /bank's rows, 22 Nov 2026).
+const ROOM_PR = ['apps/customer/src/features/money/bank-overview/AccountHome.tsx'];
 const sealRule = (reason) => {
   assert.match(reason(GATE_PR) ?? '', /^gate file: \.github\/workflows\/ci\.yml$/, 'a gate-file PR still needs item 8');
   assert.match(reason(BASELINE_PR) ?? '', /^look baseline: /, 'a look-baseline PR still needs item 8');
+  assert.match(reason(ROOM_PR) ?? '', /^draws a Customer room: /, 'a PR that draws a Customer room needs its pictures reviewed');
   for (const f of SUPPLY_CHAIN_PR) assert.equal(reason([f]), null, `a supply-chain PR (${f}) no longer needs item 8`);
   assert.equal(reason(MONEY_PR), null, 'a money-only PR no longer needs item 8');
   assert.equal(reason(SECURITY_PR), null, 'a security-only PR no longer needs item 8');
   assert.match(reason([]) ?? '', /no changed files/, 'an unreadable file list still fails closed');
 };
 
-test('a gate-file or look-baseline PR still needs item 8; a money-only, security-only or supply-chain PR does not', () => {
+test('a gate-file, look-baseline or Customer-room PR needs item 8; a money-only, security-only or supply-chain PR does not', () => {
   sealRule(reviewReason);
 });
 
@@ -117,6 +127,7 @@ test('fails on (planted): the seal rule with a check dropped, or the old money, 
   const mutants = {
     'gate-file check dropped': ['if (gate.length > 0) return `gate file: ${gate[0].file}`;', ''],
     'look-baseline check dropped': ['if (baseline) return `look baseline: ${baseline}`;', ''],
+    'Customer-room check dropped': ['if (room) return `draws a Customer room: ${room}`;', ''],
     'lockfile check put back': putBack("if (files.includes('pnpm-lock.yaml')) return 'supply chain';"),
     'money check put back': putBack("if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';"),
     'security check put back': putBack("if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';"),
@@ -861,6 +872,105 @@ test("the window ends when main's workflow last began to index, from its history
   );
 });
 
+// readIndexLive's GraphQL read (project-state#3718): the same versions as the REST walk's, from INDEX_HISTORY_QUERY's pages.
+const fakeGraph = (index, { size = 20, fail = null } = {}) => {
+  const asked = [];
+  const graph = async (query, vars) => {
+    asked.push(vars);
+    if (fail) throw new Error(fail);
+    const from = vars.after ? Number(vars.after) : 0;
+    const all = index.commits ?? [];
+    const nodes = all.slice(from, from + size).map((c) => ({
+      oid: c.sha,
+      parents: { totalCount: c.parents },
+      file: c.text == null ? null : { object: { text: c.text, isTruncated: false } },
+      associatedPullRequests: {
+        nodes:
+          c.pull === 'unreadable'
+            ? null
+            : c.pull
+              ? [{ mergeCommit: { oid: c.sha }, baseRefName: c.pull.base?.ref, mergedAt: c.pull.merged_at }]
+              : [],
+      },
+    }));
+    return {
+      repository: { object: { history: { pageInfo: { hasNextPage: from + size < all.length, endCursor: String(from + size) }, nodes } } },
+    };
+  };
+  return { graph, asked };
+};
+
+test("the window's end read by GraphQL is the REST walk's, in one read instead of two per edit; unread, it is read over REST", async () => {
+  const RESTORED = '2026-11-06T09:00:00Z';
+  const cases = {
+    live: INDEX,
+    reverted: { ...INDEX, commits: [version(4, RESTORED, WF), version(3, '2026-11-04T09:00:00Z', WF_BARE), ...INDEX.commits] },
+    late: { ...INDEX, commits: [version(2, '2026-11-04T10:00:00Z', WF, { committed: MERGED_AT }), INDEX.commits[1]] },
+    ...Object.fromEntries(
+      [
+        { parents: 2 },
+        { parents: 0 },
+        { pull: null },
+        { pull: { merged_at: MERGED_AT, base: { ref: 'side/b' } } },
+        { pull: { merged_at: null, base: { ref: 'main' } } },
+      ].map((odd) => [JSON.stringify(odd), { ...INDEX, commits: [version(2, MERGED_AT, WF, odd), INDEX.commits[1]] }]),
+    ),
+    bare: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', WF_BARE), ...INDEX.commits] },
+    deleted: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', null), ...INDEX.commits] },
+    // 45 indexing versions over three GraphQL pages (main had about 35 by 22 Nov 2026).
+    many: {
+      ...INDEX,
+      commits: [
+        ...Array.from({ length: 44 }, (_, i) =>
+          version(200 - i, `2026-11-${String(5 + Math.floor(i / 4)).padStart(2, '0')}T00:00:00Z`, WF),
+        ),
+        ...INDEX.commits,
+      ],
+    },
+  };
+  for (const [name, index] of Object.entries(cases)) {
+    const rest = fakeApi({ index });
+    const want = await readIndexLive('o/r', 't', rest.get);
+    const viaRest = rest.asked.filter((p) => p.includes('/contents/') || p.includes('/pulls') || p.includes('/commits?')).length;
+    const api = fakeApi({ index });
+    const g = fakeGraph(index);
+    assert.deepEqual(await readIndexLive('o/r', 't', api.get, g.graph), want, name);
+    // GraphQL reads none of the per-version REST paths: only the workflow, and one GraphQL read per 20 versions.
+    assert.deepEqual(
+      api.asked.filter((p) => !p.endsWith('/actions/workflows/ci-review.yml')),
+      [],
+      name,
+    );
+    assert.ok(g.asked.length <= Math.ceil((index.commits.length + 1) / 20), `${name}: ${g.asked.length} GraphQL reads`);
+    if (name === 'many') {
+      // The past mistake: two REST reads per edit since the index went live (74 a seal on 22 Nov), against 3 here.
+      assert.ok(viaRest >= 2 * 45, `REST walk read ${viaRest}`);
+      assert.equal(g.asked.length, 3);
+    }
+    // GraphQL unread (a spent GraphQL budget, an error, a cut answer): the REST walk decides, exactly as before.
+    for (const broken of [fakeGraph(index, { fail: 'GraphQL: RATE_LIMITED' }).graph, async () => ({ repository: null })]) {
+      const back = fakeApi({ index });
+      assert.deepEqual(await readIndexLive('o/r', 't', back.get, broken), want, name);
+      assert.equal(back.asked.filter((p) => p.includes('/commits?')).length, rest.asked.filter((p) => p.includes('/commits?')).length);
+    }
+  }
+  // A version's text GraphQL cut short, or its pull requests unreadable, is never read as an answer: REST decides.
+  const cut = fakeGraph(INDEX).graph;
+  const truncated = async (q, v) => {
+    const d = await cut(q, v);
+    d.repository.object.history.nodes[0].file.object.isTruncated = true;
+    return d;
+  };
+  const tr = fakeApi();
+  assert.deepEqual(await readIndexLive('o/r', 't', tr.get, truncated), await readIndexLive('o/r', 't', fakeApi().get));
+  assert.ok(tr.asked.some((p) => p.includes('/contents/')));
+  const unreadable = { ...INDEX, commits: [version(2, MERGED_AT, WF, { pull: 'unreadable' }), INDEX.commits[1]] };
+  await assert.rejects(
+    readIndexLive('o/r', 't', fakeApi({ index: unreadable }).get, fakeGraph(unreadable).graph),
+    /pull requests of .*not a list/,
+  );
+});
+
 test('a closed window is read once per seal, and its runs on this code again by id on every poll', async () => {
   const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
   const same = run({ id: 8, head_sha: OLDER, head_commit: { tree_id: TREE }, jobs: [[reviewJob(OLDER, 'success')]] });
@@ -1042,6 +1152,15 @@ test('the review job runs only on pull requests into main, and again when one is
   assert.match(on, /types: \[[^\]]*\bedited\b[^\]]*\]/);
   assert.match(wf, /github\.event\.pull_request\.base\.ref == 'main'/);
   assert.match(wf, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base/);
+});
+
+test('a draft is not reviewed: the review and proof read run once, when it is marked ready', async () => {
+  const { readFileSync } = await import('node:fs');
+  const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
+  const on = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
+  assert.match(on, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/);
+  const review = wf.slice(wf.indexOf('\n  review:'), wf.indexOf('\n    runs-on:', wf.indexOf('\n  review:')));
+  assert.match(review, /!github\.event\.pull_request\.draft &&/);
 });
 
 test("starting the seal can't void a PASS: it is a job of its own after the review, never a step of it", async () => {
@@ -1492,7 +1611,7 @@ test('a review-only call with images: input.jsonl carries prompt.txt whole, and 
   };
   const images = [{ path: 'apps/customer/look-baselines/home/phone.png', side: 'after', commit: HEAD, data: png('x').toString('base64') }];
   const { dir, said } = await inputs(images);
-  assert.match(said, /1 look-baseline image\(s\) attached$/);
+  assert.match(said, /1 image\(s\) attached$/);
   const prompt = fs.readFileSync(path.join(dir, 'prompt.txt'), 'utf8');
   assert.equal(prompt, buildPrompt({ brief: briefs.reviewBrief, diff: docs, pr: 7, head: HEAD }), 'prompt.txt as before');
   const content = JSON.parse(fs.readFileSync(path.join(dir, 'input.jsonl'), 'utf8')).message.content;
@@ -1554,10 +1673,11 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   assert.match(plain, /ask\(\) \{\n\s+schema="\$\(cat "\$1\/schema\.json"\)"\n/);
   assert.match(plain, /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr"\n/);
   assert.match(plain, /wait "\$\{pids\[\$i\]\}" \|\| rc=\$\?\n\s+\[ "\$rc" = 0 \] && continue\n/);
-  // A failed part: the second key only for a key failure, once, and any other failure ends the step as one call did.
+  // A failed part: a spare key only for a key failure, each spare once, and any other failure ends the step as one call
+  // did (reviewer-error.test.mjs runs each case).
   assert.match(plain, /other_key "\$p\/answer\.json" "\$rc" \|\| failed "\$p\/answer\.json" "\$rc"\n/);
   assert.match(plain, /--key\)" = other \] \|\| failed "\$p\/answer\.json" "\$rc"\n/);
-  assert.match(plain, /ask "\$p" \|\| failed "\$p\/answer\.json" "\$\?"\n/);
+  assert.match(plain, /rc=0\n\s+ask "\$p" \|\| rc=\$\?\n\s+done\n/);
   // The same pinned model and effort either way.
   const pinned = (part) => /--model \S+ --effort \S+/.exec(part)?.[0];
   assert.ok(pinned(streamed) && pinned(streamed) === pinned(plain));
@@ -1590,19 +1710,26 @@ function reviewerCallFaults(wf) {
   }
   const READ_ONLY = '--tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \\';
   const ADD_DIR = '--add-dir "$GITHUB_WORKSPACE" \\';
+  // The proof reader (the third call) also reads the steps' end pictures (step-pictures.mjs, project-state #2693): one
+  // more folder, the one the job names below, holding the journeys run's shards and nothing of the checkout or the key.
+  const READ_ADD_DIR = '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\';
+  const PICS = /^ {10}pics="\$HOME\/journey-pictures"$/gm;
   const DENIES =
     '--disallowedTools "Read(/$GITHUB_WORKSPACE/.git/**)" "Read(/$GITHUB_WORKSPACE/**/.env*)" "Read(//proc/**)" "Read(/$RUNNER_TEMP/**)" \\';
   const NO_SETTINGS = `--setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \\`;
   const faults = [];
   if (calls.length !== 3) faults.push(`${calls.length} reviewer calls, not the review's two and the reader's one`);
+  if ((wf.match(PICS) ?? []).length !== 1) faults.push('the pictures folder is not set once, as pics="$HOME/journey-pictures"');
   calls.forEach((call, n) => {
     const at = `call ${n + 1}`;
     const own = call.split('\n').map((l) => l.trim());
-    for (const line of [READ_ONLY, ADD_DIR, DENIES, NO_SETTINGS]) if (!own.includes(line)) faults.push(`${at} lacks the line ${line}`);
+    const reader = n === 2;
+    for (const line of [READ_ONLY, reader ? READ_ADD_DIR : ADD_DIR, DENIES, NO_SETTINGS])
+      if (!own.includes(line)) faults.push(`${at} lacks the line ${line}`);
     const count = (flag) => call.split(flag).length - 1;
+    if (count('--add-dir') !== (reader ? 2 : 1)) faults.push(`${at} has --add-dir ${count('--add-dir')} times, not ${reader ? 2 : 1}`);
     for (const flag of [
       '--tools',
-      '--add-dir',
       '--disallowedTools',
       '--permission-mode',
       '--setting-sources',
@@ -1655,6 +1782,15 @@ test('the reviewer-call check fails on each planted fault', async () => {
     'the /proc deny dropped': once('"Read(//proc/**)" ', ''),
     'the RUNNER_TEMP deny dropped': once(' "Read(/$RUNNER_TEMP/**)"', ''),
     'a second directory': once('--add-dir "$GITHUB_WORKSPACE" \\', '--add-dir "$GITHUB_WORKSPACE" "$HOME" \\'),
+    'the pictures folder widened': once('pics="$HOME/journey-pictures"', 'pics="$HOME"'),
+    'the pictures folder added to the review': once(
+      '--add-dir "$GITHUB_WORKSPACE" \\',
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\',
+    ),
+    'a third folder for the reader': once(
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\',
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" --add-dir "$HOME" \\',
+    ),
     'an allow rule': once('--append-system-prompt "$reads"', '--allowedTools "Bash(*)" --append-system-prompt "$reads"'),
     'inline settings': once('--append-system-prompt "$reads"', `--settings '{}' --append-system-prompt "$reads"`),
     'settings sources back': once(`--setting-sources "" --strict`, `--setting-sources "user,project" --strict`),
@@ -1731,4 +1867,164 @@ test('a map rebuilt from new runs groups the paths that gain and lose the same j
     });
   assert.deepEqual(expand(out).sort(), jsonChanges(before, after).sort());
   assert.deepEqual(expand(lines).sort(), jsonChanges(twice, reordered).sort());
+});
+
+// The third FAIL in a row says to stop fixing (ci-review.mjs failStreak, premiseLines; pstack principle-attack-the-premise).
+// Failure it replaces: project-state BUILDER.md's words-only "after three red runs in a row", which builders skipped.
+const hex = (c) => c.repeat(40);
+const job = (verdict, id = 0) => ({ id, name: 'CI review', steps: [{ name: 'Verdict', conclusion: verdict }] });
+// One run per push on the branch, minutes apart; `jobs` per run, every attempt's.
+const branchRun = (id, c, minute, jobs, over = {}) => ({
+  id,
+  head_sha: hex(c),
+  event: 'pull_request_target',
+  pull_requests: [],
+  created_at: new Date(Date.UTC(2026, 10, 15, 0, minute)).toISOString(),
+  jobs,
+  ...over,
+});
+const streakOf = (runs, head, over = {}) =>
+  failStreak({ runs, jobsOf: async (r) => r.jobs, head: hex(head), number: 7, ...over }).then((s) => s.map((h) => h.sha[0]));
+
+test('the first and second FAIL print nothing new; the third does, naming each head and its findings', async () => {
+  const runs = [branchRun(1, '1', 1, [job('failure')]), branchRun(2, '2', 2, [job('failure')]), branchRun(3, '3', 3, [])];
+  assert.deepEqual(await streakOf(runs.slice(0, 1), '1'), ['1']);
+  assert.deepEqual(premiseLines([{ sha: hex('1') }]), []);
+  assert.deepEqual(premiseLines([{ sha: hex('2') }, { sha: hex('1') }]), [], 'a second FAIL prints nothing new');
+  assert.deepEqual(await streakOf(runs, '3'), ['3', '2', '1']);
+  const out = premiseLines([
+    { sha: hex('3'), findings: ['a.ts:4: the comment is never closed'] },
+    { sha: hex('2'), findings: ['a.ts:4: the doc comment is never closed'] },
+    { sha: hex('1'), findings: [] },
+  ]).join('\n');
+  assert.match(out, /3 FAILs in a row on this branch: stop fixing/);
+  assert.match(out, /write that belief down in one sentence and test it/);
+  assert.match(out, /ask the outside reviewer once why, as project-state BUILDER\.md says \(row d74\)/);
+  assert.match(out, new RegExp(`- ${hex('3').slice(0, 10)}\n  - a\\.ts:4: the comment is never closed`));
+  assert.match(out, new RegExp(`- ${hex('1').slice(0, 10)}: \\(findings unreadable\\)`));
+});
+
+test('a run by hand is no push: a re-run, a second attempt or ready_for_review on one head counts it once', async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure'), job('failure')]), // attempt 1 and its re-run by hand
+    branchRun(2, '1', 2, [job('failure')]), // ready_for_review on the same head
+    branchRun(3, '2', 3, [job('failure')]),
+    branchRun(4, '9', 4, [job('success')], { event: 'workflow_dispatch' }), // not this workflow's pull_request_target
+    branchRun(5, '3', 5, []),
+  ];
+  assert.deepEqual(await streakOf(runs, '3'), ['3', '2', '1'], 'three heads, five runs');
+  assert.deepEqual(await streakOf(runs.slice(0, 3), '2'), ['2', '1'], 'two heads after a re-run is the second FAIL');
+});
+
+test('a PASS ends the row; a head with no verdict neither counts nor ends it', async () => {
+  const pass = [
+    branchRun(1, '1', 1, [job('failure')]),
+    branchRun(2, '2', 2, [job('success')]),
+    branchRun(3, '3', 3, [job('failure')]),
+    branchRun(4, '4', 4, []),
+  ];
+  assert.deepEqual(await streakOf(pass, '4'), ['4', '3']);
+  // A FAIL then a PASS on one head's re-runs: the FAIL stands, as the seal reads it.
+  const down = [
+    branchRun(1, '1', 1, [job('failure')]),
+    branchRun(2, '2', 2, [job('failure')]),
+    branchRun(3, '5', 3, [{ name: 'CI review', steps: [{ name: 'Verdict', conclusion: 'skipped' }] }]), // judge down
+    branchRun(4, '3', 4, []),
+  ];
+  assert.deepEqual(await streakOf(down, '3'), ['3', '2', '1']);
+});
+
+test("another pull request's runs on the same branch name are not this row", async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure')]), // before this pull request opened
+    branchRun(2, '2', 2, [job('failure')], { pull_requests: [{ number: 6 }] }),
+    branchRun(3, '3', 3, [job('failure')]),
+    branchRun(4, '4', 4, []),
+  ];
+  const since = new Date(Date.UTC(2026, 10, 15, 0, 2)).toISOString();
+  assert.deepEqual(await streakOf(runs, '4', { since }), ['4', '3']);
+});
+
+test('findings are read back from a FAIL log; notes and other lines are not', () => {
+  const log = [
+    '2026-11-12T15:33:41.1Z ##[group]Run node tooling/ci/ci-review.mjs judge',
+    '2026-11-12T15:33:41.3Z ## CI review: FAIL on ' + hex('1'),
+    '2026-11-12T15:33:41.3Z ',
+    '2026-11-12T15:33:41.3Z - a.ts:4: blocking',
+    '2026-11-12T15:33:41.3Z - note: a remark',
+    '2026-11-12T15:33:41.3Z ##[error]1 blocking finding(s)',
+    '2026-11-12T15:33:41.3Z - after the step',
+  ].join('\n');
+  assert.deepEqual(findingsInLog(log), ['a.ts:4: blocking']);
+  assert.deepEqual(findingsInLog('## CI review: PASS on x'), []);
+});
+
+test('readStreak reads the branch through GitHub and the logs only from the third FAIL', async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure', 11)]),
+    branchRun(2, '2', 2, [job('failure', 12)]),
+    branchRun(3, '3', 3, [job('failure', 13)]),
+  ];
+  const asked = [];
+  const get = async (path) => {
+    asked.push(path);
+    if (path.includes('/workflows/ci-review.yml/runs?')) return { status: 200, text: JSON.stringify({ workflow_runs: runs }) };
+    const r = /runs\/(\d+)\/jobs/.exec(path);
+    if (r) return { status: 200, text: JSON.stringify({ jobs: runs.find((x) => x.id === Number(r[1])).jobs }) };
+    const j = /jobs\/(\d+)\/logs/.exec(path);
+    if (j) return { status: 200, text: `## CI review: FAIL on x\n- finding of job ${j[1]}\n##[error]` };
+    return { status: 404, text: '' };
+  };
+  const at3 = await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('3'), own: ['mine'], get });
+  assert.deepEqual(
+    at3.map((h) => h.findings),
+    [['mine'], ['finding of job 12'], ['finding of job 11']],
+  );
+  assert.match(asked[0], /event=pull_request_target&branch=b&/);
+  asked.length = 0;
+  const at2 = await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('2'), own: ['mine'], get });
+  assert.equal(at2.length, 2);
+  assert.ok(!asked.some((p) => p.includes('/logs')), 'no log read below the third FAIL');
+  assert.deepEqual(await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('9'), get }), [], 'a replay at a head with no FAIL');
+});
+
+// A verdict says what it checked and cleared (ci-review.mjs VERDICT_SCHEMA `cleared`; pstack blast-radius L36). The
+// failure it replaces: a PASS printed "## CI review: PASS on <head>" and nothing else, so no one could tell what it read.
+test('the schema asks for what was cleared; the answer carries it; the log prints it apart from the findings', () => {
+  assert.ok(VERDICT_SCHEMA.required.includes('cleared'));
+  assert.equal(VERDICT_SCHEMA.properties.cleared.minItems, 1);
+  const ok = (answer) => JSON.stringify({ is_error: false, subtype: 'success', structured_output: answer });
+  const pass = readAnswer(ok({ verdict: 'PASS', findings: [], cleared: ['svc-ledger callers of postEntry: none changed'] }));
+  assert.equal(pass.verdict, 'PASS');
+  assert.deepEqual(pass.cleared, ['svc-ledger callers of postEntry: none changed']);
+  // Told, never judged: an answer without it keeps its verdict.
+  const bare = readAnswer(ok({ verdict: 'PASS', findings: [] }));
+  assert.equal(bare.verdict, 'PASS');
+  assert.deepEqual(bare.cleared, []);
+  assert.deepEqual(clearedLines([]), []);
+  const log = ['## CI review: FAIL on abc', '', '- a.ts:1: item 4: broken', ...clearedLines(['b.ts callers: - fine'])].join('\n');
+  assert.match(log, /### Checked and cleared\n\n {2}\* b\.ts callers: - fine/);
+  assert.deepEqual(findingsInLog(log), ['a.ts:1: item 4: broken'], 'a cleared line is never read back as a finding');
+});
+
+// Where a streak falls (whereTheyFall; pstack principle-attack-the-premise L12). The failure it replaces: the third
+// FAIL listed each head's findings and asked what they share, never which files, steps and heads they land on.
+test('the third FAIL says which files, steps and heads the findings fall on', () => {
+  const streak = [
+    { sha: hex('3'), findings: ['a.ts:4: item 4: J-cex-spot-01 #2 breaks', 'no place at all'] },
+    { sha: hex('2'), findings: ['a.ts:9: item 4: still broken'] },
+    { sha: hex('1'), findings: ['b.mjs:1: item 3: weaker'] },
+  ];
+  assert.deepEqual(whereTheyFall(streak), [
+    'Where they fall, of 3 heads:',
+    `  * a.ts: 2 (${hex('3').slice(0, 10)}, ${hex('2').slice(0, 10)})`,
+    `  * b.mjs: 1 (${hex('1').slice(0, 10)})`,
+    `  * J-cex-spot-01 #2: 1 (${hex('3').slice(0, 10)})`,
+    '  * 1 finding(s) name no file or step',
+    '',
+  ]);
+  assert.deepEqual(whereTheyFall([{ sha: hex('1'), findings: ['nowhere'] }]), []);
+  const out = premiseLines(streak).join('\n');
+  assert.match(out, /where they fall, not only how many there are: which steps, files and heads/);
+  assert.match(out, /Where they fall, of 3 heads:/);
 });

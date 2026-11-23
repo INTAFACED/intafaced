@@ -147,11 +147,128 @@ describe('propose', () => {
     expect(!reply.ok && reply.refusal).toMatchObject({ code: 'action_approval.operator_only', changed: 'no' });
   });
   it('a dropped connection on a write is "not known", not a failure', async () => {
-    stub(() => {
-      throw new Error('socket hang up');
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const fn = stub(() => {
+        throw new Error('socket hang up');
+      });
+      const pending = runStep(ctx, body({}), neverExecute);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const reply = await pending;
+      expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+      expect(fn.mock.calls.filter(([url]) => String(url).includes('actionApproval.propose'))).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  // A propose whose answer is lost may still have been stored (J-ops-console-07 #8 on run 44298046743: identity's answer
+  // took longer than the console's 8 s, so the desk showed "not known" and no packet). The console reads the founder's own
+  // approvals back and makes the packet for the stored row; it never proposes a second time.
+  describe('when the answer to a propose is lost', () => {
+    const lost = () => {
+      throw new Error('The operation was aborted due to timeout');
+    };
+    const asked = Date.now();
+    const at = (offsetMs: number) => new Date(asked + offsetMs).toISOString();
+    const listed = (rows: unknown[]) => trpcOk({ approvals: rows, pageFull: false });
+    const run = async (list: (n: number) => Response) => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      let reads = 0;
+      const fn = stub((url) => (url.includes('actionApproval.propose') ? lost() : list(++reads)));
+      try {
+        const pending = runStep(ctx, body({}), neverExecute);
+        await vi.advanceTimersByTimeAsync(10_000);
+        return { reply: await pending, fn, reads: () => reads };
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    const proposes = (fn: ReturnType<typeof stub>) =>
+      fn.mock.calls.filter(([url]) => String(url).includes('actionApproval.propose')).length;
+
+    it("makes the packet for the PENDING row identity stored for exactly this request, read from the founder's own list", async () => {
+      const { reply, fn } = await run(() =>
+        listed([row(kill, { approvalId: 'appr_stored', operationId: 'op_stored', createdAt: at(200), expiresAt: at(600_000) })]),
+      );
+      const listCall = fn.mock.calls.find(([url]) => String(url).includes('actionApproval.list'))!;
+      expect(decodeURIComponent(String(listCall[0]))).toContain('"view":"mine"');
+      expect((listCall[1].headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+      expect(proposes(fn)).toBe(1);
+      expect(reply.ok && reply.step === 'propose').toBe(true);
+      if (reply.ok && reply.step === 'propose') {
+        const read = decodePacket(reply.packet ?? '');
+        expect(read.ok && read.packet.request).toEqual(kill);
+        expect(read.ok && read.packet.approvalId).toBe('appr_stored');
+        expect(read.ok && read.packet.operationId).toBe('op_stored');
+      }
     });
+    it('reads again when the row is not there yet, and finds it on a later read', async () => {
+      const { reply, reads } = await run((n) =>
+        n < 3 ? listed([]) : listed([row(kill, { approvalId: 'appr_late', createdAt: at(4_000) })]),
+      );
+      expect(reads()).toBe(3);
+      expect(reply.ok && reply.step === 'propose' && reply.approval.approvalId).toBe('appr_late');
+    });
+    it('stays "not known" when no row matches: another request, another founder, an old row, or one no longer pending', async () => {
+      const other: DeskRequest = { ...kill, reason: 'a different reason entirely' };
+      const { reply, fn, reads } = await run(() =>
+        listed([
+          row(other, { approvalId: 'appr_other', createdAt: at(100) }),
+          row(kill, { approvalId: 'appr_theirs', requesterId: '22222222-2222-4222-8222-222222222222', createdAt: at(100) }),
+          row(kill, { approvalId: 'appr_old', createdAt: at(-3_600_000) }),
+          row(kill, { approvalId: 'appr_used', status: 'CONSUMED', createdAt: at(100) }),
+        ]),
+      );
+      expect(reads()).toBe(3);
+      expect(proposes(fn)).toBe(1);
+      expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+    });
+    it('stays "not known" when the list cannot be read either', async () => {
+      const { reply, fn } = await run(() => trpcErr(503, 'down', 'INTERNAL_SERVER_ERROR'));
+      expect(proposes(fn)).toBe(1);
+      expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+    });
+    it('reads nothing back after a definite refusal', async () => {
+      const fn = stub(() => trpcErr(403, 'this action type is an operator action [action_approval.operator_only]'));
+      const reply = await runStep(ctx, body({}), neverExecute);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(!reply.ok && reply.refusal.changed).toBe('no');
+    });
+  });
+  // The edge's own retryable 503 when identity answers its authority read late: nothing was forwarded, so it is no "outcome
+  // not known", and one more ask after its `retry-after` usually gets the packet.
+  const edgeAuthorityRefusal = () =>
+    Response.json(
+      { error: 'Identity could not confirm who is calling.', code: 'edge.authority_unavailable' },
+      { status: 503, headers: { 'retry-after': '0' } },
+    );
+  it("asks once more when the edge refused for want of identity's answer, and hands out the packet", async () => {
+    let calls = 0;
+    const fn = stub(() => (++calls === 1 ? edgeAuthorityRefusal() : trpcOk(row(kill))));
     const reply = await runStep(ctx, body({}), neverExecute);
-    expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fn.mock.calls[1]![1].body as string)).toEqual(proposeInputFor(kill));
+    expect(reply.ok && reply.step === 'propose' && decodePacket(reply.packet ?? '').ok).toBe(true);
+  });
+  it('a second edge authority refusal says nothing was sent, with its code, and asks no third time', async () => {
+    const fn = stub(() => edgeAuthorityRefusal());
+    const reply = await runStep(ctx, body({}), neverExecute);
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(!reply.ok && reply.refusal).toMatchObject({ code: 'edge.authority_unavailable', changed: 'no' });
+  });
+  it('any other 5xx is still "not known" and is not asked again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const fn = stub(() => Response.json({ error: 'upstream', code: 'edge.upstream_unavailable' }, { status: 502 }));
+      const pending = runStep(ctx, body({}), neverExecute);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const reply = await pending;
+      // Only the founder's own list is read back after it; the propose itself is never sent twice.
+      expect(fn.mock.calls.filter(([url]) => String(url).includes('actionApproval.propose'))).toHaveLength(1);
+      expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

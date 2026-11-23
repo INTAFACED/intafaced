@@ -29,7 +29,7 @@ import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
 import { builderFeeEarn, builderFeeReceive } from './builder-fee.js';
 import { ownFundsMove } from './own-funds.js';
-import { campaignBudgetFund, rewardOwe, rewardPayOut } from './reward-owed.js';
+import { campaignBudgetFund, rewardOwe, rewardPayOut, rewardReclaim } from './reward-owed.js';
 import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
 import { chargeCollect, chargeEarn } from './charge.js';
 import { academyPurchase, academyPurchaseRefund } from './academy-purchase.js';
@@ -1459,6 +1459,8 @@ export const recipes = {
   campaignBudgetFund,
   rewardOwe,
   rewardPayOut,
+  // Cancelling a reward we owe and have not paid, back to the rewards engine (J-campaigns-18). See ./reward-owed.ts.
+  rewardReclaim,
   // A fee share we owe a lead trader or affiliate and its payment to their own wallet, own accounts only (launch money model). See ./fee-share-owed.ts.
   feeShareBudgetFund,
   feeShareOwe,

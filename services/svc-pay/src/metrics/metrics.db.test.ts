@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
+import { type Principal } from '@intafaced/auth';
 import { type Context } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, parseAmount as amt, type Amount } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
@@ -58,7 +58,7 @@ const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_metrics_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -787,7 +787,7 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
         series: (i: unknown) => Promise<{ points: unknown[] }>;
       };
     };
-    const asCaller = (p: Principal): Caller => mount().createCaller(ctxOf(p)) as unknown as Caller;
+    const asCaller = (p: Principal): Caller => mount().createCaller(ctxOf(p)) as Caller;
     const failure = async (p: Promise<unknown>) => {
       try {
         await p;

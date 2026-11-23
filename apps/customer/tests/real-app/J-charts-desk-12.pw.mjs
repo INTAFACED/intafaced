@@ -158,11 +158,24 @@ test(`${J} #1 applies "change above 5 percent and quote USDT": the rows match bo
   const loose = await judge(low);
   expect(loose.shown.length).toBeGreaterThan(0);
   await expect(count(page)).toHaveText(`${loose.shown.length} ${loose.shown.length === 1 ? 'market matches' : 'markets match'}`);
-  for (const symbol of loose.shown) {
-    expect(symbol.endsWith('/USDT'), `${symbol} is quoted in USDT`).toBe(true);
-    const change = percentPoints(await results(page).locator(`tr[data-symbol="${symbol}"] td[data-column="change"]`).innerText());
-    expect(Math.abs(change - changePoints(tickers[symbol])), `${symbol} change agrees with Edge`).toBeLessThan(0.1);
-  }
+  for (const symbol of loose.shown) expect(symbol.endsWith('/USDT'), `${symbol} is quoted in USDT`).toBe(true);
+  // Each row's change agrees with Edge's ticker read at the same moment as the page, not with the snapshot taken before
+  // Apply: a live ticker that moves between the two reads is the market moving, not the page being wrong (#8633).
+  await expect
+    .poll(
+      async () => {
+        const fresh = await edgeJson('/tickers?limit=500');
+        const off = [];
+        for (const symbol of loose.shown) {
+          const shown = percentPoints(await results(page).locator(`tr[data-symbol="${symbol}"] td[data-column="change"]`).innerText());
+          const want = changePoints(fresh[symbol]);
+          if (!(Math.abs(shown - want) < 0.1)) off.push(`${symbol}: shown ${shown}, Edge ${want}`);
+        }
+        return off;
+      },
+      { message: "every row's change agrees with Edge within 0.1 points" },
+    )
+    .toEqual([]);
 
   // No match: a bound no market clears shows the empty state, naming the filter that removed every row.
   await apply(page, { quote: 'USDT', changeMin: '900' });

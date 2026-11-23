@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import postgres from 'postgres';
 import { founderDisputeListSchema } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -16,7 +16,7 @@ import {
   userAvailable,
   type PostRequest,
 } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DISPUTE_FEE_NOTE } from './chargeback-ledger.js';
 import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
@@ -58,7 +58,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
     if (!name.endsWith('_test')) parsed.pathname = '/intafaced_test';
     return { url: parsed.toString(), stop: async () => undefined };
   }
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_chargeback_outcome_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -213,6 +213,54 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
     const page = founderDisputeListSchema.parse(await createFounderMerchantReads({ sql, pay, disputes: store }).disputeList({ limit: 10 }));
     expect(page.items.find((d) => d.disputeId === disputeId)?.ledgerEffect?.wonTxId).toBeTruthy();
+  });
+
+  it('includes an in-window win for a dispute opened before the window', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-statement-window';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-statement-open', '40');
+    const opening = await ledger.getTxByKey(`pay.chargeback.open:${disputeId}`);
+    const openedAt = opening!.postedAt.getTime();
+    // The win posts two minutes later on the app's clock; only Date is faked, so Postgres I/O keeps real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(openedAt + 120_000);
+      await deliver(payment, 'dispute.won', disputeId, 'evt-statement-won', '40');
+    } finally {
+      vi.useRealTimers();
+    }
+    const won = await ledger.getTxByKey(`pay.chargeback.won:${disputeId}`);
+    const from = new Date(openedAt + 60_000);
+    expect(won!.postedAt.getTime()).toBeGreaterThanOrEqual(from.getTime());
+
+    const page = await pay.listStatement({
+      merchantId,
+      limit: 20,
+      from: from.toISOString(),
+      to: new Date(won!.postedAt.getTime() + 60_000).toISOString(),
+    });
+    expect(page.items).toContainEqual(
+      expect.objectContaining({
+        ledgerTxId: won!.id,
+        kind: 'chargeback',
+        account: 'proceeds',
+        direction: 'debit',
+        amount: '40',
+        windowNet: '40',
+      }),
+    );
+    // The opening posted before the window stays out of it.
+    expect(page.items.some((line) => line.ledgerTxId === opening!.id)).toBe(false);
+
+    // A window after every posting of the dispute lists none of its lines.
+    const later = new Date(won!.postedAt.getTime() + 30 * 60_000);
+    const after = await pay.listStatement({
+      merchantId,
+      limit: 20,
+      from: later.toISOString(),
+      to: new Date(later.getTime() + 60_000).toISOString(),
+    });
+    expect(after.items).toEqual([]);
   });
 
   it('a short merchant pot posts the house shortfall and a later win recovers it', async () => {

@@ -1,4 +1,5 @@
-import { publicProcedure, router, serverTimeSchema } from '@intafaced/contracts';
+import { serverTimeSchema } from '@intafaced/contracts/identity';
+import { publicProcedure, router } from '@intafaced/contracts/trpc';
 
 /**
  * `serverTime` (I-signin-sessions-13): this service's clock, for the customer's "my codes do not work" check. Public and

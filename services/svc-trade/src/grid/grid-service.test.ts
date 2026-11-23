@@ -38,7 +38,7 @@ const MARKET = {
   minNotional: A('1'),
   status: 'active',
   paper: false,
-} as unknown as Market;
+} as Market;
 
 /** Identity's consume, as it answers an approval it minted for this person and scope (contracts step-up-check). */
 function identity(fail?: unknown, user = ALICE) {
@@ -113,7 +113,7 @@ class StubTrade {
       status: 'open',
       holdAsset: input.side === 'buy' ? 'USDT' : 'BTC',
       holdAmount: input.side === 'buy' ? mul(price, input.qty, 'ceil') : input.qty,
-    } as unknown as OrderRecord;
+    } as OrderRecord;
     this.orders.set(id, record);
     if (this.lostAt !== null && this.placed.length - 1 === this.lostAt) {
       throw Object.assign(new Error('timeout'), { code: 'trade.place_timeout' });
@@ -125,7 +125,7 @@ class StubTrade {
     const o = this.orders.get(orderId)!;
     this.orders.set(orderId, { ...o, status: 'filled', filledQty: o.qty });
     this.fills.set(orderId, [
-      { orderId, price: o.price!, qty: o.qty, quoteAmount: mul(o.price!, o.qty, 'floor'), feeAsset, feeAmount } as unknown as FillRecord,
+      { orderId, price: o.price!, qty: o.qty, quoteAmount: mul(o.price!, o.qty, 'floor'), feeAsset, feeAmount } as FillRecord,
     ]);
   }
 }
@@ -498,7 +498,7 @@ describe('grid after review: wind-down, lost places, races and replays (CB-bots-
         quoteAmount: mul(sell.price!, half, 'floor'),
         feeAsset: 'USDT',
         feeAmount: 0n,
-      } as unknown as FillRecord,
+      } as FillRecord,
     ]);
     await service.tick((await store.findBot(view.botId))!);
     const after = await service.get(verified(), view.botId);
@@ -1055,5 +1055,82 @@ describe('grid modify (CB-bots-04; J-copy-bots-otc-15 #2)', () => {
     expect(r.code).toBe('trade.bots_grid_trailing_not_built');
     const after = await service.get(verified(), bot.botId);
     expect(after).toMatchObject({ lowerPrice: bot.lowerPrice, upperPrice: bot.upperPrice, gridCount: 20, reinitCount: 0 });
+  });
+});
+
+describe('grid exits (CB-bots-03; J-copy-bots-otc-15 #3)', () => {
+  it('a price exit the bid reaches stops the bot once with the reason price_exit, and the stop cancels every level', async () => {
+    const { service, trade, store, process } = setup();
+    const bot = await service.create(verified(), BODY);
+    const saved = await service.setExits(verified(), { botId: bot.botId, stopBelow: '64000', stopAbove: '' });
+    expect(saved).toEqual({ stopBelow: '64000', stopAbove: null, rsi: { source: null } });
+    // The bid above the exit: the bot keeps running.
+    await process().tickAll();
+    expect((await service.get(verified(), bot.botId)).status).toBe('running');
+    // The bid falls to the exit: one stop, reason price_exit, and the wind-down cancels what rested.
+    trade.bid = '64000';
+    trade.ask = '64020';
+    const setStatus = vi.spyOn(store, 'setStatus');
+    await process().tickAll();
+    const stopped = await service.get(verified(), bot.botId);
+    expect(stopped).toMatchObject({ status: 'stopped', statusReason: 'price_exit' });
+    expect(stopped.orders.filter((o) => o.status === 'open')).toEqual([]);
+    expect(stopped.reserve?.releasedAt).not.toBeNull();
+    // Once: a later tick, still at the exit, writes no second stop.
+    await process().tickAll();
+    const stops = setStatus.mock.calls.filter((c) => c[1] === 'stopped');
+    expect(stops).toHaveLength(1);
+    expect((await service.get(verified(), bot.botId)).statusReason).toBe('price_exit');
+  });
+
+  it('a rises-to exit stops on the ask; an owner stop first leaves its own reason', async () => {
+    const { service, trade, process } = setup();
+    const bot = await service.create(verified(), BODY);
+    await service.setExits(verified(), { botId: bot.botId, stopAbove: '65500' });
+    trade.ask = '65500';
+    trade.bid = '65480';
+    await process().tickAll();
+    expect((await service.get(verified(), bot.botId)).statusReason).toBe('price_exit');
+
+    const other = await service.create(verified(), { ...BODY, clientRequestId: 'grid-test-0002' });
+    await service.setExits(verified(), { botId: other.botId, stopAbove: '65500' });
+    await service.stop(verified(), other.botId);
+    await process().tickAll();
+    expect((await service.get(verified(), other.botId)).statusReason).toBe('owner_stop');
+  });
+
+  it('an RSI exit is refused with no RSI source and nothing is saved; bad prices are refused by field', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const rsi = await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: '64000', rsiBelow: '30' }));
+    expect(rsi).toMatchObject({ code: 'trade.bots_grid_rsi_source_not_set', data: { field: 'RSI exit' } });
+    expect((await service.get(verified(), bot.botId)).exits).toEqual({ stopBelow: null, stopAbove: null, rsi: { source: null } });
+    expect((await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: '0' }))).code).toBe(
+      'trade.bots_grid_exit_price_invalid',
+    );
+    expect((await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: 'x' }))).code).toBe(
+      'trade.bots_grid_exit_price_invalid',
+    );
+    expect((await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: '66000', stopAbove: '65000' }))).code).toBe(
+      'trade.bots_grid_exit_price_invalid',
+    );
+    const other: Principal = { ...principalFor('22222222-2222-4222-8222-222222222222'), tier: 'full' };
+    expect((await refusal(service.setExits(other, { botId: bot.botId, stopBelow: '64000' }))).code).toBe('trade.grid_not_found');
+    await service.stop(verified(), bot.botId);
+    expect((await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: '64000' }))).code).toBe('trade.grid_not_running');
+  });
+});
+
+describe('grid idle-fund yield (CB-bots-06; J-copy-bots-otc-15 #5)', () => {
+  it('turning it on is refused naming the bank earn door, and nothing changes; off answers off', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const on = await refusal(service.setIdleYield(verified(), { botId: bot.botId, on: true }));
+    expect(on).toMatchObject({ code: 'trade.bots_grid_idle_yield_unwired', data: { door: 'bank.earn' } });
+    expect(await service.setIdleYield(verified(), { botId: bot.botId, on: false })).toEqual({ on: false });
+    const after = await service.get(verified(), bot.botId);
+    expect(after).toMatchObject({ status: 'running', investment: bot.investment });
+    const other: Principal = { ...principalFor('22222222-2222-4222-8222-222222222222'), tier: 'full' };
+    expect((await refusal(service.setIdleYield(other, { botId: bot.botId, on: true }))).code).toBe('trade.grid_not_found');
   });
 });

@@ -1,22 +1,26 @@
+// volt-room: /academy/rooms/messages/:conversationId
 import { useEffect, useId, useRef, useState } from 'react';
-import { z } from 'zod';
 import {
   ACADEMY_COURSE_MESSAGES_LIST_MAX,
-  academyCourseConversationSchema,
-  academyCourseConversationSummarySchema,
-  academySendCourseMessageResultSchema,
   type AcademyCourseConversation as Conversation,
 } from '@intafaced/contracts/academy-course-messages';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { ServiceOffNotice } from '../../shared/service-off';
-import { Button, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyMessagesHref, formatMoment } from './academy-lms';
-import { AcademyRefusal } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
+import { ServiceOffNote } from './service-off-note';
+import { ACADEMY_SEND_COURSE_MESSAGE } from '@intafaced/contracts/academy-send-course-message-procedures';
+import { ACADEMY_COURSE_CONVERSATIONS } from '@intafaced/contracts/academy-course-conversations-procedures';
+import { ACADEMY_OPEN_COURSE_CONVERSATION } from '@intafaced/contracts/academy-open-course-conversation-procedures';
+import { Button } from '@intafaced/ui/lit';
+import { ReadingTemplate, TextAreaField } from '@intafaced/ui/lit/templates';
+import { AcademySections } from './academy-sections';
+import { t as copyText } from './copy';
+import { Section, Waiting } from './volt-parts';
 
 /**
  * Message the course team (AC-rooms-04). A course page carries the contact form; the Rooms tab links to the reader's
@@ -36,7 +40,7 @@ function Refused({ failure, testId }: { failure: Failure; testId: string }) {
   const code = academyCodeOf(failure);
   const words = code === 'academy.enrolment_required' ? t('teamContactEnrolRequired') : academyRefusalText(failure, t);
   return (
-    <div role="status" className="failure" data-testid={testId} data-code={code ?? undefined}>
+    <div role="status" className="lt-refusal" data-testid={testId} data-code={code ?? undefined}>
       {words === null ? <AcademyRefusal failure={failure} /> : <p>{words}</p>}
     </div>
   );
@@ -58,12 +62,7 @@ function useSend(courseSlug: string) {
     setSending(true);
     setOutcome(null);
     try {
-      const sent = await api.mutate(
-        'academy',
-        'sendCourseMessage',
-        { courseSlug, body, clientRequestId: request.current },
-        academySendCourseMessageResultSchema,
-      );
+      const sent = await api.call(ACADEMY_SEND_COURSE_MESSAGE, { courseSlug, body, clientRequestId: request.current });
       if (sent.ok) {
         setOutcome({ kind: 'done', conversationId: sent.data.conversationId });
         request.current = newRequest();
@@ -88,57 +87,54 @@ export function CourseTeamContact({ courseSlug }: { courseSlug: string }) {
   const [body, setBody] = useState('');
   const { sending, outcome, send, edited } = useSend(courseSlug);
   return (
-    <Panel title={t('teamContactTitle')}>
+    <Section title={t('teamContactTitle')}>
       <form
-        className="academy-lms-stack"
         data-testid="course-team-contact"
         onSubmit={(event) => {
           event.preventDefault();
           void send(body, () => setBody(''));
         }}
       >
-        <p className="muted">{t('teamContactIntro')}</p>
-        <p className="muted">
+        <p>{t('teamContactIntro')}</p>
+        <p>
           {t('teamContactSupport')}{' '}
-          <a className="text-link" href="/help">
+          <a className="lt-link" href="/help">
             {t('teamContactSupportLink')}
           </a>
         </p>
-        <label className="field" htmlFor={`${id}-body`}>
-          <span>{t('teamContactLabel')}</span>
-          <textarea
-            id={`${id}-body`}
-            value={body}
-            rows={4}
-            required
-            onChange={(event) => {
-              setBody(event.target.value);
-              edited();
-            }}
-          />
-        </label>
-        <Button type="submit" disabled={sending}>
+        <TextAreaField
+          id={`${id}-body`}
+          label={t('teamContactLabel')}
+          value={body}
+          rows={4}
+          required
+          onChange={(value) => {
+            setBody(value);
+            edited();
+          }}
+        />
+        <Button tone="primary" type="submit" disabled={sending}>
           {t('teamContactSend')}
         </Button>
         {outcome?.kind === 'done' && (
-          <div className="academy-lms-stack">
+          <div>
             <p role="status" data-testid="course-team-outcome" data-code="ok">
               {t('teamContactSent')}
             </p>
-            <ServiceOffNotice code="vendor.email" action={t('teamContactMailAction')} role="status" />
-            <a className="academy-learning-link" href={academyMessagesHref(outcome.conversationId)}>
+            <ServiceOffNote code="vendor.email" action={t('teamContactMailAction')} role="status" />
+            <a className="lt-link" href={academyMessagesHref(outcome.conversationId)}>
               {t('teamContactOpen')}
             </a>
           </div>
         )}
         {outcome?.kind === 'uncertain' && (
-          <p role="status" className="failure" data-testid="course-team-outcome">
+          <p role="status" className="lt-refusal" data-testid="course-team-outcome">
             {t('teamContactUncertain')}
           </p>
         )}
         {outcome?.kind === 'refused' && <Refused failure={outcome.failure} testId="course-team-outcome" />}
       </form>
-    </Panel>
+    </Section>
   );
 }
 
@@ -146,62 +142,41 @@ export function CourseTeamContact({ courseSlug }: { courseSlug: string }) {
 export function AcademyCourseMessagesLink() {
   const { t } = copy.useCopy();
   return (
-    <Panel title={t('teamMessagesTitle')}>
-      <div className="academy-lms-stack">
-        <p className="muted">{t('teamMessagesIntro')}</p>
-        <a className="academy-learning-link" href={academyMessagesHref()}>
+    <Section title={t('teamMessagesTitle')}>
+      <div>
+        <p>{t('teamMessagesIntro')}</p>
+        <a className="lt-link" href={academyMessagesHref()}>
           {t('teamMessagesOpen')}
         </a>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
-/** `/academy/rooms/messages`: the reader's conversations, newest first, each with its unread marker. */
-export function AcademyCourseInbox() {
+/**
+ * `/academy/rooms/messages`: the reader's conversations, newest first, each with its unread marker. The room that draws
+ * them is academy-inbox/AcademyInboxRoom.tsx.
+ */
+export function useCourseInbox() {
   const api = useApi();
   const { userId } = useSession();
-  const { t } = copy.useCopy();
-  const { language } = usePreferences();
-  const inbox = useResource(
-    (signal) =>
-      api.query('academy', 'courseConversations', { limit: INBOX_PAGE }, z.array(academyCourseConversationSummarySchema), { signal }),
-    `course-inbox:${userId}`,
-  );
+  return useResource((signal) => api.call(ACADEMY_COURSE_CONVERSATIONS, { limit: INBOX_PAGE }, { signal }), `course-inbox:${userId}`);
+}
+
+/**
+ * `/academy/rooms/messages/:conversationId` on the reading template, signed in: one conversation with a course team and
+ * the reply form under it. The Academy's sections are links above it.
+ */
+export function AcademyCourseConversationRoom({ conversationId }: { conversationId: string }) {
   return (
-    <div className="academy-lms-stack">
-      <a className="text-link" href="/academy/rooms">
-        {t('discussionAll')}
-      </a>
-      <Panel title={t('teamMessagesTitle')}>
-        <div className="academy-lms-stack" data-course-inbox>
-          <p className="muted">{t('teamMessagesIntro')}</p>
-          {inbox.resource.status === 'loading' && <Loading />}
-          {inbox.resource.status === 'failed' && <AcademyRefusal failure={inbox.resource.failure} retry={inbox.reload} />}
-          {inbox.resource.status === 'ready' &&
-            (inbox.resource.data.length === 0 ? (
-              <p role="status">{t('teamMessagesNone')}</p>
-            ) : (
-              <ul className="academy-lms-rows">
-                {inbox.resource.data.map((row) => (
-                  <li key={row.id} data-course-inbox-row={row.id} data-unread={String(row.unread)}>
-                    <div>
-                      <a className="academy-learning-link" href={academyMessagesHref(row.id)} lang="und">
-                        {row.courseTitle}
-                      </a>
-                      <div data-testid="academy-lms-meta" className="academy-lms-meta">
-                        <span className="academy-lms-chip" data-status={row.unread ? 'open' : 'recorded'}>
-                          {row.unread ? t('teamMessagesUnread') : t('teamMessagesRead')}
-                        </span>
-                        <span>{t('teamMessagesLast', { when: formatMoment(row.lastMessageAt.toISOString(), language) })}</span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ))}
-        </div>
-      </Panel>
+    <div data-room="academy-course-conversation">
+      <ReadingTemplate
+        title={copyText('moreroutes.academy')}
+        description={copyText('moreroutes.learn.practise.and.join.hosted.sessions')}
+        state={{ kind: 'ready' }}
+        meta={<AcademySections current="Rooms" />}
+        body={<AcademyCourseConversation key={conversationId} conversationId={conversationId} />}
+      />
     </div>
   );
 }
@@ -218,53 +193,42 @@ export function AcademyCourseConversation({ conversationId }: { conversationId: 
   useEffect(() => {
     let live = true;
     // Opening is a write (it marks the conversation read), so it is a mutation, run once per open or re-read.
-    void api
-      .mutate(
-        'academy',
-        'openCourseConversation',
-        { conversationId, limit: ACADEMY_COURSE_MESSAGES_LIST_MAX },
-        academyCourseConversationSchema,
-      )
-      .then((opened) => {
-        if (!live) return;
-        if (opened.ok) setState({ kind: 'ready', data: opened.data });
-        else setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'failed', failure: opened }));
-      });
+    void api.call(ACADEMY_OPEN_COURSE_CONVERSATION, { conversationId, limit: ACADEMY_COURSE_MESSAGES_LIST_MAX }).then((opened) => {
+      if (!live) return;
+      if (opened.ok) setState({ kind: 'ready', data: opened.data });
+      else setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'failed', failure: opened }));
+    });
     return () => {
       live = false;
     };
   }, [api, conversationId, revision]);
   return (
-    <div className="academy-lms-stack">
-      <a className="text-link" href={academyMessagesHref()}>
+    <div>
+      <a className="lt-link" href={academyMessagesHref()}>
         {t('teamMessagesAll')}
       </a>
-      {state.kind === 'loading' && <Loading />}
+      {state.kind === 'loading' && <Waiting />}
       {state.kind === 'failed' && <AcademyRefusal failure={state.failure} retry={() => setRevision((n) => n + 1)} />}
       {state.kind === 'ready' && (
-        <div className="academy-lms-stack" data-course-conversation={state.data.id}>
-          <Panel title={<span lang="und">{state.data.courseTitle}</span>}>
-            {state.data.earlier && (
-              <p className="muted" data-earlier-messages>
-                {t('teamMessagesEarlier', { count: ACADEMY_COURSE_MESSAGES_LIST_MAX })}
-              </p>
-            )}
-            <ol className="academy-lms-rows">
+        <div data-course-conversation={state.data.id}>
+          <Section title={<span lang="und">{state.data.courseTitle}</span>}>
+            {state.data.earlier && <p data-earlier-messages>{t('teamMessagesEarlier', { count: ACADEMY_COURSE_MESSAGES_LIST_MAX })}</p>}
+            <ol>
               {state.data.messages.map((message) => (
                 <li key={message.id} data-course-message={message.id} data-from={message.from}>
-                  <div className="academy-lms-stack">
-                    <div data-testid="academy-lms-meta" className="academy-lms-meta">
+                  <div>
+                    <div data-testid="academy-lms-meta">
                       <strong>{message.from === 'learner' ? t('teamMessagesFromYou') : t('teamMessagesFromTeam')}</strong>
-                      <span>{formatMoment(message.sentAt.toISOString(), language)}</span>
+                      <span>{formatMoment(message.sentAt, language)}</span>
                     </div>
-                    <p lang="und" className="academy-discussion-body">
+                    <p lang="und" className="lt-pre-wrap">
                       {message.body}
                     </p>
                   </div>
                 </li>
               ))}
             </ol>
-          </Panel>
+          </Section>
           <ConversationReply courseSlug={state.data.courseSlug} onSent={() => setRevision((n) => n + 1)} />
         </div>
       )}
@@ -278,9 +242,8 @@ function ConversationReply({ courseSlug, onSent }: { courseSlug: string; onSent:
   const [body, setBody] = useState('');
   const { sending, outcome, send, edited } = useSend(courseSlug);
   return (
-    <Panel title={t('teamMessagesReplyLabel')}>
+    <Section title={t('teamMessagesReplyLabel')}>
       <form
-        className="academy-lms-stack"
         onSubmit={(event) => {
           event.preventDefault();
           void send(body, () => {
@@ -289,30 +252,28 @@ function ConversationReply({ courseSlug, onSent }: { courseSlug: string; onSent:
           });
         }}
       >
-        <label className="field" htmlFor={`${id}-body`}>
-          <span>{t('teamMessagesReplyLabel')}</span>
-          <textarea
-            id={`${id}-body`}
-            value={body}
-            rows={3}
-            required
-            onChange={(event) => {
-              setBody(event.target.value);
-              edited();
-            }}
-          />
-        </label>
-        <Button type="submit" disabled={sending}>
+        <TextAreaField
+          id={`${id}-body`}
+          label={t('teamMessagesReplyLabel')}
+          value={body}
+          rows={3}
+          required
+          onChange={(value) => {
+            setBody(value);
+            edited();
+          }}
+        />
+        <Button tone="primary" type="submit" disabled={sending}>
           {t('teamMessagesReplySend')}
         </Button>
-        {outcome?.kind === 'done' && <ServiceOffNotice code="vendor.email" action={t('teamContactMailAction')} role="status" />}
+        {outcome?.kind === 'done' && <ServiceOffNote code="vendor.email" action={t('teamContactMailAction')} role="status" />}
         {outcome?.kind === 'uncertain' && (
-          <p role="status" data-testid="failure" className="failure">
+          <p role="status" data-testid="failure" className="lt-refusal">
             {t('teamContactUncertain')}
           </p>
         )}
         {outcome?.kind === 'refused' && <Refused failure={outcome.failure} testId="course-team-reply-outcome" />}
       </form>
-    </Panel>
+    </Section>
   );
 }

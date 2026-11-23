@@ -1,4 +1,6 @@
 import type { Amount } from '@intafaced/ledger-client';
+import type { SendDepth } from './chain-port.js';
+import { RAIL_CAPABILITIES, RAIL_MODES } from '@intafaced/contracts/pay-call-schemas';
 
 /**
  * RailAdapter — the §6.1 adapter interface.
@@ -25,111 +27,8 @@ import type { Amount } from '@intafaced/ledger-client';
  * way in and on the way out, and never lets a `number` past it.
  */
 
-/**
- * §6.1: `capabilities: RailCapability[]`.
- *
- * THE FIRST FIVE ARE THE ORIGINAL PORT and every registered adapter declares
- * some subset of them. The rest were added when the ADR of 2026-08-04
- * (`docs/adr/2026-08-04-pay-rails-and-psp-socket.md`) established that the port
- * could not express what a card rail does: *"Ours knows authorized | captured |
- * refunded | failed | payout.completed. A card rail needs partial capture, void,
- * 3DS/SCA next-action, disputes, mandates and FX."*
- *
- * ADDING A MEMBER HERE IS NOT ADDING A FEATURE. It is adding a QUESTION the core
- * is allowed to ask an adapter, and the only two honest answers are "yes, and
- * here is the method" and a refusal that names the rail and the operation. There
- * is deliberately no third answer, because the third answer is the one where a
- * rail returns a plausible result for an operation it never performed — see
- * `RailOperationUnsupportedError`.
- *
- * `crypto-native` and `card-sandbox` declare exactly what they declared before
- * this list grew. A capability an adapter does not name is one the core refuses
- * to route to it, so growth here cannot silently change either of them.
- */
-export const RAIL_CAPABILITIES = [
-  'authorize',
-  'capture',
-  'refund',
-  'payout',
-  'webhook',
-  /** Capture LESS than was authorised, leaving the remainder to void or expire. */
-  'capture.partial',
-  /** Release an authorization without ever taking the money. */
-  'void',
-  /** Report and contest chargebacks. A rail without this cannot be disputed against. */
-  'dispute',
-  /** Store a payer's agreement to be charged again later (SEPA DD, card-on-file). */
-  'mandate',
-  /** Quote and settle across currencies at the rail boundary. */
-  'fx',
-] as const;
 export type RailCapability = (typeof RAIL_CAPABILITIES)[number];
 
-/**
- * WHETHER THIS RAIL MOVES REAL MONEY. The most important field on the interface.
- *
- *   live    — a real counterparty is at the other end. A `paid_out` result means
- *             funds actually left, and the `railRef` names a movement somebody
- *             outside this company can be asked about.
- *   sandbox — the counterparty is simulated. Everything on this side of the
- *             interface is real, and NOTHING on the other side is. It SUCCEEDS.
- *   absent  — nothing is behind this rail at all. Every call refuses. The rail is
- *             registered so the core can name it and say why it cannot be used.
- *
- * ── WHY THERE ARE THREE, AND WHY THERE USED TO BE TWO ────────────────────────
- *
- * `ChainPosture` in `chain-port.ts` has had three values from the start, and its
- * comment says why: *"a sandbox succeeds and an absent chain must refuse."*
- * `RailMode` had two, and `crypto-native` collapsed the third into `sandbox`:
- *
- *     this.mode = chain.posture === 'live' ? 'live' : 'sandbox';
- *
- * So a rail that was MISSING and a rail that was DELIBERATELY SIMULATED reported
- * the same thing — and the collapse ran in the unsafe direction, because absence
- * read as a working sandbox. The ADR of 2026-08-04 names this a defect and
- * requires the distinction: *"Make `RailMode` carry `absent` distinctly, or state
- * in the type why it may not."* This is it carrying it.
- *
- * ── WHAT THE COLLAPSE ACTUALLY COST, CONCRETELY ──────────────────────────────
- *
- * It was not only a reporting blur. `defaultChainFor` gives `staging`/`prod` an
- * `UnconfiguredChain` when nothing is configured — that is the DESIGNED
- * production default, and it is the safe one. Under the collapse that chain made
- * `crypto-native` report `sandbox`, `assertRailPosture` counted it as a sandbox
- * rail, and the process REFUSED TO BOOT. The only way out was
- * `PAY_ALLOW_SANDBOX_RAILS=true` — the flag whose whole meaning is "sandbox rails
- * may move value here". The collapse therefore manufactured pressure to set, in
- * production, the exact override it exists to warn about, in order to start a
- * service that had no chain to abuse in the first place.
- *
- * With `absent` distinct, an unconfigured production deployment boots, every
- * crypto call refuses by name with `chain.not_configured`, and the override stays
- * unset and meaningful.
- *
- * ── THE PROPERTY THAT MUST SURVIVE EVERY FUTURE EDIT ─────────────────────────
- *
- * SANDBOX IS NEVER REPORTABLE AS LIVE, BY ANY COLLAPSE, AT ANY LAYER. Widening
- * this type does not touch that: `isLive` is `mode === 'live'` and nothing else,
- * and every posture gate in `posture.ts` lets only `'live'` through and refuses
- * everything else. A member added here is refused by default; it could only ever
- * become permissive by someone editing `isLive`, which is one line, reviewed on
- * its own, and asserted against in `rail-adapter.widening.test.ts`.
- *
- * WHY IT IS ON THE INTERFACE AND NOT IN A CONFIG FILE. An adapter is the only
- * thing that knows whether it has a counterparty; a deployment list of "which
- * rails are real" is a second copy of that fact, and the copy is what goes stale.
- * `card-sandbox` is `sandbox` by construction and cannot be configured otherwise.
- * `crypto-native` is `live` exactly when the chain behind it is live, and it
- * derives its own answer rather than being told.
- *
- * WHAT IT PREVENTS. A withdrawal settled against a sandbox rail debits the user's
- * real ledger balance, returns a fabricated provider reference, and reports
- * `sent`. The user has been told their money moved. There is no worse bug
- * available in this service, and it is not detectable after the fact — the books
- * balance perfectly, because the only thing missing is the money. `posture.ts`
- * is what refuses it; this field is what makes the refusal possible.
- */
-export const RAIL_MODES = ['live', 'sandbox', 'absent'] as const;
 export type RailMode = (typeof RAIL_MODES)[number];
 
 /**
@@ -976,9 +875,11 @@ export interface RailAdapter {
   /**
    * W-withdraw-06: on a rail whose payout is final only at a depth (a chain), how deep the send of this instruction is now.
    * Present, a send out of the platform on this rail settles only once that reaches the owner's settle depth
-   * (`PAY_WITHDRAW_MIN_CONFIRMATIONS`); `null` means the rail cannot say, and the hold stays. Absent, the rail's acceptance is final (ENGINE W-4).
+   * (`PAY_WITHDRAW_MIN_CONFIRMATIONS`); `null` means the rail cannot say, and the hold stays. `{ reverted: true, depth }` is a
+   * send the chain mined and reverted: nothing left, and at the settle depth its hold goes back. Absent, the rail's acceptance
+   * is final (ENGINE W-4).
    */
-  payoutDepth?(s: SettlementInstruction): Promise<number | null>;
+  payoutDepth?(s: SettlementInstruction): Promise<SendDepth>;
 
   /**
    * Verify and parse an inbound webhook.
@@ -1253,3 +1154,4 @@ export function railFailure(input: {
     raw: input.raw,
   };
 }
+export { RAIL_CAPABILITIES, RAIL_MODES };

@@ -1,9 +1,10 @@
 import { Failure, Loading } from '../../shared/ui';
-import { date, funds, useBankRead } from './components';
-import type { IncomingLine } from './contracts';
+import { date, funds, useBankRecordAs } from './components';
+import { incomingPageSchema, type IncomingLine } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { incomingCopy } from './incoming-copy';
 import './bank-depth.css';
+import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
 
 /**
  * Incoming payments (J-bank-02 #7): what came into the account, read from the ledger through `bank.activity.list`
@@ -27,8 +28,8 @@ function What({ line }: { line: IncomingLine }) {
 export function IncomingRows({ lines, more = false }: { lines: readonly IncomingLine[]; more?: boolean }) {
   const { t } = incomingCopy.useCopy();
   const older = more && (
-    <p className="money-caption">
-      <a className="text-link" href="/uc/record">
+    <p className="lt-muted">
+      <a className="lt-link" href="/uc/record">
         {t('older')}
       </a>
     </p>
@@ -36,7 +37,7 @@ export function IncomingRows({ lines, more = false }: { lines: readonly Incoming
   if (lines.length === 0) {
     return (
       <>
-        <p className="money-caption">{t(more ? 'noneRecent' : 'none')}</p>
+        <p className="lt-muted">{t(more ? 'noneRecent' : 'none')}</p>
         {older}
       </>
     );
@@ -53,7 +54,7 @@ export function IncomingRows({ lines, more = false }: { lines: readonly Incoming
               {t('arrived', { time: date(line.postedAt) })} {t('available')}
             </small>
           </div>
-          <span className="numeric" dir="ltr">
+          <span className="lt-num" dir="ltr">
             {funds(line.amount, line.asset)}
           </span>
         </div>
@@ -80,7 +81,7 @@ export function IncomingRules() {
 
 export function IncomingPayments() {
   const { t } = incomingCopy.useCopy();
-  const read = useBankRead('activity.list', { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] });
+  const read = useBankRecordAs(BANK_ACTIVITY_LIST, { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] }, incomingPageSchema);
   const { resource } = read;
   return (
     <DepthPanel title={t('title')} lead={t('lead')}>

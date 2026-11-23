@@ -1,4 +1,5 @@
-import { ACCOUNT_TIER_TERM_KEYS, accountTierSchema, type AccountTier, type AccountTierTerms } from '@intafaced/contracts';
+import type { AccountTier, AccountTierTerms } from '@intafaced/contracts';
+import { ACCOUNT_TIER_TERM_KEYS, accountTierSchema } from '@intafaced/contracts/account-controls';
 
 /**
  * The account product tiers on offer (J-ops-console-04 #11), from the owner setting `IDENTITY_ACCOUNT_TIERS`: a JSON list

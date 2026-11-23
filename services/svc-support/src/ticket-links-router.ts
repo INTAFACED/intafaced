@@ -1,16 +1,14 @@
 import { z } from 'zod';
-import { scopedProcedure } from '@intafaced/contracts';
-import { TICKET_LINK_KINDS, type TicketLinks } from './ticket-links.js';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import {
+  SUPPORT_DESK_TICKET_LINKS,
+  SUPPORT_TICKET_LINK_KINDS,
+  supportTicketLinkSchema,
+} from '@intafaced/contracts/support-desk-procedures';
+import type { TicketLinks } from './ticket-links.js';
 import { requireSupportOps } from './support-service.js';
-
-const linkSchema = z.object({
-  ticketId: z.string(),
-  kind: z.enum(TICKET_LINK_KINDS),
-  recordId: z.string(),
-  recoveryRequired: z.boolean(),
-  linkedBy: z.string(),
-  linkedAt: z.string(),
-});
+import { supportRefusal } from './record-refusal.js';
 
 /**
  * Links from a request to the customer's own records (J-support-public-20 #1). The desk's (`support:ops`) only, by
@@ -19,8 +17,10 @@ const linkSchema = z.object({
 export function ticketLinkProcedures(links: TicketLinks, mapError: (err: unknown) => never) {
   return {
     linkRecord: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid(), kind: z.enum(TICKET_LINK_KINDS), recordId: z.string().min(1).max(64) }).strict())
-      .output(linkSchema)
+      .input(
+        z.object({ ticketId: z.string().guid(), kind: z.enum(SUPPORT_TICKET_LINK_KINDS), recordId: z.string().min(1).max(64) }).strict(),
+      )
+      .output(supportTicketLinkSchema)
       .mutation(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
@@ -29,16 +29,13 @@ export function ticketLinkProcedures(links: TicketLinks, mapError: (err: unknown
           mapError(err);
         }
       }),
-    ticketLinks: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }).strict())
-      .output(z.array(linkSchema))
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await links.list(ctx.principal!.userId, input.ticketId);
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    ticketLinks: mountRecord(
+      SUPPORT_DESK_TICKET_LINKS,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return links.list(ctx.principal.userId, input.ticketId);
+      },
+      supportRefusal,
+    ),
   };
 }

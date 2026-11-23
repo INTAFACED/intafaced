@@ -4,8 +4,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import { testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
@@ -79,21 +79,6 @@ async function expectedTotal({ owner, partner = true }) {
     partner: partner ? (units(PARTNER_USDT) * price.get('USDT')) / SCALE : 0n,
   };
   return { prices, venue, parts, total: cents(parts.venue + parts.partner) };
-}
-
-/** Connects the TEST wallet when the page asks for it, until `connected` shows (a page may restore the connection itself). */
-async function connectWhenAsked(page, connected) {
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect
-    .poll(
-      async () => {
-        if (await connected.isVisible().catch(() => false)) return true;
-        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
-        return false;
-      },
-      { timeout: 30_000, intervals: [500] },
-    )
-    .toBe(true);
 }
 
 /** Signed in with the TEST wallet on the TEST chain in this page. */

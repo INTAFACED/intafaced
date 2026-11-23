@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { parseAmount } from '../../../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
@@ -83,7 +84,7 @@ export function CustomersView({
   const [draft, setDraft] = useState(search);
   if (list.status === 'failed' && summary.status === 'failed') return <PortalFailure result={list.failure} retry={retry} />;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
           <KpiStrip
@@ -170,11 +171,11 @@ export function CustomersView({
                         {c.customerRef}
                       </a>
                       {(c.subscriptionCount > 0 || c.mandateCount > 0) && (
-                        <small className="pay-cell-note">{recurringNote(t, c.subscriptionCount, c.mandateCount)}</small>
+                        <small className="lt-hint">{recurringNote(t, c.subscriptionCount, c.mandateCount)}</small>
                       )}
                     </th>
-                    <td className="numeric">
-                      <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+                    <td className="lt-num">
+                      <a className="lt-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
                         {c.paymentCount}
                       </a>
                     </td>
@@ -248,7 +249,7 @@ export function CustomerDetailView({
 }) {
   const { t } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <BackLink href="/pay/customers">{t('backToCustomers')}</BackLink>
       <Gate resource={customer} retry={reload} rows={4}>
         {(c) => (
@@ -285,7 +286,7 @@ export function CustomerDetailView({
                 ]}
               />
               {series && today && <DailySeries series={series} today={today} retry={reload} />}
-              <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+              <a className="lt-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
                 {t('customerAllPayments')}
               </a>
             </PaySection>
@@ -296,13 +297,13 @@ export function CustomerDetailView({
               }
             >
               {c.recentPayments.length === 0 ? (
-                <p className="muted">{t('noRecentPayments')}</p>
+                <p className="lt-muted">{t('noRecentPayments')}</p>
               ) : (
                 <DataTable label={t('recentPayments')} headers={[t('colPayment'), t('colAmount'), t('colStatus'), t('colOpened')]}>
                   {c.recentPayments.map((p) => (
                     <tr key={p.paymentId}>
                       <th scope="row">
-                        <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.paymentId)}`}>
+                        <a className="lt-link" href={`/pay/payments/${encodeURIComponent(p.paymentId)}`}>
                           {t('openPayment')}
                         </a>
                       </th>
@@ -341,9 +342,9 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
     [t('period7d'), addDays(today, -6)],
     [t('period30d'), addDays(today, -29)],
   ];
-  const peak = items.reduce((m, i) => (parseFloat(i.volume) > m ? parseFloat(i.volume) : m), 0);
+  const peak = items.reduce((m, i) => (parseAmount(i.volume) > m ? parseAmount(i.volume) : m), 0n);
   return (
-    <section aria-label={t('customerSeriesTitle')} className="stack">
+    <section aria-label={t('customerSeriesTitle')} className="lt-stack">
       <h3 className="pp-sub">{t('customerSeriesTitle')}</h3>
       <KpiStrip
         label={t('customerSeriesTitle')}
@@ -362,7 +363,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
         })}
       />
       {items.length === 0 ? (
-        <p className="muted">{t('seriesEmpty')}</p>
+        <p className="lt-muted">{t('seriesEmpty')}</p>
       ) : (
         <DataTable label={t('customerSeriesTitle')} headers={[t('colDay'), t('colPayments'), t('colAmount'), t('seriesBar')]}>
           {items.map((i) => (
@@ -370,7 +371,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
               <th scope="row">
                 <DayOnly period={i.period} />
               </th>
-              <td className="numeric">{i.count}</td>
+              <td className="lt-num">{i.count}</td>
               <td>
                 <Money value={i.volume} asset={i.assetCode} />
               </td>
@@ -382,7 +383,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
                     borderRadius: 4,
                     background: 'currentColor',
                     opacity: 0.35,
-                    width: `${peak ? Math.max(4, (parseFloat(i.volume) / peak) * 100) : 0}%`,
+                    width: `${peak > 0n ? Math.max(4, Number((parseAmount(i.volume) * 1000n) / peak) / 10) : 0}%`,
                   }}
                 />
               </td>

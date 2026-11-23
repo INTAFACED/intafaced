@@ -1,3 +1,4 @@
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -166,7 +167,12 @@ describe('svc-bank owner lists refuse unset limit', () => {
     const router = bankRouterSource();
 
     const spacesList = sliceFn(router, 'export function createSpacesRouter(', 'unnamed: scopedProcedure');
-    expect(spacesList).toContain('limit: z.number().int().min(1).max(200).optional()');
+    // spaces.list is mounted from its record: the record's own input keeps the limit optional, 1 to 200, never defaulted.
+    expect(spacesList).toContain('.input(BANK_SPACES_LIST.input)');
+    expect(BANK_SPACES_LIST.input.parse({})).toEqual({});
+    expect(BANK_SPACES_LIST.input.safeParse({ limit: 0 }).success).toBe(false);
+    expect(BANK_SPACES_LIST.input.safeParse({ limit: 201 }).success).toBe(false);
+    expect(BANK_SPACES_LIST.input.parse({ limit: 200 })).toEqual({ limit: 200 });
     expect(spacesList).toContain('overview(userId, input.assetId, input.limit)');
     expect(spacesList).not.toMatch(/\?\? 50/);
 

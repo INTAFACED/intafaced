@@ -1,11 +1,27 @@
 import 'server-only';
-import { payCustodyOpenItemsReplySchema } from '@intafaced/contracts/pay-custody-deposit';
-import { custodyApproverViewSchema, custodyTaskDetailSchema, custodyTaskViewSchema } from '@intafaced/contracts/custody-approval-tasks';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { custodyApproverViewSchema, custodyTaskViewSchema } from '@intafaced/contracts/custody-approval-tasks';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type Part,
+  type PartLabels,
+  founderRecordRead,
+  founderRecordCall,
+} from '@/lib/desk';
 import { PENDING_WINDOW, RECENT_WINDOW, type CustodyOpsRead } from './server-types';
 import type { CustodyTask, CustodyTaskDetail, Decision } from './model';
 import { OPEN_ITEMS_WINDOW } from './open-items';
+import {
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Custody approval tasks, read and decided as the signed-in founder. `founderAdmin.custody.*` is behind svc-pay's own founder
@@ -38,19 +54,12 @@ const list =
 
 export async function loadCustodyOps(ctx: FounderCallContext, now: Date = new Date()): Promise<CustodyOpsRead> {
   const [pending, recent, approvers, openItems] = await Promise.all([
-    founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.pending', 'GET', { limit: PENDING_WINDOW }, list(custodyTaskViewSchema)),
-    founderCall(ctx, 'pay', 'founderAdmin.custody.tasks.list', 'GET', { limit: RECENT_WINDOW }, list(custodyTaskViewSchema)),
-    founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.list', 'GET', {}, list(custodyApproverViewSchema), {
+    founderRecordRead(ctx, PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING, { limit: PENDING_WINDOW }, list(custodyTaskViewSchema)),
+    founderRecordRead(ctx, PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST, { limit: RECENT_WINDOW }, list(custodyTaskViewSchema)),
+    founderRecordRead(ctx, PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST, {}, list(custodyApproverViewSchema), {
       sendEmptyInput: true,
     }),
-    founderCall(
-      ctx,
-      'pay',
-      'founderAdmin.depositOpenItems.list',
-      'GET',
-      { limit: OPEN_ITEMS_WINDOW },
-      parseWith(payCustodyOpenItemsReplySchema),
-    ),
+    founderRecordCall(ctx, PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST, { limit: OPEN_ITEMS_WINDOW }),
   ]);
   return {
     asOf: now.toISOString(),
@@ -62,7 +71,7 @@ export async function loadCustodyOps(ctx: FounderCallContext, now: Date = new Da
 }
 
 export async function loadTask(ctx: FounderCallContext, taskId: string): Promise<FounderCallResult<CustodyTaskDetail>> {
-  return founderCall(ctx, 'pay', 'founderAdmin.custody.tasks.get', 'GET', { taskId }, parseWith(custodyTaskDetailSchema));
+  return founderRecordCall(ctx, PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET, { taskId });
 }
 
 /** One decision. Approve and reject name the fingerprint the approver read; cancel is the initiator's own. */
@@ -72,6 +81,8 @@ export async function decideTask(
   taskId: string,
   payloadHash: string | null,
 ): Promise<FounderCallResult<CustodyTask>> {
-  const input = decision === 'cancel' ? { taskId } : { taskId, payloadHash };
-  return founderCall(ctx, 'pay', `founderAdmin.custody.tasks.${decision}`, 'POST', input, parseWith(custodyTaskViewSchema));
+  const read = parseWith(custodyTaskViewSchema);
+  if (decision === 'cancel') return founderRecordRead(ctx, PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL, { taskId }, read);
+  const choice: 'approve' | 'reject' = decision;
+  return founderCall(ctx, 'pay', `founderAdmin.custody.tasks.${choice}`, 'POST', { taskId, payloadHash }, read);
 }

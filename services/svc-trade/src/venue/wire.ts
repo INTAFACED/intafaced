@@ -3,6 +3,7 @@
  * internal deposits read. index.ts calls `wireUserVenue` once and `startAtBoot` where the door used to connect, so a
  * journey that adds to the door edits this file, not the service's wiring file.
  */
+import { createCashLegClient } from '../convert/cash-leg-client.js';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import type { EventBus } from '@intafaced/events';
@@ -14,8 +15,11 @@ import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
+import { registerInternalEquity } from './internal-equity.js';
+import { registerInternalOurFills } from './internal-our-fills.js';
+import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
+import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
@@ -26,7 +30,9 @@ import {
   TestListingSeed,
 } from './venue-listing.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
+import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
+import { SqlConvertQuoteStore, VenueConverts } from './venue-convert.js';
 
 export function wireUserVenue(deps: {
   app: FastifyInstance;
@@ -51,6 +57,7 @@ export function wireUserVenue(deps: {
   // the sweep below, and the door (cancels included) keeps working.
   // J-derivatives-28: the primary venue, then each venue of TRADE_USER_VENUE_URLS (comma-separated), one door each, all
   // behind one router. Every door shares the store, the builder fee and the listing gate; each seeds its own TEST listings.
+  const eligibilityLevel = parseVenueEligibilityLevel(env.TRADE_USER_VENUE_ELIGIBILITY_LEVEL);
   const userVenueUrls = userVenueUrl ? [userVenueUrl, ...parseUserVenueUrls(env.TRADE_USER_VENUE_URLS)] : [];
   const userVenueStore = new SqlPreparedActionStore(sql);
   const testListingSeeds = userVenueUrls.map(
@@ -82,9 +89,14 @@ export function wireUserVenue(deps: {
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+        builderAddress: parseBuilderAddress(env.TRADE_USER_VENUE_BUILDER_ADDRESS),
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
         spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
+        // J-cex-spot-07: the owner's published dead-man timeouts arm the venue's own scheduled cancel.
+        scheduledCancelTimeouts: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+        // J-derivatives-12 #5: the owner's eligibility level for the venue's perpetuals; blank refuses every new position.
+        eligibility: { level: eligibilityLevel },
         // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
         builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
         now: () => new Date(),
@@ -110,10 +122,44 @@ export function wireUserVenue(deps: {
     userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
   // The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
   registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+  // The primary venue's fills of one person's orders placed through our door, read by svc-campaigns' competitions
+  // (J-campaigns-11 #3 #4).
+  registerInternalOurFills(app, {
+    fills: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
+  // The primary venue's equity of one person in one asset, read by svc-campaigns' airdrop snapshots and reward pools'
+  // minimum balance (J-campaigns-13 #2 #4).
+  registerInternalEquity(app, {
+    equity: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
+  // The primary venue's realised result of one person in one asset over a window, read by svc-bank's pay yourself
+  // (J-bank-31 #2 #7).
+  registerInternalRealised(app, {
+    realised: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
   // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
   // venue's door. Off with the door.
   const venueSellQuotes = userVenue
     ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
+    : null;
+  // Convert on the customer's own venue account (J-cex-spot-11): quotes hold nothing; an accept is one venue order the
+  // wallet signs. On whichever door the request names. Off with the door.
+  const venueConverts = userVenueRouter
+    ? new VenueConverts({
+        store: new SqlConvertQuoteStore(sql),
+        now: () => new Date(),
+        enabled: env.TRADE_CONVERT_ENABLED,
+        windowMs: env.TRADE_CONVERT_ACCEPT_WINDOW_MS,
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+        // The partner's cash leg of a cash convert (#11), asked as the person through svc-bank; blank BANK_URL offers none.
+        cashLeg: createCashLegClient(env.BANK_URL),
+      })
     : null;
 
   /** The listing sweep, then each door's first connect; index.ts awaits it where the door has always connected. */
@@ -139,5 +185,15 @@ export function wireUserVenue(deps: {
     }
   }
 
-  return { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, startAtBoot };
+  return {
+    userVenueDoors,
+    userVenue,
+    userVenueRouter,
+    userVenueStore,
+    venueListings,
+    venueDelistingNotices,
+    venueSellQuotes,
+    venueConverts,
+    startAtBoot,
+  };
 }

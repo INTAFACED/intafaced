@@ -66,7 +66,7 @@ function stubTrade(overrides: Partial<TradeService> = {}): TradeService {
     markets: async () => [],
     marketBySymbol: async () => null,
     ...overrides,
-  } as unknown as TradeService;
+  } as TradeService;
 }
 
 async function mountTrpc(trade: TradeService = stubTrade()): Promise<ReturnType<typeof Fastify>> {

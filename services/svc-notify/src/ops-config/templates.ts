@@ -15,15 +15,8 @@ import { ChannelRefusal, type OutOfAppChannel, type OutboundMessage, type Notifi
 import type { CommandLog } from '../preferences/account.js';
 import type { NoticeApprovalConsumer } from '../notices/board.js';
 import { OpsConfigError, payloadHashOf, spendFourEyes } from './four-eyes.js';
+import { TEMPLATE_KEYS } from '@intafaced/contracts/notify-call-schemas';
 
-export const TEMPLATE_KEYS = [
-  'recovery_code',
-  'verification_code',
-  'login_code',
-  'registration_code',
-  'security_notice',
-  'kyc_decision',
-] as const;
 export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
 
 const COMMON_FIELDS = ['brand', 'antiPhishingCode'] as const;
@@ -241,7 +234,7 @@ export class MessageTemplates {
         ? (await this.store.latest()).find((r) => r.key === input.key)
         : await this.store.version(input.key, input.version);
     if (!row) throw new OpsConfigError('notify.template_unset');
-    return { sample: true as const, ...renderTemplateRow(row, { ...sampleValues(input.key), ...(input.values ?? {}) }) };
+    return { sample: true as const, ...renderTemplateRow(row, { ...sampleValues(input.key), ...input.values }) };
   }
 
   async set(
@@ -347,3 +340,4 @@ function toWire(key: TemplateKey, row: TemplateRow | null): TemplateWire {
       : null,
   };
 }
+export { TEMPLATE_KEYS };

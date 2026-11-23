@@ -54,5 +54,13 @@ export function problemText(problem: Problem, market: DeskMarket, t: ReturnType<
       return t('Value too small', { min: fmtAmount(problem.min, { places: 8 }), asset: market.quote });
     case 'noPrice':
       return t('No prices to judge a market order');
+    case 'openingWindow':
+      return t('Opening window refusal');
+    case 'zone':
+      return t('Zone refusal');
+    case 'zoneUnset':
+      return t('Zone cap unset refusal');
+    case 'zoneCap':
+      return t('Zone cap refusal', { cap: fmtAmount(problem.cap, { places: 8 }), asset: market.quote });
   }
 }

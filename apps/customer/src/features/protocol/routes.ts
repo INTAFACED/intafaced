@@ -1,7 +1,7 @@
 import { matchPath } from '../../app/path-match';
 
 /**
- * The Web3 route table (IA-SPEC 2.8). Pure data: navigation.ts reads it to register the rooms and ProtocolRoutes.tsx
+ * The Web3 route table (IA-SPEC 2.8). Pure data: app/rooms/web3.ts reads it to register the rooms and ProtocolRoutes.tsx
  * reads it to mount one component per route. A route with `pending` has its full layout but no data source yet; it names
  * the blocker instead of showing a blank.
  */

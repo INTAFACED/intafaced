@@ -101,6 +101,29 @@ describe('parse / format are exact inverses', () => {
     );
   });
 
+  /**
+   * Trailing zeros, constructed rather than hoped for.
+   *
+   * The random draws above reach a fraction ending in zero on almost every run,
+   * but not on every one: biased generation favours amounts near zero and near
+   * ±MAX_AMOUNT, whose last digit is rarely 0. Measured on 100 000 seeds, 6 drew
+   * no such fraction, so a `formatAmount` that left trailing zeros on the wire
+   * passed the whole suite on those seeds (seed -1758893867 is one). These cases
+   * put a trailing zero in front of the property on every run.
+   */
+  it('strips trailing zeros from a fraction, on both signs', () => {
+    const cases: Array<[Amount, string]> = [
+      [SCALE + SCALE / 2n, '1.5'], // 1.50
+      [-(SCALE + SCALE / 2n), '-1.5'],
+      [SCALE / 10n, '0.1'], // seventeen trailing zeros
+      [120n, '0.00000000000000012'],
+      [MAX_AMOUNT - 9n, '99999999999999999999.99999999999999999'],
+    ];
+    for (const [value, text] of cases) expect(formatAmount(value)).toBe(text);
+    // The wire form a person types, read and written back.
+    expect(formatAmount(parseAmount('1.50'))).toBe('1.5');
+  });
+
   it('never silently truncates precision it cannot carry', () => {
     fc.assert(
       fc.property(fc.stringMatching(/^\d{1,4}$/), fc.integer({ min: DECIMALS + 1, max: DECIMALS + 12 }), (whole, places) => {

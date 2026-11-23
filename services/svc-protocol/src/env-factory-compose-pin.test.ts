@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const COMPOSE = resolve(HERE, '../../../docker-compose.apps.yml');
@@ -49,9 +50,7 @@ const BASE_ENV = {
 
 function protocolComposeBlock(): string {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const match = compose.match(/^  svc-protocol:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-protocol service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-protocol');
 }
 
 function countAssignments(source: string, name: string): number {

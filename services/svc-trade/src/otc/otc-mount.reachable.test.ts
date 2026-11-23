@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { describe, expect, it } from 'vitest';
+import { TRADE_OTC_SETTLE } from '@intafaced/contracts/trade-otc-procedures';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
@@ -188,7 +189,7 @@ async function buildDesk(
           now: () => now,
         });
 
-  const appRouter = createTradeRouter({} as unknown as TradeService, otc, undefined);
+  const appRouter = createTradeRouter({} as TradeService, otc, undefined);
   const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
 
   const app = Fastify();
@@ -769,7 +770,9 @@ describe('otc.settle attribution is the existing trade:write path', () => {
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     const otcBlock = src.slice(start, end);
-    expect(otcBlock).toContain("settle: scopedProcedure('trade:write'");
+    // settle is mounted from its record; the record's access is what mountRecord turns into scopedProcedure.
+    expect(otcBlock).toMatch(/settle:\s*mountRecord\(\s*TRADE_OTC_SETTLE,/);
+    expect(TRADE_OTC_SETTLE.access).toEqual({ caller: 'scope', scope: 'trade:write', module: 'trade' });
     expect(otcBlock).not.toMatch(/settle:\s*serviceProcedure/);
     expect(otcBlock).not.toContain('serviceProcedure');
   });
@@ -777,7 +780,7 @@ describe('otc.settle attribution is the existing trade:write path', () => {
   it('source pin: orders.create uses the same trade:write guard settle uses', () => {
     const src = readFileSync(join(here, '../router.ts'), 'utf8');
     expect(src).toMatch(/create:\s*scopedProcedure\('trade:write'/);
-    expect(src).toMatch(/settle:\s*scopedProcedure\('trade:write'/);
+    expect(TRADE_OTC_SETTLE.access).toMatchObject({ caller: 'scope', scope: 'trade:write' });
   });
 
   it('source pin: trade:write is not INTERACTIVE_ONLY — API keys may hold it', () => {

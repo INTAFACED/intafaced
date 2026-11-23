@@ -14,7 +14,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 /**
- * THE MOUNT BOUNDARY, for svc-pay (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-pay.
  *
  * Not a test of payments maths — `router.test.ts` and the money-path suites own
  * that. What this file protects is the one property mounting `/trpc` depends on:

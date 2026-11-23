@@ -1,7 +1,6 @@
 /**
  * The planted cases of journey-list-guard.mjs: main's own journey list passes; a dropped journey, a dropped step, a step
- * taken out of the live count, an unknown slice id, a stale ROADMAP.md and a retirement line without an OWNER number each
- * fail; a regenerated ROADMAP.md hides no drop; a strict `Journey-retired:` line with an OWNER number passes, and one in
+ * taken out of the live count, an unknown slice id and a retirement line without an OWNER number each fail; a strict `Journey-retired:` line with an OWNER number passes, and one in
  * code or a comment does not. Two tests run the script itself against a scratch git repository: one on its own, one on
  * a merge built on an older main after main added a journey (judged against the main it was built on).
  */
@@ -12,7 +11,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { compose } from '../scripts/roadmap.mjs';
 import { drops, judge, retireLine, retirements } from './journey-list-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -20,12 +18,10 @@ const SCRIPT = join(ROOT, 'tooling', 'ci', 'journey-list-guard.mjs');
 const load = (p) => JSON.parse(readFileSync(join(ROOT, p), 'utf8'));
 const JOURNEYS = load('docs/roadmap/journeys.json');
 const SLICES = load('docs/roadmap/slices.json');
-const ROADMAP = readFileSync(join(ROOT, 'docs/ROADMAP.md'), 'utf8');
 const copy = () => structuredClone(JOURNEYS);
 // A live journey with at least two live steps, so dropping one step leaves the journey live.
 const target = JOURNEYS.find((j) => !j.parked && !j.deferred && j.steps.filter((s) => !s.parked && !s.deferred).length >= 2);
-const fresh = async (head) => (await compose(SLICES, head, ROADMAP)) === ROADMAP;
-const verdict = (head, body = '', roadmapFresh = true) => judge({ base: JOURNEYS, head, slices: SLICES, roadmapFresh, body });
+const verdict = (head, body = '') => judge({ base: JOURNEYS, head, slices: SLICES, body });
 const withoutJourney = () => copy().filter((j) => j.id !== target.id);
 const withoutStep = () => {
   const head = copy();
@@ -34,8 +30,7 @@ const withoutStep = () => {
   return head;
 };
 
-test("main's own journey list and ROADMAP.md pass", async () => {
-  assert.equal(await fresh(JOURNEYS), true, 'docs/ROADMAP.md on this tree is what roadmap.mjs builds');
+test("main's own journey list passes", async () => {
   const v = await verdict(JOURNEYS);
   assert.deepEqual(v, { ok: true, lines: [] });
 });
@@ -76,31 +71,6 @@ test('planted: an unknown slice id fails', async () => {
   assert.ok(
     v.lines.some((l) => l.endsWith(`${target.id} #${target.steps[0].n}: NOPE-made-up-01`)),
     v.lines.join('\n'),
-  );
-});
-
-test('planted: a regenerated ROADMAP.md hides no drop, and a stale one fails', async () => {
-  const head = withoutJourney();
-  const regenerated = await compose(SLICES, head, ROADMAP);
-  assert.notEqual(regenerated, ROADMAP, 'the drop changes the page');
-  const v = await judge({
-    base: JOURNEYS,
-    head,
-    slices: SLICES,
-    roadmapFresh: (await compose(SLICES, head, regenerated)) === regenerated,
-    body: '',
-  });
-  assert.equal(v.ok, false);
-  assert.ok(
-    v.lines.some((l) => l.startsWith(`${target.id} is on the base`)) && !v.lines.some((l) => l.includes('ROADMAP')),
-    v.lines.join('\n'),
-  );
-  // The page left as it was, while journeys.json changes: stale.
-  const stale = await verdict(head, `Journey-retired: ${target.id} (OWNER 1)`, await fresh(head));
-  assert.equal(stale.ok, false);
-  assert.ok(
-    stale.lines.some((l) => l.includes('docs/ROADMAP.md is not what')),
-    stale.lines.join('\n'),
   );
 });
 
@@ -150,9 +120,9 @@ test('the body is read only when something is dropped', async () => {
     reads += 1;
     return '';
   };
-  await judge({ base: JOURNEYS, head: JOURNEYS, slices: SLICES, roadmapFresh: true, body });
+  await judge({ base: JOURNEYS, head: JOURNEYS, slices: SLICES, body });
   assert.equal(reads, 0);
-  await judge({ base: JOURNEYS, head: withoutStep(), slices: SLICES, roadmapFresh: true, body });
+  await judge({ base: JOURNEYS, head: withoutStep(), slices: SLICES, body });
   assert.equal(reads, 1);
 });
 
@@ -167,7 +137,7 @@ test('a malformed journeys.json fails by name', async () => {
   );
 });
 
-test('the script: passes the base unchanged, refuses a dropped journey with a regenerated page, takes a retirement line', async () => {
+test('the script: passes the base unchanged, refuses a dropped journey, takes a retirement line', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'journey-list-guard-'));
   try {
     const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
@@ -178,7 +148,6 @@ test('the script: passes the base unchanged, refuses a dropped journey with a re
     git('init', '-q', '-b', 'main');
     put('docs/roadmap/journeys.json', JSON.stringify(JOURNEYS));
     put('docs/roadmap/slices.json', JSON.stringify(SLICES));
-    put('docs/ROADMAP.md', ROADMAP);
     git('add', '.');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base');
     const run = (env = {}) =>
@@ -187,11 +156,9 @@ test('the script: passes the base unchanged, refuses a dropped journey with a re
     assert.equal(ok.status, 0, ok.stderr);
     const head = withoutJourney();
     put('docs/roadmap/journeys.json', JSON.stringify(head));
-    put('docs/ROADMAP.md', await compose(SLICES, head, ROADMAP));
     const refused = run({ PR_BODY: '' });
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, new RegExp(`${target.id} is on the base`));
-    assert.doesNotMatch(refused.stderr, /ROADMAP/);
     const retired = run({ PR_BODY: `Journey-retired: ${target.id} (OWNER 183)` });
     assert.equal(retired.status, 0, retired.stderr);
     const noOwner = run({ PR_BODY: `Journey-retired: ${target.id}` });
@@ -213,16 +180,15 @@ test('the script: judges against the main the checkout was built on, so main add
       mkdirSync(dirname(join(dir, p)), { recursive: true });
       writeFileSync(join(dir, p), text);
     };
-    const commit = async (journeys, msg) => {
+    const commit = (journeys, msg) => {
       put('docs/roadmap/journeys.json', JSON.stringify(journeys));
       put('docs/roadmap/slices.json', JSON.stringify(SLICES));
-      put('docs/ROADMAP.md', await compose(SLICES, journeys, ROADMAP));
       git('add', '.');
       git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', msg);
     };
     git('init', '-q', '-b', 'main');
     const older = withoutJourney();
-    await commit(older, 'older main');
+    commit(older, 'older main');
     git('checkout', '-q', '-b', 'pr');
     put('pr.txt', 'the pull request');
     git('add', '.');
@@ -232,7 +198,7 @@ test('the script: judges against the main the checkout was built on, so main add
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-ff', '-m', 'merge', 'pr');
     const merge = git('rev-parse', 'HEAD').toString().trim();
     git('checkout', '-q', 'main');
-    await commit(JOURNEYS, `main adds ${target.id}`);
+    commit(JOURNEYS, `main adds ${target.id}`);
     git('checkout', '-q', '--detach', merge);
     const run = () =>
       spawnSync(process.execPath, [SCRIPT, '--base-ref', 'main'], {
@@ -246,7 +212,6 @@ test('the script: judges against the main the checkout was built on, so main add
     // Planted: the same stale checkout that really drops a journey its own base had still fails.
     const dropped = older.filter((j) => j.id !== older[0].id);
     put('docs/roadmap/journeys.json', JSON.stringify(dropped));
-    put('docs/ROADMAP.md', await compose(SLICES, dropped, ROADMAP));
     const refused = run();
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, new RegExp(`${older[0].id} is on the base and this pull request removes it`));

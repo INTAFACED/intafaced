@@ -1,9 +1,6 @@
-import { hashMessage, recoverAddress, getAddress as toChecksum } from 'viem';
+import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import { computeAccountAddress, DEFAULT_USER_SALT } from './address.js';
-import { assertMyAccountsListLimit } from './my-accounts-list-limit.js';
-import { withAuthoritySpan } from '../tracing.js';
-import { fromAnotherChain, type ChainIdentityReader } from '../chain/identity.js';
+import type { ChainIdentityReader } from '../chain/identity.js';
 
 /**
  * ACCOUNT REGISTRY — address ↔ user id. A read model, not custody.
@@ -52,8 +49,6 @@ export interface AccountUpsert {
  * without a database.
  */
 export interface AccountStore {
-  upsert(record: AccountUpsert): Promise<AccountRecord>;
-  findByUser(userId: string, chainId: number, limit: number): Promise<AccountRecord[]>;
   findByAddress(chainId: number, address: Address): Promise<AccountRecord | null>;
   markDeployed(chainId: number, address: Address, at: Date, genesisHash: Hex | null): Promise<void>;
 }
@@ -66,6 +61,7 @@ export class MemoryAccountStore implements AccountStore {
     return `${chainId}:${address.toLowerCase()}`;
   }
 
+  /** Seeds a row. Nothing in the service writes one any more (the claim call is gone); tests seed with this. */
   async upsert(record: AccountUpsert): Promise<AccountRecord> {
     const key = this.#key(record.chainId, record.address);
     const existing = this.rows.get(key);
@@ -84,11 +80,6 @@ export class MemoryAccountStore implements AccountStore {
     return next;
   }
 
-  async findByUser(userId: string, chainId: number, limit: number): Promise<AccountRecord[]> {
-    const published = assertMyAccountsListLimit(limit);
-    return [...this.rows.values()].filter((r) => r.userId === userId && r.chainId === chainId).slice(0, published);
-  }
-
   async findByAddress(chainId: number, address: Address): Promise<AccountRecord | null> {
     return this.rows.get(this.#key(chainId, address)) ?? null;
   }
@@ -100,42 +91,8 @@ export class MemoryAccountStore implements AccountStore {
   }
 }
 
-export type ClaimRefusalCode = 'registry.address_mismatch' | 'registry.signature_not_owner' | 'registry.already_claimed';
-
-export class ClaimRefusedError extends Error {
-  constructor(
-    readonly code: ClaimRefusalCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'ClaimRefusedError';
-  }
-}
-
-/**
- * The message a user signs to attach their account to their INTAFACED id.
- *
- * Deliberately readable, deliberately scoped to one chain and one address, and
- * deliberately containing no authorisation of any kind — signing it links a row
- * in a database and confers nothing on anybody.
- */
-export function bindingMessage(args: { userId: string; chainId: number; address: Address }): string {
-  return [
-    'INTAFACED — link smart account',
-    '',
-    `account: ${args.address}`,
-    `chain:   ${args.chainId}`,
-    `user:    ${args.userId}`,
-    '',
-    'Signing this links this account to your INTAFACED profile.',
-    'It grants no permission over the account and moves no funds.',
-  ].join('\n');
-}
-
 export interface RegistryConfig {
   readonly chainId: number;
-  readonly factory: Address;
-  readonly implementation: Address;
 }
 
 export class AccountRegistry {
@@ -149,92 +106,14 @@ export class AccountRegistry {
     private readonly identity?: ChainIdentityReader,
   ) {}
 
-  /** `deployed` holds only on the chain it was seen on. The chain is asked only when a row names a genesis. */
-  async #onThisChain(records: AccountRecord[]): Promise<AccountRecord[]> {
-    if (!this.identity || !records.some((r) => r.deployed && r.deployedGenesisHash)) return records;
-    const current = await this.identity();
-    return records.map((r) =>
-      r.deployed && fromAnotherChain(r.deployedGenesisHash, current) ? { ...r, deployed: false, deployedGenesisHash: null } : r,
-    );
-  }
-
   /** The genesis a deployment is stored with, read afresh: a deployment is never labelled with a chain since gone. */
   async #genesis(): Promise<Hex | null> {
     return this.identity ? (await this.identity({ fresh: true })).genesisHash : null;
   }
 
-  /** The address a given owner key will have. No chain access needed. */
-  predict(owner: Address, userSalt: Hex = DEFAULT_USER_SALT): Address {
-    return computeAccountAddress({
-      factory: this.config.factory,
-      implementation: this.config.implementation,
-      owner,
-      userSalt,
-    });
-  }
-
-  /**
-   * Link an account to a user id, on proof of the owner key.
-   *
-   * Two independent checks, because a registry row that claims someone else's
-   * address is a support incident waiting to happen:
-   *   1. the address must be the CREATE2 address of the claimed owner — so a
-   *      user cannot register an address they merely know about
-   *   2. the owner key must have signed the binding message
-   */
-  async claim(args: {
-    userId: string;
-    owner: Address;
-    userSalt?: Hex;
-    address: Address;
-    signature: Hex;
-    deployed: boolean;
-  }): Promise<AccountRecord> {
-    return withAuthoritySpan(
-      'registry.claim',
-      { operation: 'claim', account: args.address, authority: 'owner', chainId: this.config.chainId },
-      async () => {
-        const userSalt = args.userSalt ?? DEFAULT_USER_SALT;
-        const derived = this.predict(args.owner, userSalt);
-        if (toChecksum(args.address) !== derived) {
-          throw new ClaimRefusedError(
-            'registry.address_mismatch',
-            `${args.address} is not the account of ${args.owner} — expected ${derived}`,
-          );
-        }
-
-        const message = bindingMessage({ userId: args.userId, chainId: this.config.chainId, address: derived });
-        const recovered = await recoverAddress({ hash: hashMessage(message), signature: args.signature });
-        if (toChecksum(recovered) !== toChecksum(args.owner)) {
-          throw new ClaimRefusedError('registry.signature_not_owner', 'The binding signature does not come from the owner key');
-        }
-
-        const existing = await this.store.findByAddress(this.config.chainId, derived);
-        if (existing && existing.userId !== args.userId) {
-          throw new ClaimRefusedError('registry.already_claimed', 'This account is linked to another profile');
-        }
-
-        return this.store.upsert({
-          userId: args.userId,
-          chainId: this.config.chainId,
-          address: derived,
-          owner: toChecksum(args.owner),
-          userSalt,
-          deployed: args.deployed,
-          deployedGenesisHash: args.deployed ? await this.#genesis() : null,
-          verifiedAt: new Date(),
-        });
-      },
-    );
-  }
-
-  async accountsOf(userId: string, limit: number | null | undefined): Promise<AccountRecord[]> {
-    return this.#onThisChain(await this.store.findByUser(userId, this.config.chainId, assertMyAccountsListLimit(limit)));
-  }
-
   async ownerOfRecord(address: Address): Promise<AccountRecord | null> {
     // Whether the address has a row, which the chain observer asks for every event. It never reads the chain, so a block 0
-    // read that fails cannot drop an event; `deployed` here is the stored flag (`accountsOf` places it on this chain).
+    // read that fails cannot drop an event; `deployed` here is the stored flag.
     return this.store.findByAddress(this.config.chainId, address);
   }
 

@@ -1,7 +1,7 @@
 import type { PayHaltEvent, PayHaltOperatorStatus, PayHaltPendingClear } from '@intafaced/contracts';
 
-export type { Part } from '@/lib/desk/part';
-import type { Part } from '@/lib/desk/part';
+export type { Part } from '@/lib/desk';
+import type { Part } from '@/lib/desk';
 
 export interface PayHaltsRead {
   /** When the console server read svc-pay. Every figure below is as of this time. */

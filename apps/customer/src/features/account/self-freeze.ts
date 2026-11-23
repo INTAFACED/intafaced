@@ -16,7 +16,6 @@ export const freezeStatus = z.object({
   since: z.string().nullable(),
 });
 export type FreezeStatus = z.infer<typeof freezeStatus>;
-export const liftDone = z.object({ frozen: z.literal(false), changed: z.boolean(), liftedAt: z.string().nullable() });
 
 /** The lift's own typed refusals; `identity.step_up_required` opens the confirmation instead. */
 export const LIFT_REFUSAL_KEYS: Readonly<Record<string, string>> = {

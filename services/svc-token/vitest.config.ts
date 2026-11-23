@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 /**
  * svc-token Postgres suites share `token.buyback_runs` (GiST exclusion) and
@@ -7,6 +8,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     fileParallelism: false,
     // Unit/API fixtures exercise service behavior without owner screening
     // configuration. Strict screening remains covered explicitly below.

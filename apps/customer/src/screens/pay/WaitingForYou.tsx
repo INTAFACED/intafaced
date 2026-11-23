@@ -100,10 +100,10 @@ export function WaitingForYou() {
                 <p className="pay-waiting__head">
                   <span>{payCopy.t('{who} sent you {amount}', { who, amount })}</span>
                 </p>
-                <p className="pay-hint">{payCopy.t('Waiting reason stranger')}</p>
-                {hold.note ? <p className="pay-hint">{hold.note}</p> : null}
-                <p className="pay-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
-                <div className="pay-row-actions">
+                <p className="lt-hint">{payCopy.t('Waiting reason stranger')}</p>
+                {hold.note ? <p className="lt-hint">{hold.note}</p> : null}
+                <p className="lt-hint">{payCopy.t('Waiting goes back {date}', { date })}</p>
+                <div className="lt-actions">
                   <Button
                     variant="primary"
                     size={40}
@@ -123,7 +123,7 @@ export function WaitingForYou() {
                     {payCopy.t('Deny')}
                   </Button>
                 </div>
-                {where ? <p className="pay-hint">{where}</p> : null}
+                {where ? <p className="lt-hint">{where}</p> : null}
                 {problem?.transferId === hold.transferId ? (
                   <p className="pay-problem" role="alert">
                     {problem.text}

@@ -4,6 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { AGENT_ORDERS_PATH, attachAgentAccountRoutes } from './agent-account-rest.js';
 import { attachOwnAgentTradingRoutes } from './own-agent-trading-rest.js';
 import { attachProtectionRoutes } from './protections-rest.js';
+import { attachSpotConditionalRoutes } from './spot-conditionals-rest.js';
 import { attachUserVenueRoutes, type UserVenueRestDeps } from './user-venue-rest.js';
 
 // J-agents-21 #9 at the routes: an API key connected to an agent account calls the assistant's order route and no other
@@ -13,8 +14,8 @@ import { attachUserVenueRoutes, type UserVenueRestDeps } from './user-venue-rest
 
 const USER = '11111111-1111-4111-8111-1111111111d1';
 const KEY = '22222222-2222-4222-8222-2222222222d2';
-const session = { userId: USER, sub: USER, sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
-const apiKey = { ...session, kid: KEY } as unknown as Principal;
+const session = { userId: USER, sub: USER, sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
+const apiKey = { ...session, kid: KEY } as Principal;
 const OWNER = '0x00000000000000000000000000000000000000a1';
 const ACCOUNT = '33333333-3333-4333-8333-3333333333d3';
 
@@ -28,6 +29,7 @@ async function mount(principal: Principal, agentKeyConfined: UserVenueRestDeps['
   attachAgentAccountRoutes(app, null, deps, null);
   attachOwnAgentTradingRoutes(app, null, deps);
   attachProtectionRoutes(app, null, deps);
+  attachSpotConditionalRoutes(app, null, deps);
   await app.ready();
 }
 
@@ -51,6 +53,11 @@ const OTHER_ROUTES = [
   { method: 'GET', url: `/api/v1/venue/protections?owner=${OWNER}` },
   { method: 'POST', url: '/api/v1/venue/protections', payload: { owner: OWNER } },
   { method: 'POST', url: '/api/v1/venue/protection-agent/prepare', payload: { owner: OWNER } },
+  // Conditional spot orders (J-cex-spot-08): the list, a new one, a cancel and the approval of the spot-order key.
+  { method: 'GET', url: `/api/v1/venue/spot-orders?owner=${OWNER}` },
+  { method: 'POST', url: '/api/v1/venue/spot-orders', payload: { owner: OWNER } },
+  { method: 'DELETE', url: `/api/v1/venue/spot-orders/${ACCOUNT}` },
+  { method: 'POST', url: '/api/v1/venue/spot-agent/prepare', payload: { owner: OWNER } },
 ] as const;
 
 describe('a connected agent key on the venue routes (J-agents-21 #9)', () => {

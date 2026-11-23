@@ -3,7 +3,7 @@ import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
-import { JurisdictionError } from '@intafaced/contracts';
+import { JurisdictionError } from '@intafaced/contracts/trpc';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
 import { assertPlaceEligible } from '../spot/place-eligibility.js';
 import {
@@ -15,7 +15,13 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
-import { assertTradingLevel, type PreparedAnswer, type UserVenueDoor, type VenueOrderByKey } from './user-venue-door.js';
+import {
+  assertTradingLevel,
+  type PreparedAnswer,
+  type UserVenueDoor,
+  UserVenueDoorError,
+  type VenueOrderByKey,
+} from './user-venue-door.js';
 
 /**
  * A POSITION'S PROTECTIONS ON THE PERSON'S OWN VENUE ACCOUNT (J-derivatives-03; D-orders-04, D-orders-05).
@@ -178,7 +184,7 @@ const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s ==
  * A principal for the engine acting on one person's own venue account: their user id, trading scopes only, and their
  * level exactly as identity answered it for this order, never one made up here. A read by key takes `none`.
  */
-function engineActor(userId: string, tier: Principal['tier']): Principal {
+export function engineActor(userId: string, tier: Principal['tier']): Principal {
   return {
     sub: userId,
     userId,
@@ -390,7 +396,7 @@ export class VenueProtections {
     for (const row of await this.deps.store.listForOwner(principal.userId, account.owner)) {
       const fired =
         row.status === 'fired' || row.status === 'failed'
-          ? await this.deps.door.orderByKey(engineActor(row.userId, 'none'), fireKey(row))
+          ? await this.deps.door.orderByKey(engineActor(row.userId, 'none'), fireKey(row)).catch(noOrderYet)
           : null;
       out.push(engineView(row, fired?.order ?? null));
     }
@@ -549,6 +555,12 @@ export class VenueProtections {
 
 /** The business key of the one order a stop sends: the person's venue account and their own client order id. */
 const fireKey = (row: EngineProtection) => `protection:fire:${row.owner}:${row.clientKey}`;
+
+/** A stop that failed before its order was prepared (a frozen account, a tier or region refusal) has no order: null. Any other error throws. */
+const noOrderYet = (err: unknown): null => {
+  if (err instanceof UserVenueDoorError && err.code === 'trade.venue_action_unknown') return null;
+  throw err;
+};
 
 function engineView(row: EngineProtection, order: UserVenueOrder | null): ProtectionView {
   const trailing = row.kind === 'trailing_stop' && row.bestPrice !== null && row.trailingDistance !== null;

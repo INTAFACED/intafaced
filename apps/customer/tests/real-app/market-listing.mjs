@@ -58,13 +58,9 @@ export async function approvedSeller(page) {
   return { seller, client };
 }
 
-/**
- * A new approved TEST seller with one published TEST strategy listing titled `title`. Returns the seller and the
- * listing as svc-market answered its creation.
- */
-export async function testStrategyListing(page, { title, price = '10', assetId = 'USDT', periodSeconds = 30 * 86_400 }) {
-  const { seller, client } = await approvedSeller(page);
-  const listing = data(
+/** The approved seller `client` publishes a TEST strategy listing titled `title`; returns it as svc-market answered. */
+export async function publishStrategyListing(client, { title, price = '10', assetId = 'USDT', periodSeconds = 30 * 86_400 }) {
+  return data(
     await client.post('/api/market/trpc/createStrategyListing', {
       title,
       description: 'TEST strategy listing on the local test stack. Not a real strategy.',
@@ -74,5 +70,4 @@ export async function testStrategyListing(page, { title, price = '10', assetId =
     }),
     'createStrategyListing',
   );
-  return { seller, listing };
 }

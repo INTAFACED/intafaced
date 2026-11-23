@@ -1,4 +1,5 @@
 import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
+import { extraControlsFor } from './account/safety.js';
 import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
@@ -11,14 +12,17 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { serviceOfRequest } from './s2s-door.js';
+import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { SignInChallengeService, parseSignInChallengePolicy } from './auth/signin-challenge.js';
 import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
+import { countryListUnset } from './auth/sign-up.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
@@ -34,6 +38,7 @@ import { registerServiceMailRoute } from './auth/service-mail.js';
 import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
+import { deskLayoutsFor, registerSupportDeskLayoutsRoute } from './preferences/desk-layouts-support-read.js';
 import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
@@ -101,6 +106,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { ApiVersionDefaults, createApiVersionRouter } from './api-version-default.js';
+import { createDeveloperSupportRouter } from './ops/developer-support.js';
 import { createHandleRouter } from './profile/handle-router.js';
 import { createReceiveContactsRouter } from './account/receive-contacts-router.js';
 import { ReceiveContactService, receiveContactSettings } from './account/receive-contacts.js';
@@ -129,6 +136,7 @@ import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -217,7 +225,7 @@ registerProcessHooks(
 /**
  * svc-identity — one account, one verification, one rank (§4.1).
  *
- * Graph W1-C: mount tRPC; verify edge-signed principal (mount-boundary #48).
+ * Graph W1-C: mount tRPC; verify edge-signed principal.
  * Blueprint cascade: subscribe to blueprintCreated/Deleted so profiles.blueprint_id
  * tracks svc-blueprint without writing across service tables (§2 / §7.2).
  * XP: subscribe to xpEarned, so awards published by svc-p2p and svc-trade reach
@@ -240,6 +248,8 @@ assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 // The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
 const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
+// The owner's stream-token lifetime (J-developer-09 #2). Blank stays null: every mint refuses `identity.stream_token_ttl_unset`.
+const streamTokenTtlSeconds = parseStreamTokenTtl(env.IDENTITY_STREAM_TOKEN_TTL_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -363,17 +373,18 @@ const authKeyRing = new AuthKeyRing(sql, env.JWT_ACCESS_SECRET, parseAuthKeys(en
 await authKeyRing.refresh();
 authKeyRing.start();
 
+const accessTokenConfig = authKeyRing.tokenConfig({
+  secret: env.JWT_ACCESS_SECRET,
+  issuer: env.JWT_ISSUER,
+  audience: env.JWT_AUDIENCE,
+  accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+  refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+});
 const auth = new AuthService(
   sql,
   bus,
   rank,
-  authKeyRing.tokenConfig({
-    secret: env.JWT_ACCESS_SECRET,
-    issuer: env.JWT_ISSUER,
-    audience: env.JWT_AUDIENCE,
-    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
-    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
-  }),
+  accessTokenConfig,
   {
     rpID: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -392,6 +403,8 @@ const auth = new AuthService(
 // The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
 const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
 auth.setSessionLimits(sessionLimits);
+// While the owner's blocked-countries list is not set, no sign-in door opens a session (J-identity-22 #1).
+auth.setCountryListGate(countryListUnset);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
 /** The same keys on the inbound doors: a key-signed caller is named by its own key. */
@@ -530,7 +543,21 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-const referral = new ReferralService(sql);
+/**
+ * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
+ * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
+ */
+const referral = new ReferralService(sql, undefined, async (edge) => {
+  try {
+    await bus.publish(
+      'referralCreated',
+      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
+      { idempotencyKey: `identity.referral.created:${edge.userId}` },
+    );
+  } catch (err) {
+    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
+  }
+});
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
@@ -743,6 +770,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
     // One budget per person across every replica and restart (#4689).
     handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
@@ -875,6 +903,8 @@ export const appRouter = mergeRouters(
   }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createApiVersionRouter(new ApiVersionDefaults(sql)),
+  createDeveloperSupportRouter(sql),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createReceiveContactsRouter(
     new ReceiveContactService({
@@ -995,8 +1025,12 @@ app.addHook('onRequest', (req, _reply, done) => {
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
   const rawAgent = req.headers['user-agent'];
   const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
+  const rawRegion = req.headers['x-intafaced-region'];
+  const region = typeof rawRegion === 'string' ? rawRegion : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
+    requestProductAls.run(clientProduct || undefined, () =>
+      requestMetaAls.run({ ip: clientIp || undefined, userAgent, region }, () => done()),
+    );
   });
 });
 
@@ -1082,6 +1116,20 @@ registerNavigatorSessionRoutes(app, {
  * Previously unauthenticated (full audit L2-3).
  */
 /**
+ * A short-lived stream token for an API key (J-developer-09 #2). svc-edge forwards `POST /api/v1/stream/token` here
+ * with the key's exchanged principal; the token is cut from that principal and grants no more (`stream-token.ts`).
+ */
+app.post('/api/v1/stream/token', async (req, reply) => {
+  const { principal } = identityRequestContext(req);
+  try {
+    return await mintStreamToken({ principal, ttlSeconds: streamTokenTtlSeconds, tokens: accessTokenConfig });
+  } catch (err) {
+    if (err instanceof StreamTokenError) return reply.code(err.status).send({ error: { code: err.code, message: err.message } });
+    throw err;
+  }
+});
+
+/**
  * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
  */
 app.get('/internal/restore/watermark', async (req, reply) => {
@@ -1144,6 +1192,14 @@ registerWalletSignatureVerifyRoute(app, {
 /** The wallets a customer linked, for svc-agents' payment method (linked-wallets.ts). */
 registerLinkedWalletsRoute(app, {
   read: (userId) => linkedWallets(sql, userId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One account's saved desk layouts, for svc-support's ticket lookup (desk-layouts-support-read.ts, J-charts-desk-19 #1). */
+registerSupportDeskLayoutsRoute(app, {
+  read: (userId) => deskLayoutsFor(sql, userId),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),
@@ -1291,6 +1347,22 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
   return view;
 });
 
+/**
+ * A person's step-up extras (BK-safe-01, J-bank-18 #4), `extraControlsForSchema`. svc-bank reads it on every send to
+ * another person and holds a send above the allowance; it keeps no copy. Service credentials only. A malformed id is a
+ * 404, which the caller refuses on; a read error is a 500, which it also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/extra-controls/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return extraControlsFor(sql, userId);
+});
+
 /** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */
 registerSupportWithdrawalFreezeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -1411,6 +1483,17 @@ setInterval(() => {
       deathNoticeRelayRunning = false;
     });
 }, 3_000).unref();
+// The owner's own freeze (J-wallet-13 #1): announced from its own row once it commits, at least once; one run at a time.
+let selfFreezeRelayRunning = false;
+setInterval(() => {
+  if (selfFreezeRelayRunning) return;
+  selfFreezeRelayRunning = true;
+  void relaySelfFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
+    .finally(() => {
+      selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.
 let kycCaseRelayRunning = false;
 setInterval(() => {

@@ -50,7 +50,7 @@ describe('instrument enum authority (D26-P1-T9)', () => {
 
   it('refuses missing schedule rather than reading through it', () => {
     for (const bad of [undefined, null, '']) {
-      const market = withMarket({ schedule: bad as unknown as Market['schedule'] });
+      const market = withMarket({ schedule: bad as Market['schedule'] });
       expect(() => requireTradingSchedule(market)).toThrow(TradeError);
       try {
         requireTradingSchedule(market);

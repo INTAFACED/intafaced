@@ -6,7 +6,7 @@ import { MemoryDeliveryStore, MemoryTargetStore } from './channel-store.js';
 import { NotificationDispatcher } from './dispatch.js';
 import { MemoryNotifyStore, type Notification } from './store.js';
 import { NotifyService } from './notify-service.js';
-import { MemoryRecipientHealthStore, RecipientHealthError, maskAddress, type RecipientHealthStore } from './recipient-health.js';
+import { MemoryRecipientHealthStore, RecipientHealthError, maskAddress } from './recipient-health.js';
 
 const USER = 'user-1';
 const ADDRESS = 'ada@example.com';

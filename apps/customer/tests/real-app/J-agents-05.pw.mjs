@@ -591,6 +591,21 @@ test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs
   expect((await ownRead('review.list', { id: agent.id, limit: 50 })).filter((row) => row.requestId === `${J}:review-value`)).toEqual([]);
   expect((await ownRead('inbox', { limit: 100 })).filter((r) => r.sessionId === valueSessionId)).toEqual([]);
   expect((await ownSessionLog(valueSessionId)).filter((a) => a.tool === 'ledger.transfer')).toEqual([]);
+  // Giving the agent that value-capable tool, with the reviewer on, is itself refused by its value code,
+  // agents.own.money_tool, not by a reviewer decision: the agent is unchanged and the reviewer logged nothing.
+  const current = await ownRead('get', { id: agent.id });
+  const reviewsBefore = await ownRead('review.list', { id: agent.id, limit: 50 });
+  const withMoneyTool = await ownCall('save', {
+    id: current.id,
+    name: current.name,
+    instructions: current.instructions,
+    tools: [...current.tools, 'ledger.transfer'],
+    perSessionCap: current.perSessionCap,
+  });
+  expect(withMoneyTool.status, JSON.stringify(withMoneyTool.body).slice(0, 300)).toBe(400);
+  expect(withMoneyTool.body.error.message).toBe('agents.own.money_tool');
+  expect(await ownRead('get', { id: agent.id })).toEqual(current);
+  expect(await ownRead('review.list', { id: agent.id, limit: 50 })).toEqual(reviewsBefore);
 
   // With the reviewer's model unset the owner-decision notice shows, the switch stays the person's, and the call goes
   // to the person: it is held, waiting, and nothing is sent.

@@ -11,10 +11,22 @@ import {
   academyMakeGradeReportInputSchema,
   type AcademyGradeReportFile,
 } from '@intafaced/contracts/academy-grade-reports';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  founderRecordRead,
+} from '@/lib/desk';
 import type { GradebookDeskReply, GradebookView } from './gradebook-model';
+import {
+  ACADEMY_ADMIN_COURSE_GRADE_REPORTS,
+  ACADEMY_ADMIN_GRADE_REPORT_FILE,
+  ACADEMY_ADMIN_MAKE_GRADE_REPORT,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * A course's grading policy and gradebook as the signed-in founder (AC-assignments-04). svc-academy records the founder
@@ -37,7 +49,7 @@ const readReportFile = parseWith(academyGradeReportFileSchema);
 export async function loadGradebook(ctx: FounderCallContext, courseId: string): Promise<GradebookView> {
   const [book, stored] = await Promise.all([
     founderCall(ctx, 'academy', 'admin.courseGradebook', 'GET', { courseId }, readGradebook),
-    founderCall(ctx, 'academy', 'admin.courseGradeReports', 'GET', { courseId }, readReports),
+    founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_GRADE_REPORTS, { courseId }, readReports),
   ]);
   return { gradebook: partFrom(book, (d) => d, ACADEMY), reports: partFrom(stored, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
@@ -48,7 +60,7 @@ export async function loadGradeReportFile(
   courseId: string,
   n: number,
 ): Promise<{ file: AcademyGradeReportFile } | { status: number; reply: GradebookDeskReply }> {
-  const result = await founderCall(ctx, 'academy', 'admin.gradeReportFile', 'GET', { courseId, n }, readReportFile);
+  const result = await founderRecordRead(ctx, ACADEMY_ADMIN_GRADE_REPORT_FILE, { courseId, n }, readReportFile);
   return result.kind === 'ok' && result.data ? { file: result.data } : refusal(result);
 }
 
@@ -91,7 +103,7 @@ export async function changeGradebook(
   if (op === 'makeReport') {
     const asked = academyMakeGradeReportInputSchema.safeParse(input);
     if (!asked.success) return { why: 'Which course, and which report number?' };
-    const made = await founderCall(ctx, 'academy', 'admin.makeGradeReport', 'POST', asked.data, readReport);
+    const made = await founderRecordRead(ctx, ACADEMY_ADMIN_MAKE_GRADE_REPORT, asked.data, readReport);
     if (made.kind !== 'ok' || !made.data) return refusal(made);
     // A retried or stale request for a number already made answers that stored report: the time says when it was made.
     return { status: 200, reply: { ok: true, what: `grade report ${made.data.n} made at ${made.data.madeAt}`, report: made.data } };

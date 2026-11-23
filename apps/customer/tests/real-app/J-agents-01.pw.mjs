@@ -1,10 +1,10 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
-import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
+import { ADMIN } from './admin.mjs';
 import { setPartner } from './partner.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
@@ -17,7 +17,9 @@ import { setPartner } from './partner.mjs';
 // rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox engine; #5 to #7 check its cost
 // against the published rate, the partner's own figures (svc-bank `spaces.list`, held at the TEST partner bank) and the
 // ledger's own transactions, read by a founder through the console's ledger lookup.
-// Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
+// #1's empty state is seen last in this file, on the stack's empty-catalogue profile (`LOCAL_STACK_AGENTS_CATALOGUE=off`:
+// svc-agents on a database of its own with no agent stored; tooling/scripts/local-stack-services/agents.mjs), and
+// svc-agents is put back on the stack's database after. Not checkable on this stack: #2's ineligible agent (the TEST
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
@@ -102,18 +104,15 @@ async function partnerUsdt() {
   return main.balance;
 }
 
-/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
-async function ledgerTrace(browser, businessKey) {
-  const context = await browser.newContext();
-  try {
-    const founder = await context.newPage();
-    await founderSignIn(founder);
-    const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
-    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-    return await res.json();
-  } finally {
-    await context.close();
-  }
+/**
+ * svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup, on the console
+ * session the `founders` fixture keeps for this file (journey.mjs), so the step's lookups share one sign-in.
+ */
+async function ledgerTrace(founders, businessKey) {
+  const { page: founder } = await founders.console('a');
+  const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  return await res.json();
 }
 
 /** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
@@ -359,11 +358,19 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
-  // Each declared tool, held to its stored guardrail row by row: its name, and every refusal it can return in words, in
-  // the stored order. The stored guardrail publishes no input or output shape for a tool, so each such cell says so in
-  // words, never an empty cell.
+  // Each declared tool, held to the service's own answer row by row: its name, its declared input and output fields
+  // with their types, and every refusal it can return in words, in the stored order. A tool that declares no shape says
+  // so in words, never an empty cell and never a guessed shape. Navigator declares both kinds: trade.quote has a shape,
+  // identity.session.read has none.
   const declared = stored?.result?.data?.tools ?? [];
   expect(declared.length, JSON.stringify(stored).slice(0, 400)).toBeGreaterThan(0);
+  const shapeOf = (name) => declared.find((tool) => tool.name === name)?.shape;
+  expect(shapeOf('trade.quote'), 'trade.quote declares its shape').toEqual({
+    input: { marketId: expect.any(String) },
+    output: { marketId: expect.any(String), last: expect.any(String), asOf: expect.any(String) },
+  });
+  expect(shapeOf('identity.session.read'), 'identity.session.read declares no shape').toBeNull();
+  const fields = (shape) => Object.entries(shape).map(([field, type]) => `${field}: ${type}`);
   const rows = tools.getByRole('row').filter({ has: page.getByRole('cell') });
   await expect(rows).toHaveCount(declared.length);
   for (const [i, tool] of declared.entries()) {
@@ -373,11 +380,15 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
     await expect(cells.nth(0)).toHaveText(tool.name);
     await expect(cells.nth(1)).toHaveText(tool.mode);
     await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
-    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
-    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
-    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
-    await expect(cells.nth(3)).toHaveText('Not published by this agent');
-    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    if (tool.shape) {
+      expect(Object.keys(tool.shape.input).length, `${tool.name} declares its inputs`).toBeGreaterThan(0);
+      expect(Object.keys(tool.shape.output).length, `${tool.name} declares its outputs`).toBeGreaterThan(0);
+      await expect(cells.nth(3).getByRole('listitem')).toHaveText(fields(tool.shape.input));
+      await expect(cells.nth(4).getByRole('listitem')).toHaveText(fields(tool.shape.output));
+    } else {
+      await expect(cells.nth(3)).toHaveText('Not published by this agent');
+      await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    }
     // Every refusal is worded, never left as its raw code.
     for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
     await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
@@ -451,6 +462,7 @@ const ledgerBalances = async () => (await api(agents.account())).balances();
 
 test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the engine; the reply and its exact cost; one request id twice is one run and one charge`, async ({
   page,
+  stepPicture,
 }) => {
   const sessionId = await openNavigatorSession(page, agents);
   agents.run.write({ sessionId });
@@ -558,9 +570,19 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const engineRuns = log.body.result.data.filter((entry) => entry.kind === 'completion' && entry.status === 'executed');
   expect(engineRuns).toHaveLength(1);
   expect(engineRuns[0].cost).toBe(run.cost);
+  // The step's picture: the one run row whole, with its request id, status and exact cost, above the reply and its
+  // findings. The row fits its column, so nothing of it is scrolled out of view, and the page is shown from its top.
+  const runsTable = workspace(page).getByRole('region', { name: 'Runs', exact: true });
+  expect(await runsTable.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the runs table fits its column').toBe(true);
+  for (const text of [requestId, 'Completed', `${fromUnits(cost)} USDT`]) await expect(row).toContainText(text);
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
 });
 
-test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, browser }) => {
+test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, founders }) => {
   // The session #5 ran, with its usage window still open. A request this agent may not run is refused and logged first,
   // so the history #7 reads has a refusal in it; it bills nothing.
   const { cost } = agents.run.read();
@@ -605,7 +627,7 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(after).toEqual(before);
   // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
   // earned key, revenue up by the cost and the person's receivable down by it.
-  const earned = await ledgerTrace(browser, earnedKey(chargeKey));
+  const earned = await ledgerTrace(founders, earnedKey(chargeKey));
   expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
   expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
   expect(earned.transaction.postings).toHaveLength(2);
@@ -617,7 +639,7 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
   // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
   // partner goes up by the cost.
-  const collected = await ledgerTrace(browser, collectedKey(paymentRef));
+  const collected = await ledgerTrace(founders, collectedKey(paymentRef));
   expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
   expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
   expect(collected.transaction.postings).toHaveLength(2);
@@ -643,8 +665,8 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(await ledgerBalances()).toEqual(after);
   // Nothing more left the partner balance, and the window's keys still name those same two transactions.
   expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
-  expect((await ledgerTrace(browser, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
-  expect((await ledgerTrace(browser, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
+  expect((await ledgerTrace(founders, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+  expect((await ledgerTrace(founders, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
@@ -697,4 +719,37 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
   } finally {
     await other.close();
   }
+});
+
+// Last in this file. With no agent published, Agents says so and shows no card: no sample card stands in. On the shared
+// stack every product agent is stored, so svc-agents is restarted on the stack's empty-catalogue profile (a database of
+// its own, made new, with no agent stored) and put back on the stack's database after, whatever happened.
+test(`${J} #1 with none published, the empty state says so and shows no sample card`, async ({ page }) => {
+  // Two restarts of agents and the profile's new database, on top of the browser steps.
+  test.setTimeout(420_000);
+  let failure = null;
+  try {
+    await restartService('agents', { LOCAL_STACK_AGENTS_CATALOGUE: 'off' });
+    // The stored list is empty for everyone: the service's own catalogue answers none.
+    const stored = await (await api(agents.account())).get('/api/agents/trpc/agent.catalogue');
+    expect(stored.status, JSON.stringify(stored.body).slice(0, 300)).toBe(200);
+    expect(stored.body.result.data, 'the empty-catalogue profile stores no agent').toEqual([]);
+    const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
+    await openAgents(page, agents);
+    expect((await (await catalogue).json())?.result?.data, 'the page read the empty stored list').toEqual([]);
+    await expect(main(page).getByRole('heading', { name: 'Agent catalogue', exact: true })).toBeVisible();
+    // The honest empty state, in words, and not one agent card: no sample card stands in.
+    await expect(main(page).getByText('No agents are published in this deployment.', { exact: true })).toBeVisible();
+    await expect(main(page).getByRole('article')).toHaveCount(0);
+    await expect(main(page).getByRole('button', { name: /Details/ })).toHaveCount(0);
+  } catch (err) {
+    failure = err;
+  }
+  // Agents goes back on the stack's database whatever happened; a failure to put it back never hides the step's own.
+  try {
+    await restartService('agents', { LOCAL_STACK_AGENTS_CATALOGUE: undefined });
+  } catch (err) {
+    failure ??= err;
+  }
+  if (failure) throw failure;
 });

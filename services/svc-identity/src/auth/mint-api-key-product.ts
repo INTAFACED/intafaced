@@ -3,14 +3,14 @@
  * Empty list stays unset (full grantor intersection, no default product).
  * Invalid / widening / outside-list products refuse before create.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyProductError, assertProductsDelegatable, normalizeProduct, scopesWithinProducts } from './api-key-product.js';
 import { bindApiKeyProductScope } from './auth-service-product.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 
 export async function mintApiKeyWithProductScope(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: {
     userId: string;
     name: string;

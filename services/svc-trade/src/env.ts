@@ -29,6 +29,12 @@ const schema = serviceEnvSchema
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
       /**
+       * J-derivatives-12 #5, NO DEFAULT: the verification level (`basic`, `full` or `institutional`) an account needs for the
+       * venue's perpetuals (src/venue/venue-eligibility.ts). Blank: the eligible list is empty with
+       * `trade.venue_eligibility_level_unset` named, and every new perpetual position refuses with it.
+       */
+      TRADE_USER_VENUE_ELIGIBILITY_LEVEL: z.string().default(''),
+      /**
        * J-agents-21 agent account, NO DEFAULT: the most any person's agent-account cap may be, a decimal in
        * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every create `agents.account_ceiling_unset` (src/venue/agent-account.ts).
        */
@@ -80,6 +86,17 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
       /**
+       * J-ops-console-28: how often svc-trade reads our builder address's account mode at each venue, with the door on and
+       * our builder address set; the founder console's view checks again on every read.
+       */
+      TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * J-ops-console-28 (owner value): the named contact an alert goes to when our builder address leaves the mode a venue
+       * requires to accrue builder fees. Blank: the console still shows the modes, and alerting refuses
+       * `trade.builder_mode_alert_contact_unset`; no alert is recorded.
+       */
+      TRADE_BUILDER_MODE_ALERT_CONTACT: z.string().default(''),
+      /**
        * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
        * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
        * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.
@@ -117,6 +134,17 @@ const schema = serviceEnvSchema
        */
       TRADE_OPS_METRICS_WINDOW_SECONDS: z.string().default(''),
       /**
+       * J-charts-desk-19 #3 (C-ops-03 (b)): the owner's fallback chart feed sources, a comma list of names
+       * (`^[a-z][a-z0-9_-]{0,31}$`, never `primary`). NO DEFAULT: blank or malformed refuses every switch to a fallback
+       * `trade.chart_feed.fallback_sources_unset` (admin/chart-feed-controls.ts). A switch back to primary needs no list.
+       */
+      TRADE_CHART_FEED_FALLBACK_SOURCES: z.string().default(''),
+      /**
+       * J-charts-desk-19 #4 (C-ops-03 (c)): the most chart control changes one audit export holds, 1 to 1000000. NO DEFAULT:
+       * blank refuses `trade.chart_feed.export_row_limit_unset`; more matching rows refuse `trade.chart_feed.export_over_limit`.
+       */
+      TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT: z.string().default(''),
+      /**
        * J-cex-spot-18 #3: the most orders one operator reconcile sweep looks at (whole number, 1 to 10000). Owner value:
        * blank refuses `reconcile_sweep_unconfigured` (admin/service.ts startReconcileSweep), never a guessed size.
        */
@@ -140,6 +168,11 @@ const schema = serviceEnvSchema
 
       /** svc-identity — rank perks at order accept + sub-account ownership gate. */
       IDENTITY_URL: z.string().url().default('http://localhost:4002'),
+      /**
+       * svc-bank's address, for the partner's cash leg of a cash-through-a-coin convert (J-cex-spot-11 #11), asked as the
+       * person. Blank: no cash leg is offered, and Convert says so for every cash currency.
+       */
+      BANK_URL: z.string().default(''),
       /**
        * svc-agents' address, for its gate on a person's own agent's order (J-agents-08 #4 #6: the person's rules and the
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
@@ -291,6 +324,13 @@ const schema = serviceEnvSchema
        * refuse `trade.convert_quote_ttl_unset`. Never invent 15000.
        */
       TRADE_CONVERT_QUOTE_TTL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Convert on the person's own venue account (J-cex-spot-11 #4, src/venue/venue-convert.ts): how long a venue
+       * price may be accepted, in milliseconds, before a fresh one must be. The venue holds no price; this is only how
+       * long ours is fresh. NO DEFAULT: blank refuses every venue convert quote `trade.convert_window_unset`.
+       */
+      TRADE_CONVERT_ACCEPT_WINDOW_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Kill-switch for TWAP algo execution (D-S-04 / trade.algo).
@@ -920,6 +960,52 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The least USDC a lead applicant's own venue account must hold, as the venue reports it, in a decimal string
+       * (CB-copy-12, J-copy-bots-otc-04 #1). Read from the account the person's own wallet signed for through the
+       * user-venue door; INTAFACED holds none of it.
+       *
+       * Empty (default) = unset → every application to lead refuses `trade.copy_lead_balance_threshold_unset`.
+       * Owner value. Never invent a threshold; blank never means zero.
+       */
+      TRADE_COPY_LEAD_MIN_VENUE_USDC: z.string().default(''),
+
+      /**
+       * The new-trader mission minimum: the USDC an applicant's own venue account must hold, as the venue reports it, to
+       * complete the funding mission (CB-copy-12, J-copy-bots-otc-04 #3). Empty (default) = unset → the mission reads
+       * "Not set by the platform" and is never done. Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_MISSION_MIN_USDC: z.string().default(''),
+
+      /**
+       * The most a lead may buy in lead trades per owner day, in the pair's quote asset, a decimal string (CB-copy-16,
+       * J-copy-bots-otc-04 #7). Empty (default) = unset → every lead buy refuses `trade.copy_leader_limit_not_set`.
+       * Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_DAILY_BUY_CAP: z.string().default(''),
+
+      /**
+       * The most a lead may hold per pair in lead trades, as JSON of pair to decimal string in its quote asset
+       * (`{"BTC/USDT":"5000"}`; CB-copy-16, J-copy-bots-otc-04 #7). Empty (default) = unset → every lead trade refuses
+       * `trade.copy_pair_limit_not_set`, as does a pair it does not name. Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: z.string().default(''),
+
+      /**
+       * The smallest most-in-total a follow may have, in the quote asset (CB-copy-06, J-copy-bots-otc-02 #2).
+       *
+       * Empty (default) = unset → every Start copying refuses `trade.copy_min_not_set`. Owner value. Never invent one.
+       */
+      TRADE_COPY_MIN_INVESTMENT: z.string().default(''),
+
+      /**
+       * When a copy day starts, as whole minutes east of UTC (-720 to 840): a follower's most per day counts from local
+       * midnight at that offset and resumes the next one (CB-copy-06, J-copy-bots-otc-02 #3).
+       *
+       * Empty (default) = unset → a follow with a daily cap refuses `trade.copy_day_not_set`. Owner value.
+       */
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: z.string().default(''),
+
+      /**
        * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
        * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
        * `trade.signal_latency_not_set`. Owner value; never invented.
@@ -981,6 +1067,15 @@ const schema = serviceEnvSchema
        * "host not set". A host left out reads "host not set" on its own. Malformed refuses boot. Never invent a host.
        */
       TRADE_DEVELOPER_HOSTS: z.string().default(''),
+
+      /**
+       * The stream endpoint hosts the WebSocket developer page publishes (developer-portal-rest.ts, J-developer-09 #1):
+       * JSON or empty, {"public":{"primary":"stream.example.test","failover":"…"},"private":{…},"business":{…}}.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/stream-hosts refuses trade.developer_stream_hosts_unset and every host
+       * reads "host not set". A host left out reads "host not set" on its own. Malformed refuses boot. Never invent a host.
+       */
+      TRADE_DEVELOPER_STREAM_HOSTS: z.string().default(''),
 
       /**
        * The market data terms per product the developer portal publishes (developer-portal-rest.ts). JSON or empty:

@@ -1,5 +1,5 @@
 import type { ApiClient, ApiResult } from '../../../../shared/api';
-import { confirmWithStepUp } from '../../../account/security-step-up';
+import { confirmWithStepUp } from '../../../account';
 import { stepUpCopy } from './step-up-copy';
 import { stepUpRefusalText } from './step-up-words';
 

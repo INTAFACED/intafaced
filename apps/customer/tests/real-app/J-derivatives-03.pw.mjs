@@ -670,11 +670,16 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
   expect(await positionOf(owner)).toBeNull();
 });
 
-test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposite direction, as one idempotent request`, async ({
+test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposite direction, signed once where the venue takes them together, as one idempotent request`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
   const { owner, wallet } = await desk(page);
+  // The stack's TEST venue takes several orders in one signed action, and says so (packages/venue-sim `ordersPerAction`).
+  const me = await api(state().account);
+  const status = await me.get('/api/v1/venue/status');
+  expect(status.status, JSON.stringify(status.body)).toBe(200);
+  expect(status.body.ordersPerAction).toBeGreaterThanOrEqual(2);
   await setMark(MARK);
   await ladderAt(MARK);
   const opened = await openLong(page, '1');
@@ -683,9 +688,9 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
     .getByRole('button', { name: `Reverse ${SYMBOL}` })
     .click();
   const review = page.getByRole('dialog', { name: `Reverse ${SYMBOL}` });
+  // Reviewed: the close and the open, in the opposite direction, before anything is signed.
   await expect(review).toContainText('Close 1 ETH long, then open 1 ETH short');
-  // The TEST venue takes one order per signed action, so the close and the open are each signed, under one request.
-  await expect(review).toContainText('This venue takes one order per signature: you sign the close, then the open.');
+  await expect(review).toContainText('This venue takes the close and the open together: you sign once.');
   const signedBefore = wallet.requests.length;
   const prepares = [];
   const submits = [];
@@ -694,55 +699,58 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
     if (r.url().endsWith('/api/v1/venue/prepare')) prepares.push(r.postDataJSON());
     if (r.url().endsWith('/api/v1/venue/submit')) submits.push(r.postDataJSON());
   });
+  const answers = [];
+  page.on('response', async (r) => {
+    if (r.request().method() === 'POST' && r.url().endsWith('/api/v1/venue/submit')) answers.push(await r.json().catch(() => null));
+  });
   // Two presses in the same moment: one reverse.
   await review.getByRole('button', { name: 'Sign the reverse' }).evaluate((b) => {
     b.click();
     b.click();
   });
   await continueInWallet(page);
-  await continueInWallet(page);
   await expect(review.getByTestId('reverse-outcome')).toHaveText('Reversed: now 1 ETH short.', { timeout: 20_000 });
-  expect(wallet.requests.length - signedBefore).toBe(2);
-  // One idempotent request: the close and the open carry the one reverse key, once each.
-  const keys = prepares.map((p) => p.intent.clientOrderKey);
-  expect(new Set(keys).size).toBe(2);
-  const reverseKey = keys[0].replace(/:close$|:open$/, '');
-  expect(keys.sort()).toEqual([`${reverseKey}:close`, `${reverseKey}:open`]);
-  const [close, open] = [
-    prepares.find((p) => p.intent.clientOrderKey.endsWith(':close')),
-    prepares.find((p) => p.intent.clientOrderKey.endsWith(':open')),
-  ];
-  expect(close.intent).toMatchObject({ side: 'sell', reduceOnly: true, amount: '1' });
-  expect(open.intent).toMatchObject({ side: 'sell', reduceOnly: false, amount: '1' });
+  // Signed once: one wallet signature, for one action that carries both orders.
+  expect(wallet.requests.length - signedBefore).toBe(1);
+  expect(prepares).toHaveLength(1);
+  expect(submits).toHaveLength(1);
+  const sent = prepares[0].intent;
+  expect(sent.kind).toBe('place_orders');
+  const reverseKey = sent.actionKey;
+  expect(submits[0].actionKey).toBe(reverseKey);
+  // One idempotent request: the close and the open each under the one reverse key, the close first.
+  expect(sent.orders.map((o) => o.clientOrderKey)).toEqual([`${reverseKey}:close`, `${reverseKey}:open`]);
+  expect(sent.orders[0]).toMatchObject({ side: 'sell', reduceOnly: true, amount: '1' });
+  expect(sent.orders[1]).toMatchObject({ side: 'sell', reduceOnly: false, amount: '1' });
+  // The venue answered each order of the one action: the close filled its 1, then the open its 1.
+  await expect.poll(() => answers.length).toBe(1);
+  expect(answers[0].outcome).toMatchObject({ definite: true, accepted: true });
+  expect(answers[0].outcome.legs).toHaveLength(2);
+  expect(answers[0].outcome.legs[0]).toMatchObject({ accepted: true, order: { reduceOnly: true, side: 'sell', status: 'filled' } });
+  expect(answers[0].outcome.legs[1]).toMatchObject({ accepted: true, order: { reduceOnly: false, side: 'sell', status: 'filled' } });
   const position = await positionOf(owner);
   expect(position).toMatchObject({ side: 'short' });
   expect(sameDecimal(position.size, '1')).toBe(true);
   const { id: venueId } = await venueInfo();
-  // Once each: the close and the open each filled their 1, however many TEST levels they crossed.
+  const keys = sent.orders.map((o) => o.clientOrderKey);
   const legFills = {};
   for (const key of keys) {
     expect(sameDecimal(await filledOf(owner, cloidOf(venueId, key)), '1')).toBe(true);
     legFills[key] = await fillsOf(owner, cloidOf(venueId, key));
   }
-  expect(submits).toHaveLength(2);
 
-  // The same reverse sent to the server again, as a retry would: each leg prepared again under its key answers the same
-  // action, already signed, and each signed leg submitted again answers its first outcome. The venue places nothing new.
-  const me = await api(state().account);
+  // The same reverse sent to the server again, as a retry would: prepared again under its key it answers the same action,
+  // already signed, and submitted again it answers its first outcome. The venue places nothing new.
   const ordersBefore = await openOrders(owner);
-  for (const sent of [close, open]) {
-    const again = await me.post('/api/v1/venue/prepare', sent);
-    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
-    expect(again.body).toMatchObject({ reused: true, signed: true });
-  }
-  for (const sent of submits) {
-    const again = await me.post('/api/v1/venue/submit', sent);
-    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
-    expect(again.body.actionKey).toBe(sent.actionKey);
-    // A replay: the door answers the first outcome it stored and sends nothing to the venue.
-    expect(again.body.replayed).toBe(true);
-    expect(again.body.outcome, JSON.stringify(again.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
-  }
+  const again = await me.post('/api/v1/venue/prepare', prepares[0]);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body).toMatchObject({ actionKey: reverseKey, reused: true, signed: true });
+  const resent = await me.post('/api/v1/venue/submit', submits[0]);
+  expect(resent.status, JSON.stringify(resent.body).slice(0, 300)).toBe(200);
+  expect(resent.body.actionKey).toBe(reverseKey);
+  // A replay: the door answers the first outcome it stored and sends nothing to the venue.
+  expect(resent.body.replayed).toBe(true);
+  expect(resent.body.outcome).toEqual(answers[0].outcome);
   for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toEqual(legFills[key]);
   expect(await openOrders(owner)).toEqual(ordersBefore);
   const still = await positionOf(owner);

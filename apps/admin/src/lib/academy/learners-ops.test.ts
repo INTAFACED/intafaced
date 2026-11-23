@@ -34,7 +34,6 @@ describe('learner page changes (J-academy-14)', () => {
 
   it('a tag goes to the many-learner call as a list of one, with no stray learner field', () => {
     expect(learnerChange('tag', { userId: USER, ...bodies.tag })).toEqual({
-      procedure: 'admin.tagLearners',
       input: { userIds: [USER], tag: 'test-tag', reason: 'TEST' },
       what: 'tag added',
     });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lookupQuery, lookupRefusal, parseLookupAnswer } from './lookup';
+import { lookupQuery, lookupRefusal, parseLookupAnswer } from '@/lib/ledger-lookup';
 
 const TX = '33333333-3333-4333-8333-333333333333';
 const KEY = 'deposit:local-test:LOCAL-TEST-abcd';

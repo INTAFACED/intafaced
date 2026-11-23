@@ -9,6 +9,7 @@
  * refusal the real edge gives, never a made-up success.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { stackUrl } from '../../scripts/local-test-facts.mjs';
 
 export const NITRO = '00000000-0000-4000-8000-000000000001';
 export const PHANTOM = '00000000-0000-4000-8000-000000000002';
@@ -32,14 +33,14 @@ export const operatorDoorRefusal = (headers) =>
         body: { code: 'auth.insufficient_scope', error: 'admin:write scope with MFA is required; no user session carries it' },
       }
     : { status: 401, body: { code: 'auth.missing_token', error: 'a bearer token is required' } };
-const UPSTREAM = process.env.TROPS_UPSTREAM ?? 'http://127.0.0.1:3210';
+const UPSTREAM = process.env.TROPS_UPSTREAM ?? stackUrl('customer');
 
 export async function upstream(path) {
   try {
     const res = await fetch(`${UPSTREAM}${path}`, { signal: AbortSignal.timeout(4000) });
     return { status: res.status, body: await res.json().catch(() => null) };
   } catch {
-    return { status: 503, body: { code: 'upstream_unreachable', message: 'The local test stack on :3210 did not answer.' } };
+    return { status: 503, body: { code: 'upstream_unreachable', message: `The local test stack at ${UPSTREAM} did not answer.` } };
   }
 }
 

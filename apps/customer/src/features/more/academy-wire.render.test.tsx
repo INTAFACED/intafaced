@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import type { AcademyQuiz, AcademyQuizAttempt, AcademyQuizReview } from '@intafaced/contracts/academy-catalogue';
 import { Assessment, AttemptHistory, StudyQuestions, TimedQuizView, clock, type TimedQuizViewProps } from './AcademyAssessment';
 import { CertificateShelf, VerifyPanel, VerifyResult } from './AcademyCertificates';

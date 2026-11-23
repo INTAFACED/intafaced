@@ -3,6 +3,7 @@
  * The server decides whether an order can go; the desk only reads its answer. Refusal words always come from
  * `data/refusals.ts` (`refusalCopy`), never from the service's own text or raw codes.
  */
+import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
 import type { ApiResult } from '../../../shared/api';
 import type { Preview } from '../../../features/trade/trade-api';
 import { parseAmount } from '../../../shared/money';
@@ -80,6 +81,9 @@ export function failureOf(result: Extract<ApiResult<unknown>, { ok: false }>, co
   // The platform posting freeze: orders are paused for everyone, not this account.
   if (isLedgerFrozen(result)) return refusalFailure('trade.orders_paused', context);
   if (result.reason === 'unauthorized') return refusalFailure('auth.required', context);
+  // A listed lead's lead trade refused by its own rule (J-copy-bots-otc-04 #5 to #7): its own words and its code.
+  const lead = result.code ? LEAD_ORDER_REFUSALS[result.code] : undefined;
+  if (lead) return { kind: 'refusal', copy: { title: lead.title, body: lead.body, reference: `Reference ${result.code}` } };
   if (result.code) return refusalFailure(result.code, context);
   if (result.reason === 'forbidden') return refusalFailure('scope.denied', context);
   return { kind: 'network' };

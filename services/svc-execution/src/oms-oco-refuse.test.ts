@@ -4,8 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
+import { createEdgeContext, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import { executeOmsRoute, type OmsExecuteInput, type OmsSubmitFn } from './oms-execute.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
@@ -38,27 +37,6 @@ const PAPER = [
   'oms-paper-bracket-stop.ts',
 ] as const;
 
-function principal(overrides: Partial<Principal> = {}): Principal {
-  return {
-    sub: OP,
-    userId: OP,
-    sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['admin:read', 'admin:write'],
-    tier: 'none',
-    mfa: false,
-    expiresAt: new Date(Date.now() + 60_000),
-    ...overrides,
-  } as Principal;
-}
-function signedHeaders(p: Principal = principal()) {
-  const raw = encodePrincipal(p);
-  return {
-    'x-intafaced-principal': raw,
-    'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
-    'x-intafaced-region': 'DE',
-  };
-}
-
 const SERVICE_SECRET = 'a'.repeat(32);
 
 function hmacHeaders(payload: unknown, service = 'svc-execution') {
@@ -68,13 +46,7 @@ function hmacHeaders(payload: unknown, service = 'svc-execution') {
     ...serviceAuthHeadersForBody(service, SERVICE_SECRET, body),
   };
 }
-function signed(p: Principal = principal()) {
-  return edgeContext({ headers: signedHeaders(p), id: 'req-signed' });
-}
 
-function hmacSigned(p: Principal = principal()) {
-  return { ...signed(p), service: 'svc-execution' as const };
-}
 function completeVenue(over: Partial<OmsPlanVenue> & Pick<OmsPlanVenue, 'id' | 'price'>): OmsPlanVenue {
   return {
     kind: 'external-cex',

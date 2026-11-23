@@ -22,7 +22,7 @@ import { type PayHaltStore } from './halts/store.js';
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { type PaymentIntent, type RailAdapter, type RailEvent, type RailWebhookRequest } from './rails/rail-adapter.js';
@@ -1539,11 +1539,11 @@ export class PayService {
     return merchants.createMerchant(this.internal, input);
   }
 
-  async getMerchant(merchantId: string, connection: Sql = this.sql): Promise<MerchantRecord> {
+  async getMerchant(merchantId: string, connection: Queryable = this.sql): Promise<MerchantRecord> {
     return merchants.getMerchant(this.internal, merchantId, connection);
   }
 
-  private async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+  private async lockMerchantEligibility(sql: Queryable, merchantId: string): Promise<MerchantRecord> {
     return merchants.lockMerchantEligibility(this.internal, sql, merchantId);
   }
 
@@ -1877,7 +1877,7 @@ export class PayService {
     });
   }
 
-  private async lockMerchantForLinkCreate(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+  private async lockMerchantForLinkCreate(sql: Queryable, merchantId: string): Promise<MerchantRecord> {
     const rows = await sql<MerchantRow[]>`
       SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
         FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE
@@ -1887,7 +1887,7 @@ export class PayService {
     return toMerchant(row);
   }
 
-  private async assertLinkProfile(sql: Sql, merchantId: string, profileId: string | null | undefined): Promise<void> {
+  private async assertLinkProfile(sql: Queryable, merchantId: string, profileId: string | null | undefined): Promise<void> {
     if (!profileId) return;
     const profiles = await sql<Array<{ id: string }>>`
       SELECT id FROM pay.payment_profiles
@@ -1901,7 +1901,7 @@ export class PayService {
   }
 
   private async insertPaymentLink(
-    sql: Sql,
+    sql: Queryable,
     input: {
       merchantId: string;
       label: string;
@@ -1962,7 +1962,7 @@ export class PayService {
 
   /** Replay of a create. The token is the one stored with the link, not a new mint. */
   private async readCreatedLink(
-    sql: Sql,
+    sql: Queryable,
     merchantId: string,
     linkId: string,
   ): Promise<{
@@ -2087,7 +2087,7 @@ export class PayService {
   }
 
   private async readLink(
-    sql: Sql,
+    sql: Queryable,
     token: string,
     options: { forUpdate?: boolean } = {},
   ): Promise<{
@@ -2803,16 +2803,19 @@ export class PayService {
     return lifecycle.createPayment(this.internal, input);
   }
 
-  private async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
+  private async admitPaymentOperation<T>(
+    input: PreparedPaymentOperation,
+    effect: (tx: Queryable, admitted: boolean) => Promise<T>,
+  ): Promise<T> {
     return lifecycle.admitPaymentOperation(this.internal, input, effect);
   }
 
-  private async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+  private async classifyPaymentAdmission(tx: Queryable, input: PreparedPaymentOperation): Promise<GuardReplay> {
     return lifecycle.classifyPaymentAdmission(this.internal, tx, input);
   }
 
   private async existingPaymentCreation(
-    tx: Sql,
+    tx: Queryable,
     input: Parameters<PayService['createPayment']>[0],
     paymentId: string,
   ): Promise<PaymentView | null> {
@@ -2838,7 +2841,7 @@ export class PayService {
     return lifecycle.capture(this.internal, paymentId, options);
   }
 
-  private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
+  private async finishBookedCapture(tx: Queryable, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
     return lifecycle.finishBookedCapture(this.internal, tx, row, booked);
   }
 
@@ -2854,7 +2857,7 @@ export class PayService {
     return refunds.refundInner(this.internal, paymentId, amount, options);
   }
 
-  private async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+  private async settledPotForPayment(sql: Queryable, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
     return refunds.settledPotForPayment(this.internal, sql, paymentId, merchantUserId);
   }
 
@@ -3007,7 +3010,7 @@ export class PayService {
     return payouts.resolvePayoutDestination(this.internal, railId, merchantId, connection);
   }
 
-  async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
+  async getSettlement(settlementId: string, connection: Queryable = this.sql): Promise<SettlementRecord> {
     return payouts.getSettlement(this.internal, settlementId, connection);
   }
 
@@ -3187,7 +3190,7 @@ export class PayService {
     return chargebacks.postChargebackOpenOrRefuse(this.internal, input);
   }
 
-  private async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
+  private async view(sql: Queryable, row: PaymentRow): Promise<PaymentView> {
     const totals = await totalsFor(sql, row.id);
     return { ...toPayment(row), capturedAmount: totals.captured, refundedAmount: totals.refunded };
   }
@@ -3258,7 +3261,7 @@ export class PayService {
    * Sandbox flag from the created event. Absent is not sandbox. The event is
    * insert-only, so a later call cannot clear it.
    */
-  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+  private async paymentIsSandbox(sql: Queryable, paymentId: string): Promise<boolean> {
     const rows = await sql<Array<{ sandbox: string | null }>>`
       SELECT payload->>'sandbox' AS sandbox
         FROM pay.payment_events
@@ -3269,7 +3272,7 @@ export class PayService {
   }
 
   /** True when a frozen window contains a payment created with a sandbox key. */
-  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+  private async settlementIncludesSandbox(sql: Queryable, settlementId: string): Promise<boolean> {
     const rows = await sql<Array<{ ok: number }>>`
       SELECT 1 AS ok
         FROM pay.payment_events inc

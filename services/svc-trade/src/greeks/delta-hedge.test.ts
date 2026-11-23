@@ -109,7 +109,7 @@ describe('R-E6 auto delta-hedge mill — unset sockets refuse by name', () => {
 describe('R-E6 hitch — not MMP hedge, no listing, compose empty', () => {
   it('mill does not start oms-mmp-hedge or invent MMP thresholds', () => {
     const mill = readFileSync(join(here, 'delta-hedge.ts'), 'utf8');
-    expect(mill).not.toMatch(/from ['\"][^'\"]*oms-mmp/);
+    expect(mill).not.toMatch(/from ['"][^'"]*oms-mmp/);
     expect(mill).not.toMatch(/EXECUTION_MM_MMP_THRESHOLDS/);
     expect(mill).not.toMatch(/hedgeRemainingAfterMmpFill/);
     expect(mill).not.toMatch(/recipes\./);

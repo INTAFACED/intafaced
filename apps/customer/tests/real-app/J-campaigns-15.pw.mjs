@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn } from './desk.mjs';
-import { ROOT, journeyState, signUpInBrowser } from './stack.mjs';
+import { journeyState, ROOT, signUpInBrowser, STACK_PORTS } from './stack.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-campaigns-15, in the running app (docs/roadmap/journeys.json): open the points programme. One test per step, titled
@@ -41,7 +41,7 @@ async function campaignsDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_campaigns:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -81,7 +81,7 @@ test(`${J} #1 opens the points area in /uc/promotion: the wallet, members and li
   const me = person(`jc15me${tag}`.slice(0, 20));
   await signUpInBrowser(page, me);
   await page.goto('/uc/promotion');
-  const account = (await page.locator('.promotions__owner [lang="zxx"]').textContent())?.trim();
+  const account = (await page.locator('[data-testid="promotions-owner"] [lang="zxx"]').textContent())?.trim();
   expect(account, 'the promotions page names the signed-in account').toBeTruthy();
   run.write({ me, account });
 
