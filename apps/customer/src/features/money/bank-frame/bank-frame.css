@@ -1,0 +1,14 @@
+/* A Bank section's header on a narrow screen: the title keeps a readable width and its actions move under it, rather
+   than both squeezing onto one line. Layout only; the look comes from the kit. */
+.bank-section > .lt-title-row {
+  flex-wrap: wrap;
+}
+.bank-section > .lt-title-row > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+
+/* A row's amount stays on one line; the name beside it wraps instead. */
+.bank-figure {
+  white-space: nowrap;
+}

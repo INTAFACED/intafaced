@@ -3,6 +3,7 @@ import { Button } from '@intafaced/ui/lit';
 import { Tabs } from '@intafaced/ui/lit/templates';
 import { t as copyText, Text } from '../copy';
 import { bankLabels, bankRoomHref, bankRooms } from './bank-rooms';
+import './bank-frame.css';
 
 /**
  * The Bank's frame for a room on a Volt template, drawn from the kit: the same words and controls as the old `BankPage`
@@ -56,7 +57,7 @@ export function BankSection({
   label?: string;
 }) {
   return (
-    <section aria-label={label}>
+    <section className="bank-section" aria-label={label}>
       <header className="lt-title-row">
         <div>
           <h2>{title}</h2>
