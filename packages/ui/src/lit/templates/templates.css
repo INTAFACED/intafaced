@@ -833,6 +833,11 @@
   background: var(--lit-solid-bg-raised);
   border-radius: var(--lit-radius-control);
 }
+/* A block of code is a tile, not a control: the control's pill radius drew a tall block as an ellipse that cut off the
+   first and last characters of its lines (the API explorer's request, J-developer-15 #7). */
+pre.lt-code {
+  border-radius: var(--lit-radius-tile);
+}
 .lt-code [data-op='removed'] {
   color: var(--lit-down-text);
 }
