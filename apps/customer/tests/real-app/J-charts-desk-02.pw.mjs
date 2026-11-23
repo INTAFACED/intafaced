@@ -1,6 +1,7 @@
 // World: book, market, restart, gates
 // Market: live
 import { test, expect } from './journey.mjs';
+import { signUp } from './desk.mjs';
 import { EDGE, api, otherTrader, tool } from './stack.mjs';
 
 // J-charts-desk-02, in the running app (docs/roadmap/journeys.json): a person tells whether the data on a chart is live,
@@ -14,7 +15,9 @@ import { EDGE, api, otherTrader, tool } from './stack.mjs';
 //      Also real: ETH/USDT on the real-time class with no trade past the owner's boundary. The stack's TEST market maker is
 //      restarted on BTC/USDT only, so no ETH trade happens for longer than the boundary, then restarted on every market.
 //   #3 real: BTC/USDT is halted with the gates' `halt` (matching's own book halt) and resumed afterwards. The chart reads
-//      that halt from /api/v1/market-halt. No interception.
+//      that halt from /api/v1/market-halt. A person signs up in the step, since the chart offers its own order entry only
+//      to a signed-in person: the order button under the chart, the price-scale button and the order menu are all read
+//      off, and the page's own requests are watched for any order write. No interception.
 //   #4 real: ETH/USDT is kept quiet (the TEST maker trades BTC/USDT only) and read once on its chart; svc-trade, which serves
 //      every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's market control, so the
 //      market opens with its feed already stopped. svc-trade is started again afterwards. No route is changed in the browser.
@@ -185,7 +188,17 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
 
   test(`${J} #3 opens a halted market: a banner that the market is halted, and chart order entry is off with the reason`, async ({
     page,
+    stepPicture,
   }) => {
+    test.setTimeout(180_000);
+    // A signed-in person: the chart offers its own order entry (the order button under the chart, the button on the price
+    // scale, the order menu) only to one, so only a signed-in person can be shown it switched off.
+    await signUp(page, 'jcd02');
+    // Every order write this page sends from here on. The halted chart must send none.
+    const orderWrites = [];
+    page.on('request', (req) => {
+      if (req.method() !== 'GET' && /\/api\/v1\/orders(?:[/?]|$)/.test(req.url())) orderWrites.push(`${req.method()} ${req.url()}`);
+    });
     await openChart(page);
     await expect(chip(page)).toHaveAttribute('data-status', 'halted', { timeout: 30_000 });
     await expect(banner(page)).toHaveAttribute('data-kind', 'halted');
@@ -208,10 +221,32 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
       halt.haltedSince,
     );
     await expect(banner(page)).toContainText(`Halted as of ${asOf}.`);
+    // The chart's way to the desk is off, with the reason.
     const trade = tradeButton(page);
     await expect(trade).toBeDisabled();
     await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
     await expect(page.locator('a[data-testid="cw-link"]')).toHaveCount(0);
+    // Order entry on the chart itself is off: its bar is locked, the refusal there names the halt under the chart's own
+    // refusal code, the order button is disabled and no order ticket is open.
+    const trading = page.getByTestId('cw').first().getByTestId('chart-trading');
+    await expect(trading).toHaveAttribute('data-locked', 'true');
+    const refusal = trading.getByTestId('chart-trading-refusal');
+    await expect(refusal).toHaveText('Order entry is off: this market is halted.');
+    await expect(refusal).toHaveAttribute('data-code', 'trade.chart.order_entry_refused');
+    await expect(trading.getByRole('button', { name: 'Order on chart', exact: true })).toBeDisabled();
+    await expect(trading.getByRole('form', { name: 'Order from the chart', exact: true })).toHaveCount(0);
+    await stepPicture();
+    // The price scale offers no order button under the pointer, and a right click on the chart opens no order menu.
+    const box = await host(page).boundingBox();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.35);
+    await page.waitForTimeout(1_000);
+    await expect(page.getByTestId('chart-axis-plus')).toHaveCount(0);
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.35, { button: 'right' });
+    await page.waitForTimeout(1_000);
+    await expect(page.getByRole('menu', { name: 'Order at this price', exact: true })).toHaveCount(0);
+    // Nothing was sent: the halted chart placed, moved and cancelled no order.
+    expect(orderWrites).toEqual([]);
   });
 });
 
