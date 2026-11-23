@@ -8,7 +8,7 @@
     "tooling/scripts/tsc.mjs",
     "tooling/scripts/ensure-workspace-types.mjs"
   ],
-  "globalPassThroughEnv": ["INTAFACED_LOCAL_JOBS"],
+  "globalPassThroughEnv": ["INTAFACED_LOCAL_JOBS", "INTAFACED_TEST_RESULTS"],
   "globalEnv": [
     "NODE_ENV",
     "APP_ENV",
@@ -302,11 +302,13 @@
         "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/ci/test-results-reporter.*",
         "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -352,11 +354,13 @@
         "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/ci/test-results-reporter.*",
         "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
