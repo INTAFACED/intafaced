@@ -325,13 +325,125 @@ async function queueOrder(plainId, flaggedId) {
   return { plain: at(plainId), flagged: at(flaggedId) };
 }
 
-test(`${J} #2 reading the customer's balance or withdrawal destination is refused until two checks the customer can confirm are recorded`, async ({
+test(`${J} #2 reading the customer's balance or withdrawal destination is refused until the customer grants support a read for a set time; each read is then listed to the customer`, async ({
   browser,
+  page,
+  stepPicture,
 }) => {
-  const { ticket } = await request(browser);
-  const res = await asDesk('lead', 'query', 'customerBalance', { ticketId: ticket.id });
-  expect(res.status, `customerBalance: ${res.text.slice(0, 300)}`).not.toBe(404);
-  expect(res.text).toContain('support.verification_checks_required');
+  test.setTimeout(240_000);
+  const { who, userId } = await request(browser);
+  const { lead: leadId } = await deskPeople();
+  const client = await api(who);
+  // A request of this step's own, so no other step's grant or read is on it.
+  const made = await client.post('/api/support/trpc/create', {
+    category: 'deposit_withdraw',
+    subject: `TEST ${J} ${RUN} where did my withdrawal go`,
+    body: 'TEST My withdrawal has not arrived. What address did it go to?',
+    clientRequestId: `j20:${RUN}:read-grant`,
+  });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const ticket = made.body.result.data;
+  await lead('mutation', 'claim', { ticketId: ticket.id });
+  const withdrawalId = withdrawalOf(who, 'read-grant');
+  await lead('mutation', 'linkRecord', { ticketId: ticket.id, kind: 'withdrawal', recordId: withdrawalId });
+  const access = async () => {
+    const res = await client.get(query('readAccess', { ticketId: ticket.id }));
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const refusedFor = async (procedure, input) => {
+    const res = await asDesk('lead', 'query', procedure, input);
+    expect(res.json?.result?.data, `${procedure} was answered: ${res.text.slice(0, 300)}`).toBeUndefined();
+    return res;
+  };
+
+  // Before any grant: both reads are refused as needing the customer's grant, and nothing is listed to the customer.
+  for (const [procedure, input] of [
+    ['customerBalance', { ticketId: ticket.id }],
+    ['readDisclosure', { ticketId: ticket.id, kind: 'balance' }],
+    ['readDisclosure', { ticketId: ticket.id, kind: 'destination' }],
+  ]) {
+    const res = await refusedFor(procedure, input);
+    expect(res.text, `${procedure} ${JSON.stringify(input)}`).toContain('support.read_grant_required');
+  }
+  expect(await access()).toEqual({ ticketId: ticket.id, grant: null, reads: [] });
+
+  // The customer, in the app, grants support a read for one hour from their own request.
+  await page.goto(`${ORIGIN}/login`);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+  await page.goto(`${ORIGIN}/support/tickets/${ticket.id}`);
+  const section = page.getByTestId('support-read-access');
+  await expect(section.getByTestId('support-read-grant')).toHaveAttribute('data-state', 'none');
+  await expect(section.getByText('Nothing has been read', { exact: true })).toBeVisible();
+  await section.getByLabel('Allow for', { exact: true }).selectOption('3600');
+  await section.getByRole('button', { name: 'Review allowing support to read', exact: true }).click();
+  const before = Date.now();
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.getByText('Support may now read them for the time you picked', { exact: true })).toBeVisible();
+  const line = section.getByTestId('support-read-grant');
+  await expect(line).toHaveAttribute('data-state', 'active');
+  const granted = await access();
+  expect(granted.grant).toMatchObject({ ticketId: ticket.id, active: true });
+  // For the set time the customer picked: one hour from when they allowed it.
+  expect(Date.parse(granted.grant.expiresAt) - Date.parse(granted.grant.grantedAt)).toBe(3_600_000);
+  expect(Date.parse(granted.grant.grantedAt)).toBeGreaterThanOrEqual(before - 5_000);
+  await expect(line).toHaveAttribute('data-expires-at', granted.grant.expiresAt);
+  expect(granted.reads).toEqual([]);
+
+  // With the grant live, the desk reads the balance (what the customer's own balance read says) and where the linked
+  // withdrawal went.
+  const balance = await lead('query', 'customerBalance', { ticketId: ticket.id });
+  const own = await client.get('/api/v1/account/balance');
+  expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
+  expect(balance).toMatchObject({ kind: 'balance', grantExpiresAt: granted.grant.expiresAt });
+  expect(balance.balances).toEqual(own.body.balances);
+  expect(balance.balances.USDT, JSON.stringify(balance.balances)).toBeTruthy();
+  const destination = await lead('query', 'readDisclosure', { ticketId: ticket.id, kind: 'destination' });
+  expect(destination).toMatchObject({ kind: 'destination', grantExpiresAt: granted.grant.expiresAt });
+  expect(destination.withdrawals).toEqual([
+    { withdrawalId, destination: { kind: 'crypto', ref: expect.stringMatching(/^0x[0-9a-f]{40}$/) } },
+  ]);
+
+  // Each read is listed to the customer: what was read, who read it and when, newest first.
+  const listed = await access();
+  expect(listed.reads.map((r) => [r.kind, r.readBy])).toEqual([
+    ['destination', leadId],
+    ['balance', leadId],
+  ]);
+  expect(listed.reads[1].readAt).toBe(balance.readAt);
+  expect(listed.reads[0].readAt).toBe(destination.readAt);
+  await section.getByRole('button', { name: 'Check again', exact: true }).click();
+  const rows = section.getByTestId('support-read-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute('data-kind', 'destination');
+  await expect(rows.nth(0)).toContainText('Where your withdrawals go');
+  await expect(rows.nth(1)).toHaveAttribute('data-kind', 'balance');
+  await expect(rows.nth(1)).toContainText('Your balance');
+  for (const i of [0, 1]) {
+    await expect(rows.nth(i)).toHaveAttribute('data-read-by', leadId);
+    await expect(rows.nth(i)).toContainText(leadId);
+  }
+  await stepPicture(page);
+
+  // The grant is for a set time: a new, shortest grant replaces it, and once it has ended every read is refused again
+  // and nothing more is listed.
+  const short = await client.post('/api/support/trpc/grantRead', { ticketId: ticket.id, seconds: 30 });
+  expect(short.status, JSON.stringify(short.body).slice(0, 300)).toBe(200);
+  const shortGrant = short.body.result.data;
+  expect(Date.parse(shortGrant.expiresAt) - Date.parse(shortGrant.grantedAt)).toBe(30_000);
+  await expect.poll(async () => (await access()).grant.active, { timeout: 60_000, intervals: [2_000] }).toBe(false);
+  for (const kind of ['balance', 'destination']) {
+    const res = await refusedFor('readDisclosure', { ticketId: ticket.id, kind });
+    expect(res.text, kind).toContain('support.read_grant_required');
+    expect(res.text, kind).toContain('expired');
+  }
+  expect((await access()).reads).toEqual(listed.reads);
+  await section.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect(line).toHaveAttribute('data-state', 'ended');
+  await expect(rows).toHaveCount(2);
 });
 
 test(`${J} #3 the account state is read for the ticket's owner only, one append-only row records who looked, and no balance is in it`, async ({
