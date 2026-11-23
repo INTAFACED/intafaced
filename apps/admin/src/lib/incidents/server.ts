@@ -6,8 +6,17 @@ import {
   incidentMetricsSchema,
   type IncidentDetail,
 } from '@intafaced/contracts/ops-incidents';
-import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView, founderRecordRead } from '@/lib/desk';
-import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from '@intafaced/contracts/ops-incidents-procedures';
+import { opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView, founderRecordRead, founderAskedCall } from '@/lib/desk';
+import {
+  OPS_INCIDENTS_LIST,
+  OPS_INCIDENTS_METRICS,
+  OPS_INCIDENTS_GET,
+  OPS_INCIDENTS_DECLARE,
+  OPS_INCIDENTS_NOTE,
+  OPS_INCIDENTS_INVITE,
+  OPS_INCIDENTS_TASK,
+  OPS_INCIDENTS_RESOLVE,
+} from '@intafaced/contracts/ops-incidents-procedures';
 
 /** svc-ops' staff incidents (OPS-oncall-02), read and changed as the signed-in person. Nothing is cached. */
 
@@ -44,16 +53,15 @@ export async function changeIncident(
   action: IncidentAction,
   input: Record<string, unknown>,
 ): Promise<{ status: number; reply: { ok: true; detail: IncidentDetail } | ({ ok: false } & RefusalView) }> {
-  const read = parse(incidentDetailSchema);
   const result = await (action === 'declare'
-    ? founderCall(ctx, 'ops', 'incidents.declare', 'POST', input, read)
+    ? founderAskedCall(ctx, OPS_INCIDENTS_DECLARE, input)
     : action === 'note'
-      ? founderCall(ctx, 'ops', 'incidents.note', 'POST', input, read)
+      ? founderAskedCall(ctx, OPS_INCIDENTS_NOTE, input)
       : action === 'invite'
-        ? founderCall(ctx, 'ops', 'incidents.invite', 'POST', input, read)
+        ? founderAskedCall(ctx, OPS_INCIDENTS_INVITE, input)
         : action === 'task'
-          ? founderCall(ctx, 'ops', 'incidents.task', 'POST', input, read)
-          : founderCall(ctx, 'ops', 'incidents.resolve', 'POST', input, read));
+          ? founderAskedCall(ctx, OPS_INCIDENTS_TASK, input)
+          : founderAskedCall(ctx, OPS_INCIDENTS_RESOLVE, input));
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, detail: result.data } };
   return writeRefusalOf(result);
 }
