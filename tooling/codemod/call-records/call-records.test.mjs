@@ -2409,6 +2409,74 @@ test("a call whose router writes no answer schema takes its callers' one pure zo
   assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });
 
+test("a caller's answer schema read through a namespace import (`p.teamSchema`) is taken as the name its file declares, and its closure follows it", () => {
+  const dir = 'apps/customer/src/features/pay/portal';
+  const repo = plantRepo('call-records-namespace-', {
+    'packages/contracts/src/ids.ts': ['export const ID = 1;'],
+    [`${dir}/schemas.ts`]: [
+      "import { z } from 'zod';",
+      "const role = z.enum(['owner', 'viewer']);",
+      'export const teamSchema = z.object({ id: z.string(), role });',
+    ],
+    [`${dir}/api.ts`]: [
+      "import * as p from './schemas';",
+      "export const a = (api) => api.query('pay', 'merchantOps.team.me', {}, p.teamSchema);",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.path === 'merchantOps.team.me');
+  assert.equal(sites.length, 1);
+  const taken = answerFromCallers(repo, sites, { schemaOf: schemaArgOf, checksOf: answerChecks });
+  assert.ok(taken.output, taken.why);
+  assert.equal(text(taken.output.p, taken.output.node), 'teamSchema', 'the record writes the name, not the namespace');
+  assert.equal(taken.output.p.file, join(repo, dir, 'schemas.ts'));
+  const closure = closureOf(repo, [{ ...taken.output, where: 'merchantOps.team.me output' }]);
+  assert.deepEqual(closure.problems, []);
+  assert.deepEqual(
+    closure.moved.map((m) => m.name),
+    ['role', 'teamSchema'],
+  );
+});
+
+test('a helper that would move under a name the group imports from contracts is that copy when it reads the same, and a clash when not', () => {
+  const app = 'apps/customer/src/features/pay';
+  const repo = plantRepo('call-records-contracts-name-', {
+    'packages/contracts/src/pay-founder.ts': ["import { z } from 'zod';", 'export const id = z.string().guid();'],
+    'services/svc-pay/src/router.ts': [
+      "import { z } from 'zod';",
+      "import { id } from '@intafaced/contracts/pay-founder';",
+      'export const input = z.object({ id });',
+    ],
+    [`${app}/schemas.ts`]: ["import { z } from 'zod';", 'export const id = z.string().guid();'],
+    [`${app}/other.ts`]: ["import { z } from 'zod';", 'export const id = z.string().min(1);'],
+    [`${app}/api.ts`]: [
+      "import { z } from 'zod';",
+      "import { id } from './schemas';",
+      'export const same = z.object({ id, at: z.string() });',
+    ],
+    [`${app}/api-other.ts`]: ["import { z } from 'zod';", "import { id } from './other';", 'export const differs = z.object({ id });'],
+  });
+  const init = (f, name) =>
+    load(join(repo, f)).program.body.find((s) => s.declaration?.declarations?.[0]?.id.name === name).declaration.declarations[0].init;
+  const input = {
+    p: load(join(repo, 'services/svc-pay/src/router.ts')),
+    node: init('services/svc-pay/src/router.ts', 'input'),
+    where: 'x input',
+  };
+  const same = closureOf(repo, [input, { p: load(join(repo, app, 'api.ts')), node: init(`${app}/api.ts`, 'same'), where: 'x output' }]);
+  assert.deepEqual(same.problems, []);
+  assert.deepEqual(
+    same.moved.map((m) => m.name),
+    [],
+    "the app's `id` reads as contracts' own: it is read from there, never declared beside it",
+  );
+  assert.ok(same.fromContracts.has('id'));
+  const differs = closureOf(repo, [
+    input,
+    { p: load(join(repo, app, 'api-other.ts')), node: init(`${app}/api-other.ts`, 'differs'), where: 'x output' },
+  ]);
+  assert.match(differs.problems.join('; '), /id clashes with another id the record imports from packages\/contracts\/src\/pay-founder\.ts/);
+});
+
 /** A scratch repo with these files, committed so `git ls-files` sees them. */
 function plantRepo(prefix, files) {
   const repo = mkdtempSync(join(tmpdir(), prefix));

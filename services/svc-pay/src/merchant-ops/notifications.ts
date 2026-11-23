@@ -4,31 +4,8 @@ import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
+import { NOTIFICATION_KINDS } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
-/**
- * IN-APP NOTIFICATIONS ONLY. A row here is something a merchant sees when they
- * open the portal. Nothing in this file sends email or SMS, and there is no
- * address or phone column anywhere to send to.
- *
- * The feed is the business's (one feed per merchant) and so is its read state.
- * Preferences are each person's own (J-merchant-01 #6, "saved per person"): a
- * person's view of the feed and their unread count leave out the kinds they
- * turned off; a kind with no row for the person is ON. A `threshold` is
- * whatever the person typed (decimal string); there is no default number.
- */
-export const NOTIFICATION_KINDS = [
-  'payout_awaiting_approval',
-  'settlement_failed',
-  'payout_failed',
-  'limit_threshold',
-  'dispute_opened',
-  'dispute_due',
-  'webhook_failing',
-  'operator_pause',
-  'export_ready',
-  'team_change',
-  'payout_destination',
-] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export interface NewNotification {
@@ -216,3 +193,4 @@ export class NotificationService {
     );
   }
 }
+export { NOTIFICATION_KINDS };
