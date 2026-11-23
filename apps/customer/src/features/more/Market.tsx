@@ -1,4 +1,4 @@
-import { SubNav } from '@intafaced/ui';
+import { Tabs } from '@intafaced/ui/lit/templates';
 import { t as copyText, Text } from './copy';
 import { useRef, useState } from 'react';
 import {
@@ -212,14 +212,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
   const validPeriod = /^[1-9]\d*$/.test(period) && Number.isSafeInteger(Number(period));
   return (
     <div className="lt-stack">
-      <SubNav
-        aria-label={copyText('market.catalogue')}
-        active={strategy ? 'strategy' : mine ? 'mine' : 'catalogue'}
-        className="px-0"
+      <Tabs
+        label={copyText('market.catalogue')}
+        current={strategy ? '/market/strategy' : mine ? '/market/mine' : '/market'}
         items={[
-          { id: 'catalogue', label: copyText('market.catalogue'), href: '/market' },
-          { id: 'mine', label: copyText('market.my.listings'), href: '/market/mine' },
-          { id: 'strategy', label: copyText('market.publish.a.strategy.subscription'), href: '/market/strategy' },
+          { label: copyText('market.catalogue'), href: '/market' },
+          { label: copyText('market.my.listings'), href: '/market/mine' },
+          { label: copyText('market.publish.a.strategy.subscription'), href: '/market/strategy' },
         ]}
       />
       <Read resource={programme.resource} retry={programme.reload}>

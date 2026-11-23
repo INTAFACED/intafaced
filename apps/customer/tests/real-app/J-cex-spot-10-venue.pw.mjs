@@ -279,8 +279,12 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
   const builderAmount = fromUnits((toUnits('150') * toUnits(s.builder.feeBps)) / toUnits('10000'));
   expect(sameDecimal(maker.value.builderFee.value.amount, builderAmount)).toBe(true);
   await expect(line(sheet, 'builder-fee')).toContainText('USDC');
-  expect(sameDecimal((await line(sheet, 'builder-fee').innerText()).replace(/[^\d.]/g, ''), builderAmount)).toBe(true);
-  expect(sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), maker.value.venueFee.value.amount)).toBe(true);
+  await expect
+    .poll(async () => sameDecimal((await line(sheet, 'builder-fee').innerText()).replace(/[^\d.]/g, ''), builderAmount))
+    .toBe(true);
+  await expect
+    .poll(async () => sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), maker.value.venueFee.value.amount))
+    .toBe(true);
   await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(sheet).toHaveCount(0);
 
@@ -301,7 +305,9 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
   await expect(sheet).toBeVisible();
   await expect(line(sheet, 'venue-rates')).toHaveText(ratesWords);
   await expect(line(sheet, 'role')).toHaveText('Taker');
-  expect(sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), taker.value.venueFee.value.amount)).toBe(true);
+  await expect
+    .poll(async () => sameDecimal((await line(sheet, 'venue-fee').innerText()).replace(/[^\d.]/g, ''), taker.value.venueFee.value.amount))
+    .toBe(true);
   await expect(line(sheet, 'builder-fee')).toContainText('USDC');
   await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
 
@@ -501,7 +507,9 @@ test(`${J} #4 fills where the venue charges no fee, and where the venue pays a r
   await expect(rebateRow.locator('[data-cell="venue-fee"] [data-fee="rebate"]')).toHaveAttribute('data-rebate', '0.01');
   // Never a negative fee anywhere on the row.
   await expect(rebateRow).not.toContainText(/[-−]\s*0\.0/);
-  expect(sameDecimal(await rebateRow.locator('[data-cell="builder-fee"]').innerText(), fromUnits(builderDue))).toBe(true);
+  await expect
+    .poll(async () => sameDecimal(await rebateRow.locator('[data-cell="builder-fee"]').innerText(), fromUnits(builderDue)))
+    .toBe(true);
   // The ledger posts nothing for the person: the money is on their own venue account.
   expect(await ledgerOf(s)).toEqual(ledgerBefore);
 });
@@ -560,9 +568,11 @@ test(`${J} #6 crosses a venue tier: the venue's tier read from the venue at its 
   expect(toUnits(after.account.volume.value)).toBe(traded);
   tier = await open();
   await expect(tier.locator('[data-cell="tier"]')).toHaveText(tier1.name);
-  expect(sameDecimal((await tier.locator('[data-cell="volume"]').innerText()).replace(/\s*USDC$/, ''), after.account.volume.value)).toBe(
-    true,
-  );
+  await expect
+    .poll(async () =>
+      sameDecimal((await tier.locator('[data-cell="volume"]').innerText()).replace(/\s*USDC$/, ''), after.account.volume.value),
+    )
+    .toBe(true);
   await expect(tier.locator('[data-cell="updated"] time')).toHaveAttribute('datetime', after.account.tierUpdatedAt);
   await expect(tier.locator('[data-cell="spot-rates"]')).toHaveText(
     `maker ${pct(after.account.spot.makerFeeBps.value)}, taker ${pct(after.account.spot.takerFeeBps.value)}`,
