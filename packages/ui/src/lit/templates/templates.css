@@ -71,6 +71,21 @@
   gap: var(--lit-gap-item);
 }
 
+/* A section's title row that may run out of room (a phone): the title keeps a readable width and the actions move under
+   it, rather than both squeezing onto one line. */
+.lt-title-row-wrap {
+  flex-wrap: wrap;
+}
+.lt-title-row-wrap > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+
+/* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
+.lt-nowrap {
+  white-space: nowrap;
+}
+
 /* A room's action keeps its words on one line; the title column gives way, never the button's label. */
 .lt-room-action .lt-button {
   white-space: nowrap;
