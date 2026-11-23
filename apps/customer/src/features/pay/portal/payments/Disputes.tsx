@@ -618,7 +618,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
           {dispute.responses.length > 0 ? t('respondedAlready') : t('respondClosed')}
         </p>
       ) : (
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <label className="lt-field">
             <span>{t('colNote')}</span>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />

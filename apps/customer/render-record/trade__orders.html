@@ -96,65 +96,63 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="legacy-room">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header data-testid="page-heading" class="lt-title-row">
 <div>
-<p class="eyebrow">Trade</p>
-<h1>Order history</h1>
-<p class="lt-muted">Every order you placed that has ended: filled, cancelled, rejected or expired. Open one to see its fills and fees.</p>
+<h1 class="lt-title">Order history</h1>
+<p class="lt-description">Every order you placed that has ended: filled, cancelled, rejected or expired. Open one to see its fills and fees.</p>
 </div>
-<div class="lt-actions">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Refresh</button>
+<div class="lt-room-action">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Refresh</button>
 </div>
 </header>
-<div class="orders-room">
-<div class="max-w-full overflow-x-auto">
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Which orders" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-fit h-8 text-sm" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 3); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-raised">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Spot</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Futures</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Venue account</button>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<div class="lt-stack">
+<div class="lit-segmented" role="group" aria-label="Which orders">
+<button type="button" aria-pressed="true">Spot</button>
+<button type="button" aria-pressed="false">Futures</button>
+<button type="button" aria-pressed="false">Venue account</button>
 </div>
-</div>
-<form class="orders-filters" role="search" aria-label="Order history">
-<label class="orders-field">
-<span>Side</span>
-<select>
+<form class="lt-toolbar" role="search" aria-label="Order history">
+<div class="lt-field">
+<label for="_r_3_">Side</label>
+<select id="_r_3_">
 <option value="">All</option>
 <option value="buy">Buy</option>
 <option value="sell">Sell</option>
 </select>
-</label>
-<label class="orders-field">
-<span>State</span>
-<select>
+</div>
+<div class="lt-field">
+<label for="_r_4_">State</label>
+<select id="_r_4_">
 <option value="">All</option>
 <option value="closed">Filled</option>
 <option value="canceled">Cancelled</option>
 <option value="rejected">Rejected</option>
 <option value="expired">Expired</option>
 </select>
-</label>
-<label class="orders-field">
-<span>Type</span>
-<select>
+</div>
+<div class="lt-field">
+<label for="_r_5_">Type</label>
+<select id="_r_5_">
 <option value="">All</option>
 <option value="market">Market</option>
 <option value="limit">Limit</option>
 <option value="stop_limit">Stop-limit</option>
 <option value="stop">Stop-market</option>
 </select>
-</label>
-<label class="orders-field">
+</div>
+<label class="lt-field">
 <span>From</span>
 <input type="date" value="">
 </label>
-<label class="orders-field">
+<label class="lt-field">
 <span>To</span>
 <input type="date" value="">
 </label>
-<label class="orders-field">
+<label class="lt-field">
 <span>Per page</span>
 <select>
 <option value="20">20</option>
@@ -163,10 +161,16 @@
 </select>
 </label>
 </form>
-<p class="muted orders-note">Open orders are on the trading desk. <a class="lt-link" href="/exchange">Open the trading desk</a>
+<p class="lt-hint">Open orders are on the trading desk. <a class="lt-link" href="/exchange">Open the trading desk</a>
 </p>
-<p class="muted orders-note" role="status">2 orders shown</p>
-<div data-testid="orders-table" class="orders-table">
+</div>
+</section>
+</div>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<div class="lt-stack">
+<p class="lt-hint" role="status">2 orders shown</p>
+<div data-testid="orders-table" class="lt-table-scroll">
 <table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
@@ -184,23 +188,25 @@
 </thead>
 <tbody>
 <tr>
-<td>
+<td data-label="Time">
 <a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
 </td>
-<td>BTC/USDT</td>
-<td>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
 <span class="lt-actions">Limit</span>
 </td>
-<td>
+<td data-label="Side">
 <span data-side="buy">Buy</span>
 </td>
-<td data-align="end">65,100.00</td>
-<td data-align="end">0.0002</td>
-<td data-align="end">0.0002</td>
-<td data-align="end">—</td>
-<td data-align="end">0.000000 <span class="lt-hint">USDT</span>
+<td data-align="end" data-label="Price">65,100.00</td>
+<td data-align="end" data-label="Amount">0.0002</td>
+<td data-align="end" data-label="Filled">0.0002</td>
+<td data-align="end" data-label="Average price">—</td>
+<td data-align="end" data-label="Cost">
+<span>0.000000 <span class="lt-hint">USDT</span>
+</span>
 </td>
-<td>
+<td data-label="Status">
 <span data-slot="status-tag" data-status="filled">
 <span class="lt-chip" data-status="done">
 <span class="lt-chip-mark" aria-hidden="true">
@@ -220,23 +226,25 @@
 </td>
 </tr>
 <tr>
-<td>
+<td data-label="Time">
 <a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
 </td>
-<td>BTC/USDT</td>
-<td>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
 <span class="lt-actions">Limit</span>
 </td>
-<td>
+<td data-label="Side">
 <span data-side="buy">Buy</span>
 </td>
-<td data-align="end">60,000.00</td>
-<td data-align="end">0.0001</td>
-<td data-align="end">0</td>
-<td data-align="end">—</td>
-<td data-align="end">0.000000 <span class="lt-hint">USDT</span>
+<td data-align="end" data-label="Price">60,000.00</td>
+<td data-align="end" data-label="Amount">0.0001</td>
+<td data-align="end" data-label="Filled">0</td>
+<td data-align="end" data-label="Average price">—</td>
+<td data-align="end" data-label="Cost">
+<span>0.000000 <span class="lt-hint">USDT</span>
+</span>
 </td>
-<td>
+<td data-label="Status">
 <span data-slot="status-tag" data-status="cancelled">
 <span class="lt-chip" data-status="failed">
 <span class="lt-chip-mark" aria-hidden="true">
@@ -258,17 +266,18 @@
 </tbody>
 </table>
 </div>
-<p class="muted orders-note">That’s every order that matches these filters.</p>
-<section data-testid="assistant-orders" aria-labelledby="assistant-orders-title" class="orders-assistant">
+<p class="lt-hint">That’s every order that matches these filters.</p>
+<section data-testid="assistant-orders" aria-labelledby="assistant-orders-title" class="lt-stack">
 <h3 id="assistant-orders-title">Orders by your assistant</h3>
-<p class="muted orders-note">Orders your own assistant placed with its agent key, on its agent account. Every figure is the venue’s.</p>
+<p class="lt-hint">Orders your own assistant placed with its agent key, on its agent account. Every figure is the venue’s.</p>
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
 </div>
 </section>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

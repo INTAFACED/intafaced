@@ -128,7 +128,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
     await types.getByRole('radio', { name }).check();
     const expected = catalogue.filter((row) => row.offerType === offerType).map((row) => row.title);
     await expect(cards).toHaveCount(expected.length);
-    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual([...expected].sort());
+    await expect.poll(async () => (await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual([...expected].sort());
     await expect(card).toHaveCount(offerType === mine.offerType ? 1 : 0);
   }
   await types.getByRole('radio', { name: 'All listings' }).check();
@@ -136,7 +136,9 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
 
   // Ordered by registration, price or title, and never by returns.
   const sort = page.getByRole('combobox', { name: 'Sort by' });
-  expect(await sort.getByRole('option').allInnerTexts()).toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
+  await expect
+    .poll(async () => await sort.getByRole('option').allInnerTexts())
+    .toEqual(['Newest', 'Price, low to high', 'Price, high to low', 'Title']);
   expect((await sort.getByRole('option').allInnerTexts()).join(' ')).not.toMatch(/return|profit|performance|rank/i);
   const shownTitles = () => cards.getByRole('heading', { level: 3 }).allInnerTexts();
   // By registration: the Market opens on Newest, each listing in the order svc-market registered it, latest first
@@ -244,9 +246,13 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   // Performance with its stated basis: the service reports none, so no figure is drawn.
   expect(read.performance).toEqual({ reported: false });
   const performance = main.getByRole('region', { name: 'Performance' });
-  await expect(performance).toContainText('No performance reported.');
-  await expect(performance).toContainText(/Basis:/);
-  await expect(performance).not.toContainText(/%|\d+\.\d+/);
+  // The region is its heading, the none line and the stated basis, word for word, and no figure anywhere in it.
+  await expect(performance.getByRole('heading', { level: 3 })).toHaveText('Performance');
+  await expect(performance.locator('p')).toHaveText([
+    'No performance reported.',
+    'Basis: this listing names no copy leader, bot or signal, so there is no record to measure. Nothing in the Market is ranked by returns.',
+  ]);
+  await expect(performance).not.toContainText(/%|\d/);
 
   // An unknown id: the service's typed not-found, and the page says so, never a blank page.
   const unknown = '00000000-0000-4000-8000-000000000000';
@@ -324,7 +330,9 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     advisory: 'Advisory',
     partner_integrations: 'Partner integrations',
   };
-  expect(await select.getByRole('option').allInnerTexts()).toEqual(['Every category', ...taxonomy.map((slug) => words[slug])]);
+  await expect
+    .poll(async () => await select.getByRole('option').allInnerTexts())
+    .toEqual(['Every category', ...taxonomy.map((slug) => words[slug])]);
   const cards = page
     .getByRole('main')
     .getByRole('article')

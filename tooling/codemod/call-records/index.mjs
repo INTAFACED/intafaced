@@ -39,7 +39,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
+import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolItem, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -209,12 +209,13 @@ function plan(opts) {
     const chain = chainOf(proc);
     if (!chain.output) {
       // No answer schema in the router: the record takes its callers' own, or the reason it can't names the caller.
-      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks });
+      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks, itemOf: listItemOf });
       const at = chain.problems.findIndex((x) => x.startsWith('no .output()'));
       if (taken.output) {
         chain.problems.splice(at, 1);
         chain.output = taken.output.node;
         chain.outputP = taken.output.p;
+        chain.outputPage = Boolean(taken.output.page);
       } else chain.problems[at] = `no .output(), and the callers' own can't stand for it: ${taken.why}`;
     }
     let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
@@ -355,6 +356,30 @@ function takenIn(file, src, decls, imports) {
     if (b && !(b.from === spec && b.imported === imported)) return local;
   }
   return undefined;
+}
+
+/** The contracts files a contracts file's text imports (`./x.js`), as paths. */
+function importsOf(src) {
+  const out = new Set();
+  for (const m of (src ?? '').matchAll(/^import\b[^;]*?from '\.\/([\w-]+)\.js';/gms)) out.add(join(CONTRACTS, `${m[1]}.ts`));
+  return out;
+}
+
+/**
+ * Whether contracts file `from` reaches `to` through its imports (`textOf` reads a file as this run has written it) and
+ * the `[importer, imported]` edges a group is about to add.
+ */
+function reaches(from, to, textOf, added = []) {
+  const seen = new Set();
+  const next = [from];
+  while (next.length) {
+    const f = next.pop();
+    if (f === to) return true;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    next.push(...importsOf(textOf(f)), ...added.filter(([a]) => a === f).map(([, b]) => b));
+  }
+  return false;
 }
 
 function build(opts, planned) {
@@ -532,6 +557,28 @@ function build(opts, planned) {
       });
     }
     const target = sharedTaken ? file : shared;
+    // Each import the group adds between two contracts files. One back to a file that already reaches the importer is a
+    // cycle, and a schema read at the top of either file is then read before it is declared (svc-bank's shared file
+    // importing `signed` from bank-ops-procedures, which imports `figures` from it): the group stays by name, named.
+    const homeOf = (m) => (fresh.includes(m) ? target : (movedTo.get(keyOf(m)) ?? target));
+    const edges = [
+      ...[...closure.fromContracts.values()].map((c) => [file, c.file]),
+      ...closure.moved.map((m) => [file, homeOf(m)]),
+      ...(target === shared && fresh.length
+        ? [
+            ...[...closure.fromContracts.values()].map((c) => [shared, c.file]),
+            ...closure.moved.filter((m) => !fresh.includes(m)).map((m) => [shared, homeOf(m)]),
+          ]
+        : []),
+    ].filter(([a, b]) => a !== b && !importsOf(textOf(a)).has(b));
+    const cycle = edges.find(([a, b]) => reaches(b, a, textOf, edges));
+    if (cycle) {
+      const [a, b] = cycle.map((f) => basename(f));
+      for (const r of recs)
+        for (const site of r.sites)
+          planned.hand.push({ site, why: `its record would import ${b} into ${a}, which ${b} already imports: an import cycle` });
+      return build(opts, { ...planned, records: planned.records.filter((r) => !recs.includes(r)) });
+    }
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
@@ -631,6 +678,13 @@ function tables(changes, planned, done) {
     }
   }
 }
+
+/** A portal list caller's row schema (its answer is a page of it), or undefined. */
+export const listItemOf = (s) => (toolShape(s) ? toolItem(s) : undefined);
+/** A record's answer as written: its schema, or for a portal list, the page of the row schema its callers parsed. */
+const outputText = (r, schema) => (r.chain.outputPage ? pageOf(schema) : schema);
+/** The page a list answers with, as the portal's tool parsed it (`page` in apps/customer/src/features/pay/portal/schemas.ts). */
+export const pageOf = (item) => `z.object({ items: z.array(${item}), nextCursor: z.string().nullable() })`;
 
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
@@ -863,7 +917,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  access: ${r.chain.guard.text},`,
       `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
-      `  output: ${text(r.chain.outputP ?? p, r.chain.output)},`,
+      `  output: ${outputText(r, text(r.chain.outputP ?? p, r.chain.output))},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
       '});',
       '',

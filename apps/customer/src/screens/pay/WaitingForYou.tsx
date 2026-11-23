@@ -96,7 +96,7 @@ export function WaitingForYou() {
                     ? payCopy.t('Waiting going back')
                     : null;
             return (
-              <li key={hold.transferId} className="pay-waiting__item" data-testid="pay-waiting-item" data-state={hold.state}>
+              <li key={hold.transferId} className="lt-stack" data-testid="pay-waiting-item" data-state={hold.state}>
                 <p className="pay-waiting__head">
                   <span>{payCopy.t('{who} sent you {amount}', { who, amount })}</span>
                 </p>

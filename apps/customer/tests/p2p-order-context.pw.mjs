@@ -748,7 +748,7 @@ test('all five P2P rooms remain reachable by natural keyboard on the current pho
     'p2p-rooms-keyboard',
     async ({ page, state }) => {
       await login(page);
-      const nav = page.locator('.pay-order-tabs'),
+      const nav = page.locator('[data-testid="p2p-rooms"][data-order]'),
         links = nav.locator('a');
       await expect(links).toHaveCount(5);
       await expect(nav.locator('[aria-current="page"]')).toHaveText('Your orders');

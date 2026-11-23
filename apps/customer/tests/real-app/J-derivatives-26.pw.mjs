@@ -5,6 +5,7 @@ import { test, expect } from './journey.mjs';
 import { journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
+import { staffDoors } from './bank-desk.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
@@ -29,6 +30,8 @@ const VENUE_USDC = '300';
 const PAID_IN = '500';
 const TO_SPACE = '100';
 const MAIN_LEFT = '400';
+const CARD_PAY = '20';
+const AFTER_CARD = '380';
 const SPACE_NAME = 'TEST Savings';
 const LONG = '50';
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -39,6 +42,7 @@ test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
 const one = personDoor(J, run, test);
+const { cardEvent } = staffDoors();
 const two = personDoor(`${J} #6`, second, test);
 
 // ── the TEST venue ──
@@ -294,6 +298,40 @@ test(`${J} #4 opens the spending balances: the partner balance 400.00 and the sp
   expect(sameDecimal(space.balance, TO_SPACE)).toBe(true);
   expect(main.heldAt).toBeTruthy();
   expect(space.heldAt).toMatchObject({ label: main.heldAt.label });
+  expect(await (await one.door()).balances()).toEqual(ledger);
+});
+
+test(`${J} #5 pays TEST 20.00 by card right after the liquidation (TEST partner card network call): the partner's TEST card approves from the partner balance, which reads 380.00 as the partner reports it`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, cardId, spaceId, ledger } = run.read();
+  // Right after the liquidation #3 saw: the venue closed the account once.
+  expect(await liquidationsOf(owner)).toHaveLength(1);
+  expect(sameDecimal(await partnerMain(userId), MAIN_LEFT)).toBe(true);
+  // The TEST partner card network's authorisation, through the bank's card door as card-sim takes it. Its reference is
+  // the card's own, so a retry of this step is the same payment, decided once.
+  const payment = { cardId, authorizationRef: `${J}-5-${cardId}`.slice(0, 64), amount: CARD_PAY };
+  expect(await cardEvent('bank.card_authorize', 'ops.cardAuthorize', payment)).toMatchObject({ decision: 'approved', declineCode: null });
+  // Approved from the partner balance: the partner's own book reads 380 in the account, and holds the 20 for the card.
+  expect(sameDecimal(await partnerMain(userId), AFTER_CARD)).toBe(true);
+  const cardMoves = (await partnerMoves(userId)).filter((m) => m.key.startsWith('card.partner.'));
+  expect(cardMoves).toMatchObject([
+    { from: { owner: userId, assetId: 'USDC', spaceId: null }, to: { owner: 'partner:card-holds' }, amount: CARD_PAY },
+  ]);
+  expect(await partnerSpace(userId, spaceId)).toBe(toUnits(TO_SPACE));
+  // The card's figures, from the partner: 380 available, 20 held.
+  const held = await one.bankGet('cards.partnerHeld', { cardId, limit: 1 });
+  expect(held.heldBy).toBe('partner');
+  expect(sameDecimal(held.figures.available, AFTER_CARD)).toBe(true);
+  expect(sameDecimal(held.figures.held, CARD_PAY)).toBe(true);
+  // The person reads it in their spending balances, as the partner reports it; the space is untouched.
+  await openAccount(page, one, run);
+  await expect(mainCell(page)).toHaveText('380.00 USDC', { timeout: 30_000 });
+  await expect(spaceCell(page, spaceId)).toHaveText('100.00 USDC');
+  const spaces = await one.bankGet('spaces.list', { limit: 200 });
+  expect(sameDecimal(spaces.find((s) => s.kind === 'primary' && s.assetId === 'USDC').balance, AFTER_CARD)).toBe(true);
+  // The partner holds the money: our ledger posts nothing for the card payment.
   expect(await (await one.door()).balances()).toEqual(ledger);
 });
 

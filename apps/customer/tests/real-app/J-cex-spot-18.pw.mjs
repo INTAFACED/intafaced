@@ -222,7 +222,7 @@ test(`${J} #1 opens a customer's routed order from the support desk: the venue o
   // The venue order as the venue keeps it: its status, what filled, every fill, and no reject reason recorded.
   await expect(read).toHaveAttribute('data-status', truth.order.status);
   await expect(read.getByTestId('venue-read-status')).toHaveText('Filled');
-  expect(toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
+  await expect.poll(async () => toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
   const shown = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
   await expect(shown).toHaveCount(truth.fills.length);
   for (const fill of truth.fills) await expect(shown.and(page.locator(`[data-fill-id="${fill.fillId}"]`))).toHaveCount(1);
@@ -312,8 +312,8 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const first = await runSweep();
   const checked = Number(await first.getAttribute('data-checked'));
   expect(checked).toBeGreaterThan(0);
-  expect(Number(await first.getAttribute('data-released'))).toBeGreaterThanOrEqual(1);
-  expect((await first.getAttribute('data-released-orders')).split(',')).toContain(orphan);
+  await expect.poll(async () => Number(await first.getAttribute('data-released'))).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await first.getAttribute('data-released-orders')).split(',')).toContain(orphan);
   await expect(first).toContainText(`${checked} orders checked`);
   // The orphan's hold came back once: used fell by exactly its hold, nothing left the account.
   expect(usedBefore - (await usdtUsed(customer))).toBe(hold);

@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TEST_BUDGET } from './budget.mjs';
+import { TEST_BUDGET, nodeStorageOff } from './budget.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AREAS = ['apps', 'packages', 'services', 'tooling'];
@@ -102,4 +102,11 @@ test('the check refuses each way a config can lose the budget, and passes one th
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Node's own localStorage is off in the test workers from Node 25, and CI's Node 22 runs as it did", () => {
+  assert.deepEqual(nodeStorageOff('22.21.1'), {});
+  assert.deepEqual(nodeStorageOff('24.11.0'), {});
+  assert.deepEqual(nodeStorageOff('25.0.0'), { execArgv: ['--no-experimental-webstorage'] });
+  assert.deepEqual(nodeStorageOff('26.3.1'), { execArgv: ['--no-experimental-webstorage'] });
 });

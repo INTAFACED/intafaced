@@ -96,11 +96,6 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
           <X size={16} aria-hidden="true" />
         </Button>
       </div>
-      <div data-testid="home-started__bar" className="lt-steps" aria-hidden="true">
-        {steps.map((step) => (
-          <span key={step.id} className="lt-step-dot" data-on={step.status === 'done'} />
-        ))}
-      </div>
       <ul className="lt-rows">
         {steps.map((step) => (
           <Row key={step.id} step={step} />

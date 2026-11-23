@@ -1,17 +1,21 @@
 import { z } from 'zod';
-import {
-  paymentUnmaskedSchema,
-  paymentViewDeletedSchema,
-  paymentViewSchema,
-  type PaymentViewColumn,
-  type PaymentViewFilters,
-} from '@intafaced/contracts/pay-payment-views';
+import { paymentViewSchema, type PaymentViewColumn, type PaymentViewFilters } from '@intafaced/contracts/pay-payment-views';
 import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../../schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
-import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_PAYMENT_VIEWS_LIST,
+  PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_VIEWS_DELETE,
+  PAY_PAYMENT_UNMASK,
+} from '@intafaced/contracts/pay-payment-procedures';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE,
+  PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY,
+  PAY_MERCHANT_OPS_ACTIVITY_LIST,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 import {
   PAY_SUBSCRIPTION_PRODUCT_READY,
   PAY_SUBSCRIPTION_CYCLES,
@@ -23,7 +27,7 @@ import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-proce
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, listRecordAs }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord, queryRecordAs, listRecordAs }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     queryRecordAs(
       PAY_SUBSCRIPTION_LIST,
@@ -93,7 +97,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, l
     sha256: string;
     note?: string;
   }) => mutate('merchantOps.disputes.uploadEvidence', input, p.evidenceSchema),
-  evidenceFile: (evidenceId: string) => query('merchantOps.disputes.getEvidence', { evidenceId }, pay.evidenceFileSchema),
+  evidenceFile: (evidenceId: string) => queryRecord(PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE, { evidenceId }),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
     list('merchantOps.disputes.list', p.disputeSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),
@@ -111,8 +115,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, l
     mutate('merchantOps.disputes.respond', input, p.disputeDetailSchema),
   customerSeries: (customerRef: string, from: string, to: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_OPS_CUSTOMERS_SERIES, { customerRef, from, to, bucket: 'day', limit: 200 }, signal),
-  customerSummary: (activeSince: string, signal?: AbortSignal) =>
-    query('merchantOps.customers.summary', { activeSince }, p.customerSummarySchema, signal),
+  customerSummary: (activeSince: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY, { activeSince }, signal),
   customers: (cursor: string | undefined, search: string, signal?: AbortSignal) =>
     list('merchantOps.customers.list', p.customerSchema, { ...(cursor ? { cursor } : {}), ...(search ? { search } : {}) }, signal),
   customer: (customerRef: string, signal?: AbortSignal) =>
@@ -167,7 +170,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, l
     return { ok: true as const, data: { rows, complete: false } };
   },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
-    list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
+    queryRecord(PAY_MERCHANT_OPS_ACTIVITY_LIST, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
   checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
     query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
   ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),
@@ -208,8 +211,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, l
     filters: PaymentViewFilters;
     columns: PaymentViewColumn[];
   }) => mutate('payment.views.create', input, paymentViewSchema),
-  deletePaymentView: (viewId: string) => mutate('payment.views.delete', { viewId }, paymentViewDeletedSchema),
-  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) =>
-    mutate('payment.unmask', input, paymentUnmaskedSchema),
+  deletePaymentView: (viewId: string) => mutateRecord(PAY_PAYMENT_VIEWS_DELETE, { viewId }),
+  unmaskPayment: (input: { paymentId: string; field: 'customerEmail'; reason: string }) => mutateRecord(PAY_PAYMENT_UNMASK, input),
   paymentHistory: (paymentId: string, signal?: AbortSignal) => queryRecord(PAY_PAYMENT_HISTORY, { paymentId, limit: 200 }, signal),
 });

@@ -75,7 +75,7 @@ export function NotificationRow({
     }
   };
   return href ? (
-    <a data-testid="nf-row" className="lt-row-link" data-unread={unread || undefined} href={href} onClick={handle}>
+    <a data-testid="nf-row" className="lt-row-link" data-span="row" data-unread={unread || undefined} href={href} onClick={handle}>
       {inner}
     </a>
   ) : (

@@ -1,4 +1,4 @@
-import { isExplicitDevOrTest } from '@intafaced/config';
+import { isBetaPosture, isExplicitDevOrTest } from '@intafaced/config';
 import type {
   EmbeddedWalletPasskey,
   EmbeddedWalletProviderId,
@@ -72,7 +72,9 @@ export const PROVIDER_TIMEOUT_MS = 8000;
 /**
  * `PROTOCOL_EMBEDDED_WALLET_PROVIDER`, read once at boot. Blank is unset: creating refuses
  * `wallet.embedded_provider_unset`. `TEST:test` is the labelled TEST provider and refuses to boot unless the RAW
- * `APP_ENV` is exactly dev or test (a TEST provider copied to staging never passes for a real one); it needs
+ * `APP_ENV` is exactly dev or test, or the process is in the beta posture (`rawBetaPosture`: raw
+ * `INTAFACED_BETA_POSTURE` `test-networks` beside APP_ENV `staging`), where it stays labelled TEST and never passes for a real
+ * one; it needs
  * `PROTOCOL_EMBEDDED_WALLET_TEST_URL`, a loopback URL. `TEST:test-no-export` is the same TEST provider standing in for a
  * provider whose plan offers no key export (J-wallet-22 #5): it reports `export: false`, so the room says so. `privy` or `turnkey` are known and unwired in this build. Anything
  * else refuses to boot, so a mistyped provider never reads as unset.
@@ -82,14 +84,15 @@ export function embeddedWalletFromSetting(
   testUrl: string | undefined,
   rawAppEnv: string | undefined,
   fetcher: typeof fetch = fetch,
+  rawBetaPosture?: string,
 ): EmbeddedWalletSetting {
   const value = raw?.trim() ?? '';
   if (!value) return { kind: 'unset' };
   const test = /^TEST:/i.exec(value);
   if (test) {
-    if (!isExplicitDevOrTest(rawAppEnv))
+    if (!isExplicitDevOrTest(rawAppEnv) && !isBetaPosture(rawAppEnv, rawBetaPosture))
       throw new Error(
-        `PROTOCOL_EMBEDDED_WALLET_PROVIDER is a TEST value but APP_ENV=${rawAppEnv ?? '(unset)'} is not the local test stack. Refusing to boot.`,
+        `PROTOCOL_EMBEDDED_WALLET_PROVIDER is a TEST value but APP_ENV=${rawAppEnv ?? '(unset)'} is neither the local test stack nor the beta posture. Refusing to boot.`,
       );
     const id = value.slice(test[0].length).trim();
     if (id !== 'test' && id !== 'test-no-export')

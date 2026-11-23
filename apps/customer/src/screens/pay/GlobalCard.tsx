@@ -158,7 +158,7 @@ function HoldPanel({
       {data && data.state === 'under_review' && data.proofUploaded ? <p className="lt-hint">{g('holdUploaded')}</p> : null}
       {data && data.state === 'requested' && data.infoRequest && !data.proofUploaded ? (
         data.proofLimits ? (
-          <label className="pay-field__label">
+          <label className="lt-hint">
             {busy ? g('holdUploading') : g('holdUpload')}
             <input
               type="file"
@@ -288,7 +288,7 @@ function RecallPanel({ send, global, onAsked }: { send: GlobalSend; global: Retu
           <p className="lt-hint" data-testid="global-recall-what">
             {g('recallWhat')}
           </p>
-          <label className="pay-field__label" htmlFor={id}>
+          <label className="lt-hint" htmlFor={id}>
             {g('recallReason')}
           </label>
           <textarea
@@ -617,7 +617,7 @@ export function GlobalCard() {
   const locked = !ready || busy !== null;
   const stepUpOpen = review !== null;
   return (
-    <div className="pay-body" data-testid="global-card">
+    <div className="lt-stack" data-testid="global-card">
       {unavailable ? <Reason title={unavailable.title}>{unavailable.body}</Reason> : null}
       {standIn ? (
         <p className="lt-hint" role="note" data-testid="global-stand-in">
@@ -644,10 +644,10 @@ export function GlobalCard() {
           </Button>
         </div>
       ) : null}
-      <form className="pay-body" noValidate onSubmit={startReview}>
+      <form className="lt-stack" noValidate onSubmit={startReview}>
         <fieldset className="pay-fieldset" disabled={locked || stepUpOpen}>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-currency">
+            <label className="lt-hint" htmlFor="global-currency">
               {g('destination')}
             </label>
             <select
@@ -684,7 +684,7 @@ export function GlobalCard() {
             ) : null}
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-country-check">
+            <label className="lt-hint" htmlFor="global-country-check">
               {g('checkLabel')}
             </label>
             <input
@@ -717,7 +717,7 @@ export function GlobalCard() {
             ) : null}
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-recipient">
+            <label className="lt-hint" htmlFor="global-recipient">
               {g('recipient')}
             </label>
             <select id="global-recipient" className="pay-text" value={recipientId} onChange={(event) => setRecipientId(event.target.value)}>
@@ -743,7 +743,7 @@ export function GlobalCard() {
         <fieldset className="pay-fieldset" disabled={locked || stepUpOpen || !destination}>
           <h3 className="pay-section-title">{g('recipientNew')}</h3>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-name">
+            <label className="lt-hint" htmlFor="global-name">
               {t('recipientName')}
             </label>
             <input
@@ -756,7 +756,7 @@ export function GlobalCard() {
             />
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-account">
+            <label className="lt-hint" htmlFor="global-account">
               {t('recipientAccount')}
             </label>
             <input
@@ -769,7 +769,7 @@ export function GlobalCard() {
             />
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-bank">
+            <label className="lt-hint" htmlFor="global-bank">
               {t('recipientBankCode')}
             </label>
             <input
@@ -782,7 +782,7 @@ export function GlobalCard() {
             />
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-label">
+            <label className="lt-hint" htmlFor="global-label">
               {g('recipientLabel')}
             </label>
             <input
@@ -816,7 +816,7 @@ export function GlobalCard() {
         </fieldset>
         <fieldset className="pay-fieldset" disabled={locked || stepUpOpen}>
           <div className="pay-field">
-            <span className="pay-field__label">{g('amountLabel')}</span>
+            <span className="lt-hint">{g('amountLabel')}</span>
             <AmountInput aria-label={g('amountLabel')} value={amount} onValueChange={setAmount} precision={18} placeholder="0" />
             <select
               className="pay-text"
@@ -895,7 +895,7 @@ export function GlobalCard() {
             <p className="lt-hint">{g('askedHint')}</p>
             {asked.map((field) => (
               <div className="pay-field" key={field}>
-                <label className="pay-field__label" htmlFor={`global-${field}`}>
+                <label className="lt-hint" htmlFor={`global-${field}`}>
                   {askedLabel[field]}
                 </label>
                 <input
@@ -978,7 +978,7 @@ export function GlobalCard() {
             {busy === 'send' ? g('sending') : busy === 'passkey' ? g('confirming') : g('confirmPasskey')}
           </Button>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="global-code">
+            <label className="lt-hint" htmlFor="global-code">
               {g('confirmCodeLabel')}
             </label>
             <input

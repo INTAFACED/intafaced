@@ -1,18 +1,10 @@
 // volt-room: /p2p
-import { OverviewTemplate, Tabs } from '@intafaced/ui/lit/templates';
+import { OverviewTemplate } from '@intafaced/ui/lit/templates';
 import { payCopy } from '../copy';
+import { P2PTabs } from '../p2p-tabs';
 import type { PersonalPayApi } from '../pay-api';
 import { P2POffers } from '../P2POffers';
 import { P2PEligibilityPanel } from '../personal/Eligibility';
-
-/** The P2P rooms, in the order every P2P page lists them (`personal/MethodsRoom.tsx`). */
-const P2P_ROOMS = [
-  ['/p2p', 'offers'],
-  ['/uc/order', 'yourOrders'],
-  ['/uc/ad', 'yourOffers'],
-  ['/p2p/methods', 'paymentMethods'],
-  ['/p2p/access', 'tradingAccess'],
-] as const;
 
 /**
  * `/p2p`, the offer board, on the overview template: the P2P rooms above, the trading checks and the board as its
@@ -24,9 +16,7 @@ export function P2PBoard({ pay, userId, offerOpen }: { pay: PersonalPayApi; user
     <OverviewTemplate
       title={payCopy.t('personToPerson')}
       state={{ kind: 'ready' }}
-      rooms={
-        <Tabs label={payCopy.t('p2pRooms')} current="/p2p" items={P2P_ROOMS.map(([href, key]) => ({ href, label: payCopy.t(key) }))} />
-      }
+      section={<P2PTabs />}
       hero={null}
       sections={
         <>

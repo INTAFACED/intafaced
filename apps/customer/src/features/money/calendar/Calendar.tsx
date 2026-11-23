@@ -18,7 +18,7 @@ export function CalendarRoom() {
       state={{ kind: 'ready' }}
       mode="pro"
       figures={[]}
-      actions={<BankTabs current="Transfers" />}
+      section={<BankTabs />}
       panels={<MoneyCalendar />}
     />
   );
