@@ -46,7 +46,7 @@ async function relay(db: TestDatabase, fetchImpl: typeof fetch, timeoutMs = 1000
   const app = buildMailboxRelay({ sql: db.sql, credential, sendUrl: 'https://mailbox.fixture/send', sendToken, timeoutMs, fetchImpl });
   const url = await app.listen({ port: 0, host: '127.0.0.1' });
   resources.push(() => app.close());
-  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: 2000 }) };
+  return { app, url, email: new EmailChannel({ url: url + '/send', token: credential, timeoutMs: timeoutMs + 1000 }) };
 }
 function envelope() {
   return {
@@ -108,7 +108,9 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       const archive = join(dir, 'before-enqueue.dump');
       await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
       const wire = await upstream();
-      const gateway = await relay(independent, wire.fetchImpl);
+      // This test proves restore replay, not deadlines: a loaded runner's first
+      // send once stalled ~2 s and outran a 1 s relay budget (#9958).
+      const gateway = await relay(independent, wire.fetchImpl, 8_000);
       const input = {
         businessKey: `acknowledgement:${randomUUID()}`,
         contactId: randomUUID(),
@@ -116,10 +118,11 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         recipientEmail: 'local-proof@example.invalid',
         message: { kind: 'enquiry_acknowledgement' as const },
       };
-      const original = await new GuestNotificationService(first.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const guestBudget = { timeoutMs: 10_000, leaseMs: 20_000 };
+      const original = await new GuestNotificationService(first.sql, gateway.email, guestBudget).send(input);
       expect(original.status).toBe('accepted');
       await run(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--clean', '--if-exists', '--dbname', restored.url, archive]);
-      const recovered = await new GuestNotificationService(restored.sql, gateway.email, { timeoutMs: 2500 }).send(input);
+      const recovered = await new GuestNotificationService(restored.sql, gateway.email, guestBudget).send(input);
       expect(recovered.notificationId).not.toBe(original.notificationId);
       expect(recovered).toMatchObject({ status: 'accepted', reference: original.reference });
       expect(original.reference).toMatch(/^relay:[0-9a-f-]{36}$/);
