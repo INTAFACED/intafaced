@@ -39,7 +39,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
+import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolItem, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -209,12 +209,13 @@ function plan(opts) {
     const chain = chainOf(proc);
     if (!chain.output) {
       // No answer schema in the router: the record takes its callers' own, or the reason it can't names the caller.
-      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks });
+      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks, itemOf: listItemOf });
       const at = chain.problems.findIndex((x) => x.startsWith('no .output()'));
       if (taken.output) {
         chain.problems.splice(at, 1);
         chain.output = taken.output.node;
         chain.outputP = taken.output.p;
+        chain.outputPage = Boolean(taken.output.page);
       } else chain.problems[at] = `no .output(), and the callers' own can't stand for it: ${taken.why}`;
     }
     let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
@@ -678,6 +679,13 @@ function tables(changes, planned, done) {
   }
 }
 
+/** A portal list caller's row schema (its answer is a page of it), or undefined. */
+export const listItemOf = (s) => (toolShape(s) ? toolItem(s) : undefined);
+/** A record's answer as written: its schema, or for a portal list, the page of the row schema its callers parsed. */
+const outputText = (r, schema) => (r.chain.outputPage ? pageOf(schema) : schema);
+/** The page a list answers with, as the portal's tool parsed it (`page` in apps/customer/src/features/pay/portal/schemas.ts). */
+export const pageOf = (item) => `z.object({ items: z.array(${item}), nextCursor: z.string().nullable() })`;
+
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
   // A wrapper keeps its own schema, read through `callAs`.
@@ -909,7 +917,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  access: ${r.chain.guard.text},`,
       `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
-      `  output: ${text(r.chain.outputP ?? p, r.chain.output)},`,
+      `  output: ${outputText(r, text(r.chain.outputP ?? p, r.chain.output))},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
       '});',
       '',
