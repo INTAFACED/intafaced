@@ -191,38 +191,30 @@ async function signInA(page) {
 }
 
 /**
- * The owner's money-out rule on the stack's bank: `required` asks for a fresh confirmation on every send to another
- * person (BANK_STEP_UP_MONEY_OUT, ADR 2026-10-14-money-out-step-up); off is the stack's default. Set for the restart only.
+ * The owner's two send rules on the stack's bank, set once for this file by one restart: the money-out rule asks for a
+ * fresh confirmation on every send to another person (BANK_STEP_UP_MONEY_OUT, ADR 2026-10-14-money-out-step-up), and the
+ * personal send review rule (BANK_PERSONAL_SEND_REVIEW_JSON) holds a USDT send above the bank profile's TEST line of 50
+ * for a review. Off is the stack's default. A restart empties the TEST partner's book and puts its switches back off, so
+ * the rules are set before #1 puts A's and B's money at the partner, and put back off after the last step.
  */
-function stepUpRule(required) {
-  const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
-  const before = process.env[key];
-  if (required) process.env[key] = 'required';
-  else delete process.env[key];
+function ownerRules(on) {
+  const keys = { LOCAL_STACK_BANK_STEP_UP_MONEY_OUT: 'required', LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW: 'on' };
+  const before = Object.fromEntries(Object.keys(keys).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(keys)) {
+    if (on) process.env[key] = value;
+    else delete process.env[key];
+  }
   try {
     tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
-    if (before === undefined) delete process.env[key];
-    else process.env[key] = before;
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 
-/**
- * The owner's personal send review rule on the stack's bank (BANK_PERSONAL_SEND_REVIEW_JSON): on is the bank profile's
- * TEST review line, a USDT send above 50 is held for a review; off (the stack's default) holds nothing.
- */
-function reviewRule(on) {
-  const key = 'LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW';
-  const before = process.env[key];
-  if (on) process.env[key] = 'on';
-  else delete process.env[key];
-  try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
-  } finally {
-    if (before === undefined) delete process.env[key];
-    else process.env[key] = before;
-  }
-}
+test.afterAll(() => ownerRules(false));
 
 /** Every move out of A to another person on the TEST partner's own book. */
 async function movesOut() {
@@ -273,8 +265,11 @@ const OTHER_ROOMS = [
 test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, with the other personal rooms listed`, async ({ page }) => {
   // The start: two verified members, whose bank money the TEST partner bank holds; B has named their profile and holds
   // TEST 10 USDT there, so B's main USDT account is on the partner's record; A holds TEST 100 USDT and a little TEST BTC
-  // in their partner account, and has saved @<saved> as a recipient. @<lookalike> is another member whose handle imitates the saved one;
-  // it holds TEST 1 USDT, so its own Send room has a To field when it is the one that runs out of lookups in #2.
+  // in their partner account, and has saved @<saved> as a recipient. @<lookalike> is another member whose handle
+  // imitates the saved one; it holds TEST 1 USDT, so its own Send room has a To field when it is the one that runs out
+  // of lookups in #2.
+  // The owner's send rules are set first: the restart that sets them empties the TEST partner's book.
+  ownerRules(true);
   const tag = Date.now().toString(36);
   const saved = await signUpAs(page, `jpcleo${tag}`);
   const lookalike = await signUpAs(page, `jpc1eo${tag}`, { verified: true });
@@ -513,95 +508,90 @@ test(`${J} #5 confirms through the owner's fresh confirmation step: a wrong code
   const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
   expect(before).toEqual(run.read().before);
 
-  // The owner's rule asks for a fresh confirmation before money leaves for another person.
-  stepUpRule(true);
-  try {
-    const posted = sends(page);
-    const approved = () => posted.filter((body) => typeof body.stepUpApprovalId === 'string');
-    await sendForm(page, { signedIn: true });
-    await page.getByTestId('pay-review').click();
-    // A double click on Send: one call, which the bank refuses because the rule asks for a fresh confirmation.
-    await page.getByTestId('pay-send').dblclick();
-    const stepUp = page.getByTestId('pay-step-up');
-    await expect(stepUp).toBeVisible();
-    await expect(stepUp.getByRole('heading', { name: 'Confirm it’s you' })).toBeVisible();
-    await expect(stepUp).toContainText('This sends money to another person, so we check it’s you first.');
-    expect(posted).toHaveLength(1);
-    expect(approved()).toEqual([]);
+  // The owner's rule asks for a fresh confirmation before money leaves for another person (set in #1: ownerRules).
+  const posted = sends(page);
+  const approved = () => posted.filter((body) => typeof body.stepUpApprovalId === 'string');
+  await sendForm(page, { signedIn: true });
+  await page.getByTestId('pay-review').click();
+  // A double click on Send: one call, which the bank refuses because the rule asks for a fresh confirmation.
+  await page.getByTestId('pay-send').dblclick();
+  const stepUp = page.getByTestId('pay-step-up');
+  await expect(stepUp).toBeVisible();
+  await expect(stepUp.getByRole('heading', { name: 'Confirm it’s you' })).toBeVisible();
+  await expect(stepUp).toContainText('This sends money to another person, so we check it’s you first.');
+  expect(posted).toHaveLength(1);
+  expect(approved()).toEqual([]);
 
-    // A wrong code is refused, and nothing moves.
-    await stepUp.getByLabel('Authenticator code').fill(await wrongCode());
-    await page.getByTestId('pay-step-up-confirm').click();
-    await expect(page.getByTestId('pay-step-up-problem')).toHaveText(
-      'That code didn’t match, so nothing was sent. Check your authenticator app and try again.',
-    );
-    await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
-    expect(approved()).toEqual([]);
-    expect(await usdt(sender)).toBe(before.sender);
-    expect(await usdt(recipient)).toBe(before.recipient);
-    expect(await sentOf(AMOUNT)).toEqual([]);
+  // A wrong code is refused, and nothing moves.
+  await stepUp.getByLabel('Authenticator code').fill(await wrongCode());
+  await page.getByTestId('pay-step-up-confirm').click();
+  await expect(page.getByTestId('pay-step-up-problem')).toHaveText(
+    'That code didn’t match, so nothing was sent. Check your authenticator app and try again.',
+  );
+  await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
+  expect(approved()).toEqual([]);
+  expect(await usdt(sender)).toBe(before.sender);
+  expect(await usdt(recipient)).toBe(before.recipient);
+  expect(await sentOf(AMOUNT)).toEqual([]);
 
-    // The right code, confirmed with a double click: one send carries the approval, and the partner moves it once.
-    await stepUp.getByLabel('Authenticator code').fill(await aCode());
-    await page.getByTestId('pay-step-up-confirm').dblclick();
-    await expect(page.getByTestId('pay-receipt')).toBeVisible();
-    await expect(page.getByTestId('pay-receipt-amount')).toContainText(AMOUNT);
-    const reference = (await page.getByTestId('pay-receipt-reference').innerText()).trim();
-    expect(reference).not.toBe('');
-    run.write({ reference });
-    expect(approved()).toHaveLength(1);
-    expect(new Set(posted.map((body) => body.transferId)).size).toBe(1);
-    expect(toUnits(before.sender) - toUnits(await usdt(sender))).toBe(toUnits(AMOUNT));
-    expect(toUnits(await usdt(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
-    // The partner's own book: one move of 25 from A to B, under the bank's key for this send; each balance moved by
-    // exactly 25 there, equal to what the app shows; the ledger posted nothing (our fee is free).
-    const moved = await sentOf(AMOUNT);
-    expect(moved).toHaveLength(1);
-    expect(moved[0].key).toMatch(/^bank\.transfer\.p2p:.+:0$/);
-    expect(toUnits(before.sender) - toUnits(await book(sender))).toBe(toUnits(AMOUNT));
-    expect(toUnits(await book(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
-    expect({ sender: await ledgerUsdt(sender), recipient: await ledgerUsdt(recipient) }).toEqual({ sender: '0', recipient: '0' });
+  // The right code, confirmed with a double click: one send carries the approval, and the partner moves it once.
+  await stepUp.getByLabel('Authenticator code').fill(await aCode());
+  await page.getByTestId('pay-step-up-confirm').dblclick();
+  await expect(page.getByTestId('pay-receipt')).toBeVisible();
+  await expect(page.getByTestId('pay-receipt-amount')).toContainText(AMOUNT);
+  const reference = (await page.getByTestId('pay-receipt-reference').innerText()).trim();
+  expect(reference).not.toBe('');
+  run.write({ reference });
+  expect(approved()).toHaveLength(1);
+  expect(new Set(posted.map((body) => body.transferId)).size).toBe(1);
+  expect(toUnits(before.sender) - toUnits(await usdt(sender))).toBe(toUnits(AMOUNT));
+  expect(toUnits(await usdt(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
+  // The partner's own book: one move of 25 from A to B, under the bank's key for this send; each balance moved by
+  // exactly 25 there, equal to what the app shows; the ledger posted nothing (our fee is free).
+  const moved = await sentOf(AMOUNT);
+  expect(moved).toHaveLength(1);
+  expect(moved[0].key).toMatch(/^bank\.transfer\.p2p:.+:0$/);
+  expect(toUnits(before.sender) - toUnits(await book(sender))).toBe(toUnits(AMOUNT));
+  expect(toUnits(await book(recipient)) - toUnits(before.recipient)).toBe(toUnits(AMOUNT));
+  expect({ sender: await ledgerUsdt(sender), recipient: await ledgerUsdt(recipient) }).toEqual({ sender: '0', recipient: '0' });
 
-    // A second payment, TEST 1.5 USDT, whose reply is held on its way back: A double clicks, then reloads the page.
-    const second = '1.5';
-    const mid = { sender: await usdt(sender), recipient: await usdt(recipient) };
-    const posted2 = sends(page);
-    let release;
-    const released = new Promise((resolve) => (release = resolve));
-    let reached;
-    const arrived = new Promise((resolve) => (reached = resolve));
-    await page.route('**/api/bank/trpc/transfers.toUser', async (route) => {
-      if (typeof route.request().postDataJSON()?.stepUpApprovalId !== 'string') return route.continue();
-      const answer = await route.fetch();
-      reached();
-      await released;
-      await route.fulfill({ response: answer }).catch(() => undefined);
-    });
-    await sendForm(page, { amount: second, note: null, signedIn: true });
-    await page.getByTestId('pay-review').click();
-    await page.getByTestId('pay-send').click();
-    await expect(stepUp).toBeVisible();
-    await stepUp.getByLabel('Authenticator code').fill(await aCode());
-    await page.getByTestId('pay-step-up-confirm').dblclick();
-    await arrived;
-    // While the reply is held, the button says it is sending and cannot be pressed again.
-    await expect(page.getByTestId('pay-step-up-confirm')).toBeDisabled();
-    await expect(page.getByTestId('pay-step-up-confirm')).toHaveText('Sending…');
-    await page.reload();
-    release();
-    // After the reload, Send waits on the payment that was on its way: it is not sent again, and Review stays off.
-    await expect(page.getByTestId('pay-waiting')).toContainText('We’re still confirming your last payment.');
-    await expect(page.getByTestId('pay-review')).toBeDisabled();
-    await page.waitForTimeout(2000);
-    await page.unroute('**/api/bank/trpc/transfers.toUser');
-    expect(posted2.filter((body) => typeof body.stepUpApprovalId === 'string')).toHaveLength(1);
-    expect(toUnits(mid.sender) - toUnits(await usdt(sender))).toBe(toUnits(second));
-    expect(toUnits(await usdt(recipient)) - toUnits(mid.recipient)).toBe(toUnits(second));
-    expect(await sentOf(second)).toHaveLength(1);
-    run.write({ second });
-  } finally {
-    stepUpRule(false);
-  }
+  // A second payment, TEST 1.5 USDT, whose reply is held on its way back: A double clicks, then reloads the page.
+  const second = '1.5';
+  const mid = { sender: await usdt(sender), recipient: await usdt(recipient) };
+  const posted2 = sends(page);
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  let reached;
+  const arrived = new Promise((resolve) => (reached = resolve));
+  await page.route('**/api/bank/trpc/transfers.toUser', async (route) => {
+    if (typeof route.request().postDataJSON()?.stepUpApprovalId !== 'string') return route.continue();
+    const answer = await route.fetch();
+    reached();
+    await released;
+    await route.fulfill({ response: answer }).catch(() => undefined);
+  });
+  await sendForm(page, { amount: second, note: null, signedIn: true });
+  await page.getByTestId('pay-review').click();
+  await page.getByTestId('pay-send').click();
+  await expect(stepUp).toBeVisible();
+  await stepUp.getByLabel('Authenticator code').fill(await aCode());
+  await page.getByTestId('pay-step-up-confirm').dblclick();
+  await arrived;
+  // While the reply is held, the button says it is sending and cannot be pressed again.
+  await expect(page.getByTestId('pay-step-up-confirm')).toBeDisabled();
+  await expect(page.getByTestId('pay-step-up-confirm')).toHaveText('Sending…');
+  await page.reload();
+  release();
+  // After the reload, Send waits on the payment that was on its way: it is not sent again, and Review stays off.
+  await expect(page.getByTestId('pay-waiting')).toContainText('We’re still confirming your last payment.');
+  await expect(page.getByTestId('pay-review')).toBeDisabled();
+  await page.waitForTimeout(2000);
+  await page.unroute('**/api/bank/trpc/transfers.toUser');
+  expect(posted2.filter((body) => typeof body.stepUpApprovalId === 'string')).toHaveLength(1);
+  expect(toUnits(mid.sender) - toUnits(await usdt(sender))).toBe(toUnits(second));
+  expect(toUnits(await usdt(recipient)) - toUnits(mid.recipient)).toBe(toUnits(second));
+  expect(await sentOf(second)).toHaveLength(1);
+  run.write({ second });
 });
 
 /** The 25 USDT payment's status page, opened from its receipt link on the person's recent payments in Pay. */
@@ -656,33 +646,28 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
   // review before any money moves, and its status page reads In review with the reason class.
   const held = '60';
   const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
-  reviewRule(true);
-  try {
-    await signInA(page);
-    await sendForm(page, { amount: held, note: null, signedIn: true });
-    await page.getByTestId('pay-review').click();
-    await page.getByTestId('pay-send').click();
-    const notice = page.getByTestId('pay-held');
-    await expect(notice).toContainText('In review: this payment is checked before it is sent. Nothing has left your account.');
-    await notice.getByRole('link', { name: 'See its status' }).click();
-    await expect(page).toHaveURL(/\/pay\/history\/[^/?]+$/);
-    await expect(page.getByTestId('payment-status')).toHaveText('In review');
-    await expect(page.getByTestId('payment-status')).toHaveAttribute('data-status', 'in_review');
-    await expect(page.getByTestId('payment-review-reason')).toHaveText(
-      'Large payment check: payments above a set amount are checked before they are sent.',
-    );
-    await expect(page.getByTestId('payment-review-reason')).toHaveAttribute('data-reason', 'amount_over_review_line');
-    await expect(page.getByTestId('payment-held-note')).toHaveText(
-      'Nothing has left your account. It is sent once the check passes; if it doesn’t, nothing moves.',
-    );
-    await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
-    // Nothing moved while it waits, and the bank has no send out of A for it.
-    expect(await usdt(sender)).toBe(before.sender);
-    expect(await usdt(recipient)).toBe(before.recipient);
-    expect(await sentOf(held)).toEqual([]);
-  } finally {
-    reviewRule(false);
-  }
+  await signInA(page);
+  await sendForm(page, { amount: held, note: null, signedIn: true });
+  await page.getByTestId('pay-review').click();
+  await page.getByTestId('pay-send').click();
+  const notice = page.getByTestId('pay-held');
+  await expect(notice).toContainText('In review: this payment is checked before it is sent. Nothing has left your account.');
+  await notice.getByRole('link', { name: 'See its status' }).click();
+  await expect(page).toHaveURL(/\/pay\/history\/[^/?]+$/);
+  await expect(page.getByTestId('payment-status')).toHaveText('In review');
+  await expect(page.getByTestId('payment-status')).toHaveAttribute('data-status', 'in_review');
+  await expect(page.getByTestId('payment-review-reason')).toHaveText(
+    'Large payment check: payments above a set amount are checked before they are sent.',
+  );
+  await expect(page.getByTestId('payment-review-reason')).toHaveAttribute('data-reason', 'amount_over_review_line');
+  await expect(page.getByTestId('payment-held-note')).toHaveText(
+    'Nothing has left your account. It is sent once the check passes; if it doesn’t, nothing moves.',
+  );
+  await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  // Nothing moved while it waits, and the bank has no send out of A for it.
+  expect(await usdt(sender)).toBe(before.sender);
+  expect(await usdt(recipient)).toBe(before.recipient);
+  expect(await sentOf(held)).toEqual([]);
 });
 
 /**
