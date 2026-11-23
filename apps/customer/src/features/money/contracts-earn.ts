@@ -88,10 +88,4 @@ export const earnReads = {
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const earnWrites = {
-  'autoInvest.createDca': ruleSchema,
-  'autoInvest.createThresholdSweep': ruleSchema,
-  'autoInvest.createRoundUp': ruleSchema,
-  'autoInvest.pause': ruleSchema,
-  'autoInvest.resume': ruleSchema,
-} as const;
+export const earnWrites = {} as const;

@@ -94,7 +94,7 @@ export interface ReceiverGuide {
   /** Seconds a receiver should accept between our timestamp and its clock. Null: the owner has not set it. */
   readonly toleranceSeconds: number | null;
   /** Where deliveries come from. Null: not published yet. */
-  readonly senderIps: readonly string[] | null;
+  readonly senderIps: string[] | null;
   readonly vector: { readonly secret: string; readonly timestamp: string; readonly body: string; readonly signature: string };
 }
 

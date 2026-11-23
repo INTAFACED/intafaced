@@ -15,6 +15,12 @@ import {
   PAY_MERCHANT_OPS_ACTIVATION_GET,
   PAY_MERCHANT_OPS_EXPORTS_CREATE,
   PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
+  PAY_MERCHANT_OPS_KYB_CURRENT,
+  PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS,
+  PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_UNREAD_COUNT,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_LIST,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_SET,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryRecord, mutateRecord }: PortalTools) => ({
@@ -41,7 +47,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
       p.destinationSchema,
     );
   },
-  kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
+  kybCurrent: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_KYB_CURRENT, {}, signal),
   activation: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_ACTIVATION_GET, {}, signal),
   kybHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.kyb.history', p.kybEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
@@ -49,12 +55,12 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
     list('merchantOps.team.list', p.memberSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),
   teamHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.team.history', p.teamEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
-  myInvitations: (signal?: AbortSignal) => query('merchantOps.team.myInvitations', {}, p.invitationSchema, signal),
+  myInvitations: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS, {}, signal),
   invite: (input: { userId?: string; email?: string; role: p.TeamRole; label?: string }) =>
     mutate('merchantOps.team.invite', input, p.memberSchema),
   changeRole: (memberId: string, role: p.TeamRole) => mutate('merchantOps.team.changeRole', { memberId, role }, p.memberSchema),
   removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
-  acceptInvite: (memberId: string) => mutate('merchantOps.team.acceptInvite', { memberId }, p.memberSchema),
+  acceptInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE, { memberId }),
   permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
   declineInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE, { memberId }),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
@@ -77,14 +83,14 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
       { ...(cursor ? { cursor } : {}), ...(unreadOnly ? { unreadOnly } : {}), ...(kind ? { kind } : {}) },
       signal,
     ),
-  unreadCount: (signal?: AbortSignal) => query('merchantOps.notifications.unreadCount', {}, p.unreadSchema, signal),
+  unreadCount: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_UNREAD_COUNT, {}, signal),
   markRead: (notificationIds: string[]) => mutate('merchantOps.notifications.markRead', { notificationIds }, p.markedSchema),
   markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
-  preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(p.preferenceSchema), signal),
+  preferences: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_LIST, {}, signal),
   preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.notifications.preferences.history', p.preferenceChangeSchema, { ...(cursor ? { cursor } : {}) }, signal),
   setPreference: (input: { kind: p.NotificationKind; inApp: boolean; threshold?: string | null }) =>
-    mutate('merchantOps.notifications.preferences.set', input, p.preferenceSchema),
+    mutateRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_SET, input),
 });
 
 /** The settings client: the shared calls, then the account pages' own (`account/api.ts`) and the business application's. A method name used twice fails `api-registry.test.ts`. */
