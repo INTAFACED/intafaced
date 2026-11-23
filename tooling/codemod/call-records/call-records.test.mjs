@@ -418,6 +418,81 @@ test('a helper name taken in the record file or the shared file never lands twic
   assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
 });
 
+test('a record whose import would close a cycle between two contracts files stays by name, named; one that closes none moves', () => {
+  // svc-bank on main (weed project-state#3755): ops.cardPayFromReconciliation reads `figures`, which reads `signed`. An
+  // earlier run left `signed` in bank-ops-procedures, so `figures` went to the shared file importing `signed` from there,
+  // and the record there imported `figures` back: one was read before it was declared (samples.mjs: "Cannot access
+  // 'figures' before initialization") and the whole bank run failed.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-cycle-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      'const signed = z.string().regex(/^-?\\d+$/);',
+      'const figures = z.object({ v: signed });',
+      'export function createAgentsRouter() {',
+      '  return router({',
+      "    own: router({ recon: scopedProcedure('agents:read').output(figures).query(() => ({ v: '1' })) }),",
+      "    misc: router({ get: scopedProcedure('agents:read').output(z.string()).query(() => '') }),",
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('agents', 'own.recon', undefined, z.unknown());",
+      "export const b = (api) => api.query('agents', 'misc.get', undefined, z.string());",
+      '',
+    ].join('\n'),
+    'packages/contracts/src/agents-own-procedures.ts': [
+      "import { z } from 'zod';",
+      '',
+      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+      'export const signed = z.string().regex(/^-?\\d+$/);',
+      '',
+    ].join('\n'),
+    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const other = z.string();\n",
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['AGENTS_MISC_GET'], 'the record that closes no cycle moves');
+  assert.deepEqual(
+    summary.hand.map((h) => [h.call, h.why]),
+    [
+      [
+        'agents own.recon',
+        'its record would import agents-call-schemas.ts into agents-own-procedures.ts, which agents-call-schemas.ts already imports: an import cycle',
+      ],
+    ],
+  );
+  const own = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.doesNotMatch(own, /agents-call-schemas/, 'the record file never imports the file that imports it');
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.doesNotMatch(shared, /agents-own-procedures|figures/, 'nor does the shared file take its helper');
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /api\.query\(["']agents["'], ["']own\.recon["']/, 'its caller stays by name');
+  assert.match(caller, /api\.call\(AGENTS_MISC_GET, /);
+});
+
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
   const { howToPlan } = await import('./report.mjs');
   const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));
@@ -2334,6 +2409,74 @@ test("a call whose router writes no answer schema takes its callers' one pure zo
   assert.match(none.why ?? '', /with its own reader function, not a zod schema/);
 });
 
+test("a caller's answer schema read through a namespace import (`p.teamSchema`) is taken as the name its file declares, and its closure follows it", () => {
+  const dir = 'apps/customer/src/features/pay/portal';
+  const repo = plantRepo('call-records-namespace-', {
+    'packages/contracts/src/ids.ts': ['export const ID = 1;'],
+    [`${dir}/schemas.ts`]: [
+      "import { z } from 'zod';",
+      "const role = z.enum(['owner', 'viewer']);",
+      'export const teamSchema = z.object({ id: z.string(), role });',
+    ],
+    [`${dir}/api.ts`]: [
+      "import * as p from './schemas';",
+      "export const a = (api) => api.query('pay', 'merchantOps.team.me', {}, p.teamSchema);",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.path === 'merchantOps.team.me');
+  assert.equal(sites.length, 1);
+  const taken = answerFromCallers(repo, sites, { schemaOf: schemaArgOf, checksOf: answerChecks });
+  assert.ok(taken.output, taken.why);
+  assert.equal(text(taken.output.p, taken.output.node), 'teamSchema', 'the record writes the name, not the namespace');
+  assert.equal(taken.output.p.file, join(repo, dir, 'schemas.ts'));
+  const closure = closureOf(repo, [{ ...taken.output, where: 'merchantOps.team.me output' }]);
+  assert.deepEqual(closure.problems, []);
+  assert.deepEqual(
+    closure.moved.map((m) => m.name),
+    ['role', 'teamSchema'],
+  );
+});
+
+test('a helper that would move under a name the group imports from contracts is that copy when it reads the same, and a clash when not', () => {
+  const app = 'apps/customer/src/features/pay';
+  const repo = plantRepo('call-records-contracts-name-', {
+    'packages/contracts/src/pay-founder.ts': ["import { z } from 'zod';", 'export const id = z.string().guid();'],
+    'services/svc-pay/src/router.ts': [
+      "import { z } from 'zod';",
+      "import { id } from '@intafaced/contracts/pay-founder';",
+      'export const input = z.object({ id });',
+    ],
+    [`${app}/schemas.ts`]: ["import { z } from 'zod';", 'export const id = z.string().guid();'],
+    [`${app}/other.ts`]: ["import { z } from 'zod';", 'export const id = z.string().min(1);'],
+    [`${app}/api.ts`]: [
+      "import { z } from 'zod';",
+      "import { id } from './schemas';",
+      'export const same = z.object({ id, at: z.string() });',
+    ],
+    [`${app}/api-other.ts`]: ["import { z } from 'zod';", "import { id } from './other';", 'export const differs = z.object({ id });'],
+  });
+  const init = (f, name) =>
+    load(join(repo, f)).program.body.find((s) => s.declaration?.declarations?.[0]?.id.name === name).declaration.declarations[0].init;
+  const input = {
+    p: load(join(repo, 'services/svc-pay/src/router.ts')),
+    node: init('services/svc-pay/src/router.ts', 'input'),
+    where: 'x input',
+  };
+  const same = closureOf(repo, [input, { p: load(join(repo, app, 'api.ts')), node: init(`${app}/api.ts`, 'same'), where: 'x output' }]);
+  assert.deepEqual(same.problems, []);
+  assert.deepEqual(
+    same.moved.map((m) => m.name),
+    [],
+    "the app's `id` reads as contracts' own: it is read from there, never declared beside it",
+  );
+  assert.ok(same.fromContracts.has('id'));
+  const differs = closureOf(repo, [
+    input,
+    { p: load(join(repo, app, 'api-other.ts')), node: init(`${app}/api-other.ts`, 'differs'), where: 'x output' },
+  ]);
+  assert.match(differs.problems.join('; '), /id clashes with another id the record imports from packages\/contracts\/src\/pay-founder\.ts/);
+});
+
 /** A scratch repo with these files, committed so `git ls-files` sees them. */
 function plantRepo(prefix, files) {
   const repo = mkdtempSync(join(tmpdir(), prefix));
@@ -2462,6 +2605,102 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
     assert.ok(after.includes(kept), kept);
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
+});
+
+test('a deleted hand schema takes the imports only it read: a name still read, or a type, stays', async () => {
+  // contracts-payments.ts on main (weed project-state#3755): deleting transfers.listSchedules left
+  // BANK_TRANSFERS_LIST_SCHEDULES imported and unread (eslint/no-unused-vars).
+  const { unusedImportsDropped } = await import('./dead-hand-schemas.mjs');
+  const src = [
+    "import { z } from 'zod';",
+    "import { BANK_A, BANK_B } from '@intafaced/contracts/bank-a-procedures';",
+    "import { BANK_C } from '@intafaced/contracts/bank-c-procedures';",
+    "import type { Row } from './rows';",
+    "export const reads = { 'a.b': BANK_B.output, 'a.c': z.string() } as const;",
+    'export type R = Row;',
+    '',
+  ].join('\n');
+  assert.equal(
+    unusedImportsDropped(src),
+    [
+      "import { z } from 'zod';",
+      "import { BANK_B } from '@intafaced/contracts/bank-a-procedures';",
+      "import type { Row } from './rows';",
+      "export const reads = { 'a.b': BANK_B.output, 'a.c': z.string() } as const;",
+      'export type R = Row;',
+      '',
+    ].join('\n'),
+  );
+});
+
+test("a map read of a hand schema whose call has a record reads the record's schema, so the copy goes; one with no record stays", async () => {
+  // svc-bank on main (weed project-state#3755): loans.projection, loans.payoffQuote, ramps.destinations.rename and
+  // sharedPots.invite had records and no caller by name, yet a test's `bankReads['x'].parse` or a write check's
+  // `(typeof bankWrites)['x']` kept each hand copy alive.
+  const { deadHandSchemas, readRecords } = await import('./dead-hand-schemas.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('record-reads-', {
+    'packages/contracts/src/bank-loans-procedures.ts': [
+      "const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const;",
+      'export const BANK_LOANS_QUOTE = defineProcedure({',
+      '  ...base,',
+      "  path: 'loans.quote',",
+      '});',
+      'export const BANK_LOANS_INVITE = defineProcedure({',
+      '  ...base,',
+      "  path: 'loans.invite',",
+      '});',
+    ],
+    [`${money}/contracts-loans.ts`]: [
+      "import { z } from 'zod';",
+      'export const loansReads = {',
+      "  'loans.quote': z.string(),",
+      "  'loans.own': z.string(),",
+      '} as const;',
+      "export const loansWrites = { 'loans.invite': z.object({ id: z.string() }), 'loans.ownWrite': z.string() } as const;",
+    ],
+    [`${money}/contracts.ts`]: [
+      "import { z } from 'zod';",
+      "import { loansWrites } from './contracts-loans';",
+      'export const bankWrites = { ...loansWrites } as const;',
+      "export const check = (data: unknown) => (data as z.infer<(typeof bankWrites)['loans.invite']>).id;",
+    ],
+    [`${money}/loans.test.ts`]: [
+      "import { bankReads, other } from './contracts';",
+      "expect(bankReads['loans.quote'].parse('1')).toBe('1');",
+      "expect(bankReads['loans.own'].parse('1')).toBe('1');",
+    ],
+    // A review handed no answer schema reads `bankWrites['x']` itself: a read by name, kept alive while no record exists.
+    [`${money}/review.test.ts`]: [
+      "import { bankWriteForReview } from './contracts';",
+      "const a = bankWriteForReview('loans.invite', { id: 'x' });",
+      "const b = bankWriteForReview('loans.ownWrite', { id: 'x' });",
+    ],
+    [`${money}/quote.test.ts`]: [
+      "import { bankReads, other } from './contracts';",
+      "expect(bankReads['loans.quote'].parse('1')).toBe('1');",
+      'expect(other).toBe(1);',
+    ],
+  });
+  const written = new Map(readRecords(repo).map((c) => [c.file.split('/').pop(), c.src]));
+  const read = (f) => written.get(f);
+  assert.match(read('loans.test.ts'), /BANK_LOANS_QUOTE\.output\.parse/);
+  assert.match(read('loans.test.ts'), /bankReads\['loans\.own'\]/, 'a call with no record keeps its hand read');
+  assert.match(read('loans.test.ts'), /import \{ BANK_LOANS_QUOTE \} from '@intafaced\/contracts\/bank-loans-procedures';/);
+  assert.match(read('quote.test.ts'), /^import \{ other \} from '\.\/contracts';$/m, 'a map the file no longer reads leaves its import');
+  assert.match(read('contracts.ts'), /z\.infer<\(typeof BANK_LOANS_INVITE\)\['output'\]>/);
+  assert.match(read('review.test.ts'), /bankWriteForReview\('loans\.invite', \{ id: 'x' \}, BANK_LOANS_INVITE\.output\)/);
+  assert.match(
+    read('review.test.ts'),
+    /bankWriteForReview\('loans\.ownWrite', \{ id: 'x' \}\);/,
+    'no record: the review keeps its default',
+  );
+  for (const f of ['loans.test.ts', 'quote.test.ts', 'contracts.ts', 'review.test.ts']) forget(join(repo, money, f));
+  assert.deepEqual(
+    deadHandSchemas(repo).map((h) => h.name),
+    ['loans.quote', 'loans.invite'],
+    'the copies nothing else names are dead; the one with no record is not',
+  );
 });
 
 test('a wrapper that sends the call name it is handed, or a spec whose procedure it sends, is a site per caller string, moved whole; a near shape stays, named', async () => {

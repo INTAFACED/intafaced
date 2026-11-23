@@ -50,25 +50,6 @@ export function teamMemberWrite(sql: () => Sql) {
 }
 
 /**
- * A person's own notification preferences (J-merchant-01 #6): `pay:write` or `pay:onboard`, both rechecked live, so an
- * owner whose verification is not done yet saves their own choices like any teammate. A preference is the caller's own
- * row, moves no money and changes nothing anyone else sees, so it takes no KYB gate; the role table still decides it
- * (`notifications.manage`, in the service method), and a suspended or closed business loses `pay:onboard` at once.
- */
-export function ownPreferenceWrite() {
-  return anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' });
-}
-
-/**
- * Accepting an invitation addressed to the caller: the caller's own membership, so `pay:onboard`
- * is enough (the person has no business of their own to hold `pay:write` for), still rechecked
- * live. The method refuses API keys and sessions without a second factor.
- */
-export function invitationAccept() {
-  return anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' });
-}
-
-/**
  * Declining an invitation or leaving a team only takes access away, so it is open even while the
  * business is suspended or closed (when the live recheck withdraws `pay:onboard`): a member is never
  * stuck on a shut business's team. The scope itself is still required, with its second factor.

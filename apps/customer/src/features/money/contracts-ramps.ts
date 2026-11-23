@@ -83,6 +83,4 @@ export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 export const rampsReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const rampsWrites = {
-  'ramps.destinations.rename': destinationSchema,
-} as const;
+export const rampsWrites = {} as const;
