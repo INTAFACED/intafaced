@@ -7,8 +7,18 @@ import { Text } from './copy';
  * on the kit (intafaced issue 9566): the same words and order, drawn only from the kit's `lt-` classes.
  */
 
-/** How many rows one read returned, against the limit asked for, and a wider read while the service's cap allows one. */
+/** Format integer basis points as an exact percentage string without float rounding (100 -> "1", 25 -> "0.25"). */
+export function formatBpsPercent(bps: number): string {
+  const whole = Math.trunc(bps / 100);
+  const frac = Math.abs(bps % 100);
+  if (frac === 0) return String(whole);
+  const decimals = String(frac).padStart(2, '0').replace(/0+$/, '');
+  return `${bps < 0 ? '-' : ''}${Math.abs(whole)}.${decimals}`;
+}
+
+/** How many rows one read returned when at the limit, with a wider read while the cap allows one. */
 export function Limit({ count, limit, cap, onChange }: { count: number; limit: number; cap: number; onChange: (limit: number) => void }) {
+  if (count < limit) return null;
   return (
     <div className="lt-toolbar">
       <small className="lt-hint">

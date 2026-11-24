@@ -24,7 +24,7 @@ run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.b
 # alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
 # (Failure it prevents: before this, a red journeys run on main named its commits in an issue and nothing reverted.)
 #
-# Confirm (`confirm`): when the automatic revert merges, journeys-back.yml starts the failing journeys alone on main's
+# Confirm (`confirm`): when the automatic revert merges, main-trust.yml `back` starts the failing journeys alone on main's
 # new head, in their own group, so they wait behind no full run. The steps passing is the break back, noted on the
 # journey's break issue; the issue still closes only when main's full run passes them.
 # It also writes the recovery record (journeys-revert.mjs recoveryRecord) as a comment on the revert, which project-state

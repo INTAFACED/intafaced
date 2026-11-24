@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../../ui-kit';
 import { accountCopy } from './copy';
 import { NotLiveCard } from '../../chrome/NotLiveCard';
@@ -22,4 +23,24 @@ export function Blocker({ reason, title, needs, children }: { reason: string; ti
 export function OwnerSetsUp() {
   const { t } = accountCopy.useCopy();
   return <EmptyState title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</EmptyState>;
+}
+
+/**
+ * A person with no business whose session cannot open one: it carries no `pay:onboard`, which needs two-step sign-in,
+ * so the service refuses even the read of their own (absent) record. Setup's first step for them is turning it on.
+ */
+export function TwoStepFirst() {
+  const { t } = accountCopy.useCopy();
+  return (
+    <EmptyState
+      title={t('twoStepFirstTitle')}
+      action={
+        <Button variant="primary" nativeButton={false} role="link" render={<a href="/settings/security" />}>
+          {t('twoStepFirstAction')}
+        </Button>
+      }
+    >
+      {t('twoStepFirstBody')}
+    </EmptyState>
+  );
 }

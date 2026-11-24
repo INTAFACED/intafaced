@@ -1019,7 +1019,11 @@ export class UserVenueDoor {
     const address = this.builderAddress();
     let feeBps: Amount | null = this.deps.builder?.feeBps ?? null;
     try {
-      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, venueId, intent?.symbol ?? '');
+      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, {
+        venueId,
+        symbol: intent?.symbol ?? '',
+        kind,
+      });
       if (versioned) feeBps = versioned.feeBps;
     } catch (err) {
       if (!(err instanceof BuilderFeeVersionError)) throw err;
@@ -1135,6 +1139,44 @@ export class UserVenueDoor {
       if (listing) value.push({ ...m, listing });
     }
     return { ...read, value };
+  }
+
+  /**
+   * J-cex-spot-14 #1 #2: each market we show, signed in or not, with the venue's own trading state and session as it
+   * reports them now and our listing beside them (when it opens, when it is delisted, our routing state). Read only:
+   * nothing is prepared or sent. `asOf` is the venue read's own time, so the markets list and /status show how fresh it
+   * is and never a time of their own.
+   */
+  async marketStates() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const test = isTestVenue(venue.venue);
+    return {
+      venueId: read.venueId,
+      value: {
+        venue: { id: venue.venue.id, displayName: venue.venue.displayName },
+        markets: read.value.map((m) => ({
+          symbol: m.symbol,
+          kind: m.kind,
+          baseAsset: m.baseAsset,
+          quoteAsset: m.quoteAsset,
+          tickSize: m.tickSize,
+          lotSize: m.lotSize,
+          status: m.status,
+          session: m.session,
+          listing: {
+            opensAt: m.listing.opensAt,
+            delistsAt: m.listing.delistsAt,
+            routing: m.listing.routing,
+            open: m.listing.open,
+            delisted: m.listing.delisted,
+          },
+        })),
+        test,
+        ...(test ? { label: 'TEST' } : {}),
+      },
+      asOf: read.asOf,
+    };
   }
 
   /**
@@ -2058,11 +2100,12 @@ export class UserVenueDoor {
     if (charged !== null) {
       let published: Amount | null = this.deps.builder?.feeBps ?? null;
       try {
-        const versioned = builderFeeOf(
-          (await this.deps.builderFeesAt?.(placed?.placedAt ?? this.deps.now())) ?? null,
-          account.venueId,
-          order.symbol,
-        );
+        const book = (await this.deps.builderFeesAt?.(placed?.placedAt ?? this.deps.now())) ?? null;
+        // A version may set the perp and spot fees apart: a market no longer listed has no kind to read, so
+        // the fee published for it is not known rather than guessed.
+        const kind = book ? await this.marketKind(venue, order.symbol).catch(() => null) : null;
+        const versioned = book && kind ? builderFeeOf(book, { venueId: account.venueId, symbol: order.symbol, kind }) : null;
+        if (book && !kind) published = null;
         if (versioned) published = versioned.feeBps;
       } catch (err) {
         if (!(err instanceof BuilderFeeVersionError)) throw err;

@@ -36,3 +36,11 @@ body {
   color: var(--if-fg-3);
   font-size: var(--if-text-xs);
 }
+/*
+ * The harness loads no kit sheet (their focus rings and roles would change the room it tests). The trade tables are the
+ * kit's, and in the app they scroll inside their own box by its rule (components.css, .lt-table-scroll): the same here.
+ */
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}

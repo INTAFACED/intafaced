@@ -154,6 +154,10 @@ export const TRPC = {
   },
   // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
   'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
+  // pay: a personal account with no business yet (matches `bank:business.list: () => []`), so business rooms show their
+  // no-business state with one "Open a business account" menu entry and `/pay/onboarding` opens on the first setup step.
+  'pay:merchant.myAccess': () => ({ memberships: [] }),
+  'pay:merchant.me': () => null,
 };
 
 export const REST = {
@@ -170,6 +174,17 @@ export const REST = {
     asOf: new Date(Date.now()).toISOString(),
     value: [{ asset: 'USDC', free: '25', locked: '0', total: '25' }],
   }),
+};
+
+/**
+ * The REST reads the TEST account's deployment refuses, each with its typed answer: the venue door is off here, so the
+ * venue's market states refuse as off and the Markets list and /status read their own markets (J-cex-spot-14 #1 #2).
+ */
+export const REST_REFUSED = {
+  'venue/market-states': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
 };
 
 /** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */
