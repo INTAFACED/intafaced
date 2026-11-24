@@ -300,5 +300,5 @@ export function useStanding(
     unit,
     venueQuotes,
   );
-  return { wallet, venue, partner, standing: result, pricesFailed: failed };
+  return { wallet, venue, partner, standing: result, pricesFailed: failed, prices: failed ? null : prices };
 }

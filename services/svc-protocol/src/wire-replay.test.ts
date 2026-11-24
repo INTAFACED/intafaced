@@ -157,6 +157,7 @@ export function createReplayProtocolRouter() {
     swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
     swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
     swapFeeCapWei: () => env.PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI,
+    swapPaymasterAddress: () => (isZeroAddress(env.PROTOCOL_SWAP_PAYMASTER_ADDRESS) ? null : env.PROTOCOL_SWAP_PAYMASTER_ADDRESS),
     feeRelay: () =>
       !isZeroAddress(env.PROTOCOL_FEE_RELAY_ADDRESS) && env.PROTOCOL_FEE_RELAY_URL && env.PROTOCOL_FEE_RELAY_GAS_LIMIT !== null
         ? {

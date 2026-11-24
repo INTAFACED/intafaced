@@ -16,6 +16,8 @@ import { StandingTotal, dollars } from './StandingTotal';
 import { ValuationNote } from './ValuationNote';
 import { Movers } from './Movers';
 import { clockTime } from './time';
+import { WhereAllocation } from './WhereAllocation';
+import { WhereHoldingsChange } from './WhereHoldingsChange';
 import { isHiddenPath, navigate } from './deps';
 import { MoneyOverview } from './MoneyRoom';
 import { buyHref } from './links';
@@ -97,7 +99,7 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
   const { displayCurrency, hideBalances, timeZone } = usePreferences();
   const money = moneyCopy.useCopy();
   const network = networkLabel(chainId).name;
-  const { wallet, venue, partner, standing, pricesFailed } = useStanding(
+  const { wallet, venue, partner, standing, pricesFailed, prices } = useStanding(
     owner,
     chainId,
     { network, venue: status.venue.displayName, venueTest: status.test },
@@ -130,6 +132,7 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
       actions={<QuickActions t={t} />}
       sections={
         <div className="lt-stack">
+          {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
           <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
           {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
@@ -145,6 +148,7 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
               })}
             />
           ) : null}
+          <WhereHoldingsChange owner={owner} prices={prices} hidden={hideBalances} t={t} />
           {standing.prices ? null : (
             <p className="lt-hint" data-testid="assets-no-price-note">
               {t('No price note')}
