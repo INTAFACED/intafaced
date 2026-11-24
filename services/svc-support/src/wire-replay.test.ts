@@ -76,6 +76,11 @@ import { WithdrawalFreezes, createIdentityWithdrawalFreezeClient } from './withd
  */
 
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 /** One golden file stays under the CI review's 400 KB diff part, so a change to it can be read. */
@@ -432,7 +437,7 @@ function readGolden(): Golden {
   const parts = readdirSync(GOLDEN)
     .filter((name) => name.endsWith('.json'))
     .sort()
-    .map((name) => JSON.parse(readFileSync(goldenJson(name.slice(0, -'.json'.length)), 'utf8')) as Golden);
+    .map((name) => JSON.parse(readFileSync(goldenJson(name.slice(0, -'.json'.length)), 'utf8').replaceAll(RECORDED_STACK, '')) as Golden);
   return {
     callers: parts.flatMap((p) => p.callers).sort((a, b) => a.path.localeCompare(b.path)),
     inputs: Object.assign({}, ...parts.map((p) => p.inputs)),

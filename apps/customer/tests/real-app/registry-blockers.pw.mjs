@@ -39,6 +39,7 @@ const SWEEP = {
   'bank-ramps': { at: '/bank/ramps', shows: 'No payment provider is connected.' },
   'bank-analytics': { proof: 'its reason is that no journey proves the room' },
   'bank-business': { at: '/bank/business', shows: 'Registered company accounts need business verification' },
+  'bank-credit-previews': { at: '/bank/loans/overdraft', shows: 'needs a licence we do not hold' },
   'margin-futures-options': { at: '/trade/options', shows: 'The rule for which asset settles an option is not published.' },
   copy: {
     proof:

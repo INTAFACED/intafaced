@@ -34,6 +34,7 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
+    [/reads process\.env, so its schema changes/, "schema picked by the service's settings (one record: field optional, handler refuses)"],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
     [/has a record form its callers move to one by one/, 'tool kept while a caller is left (each caller named under its own reason)'],

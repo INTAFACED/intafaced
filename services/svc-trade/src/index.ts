@@ -79,7 +79,8 @@ import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
-import { presentAccountFees, registerPrivateRest } from './private-rest.js';
+import { presentAccountFees, presentCcxtBalances, registerPrivateRest } from './private-rest.js';
+import { registerSupportBalanceRead } from './support/balance-read.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
 import { attachBoundClosePosition } from './spot/close-position.js';
@@ -133,6 +134,8 @@ import { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
 import { VenueBalanceWatch } from './venue/balance-watch.js';
 import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
+import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
+import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -337,6 +340,13 @@ registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS
 // A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
 registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A customer's balance for svc-support, under the customer's own grant (J-support-public-20 #2): the same projection of
+// the ledger their own balance read gives.
+registerSupportBalanceRead(app, {
+  balances: async (userId) => presentCcxtBalances(await ledger.balances('user', userId)).balances,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+});
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
 const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
@@ -563,6 +573,11 @@ const venueBalanceWatch = userVenue
       now: () => new Date(),
     })
   : null;
+// Margin and liquidation-risk alerts on a position on the person's own venue account (J-derivatives-06 #6 #7): one alert
+// per crossing of a level, published to svc-notify after its row is written, ticked with the protections. Off with the door.
+const venueRiskAlerts = userVenue
+  ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -571,7 +586,7 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick()])
+    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick(), venueRiskAlerts?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -980,6 +995,7 @@ export const appRouter = createTradeRouter(
     samples: venueMarginSamples,
     now: () => new Date(),
   },
+  venueRiskAlerts,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

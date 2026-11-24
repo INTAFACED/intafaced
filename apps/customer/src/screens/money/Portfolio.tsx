@@ -46,6 +46,8 @@ import { ValuationNote } from './ValuationNote';
 import { HoldingsChange } from './HoldingsChange';
 import { ChangeLine, HeroTotal, Shown, btcParts, signOf, usdParts } from './money-parts';
 import { MoneyOverview } from './MoneyRoom';
+import { PartnerAccount } from './WhereItSits';
+import { usePartnerRead } from './standing-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -539,6 +541,9 @@ export default function Portfolio() {
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
   const accounts = useNamedAccounts();
+  // The partner bank's account, when it holds this person's money: no ledger balance counts it, so an empty ledger is
+  // not "nothing held" and its zero is not a total; the partner's own figures are shown instead.
+  const atPartner = usePartnerRead().state !== 'none';
 
   const view = portfolio.status === 'ready' ? portfolio.data : null;
   // BTC only when the bank gave both its BTC total and the price behind it; otherwise every value stays in USD.
@@ -618,7 +623,7 @@ export default function Portfolio() {
       {label}
       {view ? (
         <Headline view={view} hidden={hideBalances} copy={copy} />
-      ) : portfolio.status === 'empty' ? (
+      ) : portfolio.status === 'empty' && !atPartner ? (
         <div data-testid="money-total">
           {/* The balance call answered with no assets, so zero is correct here and only here. */}
           <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
@@ -652,6 +657,8 @@ export default function Portfolio() {
         />
       </div>
     );
+  } else if ((portfolio.status === 'empty' || !view) && atPartner) {
+    body = <PartnerAccount />;
   } else if (portfolio.status === 'empty' || !view) {
     body = (
       <>
@@ -708,6 +715,7 @@ export default function Portfolio() {
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
         {/* Main account and spaces together, so it is shown for all accounts only. */}
         {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
+        {!scoped ? <PartnerAccount /> : null}
         {/* A named account is listed here only while it holds something (J-portfolio-06 #5); the picker above offers them all. */}
         {!scoped && heldAccounts.length > 0 ? <Accounts accounts={heldAccounts} hidden={hideBalances} copy={copy} /> : null}
         {isHiddenPath('/money/pnl') ? null : (

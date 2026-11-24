@@ -32,8 +32,8 @@ import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
-import { canon, doorTree, treeOf } from './door-check.mjs';
-import { samplesFor } from './samples.mjs';
+import { canon, doorTree, knowRefines, recordsToHold, treeOf } from './door-check.mjs';
+import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -1144,6 +1144,12 @@ test('the report sorts each hand reason into the kind one script change or one d
     reasonOf('r: s comes from @intafaced/money-math, which contracts does not depend on'),
     'answer or input schema from another package or generic',
   );
+  assert.equal(
+    reasonOf(
+      "svc/a.ts#needsApproval: reads process.env, so its schema changes with the service's settings: a record takes one schema; write it with the setting's field optional and refuse in the handler",
+    ),
+    "schema picked by the service's settings (one record: field optional, handler refuses)",
+  );
   assert.equal(reasonOf('something new'), 'other');
 });
 
@@ -2222,6 +2228,39 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
     accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
     "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
   );
+  // svc-bank's rows: `scopedProcedure(scope, guards)` with a nested Region and Kyc. Before, every one of them was named
+  // "which this reader does not map to a record's", and its callers stayed by name.
+  const bank = (path, fields) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n${fields
+      .map((f) => `            ${f},`)
+      .join('\n')}\n        }),\n        slice: Slice::Accounts,\n        has_input: true,\n    },`;
+  const kycFull =
+    'region: Some(Region {\n                kyc: Some(Kyc {\n                    module: "bank",\n                    min_tier: "full",\n                }),\n            })';
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      bank('salary.details', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull, 'own_session: None']),
+      bank('convertCash.carry', [
+        'scope: "bank:write"',
+        'tier: Some("full")',
+        'person: false',
+        'region: Some(Region { kyc: None })',
+        'own_session: None',
+      ]),
+      bank('ops.free', ['scope: "admin:read"', 'tier: None', 'person: true', 'region: None', 'own_session: Some("bank.own_only")']),
+      bank('no.tier', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: Some(Region { kyc: None })', 'own_session: None']),
+      bank('other.module', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull.replace('"bank"', '"pay"'), 'own_session: None']),
+      bank('odd.field', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: None', 'own_session: None', 'plane: Some("x")']),
+    ].join('\n'),
+  );
+  const bankCalls = Object.fromEntries(callsOf(dir, 'bank'));
+  assert.deepEqual(bankCalls['salary.details'].access, { caller: 'scope', scope: 'bank:read', module: 'bank' });
+  assert.deepEqual(bankCalls['convertCash.carry'].access, { caller: 'scope', scope: 'bank:write', module: 'bank', tier: 'full' });
+  assert.deepEqual(bankCalls['ops.free'].access, { caller: 'scope', scope: 'admin:read', person: true, ownSession: 'bank.own_only' });
+  for (const path of ['no.tier', 'other.module', 'odd.field']) {
+    assert.equal(bankCalls[path].access, null, path);
+    assert.match(bankCalls[path].why, /which this reader does not map to a record's/, path);
+  }
   writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
   assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
@@ -2236,12 +2275,49 @@ test("a record's input is held to the door's tree: the same zod parts match, one
   assert.notEqual(canon(treeOf(z.strictObject({ slug: z.string().min(2) }))), canon(doorTree(nodes, 0)));
 });
 
+test("a door record is held as the door names it: a refine whatever its arrow's parentheses, a fixed length, and each record the run wrote", async () => {
+  const { z } = await contractsZod();
+  // svc-bank's recorder names `value=>/[1-9]/.test(value)`; prettier writes the record's `(value) => /[1-9]/.test(value)`.
+  knowRefines([['value=>/[1-9]/.test(value)', 'some_nonzero_digit']]);
+  const tree = treeOf(
+    z.strictObject({ amount: z.string().refine((value) => /[1-9]/.test(value), 'above zero'), currency: z.string().length(3) }),
+  );
+  assert.equal(tree.shape[0][1].checks[0].id, 'some_nonzero_digit');
+  assert.deepEqual(tree.shape[1][1].checks, [{ k: 'length_equals', n: 3 }]);
+  // A record the run just wrote is not in the registry yet: it is held all the same. Before, it was skipped, and the run
+  // printed "3 records held; 0 differ" over seven new svc-bank records, every one of which differed.
+  const registered = { name: 'bank.old', transport: 'trpc' };
+  const written = { name: 'bank.new', transport: 'trpc' };
+  assert.deepEqual(recordsToHold({ OLD: registered }, [{ NEW: written, base: { service: 'svc-bank' } }]), [written]);
+  assert.deepEqual(recordsToHold({ OLD: registered }, []), [registered]);
+});
+
 test("a door record's accepted sample is the door's own accepted request, and none is guessed without one", async () => {
   const { z } = await contractsZod();
   const record = { name: 'X', path: 'p', input: z.object({ from: z.string() }) };
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test("svc-bank's replay gives each call the first input its door let through; one it refused every way gives none", () => {
+  const ans = (byInput) =>
+    Object.fromEntries(
+      Object.entries(byInput).flatMap(([input, st]) => [
+        [`${input} anon`, [401, 0]],
+        [`${input} customer`, [st, 1]],
+      ]),
+    );
+  const inputs = { sample: '{"currency":"xxx"}', 'sample-nulls': '{"currency":null}' };
+  assert.deepEqual(bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 412, 'sample-nulls': 400 })), { currency: 'xxx' });
+  assert.deepEqual(bankAccepted({ sample: '{"a":1}' }, ans({ absent: 400, empty: 200, sample: 400 })), {});
+  assert.equal(typeof bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 400, 'sample-nulls': 403 })), 'symbol');
+  // The recording itself: before, svc-bank's parts were read as svc-agents' and named no call, so every bank record was
+  // left with "no accepted input found the door lets through".
+  const bank = doorAccepts('crates/svc-bank');
+  assert.deepEqual(bank.get('salary.form'), { currency: 'xxx' });
+  assert.deepEqual(bank.get('salary.details'), {});
+  assert.equal(bank.has('analytics.compare'), false, 'its recorded sample is refused by every caller');
 });
 
 test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
@@ -2428,6 +2504,29 @@ test('a generic helper moves with its own type parameter; a package import moves
     "r: sideSchema comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it",
   ]);
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: T is not declared anywhere it can be read'], 'a T no helper declares stays');
+});
+
+test("a schema picked by the service's settings is named as such, not as a name nobody declares", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-settings-'));
+  mkdirSync(join(repo, 'packages/contracts/src'), { recursive: true });
+  writeFileSync(join(repo, 'packages/contracts/src/wire.ts'), 'export const unused = 1;\n');
+  writeFileSync(join(repo, 'packages/contracts/package.json'), JSON.stringify({ dependencies: { zod: '^4' } }));
+  mkdirSync(join(repo, 'svc'), { recursive: true });
+  writeFileSync(
+    join(repo, 'svc/router.ts'),
+    [
+      "import { z } from 'zod';",
+      'const base = z.object({ id: z.string() }).strict();',
+      "function needsApproval(): boolean { return process.env.NEEDS_APPROVAL === 'true'; }",
+      'function inputSchema() { return needsApproval() ? base.extend({ approvalId: z.string() }) : base; }',
+      'const a = inputSchema();',
+      '',
+    ].join('\n'),
+  );
+  const p = load(join(repo, 'svc/router.ts'));
+  const { problems } = closureOf(repo, [{ p, node: p.program.body[4].declarations[0].init, where: 'r' }]);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /needsApproval: reads process\.env, so its schema changes with the service's settings/);
 });
 
 test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
@@ -2815,6 +2914,41 @@ test("a bank write spec's `procedure: 'x.y'` becomes `record: RECORD`, its hand 
     [...f.imports].map(([spec, names]) => [spec, [...names]]),
     [['@intafaced/contracts/bank-earn-procedures', ['BANK_EARN_DEPOSIT']]],
   );
+});
+
+test("a bank write spec's `procedure:` picked by a `? :` chain is one site per call, written back as one `record: t ? A : B`", async () => {
+  const { fanIn } = await import('./fan.mjs');
+  const { callText } = await import('./index.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-spec-fan-', {
+    [`${money}/contracts-business.ts`]: [
+      "import { z } from 'zod';",
+      "export const businessWrites = { 'business.approve': z.object({ a: z.string() }), 'business.reject': z.object({ ok: z.literal(true) }), 'business.cancel': z.object({ ok: z.literal(true) }) };",
+    ],
+    [`${money}/components.tsx`]: ['export type ActionSpec = { title: string; procedure: string; notes: string[]; input: () => object };'],
+    [`${money}/Approvals.tsx`]: [
+      "import { type ActionSpec } from './components';",
+      "export const act = (open: (s: ActionSpec) => void, action: string) => open({ title: 'Act', procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel', notes: [], input: () => ({}) });",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.shape === 'write-spec');
+  assert.deepEqual(
+    sites.map((s) => `${s.path} ${s.fan.at}/${s.fan.size} ${s.fan.test ?? '-'} ${s.problem ?? 'moves'}`),
+    ["business.approve 0/3 action === 'approve' moves", "business.reject 1/3 action === 'reject' moves", 'business.cancel 2/3 - moves'],
+  );
+  assert.ok(
+    sites.every((s) => s.schema),
+    'each call keeps its hand schema in view',
+  );
+  const changes = new Changes();
+  for (const s of sites)
+    rewriteSite(changes, s, `BANK_${s.path.split('.')[1].toUpperCase()}`, '@intafaced/contracts/bank-business-procedures', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const file = join(repo, `${money}/Approvals.tsx`);
+  const code = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(code, /record: action === 'approve' \? BANK_APPROVE : action === 'reject' \? BANK_REJECT : BANK_CANCEL, notes/);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('dead-hand-schemas deletes only the bank hand schemas no caller spells, each with its own comment', async () => {

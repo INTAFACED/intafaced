@@ -101,6 +101,9 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
   } else if (status.chip === 'down') {
     kind = 'down';
     body = t('Banner down', { tick });
+  } else if (status.chip === 'stale' && status.staleBy === 'age') {
+    kind = 'stale';
+    body = t('Banner stale age', { seconds: String(status.ageSeconds ?? 0), threshold: String(status.staleAgeSeconds ?? 0), tick });
   } else if (status.chip === 'stale') {
     kind = 'stale';
     body = t('Banner stale', { seconds: String(status.feedAgeSeconds ?? 0), tick });

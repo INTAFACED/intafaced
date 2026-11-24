@@ -26,6 +26,7 @@
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs chart-count <key> <whole number>   one TEST charts count (`charts` puts the TEST map back)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
@@ -2777,12 +2778,16 @@ async function readChartValues(ctx, token) {
   return view;
 }
 
-/** Set each TEST count that is not set yet. One write per count, each under a business key, each with a reason. */
-export async function publishChartCounts(ctx, sessions = null) {
+/**
+ * Set each TEST count that differs from `counts` (the TEST map by default). One write per count, each under a business key,
+ * each with a reason. A journey step that needs another count (J-charts-desk-02 #2 widens the stale age so a real-time
+ * market can be read between the two ages) calls this through `chart-count`, and puts the TEST map back with `charts`.
+ */
+export async function publishChartCounts(ctx, sessions = null, counts = TEST_CHART_COUNTS) {
   const pair = sessions ?? (await approverSessions(ctx));
   let view = await readChartValues(ctx, await pair.a.tradeOpsToken());
   const out = [];
-  for (const [key, value] of Object.entries(TEST_CHART_COUNTS)) {
+  for (const [key, value] of Object.entries(counts)) {
     if (view.scalars.values[key] === value) {
       out.push({ key, value, changed: false, version: view.scalars.version });
       continue;
@@ -3407,7 +3412,7 @@ export async function scopedConsoleSession(ctx, without) {
 
 /** The CLI's help: every command and its arguments, printed for one this script does not know. */
 export function gatesUsage() {
-  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
+  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | chart-count <key> <n> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
 }
 
 async function main() {
@@ -3418,6 +3423,11 @@ async function main() {
   if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
     die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   if (cmd === 'engine-drop' && (!process.argv[3] || !process.argv[4])) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
+  if (cmd === 'chart-count') {
+    const [key, raw] = process.argv.slice(3);
+    if (!Object.hasOwn(TEST_CHART_COUNTS, key ?? '') || !/^[1-9]\d*$/.test(raw ?? ''))
+      die(`usage: local-test-gates.mjs chart-count <${Object.keys(TEST_CHART_COUNTS).join('|')}> <whole number>`, 2);
+  }
   if (cmd === 'trade-audit') {
     const args = process.argv.slice(3);
     const value = (name) => (args.indexOf(name) >= 0 ? args[args.indexOf(name) + 1] : undefined);
@@ -3588,6 +3598,12 @@ async function main() {
       say(
         `  charts    ${d.symbol.padEnd(24)} ${d.changed ? `data class ${d.dataClass} (TEST), approval ${d.approvalId}` : `already ${d.dataClass} (TEST)`}`,
       );
+    } else if (cmd === 'chart-count') {
+      // chart-count <key> <n>: one TEST charts count on the local stack, through the same door as `charts`.
+      const [key, raw] = process.argv.slice(3);
+      const value = Number(raw);
+      const [r] = await publishChartCounts(ctx, null, { [key]: value });
+      say(`  charts    ${key.padEnd(24)} ${r.changed ? `${value} (TEST), version ${r.version}` : `already ${value} (TEST)`}`);
     } else if (cmd === 'risk') {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];

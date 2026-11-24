@@ -252,6 +252,7 @@ const REFUSALS = new Set<string>([
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
   'auth.agent_scope_forbidden',
+  'identity.rate_limits_unset',
   'identity.developer_roles_unset',
   'identity.developer_role_read_only',
   'identity.developer_role_none',

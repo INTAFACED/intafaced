@@ -351,6 +351,23 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-credit-previews',
+    label: 'Credit previews',
+    paths: [
+      '/bank/loans/overdraft',
+      '/bank/loans/personal',
+      '/bank/loans/schedule',
+      '/bank/cards/credit-card',
+      '/bank/cards/credit',
+      '/bank/business/loan',
+    ],
+    status: 'blocked',
+    reason:
+      'Overdraft, personal and business loans, credit cards and revolving credit are not offered: their engines are not built and need a licence INTAFACED does not hold, so the bank refuses every action with preview.engine_not_built',
+    unlock: 'a lending licence and a built engine, then J-bank-12 passing on main with a real offer',
+    tab: 'money',
+  },
+  {
     id: 'margin-futures-options',
     label: 'Options',
     paths: ['/trade/options'],
@@ -829,9 +846,16 @@ export function betaOffFeatureFor(path: string, access = betaAccess()): Feature 
       feature.paths.some((pattern) => patternMatches(pattern, path)),
   );
 }
-/** Hidden by a feature row, or, in the beta's build only, a room not yet in Volt, switched off, or not the account's (beta-volt.ts). */
+/**
+ * In the beta's build only, whether the beta leaves `path` out: a room not yet in Volt, switched off, or not the account's.
+ * The one test for the menus (isHiddenPath), every drawn link (beta-links.ts) and every move in code (location.ts).
+ */
+export function betaHidden(path: string): boolean {
+  return betaHides(path) || betaOffFeatureFor(path) !== undefined;
+}
+/** Hidden by a feature row, or, in the beta's build only, by betaHidden. */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined || betaHides(path) || betaOffFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHidden(path);
 }
 
 const tabHomes: Record<FeatureTab, string> = {
