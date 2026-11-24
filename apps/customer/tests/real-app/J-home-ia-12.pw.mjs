@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartService, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartService, startService, stopService, toUnits } from './stack.mjs';
+import { statusFeed } from './status-page.mjs';
 import { signUp, verify } from './desk.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
@@ -240,6 +241,15 @@ test(`${J} #2 reads Exposure: open orders as a count with each market and its co
     const none = section(empty, 'Exposure');
     await expect(none).toContainText('You have no open orders.', { timeout: 30_000 });
     await expect(none).toContainText('You have no open positions.');
+    // Futures switched off for this account (the TEST venue lists no perpetual contract): the room says so, never just
+    // "no positions".
+    try {
+      expect((await testVenue('/test/switches', { unlistPerpetuals: true })).status).toBe(200);
+      await expect(none).toContainText('Futures are switched off, so there are no positions to show or close.', { timeout: 30_000 });
+      await expect(none).not.toContainText('You have no open positions.');
+    } finally {
+      await testVenue('/test/switches', { unlistPerpetuals: false });
+    }
   } finally {
     await other.close();
   }
@@ -378,13 +388,31 @@ test(`${J} #6 reads Alerts, Approvals and Platform incidents: Alerts links to no
   );
   await expect(approvals.locator('code')).toHaveText('risk.approvals_source_unset');
   await expect(approvals.getByRole('button', { name: 'Open approvals', exact: true })).toBeDisabled();
-  // The incidents section says one honest state of the platform's status feed: each open incident with when it opened and
-  // the status page, none listed, or not an all-clear with its code and Try again. Never a blank section.
+  // The incidents section lists exactly the open incidents the platform's status feed holds, each with when it opened and
+  // the status page, or says the feed lists none.
   await feed;
+  const open = (await statusFeed()).incidents.filter((i) => i.resolvedAt === null);
   const shown = section(page, 'Platform incidents');
-  const honest = shown.getByText(
-    /Open since |^The status feed lists no open incident\.$|^The status feed could not be read, so incidents are unknown\. This is not an all-clear\.$/,
-  );
-  await expect(honest.first()).toBeVisible({ timeout: 30_000 });
+  await expect(shown.locator('li')).toHaveCount(open.length, { timeout: 30_000 });
+  for (const incident of open)
+    await expect(shown.locator('li').filter({ hasText: incident.title })).toContainText(`Open since ${incident.openedAt}`);
+  await expect(shown.getByText('The status feed lists no open incident.', { exact: true })).toHaveCount(open.length === 0 ? 1 : 0);
+  await expect(shown.locator('a[href="/developers/status"]')).toHaveCount(open.length === 0 ? 0 : 1);
   await stepPicture();
+
+  // The feed can't be read (svc-notify stopped): not an all-clear, with its code and Try again; once it answers again,
+  // Try again reads it.
+  try {
+    await stopService('notify');
+    await page.reload();
+    await expect(shown).toContainText('The status feed could not be read, so incidents are unknown. This is not an all-clear.', {
+      timeout: 60_000,
+    });
+    await expect(shown.locator('code')).toHaveText('risk.incident_feed_unset');
+    await expect(shown.getByText('The status feed lists no open incident.', { exact: true })).toHaveCount(0);
+  } finally {
+    await startService('notify');
+  }
+  await shown.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(shown).not.toContainText('This is not an all-clear.', { timeout: 60_000 });
 });

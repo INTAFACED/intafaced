@@ -83,6 +83,8 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
   // A read that failed is a count unknown, even with an older answer held: never the last count as if read now.
   const summary = orders.data && !orders.failure ? summariseVenueOrders(orders.data.value) : null;
   const live = positions.data && !positions.failure ? openVenuePositions(positions.data.value) : null;
+  // The venue lists no futures contract for this account: futures are off here, said so, never just "no positions".
+  const futuresOff = markets.data ? !markets.data.value.some((m) => m.kind === 'perpetual') : false;
 
   async function cancelEverything(): Promise<CancelEverythingVerdict> {
     const open = (orders.data?.value ?? []).filter(isLiveVenueOrder);
@@ -138,7 +140,9 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
         ) : (
           <p>
             {live.length === 0
-              ? t('positionsNone')
+              ? futuresOff
+                ? t('positionsOff')
+                : t('positionsNone')
               : live.length === 1
                 ? t('positionsCountOne')
                 : t('positionsCount', { count: String(live.length) })}
@@ -166,6 +170,7 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
             signing={signing}
             onDone={reload}
             builder={status.builder}
+            futuresOff={futuresOff}
             t={t}
           />
         )}
@@ -184,6 +189,7 @@ function Reduce({
   signing,
   onDone,
   builder,
+  futuresOff,
   t,
 }: {
   owner: string;
@@ -195,6 +201,8 @@ function Reduce({
   onDone: () => void;
   /** Our builder fee, which every order on the venue carries; an account that has not approved it signs the approval first. */
   builder: VenueUp['builder'];
+  /** The venue lists no futures contract for this account. */
+  futuresOff: boolean;
   t: T;
 }) {
   const venue = useVenueApi();
@@ -281,7 +289,7 @@ function Reduce({
   return (
     <>
       {positions.length === 0 ? (
-        <p>{t('positionsNone')}</p>
+        <p>{futuresOff ? t('positionsOff') : t('positionsNone')}</p>
       ) : (
         <>
           <ul className="lt-rows" data-testid="risk-venue-positions">
