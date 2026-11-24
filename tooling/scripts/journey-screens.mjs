@@ -22,6 +22,8 @@ export function makeScreens(customer) {
     watch(page) {
       if (pages.has(page)) return;
       pages.add(page);
+      // A popup is seen only once it has navigated: what it shows now is a screen of this test.
+      note(page.url());
       page.on('close', () => pages.delete(page));
       page.on('framenavigated', (frame) => {
         if (frame === page.mainFrame()) note(frame.url());

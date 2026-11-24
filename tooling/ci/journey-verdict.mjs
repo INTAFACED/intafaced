@@ -53,9 +53,9 @@
  *   - only on main: a branch run or a targeted run neither adds to the list nor is excused by it. With no complete
  *     earlier list to read (none among main's last PRIOR_LOOKBACK runs), this run's list is incomplete and excuses
  *     nothing; a list starts fresh only when main never had one, so a step's cool-down is never forgotten;
- *   - its `notProven` names every set-aside step, every step with a test Playwright called flaky, and every step whose
- *     test showed a screen the hosted beta hides (`notOnBeta`, by tooling/ci/beta-hides.mjs), so a count of proven
- *     steps leaves them out (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
+ *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
+ *     steps leaves them out; `notOnBeta` names apart each step whose test showed a screen the hosted beta hides
+ *     (tooling/ci/beta-hides.mjs), and `betaUnread` says the beta's rule couldn't be read, for the count to leave out too (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
  *     report.json counts a pass only on the retry as a pass (post-merge-trust.mjs stepStates, roadmap.mjs
  *     passedSteps). Main trust opens one issue per set-aside naming its owner and end date
  *     (post-merge-trust.mjs).
@@ -1200,10 +1200,10 @@ function main() {
     // Not proven from this run: every set-aside step, and every step with a test Playwright called flaky (a pass only on
     // its retry, or a failure whose retry was skipped), money or not.
     const flakyNow = [...(newest?.retried ?? [])];
-    // And every step whose test showed a screen the hosted beta hides; if the beta's rule can't be read, every step.
+    const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
+    // The steps whose test showed a screen the hosted beta hides: listed apart from notProven, since a reader sends a
+    // notProven step to its flaky issue, and a step on a hidden room needs its room built in Volt, not a retry.
     beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
-    const offBeta = beta.unread ? Object.keys(newest.states) : beta.steps.map((r) => r.step);
-    const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow, ...offBeta])].sort(byStep);
     // The ref it ran on: the next run takes the list only from refs/heads/main.
     const out = {
       days: SET_ASIDE_DAYS,
@@ -1212,8 +1212,8 @@ function main() {
       ...(incomplete || !newest ? { incomplete: true } : {}),
       steps: asideRows,
       notProven,
-      // The steps on a screen the hosted beta hides, each with its hidden paths; each is in notProven too. `betaUnread`:
-      // the beta's rule couldn't be read, so every step of this run is in notProven.
+      // The steps on a screen the hosted beta hides, each with its hidden paths (owner decision 24 Nov 2026: not proven
+      // from this run). `betaUnread`: the beta's rule couldn't be read, so no step of this run is known to be on the beta.
       notOnBeta: beta.steps,
       ...(beta.unread ? { betaUnread: beta.unread } : {}),
       // The steps that passed only on their retry and no set-aside tracks, each with its journey's owner, for Main
@@ -1272,10 +1272,12 @@ function main() {
       ? [
           `### On a screen the hosted beta hides: ${beta.unread ? 'unknown' : beta.steps.length}`,
           '',
-          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt) still runs and still gates its pull request, but it is not proven from this run (set-aside.json `notOnBeta`). It doesn't turn this verdict red.",
+          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs and still gates its pull request, but it is not proven from this run (set-aside.json `notOnBeta`). It doesn't turn this verdict red.",
           '',
           ...(beta.unread
-            ? [`The beta's rule couldn't be read (${beta.unread}), so no step of this run counts as proven.`]
+            ? [
+                `The beta's rule couldn't be read (${beta.unread}), so no step of this run is known to be on the beta (set-aside.json \`betaUnread\`).`,
+              ]
             : beta.steps.length
               ? beta.steps.map((r) => `- ${r.step}: ${r.paths.join(', ')}`)
               : ['None.']),

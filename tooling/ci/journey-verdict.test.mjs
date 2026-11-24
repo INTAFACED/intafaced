@@ -1873,7 +1873,7 @@ test('#10704: a beta rule that throws or gives no list is unread', () => {
   );
 });
 
-test("#10704: the verdict's own run lists hidden-screen steps in notProven and notOnBeta; an unread rule proves no step", () => {
+test("#10704: the verdict's own run lists hidden-screen steps in notOnBeta, apart from notProven; an unread rule says so", () => {
   const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
   const run = (rule) => {
     const dir = mkdtempSync(join(tmpdir(), 'verdict-beta-'));
@@ -1910,14 +1910,15 @@ test("#10704: the verdict's own run lists hidden-screen steps in notProven and n
   );
   assert.equal(hides.status, 0, hides.stdout + hides.stderr);
   assert.deepEqual(hides.out.notOnBeta, [{ step: 'J-bank-05#2', paths: ['/hidden/room'] }]);
-  assert.deepEqual(hides.out.notProven, ['J-bank-05#2']);
+  assert.deepEqual(hides.out.notProven, [], 'apart from notProven, which a reader sends to the flaky issue');
   assert.equal(hides.out.betaUnread, undefined);
   assert.equal(hides.out.incomplete, undefined, 'the set-aside list itself stays complete');
   assert.match(hides.stdout, /### On a screen the hosted beta hides: 1\n\n[^\n]*\n\n- J-bank-05#2: \/hidden\/room$/m);
   const broken = run("throw new Error('no dist');");
   assert.equal(broken.status, 0, 'an unread rule never turns the verdict red');
-  assert.deepEqual(broken.out.notProven, ['J-bank-05#1', 'J-bank-05#2', 'J-bank-05#3']);
+  assert.deepEqual(broken.out.notProven, []);
   assert.deepEqual(broken.out.notOnBeta, []);
   assert.match(broken.out.betaUnread, /no dist|Command failed/);
   assert.match(broken.stdout, /On a screen the hosted beta hides: unknown/);
+  assert.match(broken.stdout, /no step of this run is known to be on the beta/);
 });

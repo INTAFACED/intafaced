@@ -49,3 +49,10 @@ test('a URL that throws is not recorded and never throws', () => {
   assert.doesNotThrow(() => page.go('http://127.0.0.1:5173/home'));
   assert.equal(screens.end(seen), null);
 });
+
+test('a popup seen only after its first navigation records the screen it shows', () => {
+  const screens = makeScreens(customer);
+  const seen = screens.begin();
+  screens.watch(fakePage('http://127.0.0.1:5173/dex/pools'));
+  assert.deepEqual(screens.end(seen), { type: BETA_SCREENS, description: JSON.stringify(['/dex/pools']) });
+});
