@@ -1,11 +1,12 @@
-// World: restart
+// World: stack, restart
 import { expect, test } from './journey.mjs';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool } from './stack.mjs';
+import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool, toolAwaited } from './stack.mjs';
 import { openTx, reverseWithTwoFounders } from './ledger-reversal-desk.mjs';
+import { closedMinute, MINUTE, utcMinuteOf } from './clock.mjs';
 
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
@@ -172,6 +173,30 @@ async function consolePropose(page, endpoint, request, confirm) {
   );
 }
 
+/**
+ * A past run asked of svc-ledger through the console's own run route with the desk's hold left out: founder A proposes the
+ * exact control, instant, margin (`unset` for blank) and reason, founder B approves it, and A runs it. Returns the console's
+ * answer to the run step, or to the first step that refused.
+ */
+async function serviceRun(controlId, asOf, margin) {
+  const endpoint = '/api/ledger-reconciliation/run';
+  const version = String((await controlsOf(state.a)).find((c) => c.id === controlId)?.version);
+  const request = {
+    kind: 'ledger.reconciliation_control.run',
+    controlId,
+    version,
+    asOf,
+    margin,
+    reason: `LOCAL TEST J-ops-console-07 run ${tag}`,
+  };
+  const phrase = `RUN CONTROL ${controlId.slice(0, 8)}`;
+  const proposed = (await consolePropose(state.a, endpoint, request, phrase)).body;
+  if (!proposed?.ok) return proposed;
+  const approved = (await consoleStep(state.b, endpoint, proposed.packet, 'approve', phrase)).body;
+  if (!approved?.ok) return approved;
+  return (await consoleStep(state.a, endpoint, proposed.packet, 'execute', phrase)).body;
+}
+
 /** The console's control list, as { status, body }; a refusal keeps its code in the body. */
 const readControls = (page) =>
   page.evaluate(async () => {
@@ -234,6 +259,17 @@ test.beforeAll(putOutsideBack);
 test.afterEach(putOutsideBack);
 
 const accountsRead = (answer) => Number(/(\d+) accounts? and/.exec(answer)?.[1] ?? NaN);
+
+/**
+ * Waits until the minute now falls in has closed, and returns its end: a whole past instant the run desk can type, after
+ * everything done so far and before anything done next.
+ */
+async function nextMinute(page) {
+  return new Date((await closedMinute(page, new Date())) + MINUTE);
+}
+
+/** An instant as the desk's "At a past instant" field takes it (minutes, UTC). */
+const minuteText = (instant) => utcMinuteOf(instant);
 
 /** A floor no TEST book reaches, so a min threshold on it must FAIL. */
 const HIGH_FLOOR = '1000000000000';
@@ -657,10 +693,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(stored).toContain(sources[0]);
   });
 
-  test('J-ops-console-07 #4 a past run reads at the instant minus the margin; blank margin, typed 0 and a future instant', async ({
+  test('J-ops-console-07 #4 a past run reads our records at the instant minus the margin against the venue and partner reports for that instant; not reported is never a match; blank margin, typed 0 and a future instant', async ({
     browser,
+    stepPicture,
   }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(720_000);
     if (!state.thresholdId) throw new Error('step #1 left no control');
     const { a } = await founders(browser);
     const section = await openLedger(a);
@@ -680,12 +717,88 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(desk).toContainText('ledger.reconcile_asof_invalid');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
 
+    // The same two asked of svc-ledger itself through the console's run route, past the desk's own hold: A proposes, B
+    // approves, A runs, and svc-ledger answers each refusal with its code.
+    const blank = await serviceRun(state.thresholdId, past.toISOString(), 'unset');
+    expect(blank, JSON.stringify(blank).slice(0, 400)).toMatchObject({ ok: false, refusal: { code: 'ops.control_margin_unset' } });
+    const ahead = new Date(Date.now() + 86_400_000);
+    ahead.setUTCSeconds(0, 0);
+    const future = await serviceRun(state.thresholdId, ahead.toISOString(), '0');
+    expect(future, JSON.stringify(future).slice(0, 400)).toMatchObject({ ok: false, refusal: { code: 'ledger.reconcile_asof_invalid' } });
+
     const withMargin = await twoFounderRun(state.thresholdId, { instant: typed, margin: '60' });
     expect(withMargin).toContain(
       `As of ${past.toISOString()}; balances read at ${new Date(past.getTime() - 60_000).toISOString()} (margin 60 s)`,
     );
     const zero = await twoFounderRun(state.thresholdId, { instant: typed, margin: '0' });
     expect(zero).toContain(`balances read at ${past.toISOString()} (margin 0 s)`);
+
+    // The ledger's own TEST records with a TEST venue and a TEST partner, each also written in that party's own report
+    // (`seed-own-record`: the reporter's line first, then our record through its real recipe). The venue's lands a
+    // minute before the partner's, so one past instant falls between them.
+    const venue = `ltv-${tag}`;
+    const partner = `ltp-${tag}`;
+    const seeded = await toolAwaited('local-test-stack.mjs', 'seed-own-record', 'venue', venue, 'USDT', '5', '--ref', `ops07v-${tag}`);
+    const venueAsOf = /reported\s+(\S+)/.exec(seeded)?.[1];
+    expect(venueAsOf, `the TEST venue's own line: ${seeded}`).toBeTruthy();
+    const between = await nextMinute(a);
+    const seededPartner = await toolAwaited(
+      'local-test-stack.mjs',
+      'seed-own-record',
+      'partner',
+      partner,
+      'USDT',
+      '3',
+      '--ref',
+      `ops07p-${tag}`,
+    );
+    const partnerAsOf = /reported\s+(\S+)/.exec(seededPartner)?.[1];
+    expect(partnerAsOf, `the TEST partner's own line: ${seededPartner}`).toBeTruthy();
+    const after = await nextMinute(a);
+
+    const reportsId = await define(await openLedger(a), {
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue and partner reports ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(venue);
+        await form.getByLabel('Partner report (partner id)', { exact: true }).fill(partner);
+        await setPolicy(form, { tolerance: '0' });
+      },
+    });
+
+    // Between the two: the venue had reported, the partner had not. The partner's side reads "not reported" and the run is
+    // UNSET, never a match; the venue's side carries its own report's as-of against our records as of the instant.
+    const early = await twoFounderRun(reportsId, { instant: minuteText(between), margin: '0' });
+    expect(early).toMatch(/Run [0-9a-f-]{36}: UNSET\./);
+    expect(early).toContain(`As of ${between.toISOString()}; balances read at ${between.toISOString()} (margin 0 s).`);
+    expect(early).toContain(`Sources: ledger as of ${between.toISOString()};`);
+    expect(early).toContain('Error: ledger.reconcile_not_reported at outside.');
+    expect(early).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
+    expect(early).toContain(`venue ${venue} USDT: observed -5, expected -5, difference 0, tolerance 0.`);
+    expect(early).toContain(`Partner ${partner} report: not reported for this instant, never a match.`);
+    expect(early).not.toMatch(/: PASS\./);
+
+    // After both, with a margin of 60 s: our records as of the instant minus the margin, and each report for that same
+    // read instant with its own as-of. The partner's line is after the read instant, so it still reads "not reported".
+    const margined = await twoFounderRun(reportsId, { instant: minuteText(after), margin: '60' });
+    const readAt = new Date(after.getTime() - 60_000).toISOString();
+    expect(margined).toContain(`As of ${after.toISOString()}; balances read at ${readAt} (margin 60 s).`);
+    expect(margined).toContain(`Sources: ledger as of ${readAt};`);
+    expect(margined).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
+    expect(margined).toContain(`Partner ${partner} report: not reported for this instant, never a match.`);
+
+    // With a margin of 0 both had reported: each side compared with its own report, and the sums agree. PASS.
+    const both = await twoFounderRun(reportsId, { instant: minuteText(after), margin: '0' });
+    expect(both).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    expect(both).toContain(`balances read at ${after.toISOString()} (margin 0 s).`);
+    expect(both).toContain(`Venue ${venue} report: as of ${venueAsOf}.`);
+    expect(both).toContain(`Partner ${partner} report: as of ${partnerAsOf}.`);
+    expect(both).toContain(`venue ${venue} USDT: observed -5, expected -5, difference 0, tolerance 0.`);
+    expect(both).toContain(`partner ${partner} USDT: observed -3, expected -3, difference 0, tolerance 0.`);
+    // The run's own row: our records at both places against both reports together.
+    expect(both).toContain('2 accounts and 1 asset read. 1 record compared,');
+    expect(both).toMatch(/ compared, read through [0-9TZ:.-]+\. USDT: observed -8, expected -8, difference 0, tolerance 0\./);
+    await stepPicture(state.a);
   });
 
   test('J-ops-console-07 #5 a run evaluates PASS or FAIL with per-asset evidence, and an unreadable source is ERROR, never PASS', async ({

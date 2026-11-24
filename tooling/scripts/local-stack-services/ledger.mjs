@@ -36,6 +36,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // (local-test-rail-statements.mjs), so a per-rail outside control compares rail:<rail> with the rail's own word.
     // Rail local-test is the TEST mint and has none.
     ...Object.fromEntries(STATEMENT_RAILS.map((rail) => [railStatementEnv(rail), `${urlOf('rail-statements')}/statement`])),
+    // LOCAL TEST: the TEST venue and TEST partner report their side of our own records from their own lines
+    // (local-test-own-reports.mjs), so a report control compares the ledger with what each of them said (J-ops-console-07 #4).
+    LEDGER_RECONCILE_REPORT_VENUE_URL: `${urlOf('rail-statements')}/report`,
+    LEDGER_RECONCILE_REPORT_PARTNER_URL: `${urlOf('rail-statements')}/report`,
     // LOCAL TEST: crypto-native's open items are the custody deposits svc-pay holds open, read over its signed door.
     LEDGER_RECONCILE_OPEN_ITEMS_CRYPTO_NATIVE_URL: `${urlOf('pay')}/internal/custody/open-items`,
   }),

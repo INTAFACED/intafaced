@@ -32,6 +32,22 @@ pub enum SnapshotRead {
     },
 }
 
+/// `ReportRead`: one reporter's report for an instant (`outsideReportSchema`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportRead {
+    /// The reporter's address is blank.
+    Unset,
+    /// The read failed in any way: never a balance, never "not reported".
+    Unavailable,
+    /// The reporter had published no report by the instant asked: never a match.
+    NotReported,
+    /// The latest report published by the instant, with its own as-of, in the ledger's signed form.
+    Reported {
+        as_of: String,
+        balances: Vec<(String, String)>,
+    },
+}
+
 /// One open item as svc-pay names it (`reconciliationReconcilingItemSchema`'s output), with when svc-pay first saw it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpenItem {
@@ -68,6 +84,10 @@ pub trait Sources: Send + Sync {
     fn open_items(&self, _rail: &str) -> OpenItemsRead {
         OpenItemsRead::Unset
     }
+    /// One reporter's report of our own records at one place, for the instant: a source without reports has none.
+    fn report(&self, _read_at_ms: i64, _reporter: &str, _place: &str) -> ReportRead {
+        ReportRead::Unset
+    }
 }
 
 /// `unsetReconciliationSources()`.
@@ -101,6 +121,8 @@ pub struct Http {
     pub fetch: Arc<dyn Fetch>,
     pub timeout_ms: u64,
     pub open_items: Option<OpenItemsSource>,
+    /// Reporter (`venue`, `partner`) to its report address.
+    pub report_urls: Vec<(String, String)>,
 }
 
 fn url_of<'a>(urls: &'a [(String, String)], rail: &str) -> Option<&'a str> {
@@ -207,6 +229,55 @@ impl Http {
                 .iter()
                 .map(|b| (text(b, "assetId"), text(b, "amount")))
                 .collect(),
+        }
+    }
+
+    /// `GET <url>?reporter=&place=&asOf=`: a refused connection, a timeout, a redirect, a non-200 answer, a body the
+    /// schema refuses, a body naming another reporter or place, or a report dated after the instant asked for is
+    /// `unavailable`; `reported: false` is `not reported`.
+    fn read_report(&self, base: &str, read_at_ms: i64, reporter: &str, place: &str) -> ReportRead {
+        let at = service_kit::time::Instant(read_at_ms).iso();
+        let Some(url) = with_query(
+            base,
+            &[("reporter", reporter), ("place", place), ("asOf", &at)],
+        ) else {
+            return ReportRead::Unavailable;
+        };
+        let Ok(res) = self.fetch.fetch(&HttpRequest {
+            method: "GET".to_owned(),
+            url,
+            headers: Vec::new(),
+            body: None,
+            timeout_ms: Some(self.timeout_ms),
+            refuse_redirect: true,
+        }) else {
+            return ReportRead::Unavailable;
+        };
+        if res.status != 200 {
+            return ReportRead::Unavailable;
+        }
+        let Some(read) = json::parse(&res.body)
+            .ok()
+            .and_then(|b| parsed("outsideReport", &b))
+        else {
+            return ReportRead::Unavailable;
+        };
+        if text(&read, "reporter") != reporter || text(&read, "place") != place {
+            return ReportRead::Unavailable;
+        }
+        if matches!(read.get("reported"), Some(Json::Bool(false))) {
+            return ReportRead::NotReported;
+        }
+        let as_of = text(&read, "asOf");
+        match v8_date_parse(&as_of) {
+            Some(when) if when <= read_at_ms => ReportRead::Reported {
+                as_of,
+                balances: list(&read, "balances")
+                    .iter()
+                    .map(|b| (text(b, "assetId"), text(b, "amount")))
+                    .collect(),
+            },
+            _ => ReportRead::Unavailable,
         }
     }
 
@@ -454,5 +525,12 @@ impl Sources for Http {
             return OpenItemsRead::Unset;
         };
         self.read_open_items(url, rail, &source.sign)
+    }
+
+    fn report(&self, read_at_ms: i64, reporter: &str, place: &str) -> ReportRead {
+        let Some(url) = url_of(&self.report_urls, reporter) else {
+            return ReportRead::Unset;
+        };
+        self.read_report(url, read_at_ms, reporter, place)
     }
 }
