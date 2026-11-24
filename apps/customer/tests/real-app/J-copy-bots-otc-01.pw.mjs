@@ -7,6 +7,8 @@ import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, ROOT, api, fromUnits, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
+import { refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { browserHoldsPasskey, testPasskey } from './p2p.mjs';
@@ -61,44 +63,122 @@ function state(key) {
 /** The return the TEST spot lead discloses (#2), shown on its profile as published (#4). TEST figure. */
 const PUBLISHED_RETURN = '12.34';
 
-const TABS = ['Leaders', 'Futures', 'Spot', 'Bots', 'Signal', 'My follows', 'Rules'];
+const TABS = ['Leaders', 'Futures', 'Spot', 'Bots', 'Signal', 'Leaderboard', 'My follows', 'My lead', 'Rules'];
 
-test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeholder row, the desk state is read`, async ({ page }) => {
+/** Every leader ref currently listed in svc-trade across all market modes. */
+async function allListedLeaderRefs(me) {
+  const refs = [];
+  let cursor = null;
+  do {
+    const input = { limit: 100, ...(cursor ? { cursor } : {}) };
+    const res = await me.get(`/api/trade/trpc/copy.listLeaders?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    const data = res.body?.result?.data;
+    for (const leader of data?.leaders ?? []) refs.push(leader.leaderRef);
+    cursor = data?.nextCursor ?? null;
+  } while (cursor);
+  return refs;
+}
+
+/** Moves one leader listing to `state` (`delisted` or `listed`) through svc-trade's operator door. */
+async function setLeaderState(ctx, token, leaderRef, state, tag, reason) {
+  const res = await ctx.edge.mutate(
+    'trade',
+    'copy.ops.setLeaderState',
+    { leaderRef, state, reason, clientRequestId: `${J}-1-${state}:${tag}:${leaderRef}` },
+    token,
+  );
+  if (res.json?.result?.data?.state !== state) {
+    throw new Error(`setting leader ${leaderRef} to ${state} refused: ${refusalText(res)}`);
+  }
+}
+
+test(`${J} #1 opens Copy trading: every tab, with no leader listed the Leaders tab says so with no placeholder row, a ranked control refuses by code, and the desk state is read`, async ({
+  page,
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(120_000);
   const follower = await signUp(page, 'jcf');
   await verify(page, follower);
-  run.reset({ follower, tag: Date.now().toString(36) });
+  const tag = Date.now().toString(36);
+  run.reset({ follower, tag });
   await signIn(page, follower);
 
-  await page.goto('/trade/copy');
-  await expect(page.getByRole('heading', { name: 'Copy trading', level: 1, exact: true })).toBeVisible();
-  const tabs = page.getByRole('tablist', { name: 'Copy trading sections', exact: true });
-  for (const name of TABS) await expect(tabs.getByRole('tab', { name, exact: true })).toBeVisible();
+  // On a shared stack, earlier journeys may have left listed leaders in svc-trade. Delist them through svc-trade's
+  // operator door for this check so the Leaders tab itself loads with no leader listed, then restore them after.
+  const me = await api(follower);
+  const priorLeaders = await allListedLeaderRefs(me);
+  let ops = null;
+  const delisted = [];
+  let failure = null;
+  try {
+    if (priorLeaders.length > 0) {
+      ops = await founders.ops();
+      for (const leaderRef of priorLeaders) {
+        await setLeaderState(ops.ctx, ops.sessions.a.token, leaderRef, 'delisted', tag, `${J} #1 empty Leaders tab check`);
+        delisted.push(leaderRef);
+      }
+    }
+    expect(await allListedLeaderRefs(me), 'no leader is listed in svc-trade').toEqual([]);
 
-  // No journey ever lists a signal leader, so that tab is the empty directory: the words, and no row at all (not a
-  // placeholder leader row, nor a row of dashes: the only row is the empty state's own). The Leaders tab lists every
-  // mode, and on a shared stack other journeys' leaders are listed there, so its own empty state is not reached here.
-  await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
-  await expect(page).toHaveURL(/tab=signal/);
-  const directory = page.getByRole('table', { name: 'Leaders', exact: true });
-  await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
-  await expect(directory.locator('tbody tr')).toHaveCount(1);
-  await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
+    const listRes = await answerAfterNavigation(
+      page,
+      (res) => {
+        if (!res.url().includes('copy.listLeaders')) return false;
+        const input = JSON.parse(new URL(res.url()).searchParams.get('input') ?? '{}');
+        return !input.marketMode && !input.category && !input.trending;
+      },
+      () => page.goto('/trade/copy'),
+    );
+    expect(listRes.status()).toBe(200);
+    expect((await listRes.json())?.result?.data?.leaders, 'the Leaders tab read an empty list from svc-trade').toEqual([]);
 
-  // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
-  // pressing one asks the service, which refuses by code, and the room says so in words.
-  await tabs.getByRole('tab', { name: 'Leaders', exact: true }).click();
-  const ranked = page.getByRole('group', { name: 'Ranked lists', exact: true }).getByRole('button', { name: 'Top return', exact: true });
-  await expect(ranked).toBeEnabled();
-  const ranking = page.waitForResponse((res) => res.url().includes('copy.listLeaders') && res.url().includes('category'));
-  await ranked.click();
-  expect((await ranking).status()).toBe(403);
-  await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
-  await expect(page.getByText('Reference trade.copy_ranking_forbidden', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Copy trading', level: 1, exact: true })).toBeVisible();
+    const tabs = page.getByRole('tablist', { name: 'Copy trading sections', exact: true });
+    await expect(tabs.getByRole('tab')).toHaveCount(TABS.length);
+    for (const name of TABS) await expect(tabs.getByRole('tab', { name, exact: true })).toBeVisible();
+    await expect(tabs.getByRole('tab', { name: 'Leaders', exact: true })).toHaveAttribute('aria-selected', 'true');
 
-  // The desk state comes from the service (TEST fee share and country list are published on this stack).
-  await expect(page.getByText('Copy desk open', { exact: true })).toBeVisible();
-  await tabs.getByRole('tab', { name: 'Rules', exact: true }).click();
-  await expect(page.getByText(PUBLISHED_SHARE)).toBeVisible();
+    // With no leader listed, the Leaders tab shows its empty state and no placeholder row (the only row in tbody is
+    // the empty state's own, and there are zero data rows).
+    const directory = page.getByRole('table', { name: 'Leaders', exact: true });
+    await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
+    await expect(directory.locator('tbody tr')).toHaveCount(1);
+    await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
+
+    // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
+    // pressing one asks the service, which refuses by code, and the room says so in words.
+    const ranked = page.getByRole('group', { name: 'Ranked lists', exact: true }).getByRole('button', { name: 'Top return', exact: true });
+    await expect(ranked).toBeEnabled();
+    const ranking = page.waitForResponse((res) => res.url().includes('copy.listLeaders') && res.url().includes('category'));
+    await ranked.click();
+    expect((await ranking).status()).toBe(403);
+    await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
+    await expect(page.getByText('Reference trade.copy_ranking_forbidden', { exact: true })).toBeVisible();
+    await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
+    await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
+
+    // The desk state comes from the service (TEST fee share and country list are published on this stack).
+    await expect(page.getByText('Copy desk open', { exact: true })).toBeVisible();
+    // Picture on the Leaders tab: every tab, the empty Leaders directory with no placeholder row, and the typed refusal.
+    await stepPicture();
+
+    await tabs.getByRole('tab', { name: 'Rules', exact: true }).click();
+    await expect(page.getByText(PUBLISHED_SHARE)).toBeVisible();
+  } catch (err) {
+    failure = err;
+  }
+  try {
+    if (ops) {
+      for (const leaderRef of delisted) {
+        await setLeaderState(ops.ctx, ops.sessions.a.token, leaderRef, 'listed', tag, `${J} #1 restore prior leader`);
+      }
+    }
+  } catch (err) {
+    failure ??= err;
+  }
+  if (failure) throw failure;
 });
 
 test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders, matched on the server in any case`, async ({ page }) => {
