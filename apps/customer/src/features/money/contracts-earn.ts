@@ -77,8 +77,4 @@ export const ruleSchema = z.object({
   createdAt: z.string(),
 });
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const earnReads = {} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const earnWrites = {} as const;

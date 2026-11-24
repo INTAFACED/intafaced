@@ -329,6 +329,7 @@ async function chainOf(path, proc) {
 const REFINES = {
   'value=>value===PERSONAL_PROFILE||BUSINESS_PROFILE.test(value)': 'account_profile',
   'value=>!/[\\u0000-\\u001F]/.test(value)': 'no_control_characters',
+  "(value) => ![...value].some((c) => c < ' ')": 'no_control_characters',
   'value=>value.text!==void 0||value.reportDescription!==void 0': 'note_or_report',
   'value=>/[1-9]/.test(value)': 'some_nonzero_digit',
   '(v) => /[1-9]/.test(v)': 'some_nonzero_digit',

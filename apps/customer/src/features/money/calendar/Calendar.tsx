@@ -3,7 +3,8 @@ import { useState, type ReactNode } from 'react';
 import { Button, EmptyState, Segmented } from '@intafaced/ui/lit';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { currentPreferences } from '../../../shared/preferences';
-import { amount, date, useBankRead } from '../components';
+import { amount, date, useBankRecord } from '../components';
+import { BANK_CALENDAR_WINDOW } from '@intafaced/contracts/bank-calendar-procedures';
 import { calendarSources, type CalendarItem, type CalendarSource, type CalendarView } from '../contracts';
 import { BankTabs, bankRoomProps } from '../bank-frame/BankFrame';
 import { Failure, Loading, Panel } from '../bank-settings/parts';
@@ -272,7 +273,7 @@ function MoneyCalendar({ now = new Date() }: { now?: Date }) {
   const [month, setMonth] = useState(() => dayIn(now, zone).slice(0, 7));
   const [view, setView] = useState<'month' | 'list'>('month');
   const [hidden, setHidden] = useState<ReadonlySet<CalendarSource>>(new Set());
-  const read = useBankRead('calendar.window', { ...windowFor(month), limit: PAGE });
+  const read = useBankRecord(BANK_CALENDAR_WINDOW, { ...windowFor(month), limit: PAGE });
   const toggle = (source: CalendarSource) =>
     setHidden((was) => {
       const next = new Set(was);
