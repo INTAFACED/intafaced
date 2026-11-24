@@ -3,9 +3,17 @@ import { useMemo } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { ReadingTemplate } from '@intafaced/ui/lit/templates';
 import { useDataEnv, useSource } from '../../../data/hooks';
-import { refusalCopy } from '../../../data';
+import { refusalCopy, useVenueMarketStates } from '../../../data';
 import type { Loadable } from '../../../data/types';
-import { knownMode, maintenanceFetcher, marketModesFetcher, modesAsOf, type MaintenanceWindow, type MarketMode } from '../status';
+import {
+  knownMode,
+  maintenanceFetcher,
+  marketModesFetcher,
+  modesAsOf,
+  modesFrom,
+  type MaintenanceWindow,
+  type MarketMode,
+} from '../status';
 import { statusCopy } from '../status-copy';
 import { StatusComponents } from './StatusComponents';
 
@@ -35,7 +43,11 @@ export function StatusRoom() {
     () => env.poller.source<MarketMode[]>('public-status-modes', marketModesFetcher(env.api), { intervalMs: 30_000 }),
     [env],
   );
-  const load = useSource(source);
+  const own = useSource(source);
+  // Where the venue door is on, each market's mode is the venue's own state with our listing beside it, as of the venue
+  // read's time (J-cex-spot-14 #2); where it is off, today's read stands.
+  const venue = useVenueMarketStates();
+  const load = useMemo(() => modesFrom(venue, own), [venue, own]);
   const maintenanceSource = useMemo(
     () => env.poller.source<MaintenanceWindow[]>('public-status-maintenance', maintenanceFetcher(env.api), { intervalMs: 60_000 }),
     [env],

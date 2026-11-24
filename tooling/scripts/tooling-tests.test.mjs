@@ -11,7 +11,8 @@ import { dirname, join, relative } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { failedTests, failureSummary, runFiles, runsAlone } from './tooling-tests.mjs';
+import { buildFilters, classify, readEdges } from '../ci/ci-affected.mjs';
+import { NEEDS_BUILD, failedTests, failureSummary, runFiles, runsAlone, testFiles } from './tooling-tests.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling/scripts/tooling-tests.mjs');
@@ -249,4 +250,44 @@ test('a file is run alone only by its own mark in its first lines, never by a me
   assert.equal(runsAlone(`// a header\n${mark}\n`), true);
   assert.equal(runsAlone(`${'\n'.repeat(20)}${mark}\n`), false);
   assert.equal(runsAlone(`const s = '${mark}';\n`), false);
+});
+
+// CI's build job runs a NEEDS_BUILD file only when its output was built (.github/workflows/ci.yml, "Tooling tests that
+// need the build"), so a change that can move what the file checks must build that output, or the file never runs on it.
+// The product side is turbo's: a change to the app, or to a package it imports, builds the app (its dependents and ^build).
+// This holds the tooling side: the file, the tooling it imports, and the list deep-entries checks.
+const localImports = (file, seen = new Set()) => {
+  if (seen.has(file)) return seen;
+  seen.add(file);
+  for (const [, spec] of readFileSync(join(ROOT, file), 'utf8').matchAll(/(?:from|import\()\s*'(\.{1,2}\/[^']+\.m?js)'/g))
+    localImports(
+      relative(ROOT, join(ROOT, dirname(file), spec))
+        .split('\\')
+        .join('/'),
+      seen,
+    );
+  return seen;
+};
+
+test('each NEEDS_BUILD file names a built output, and a change to it or what it reads builds that output', () => {
+  const files = Object.keys(NEEDS_BUILD);
+  assert.ok(files.length > 0);
+  assert.ok(
+    files.every((f) => !testFiles().includes(f)),
+    'a NEEDS_BUILD file also runs unbuilt in the Doctrine gates',
+  );
+  const read = { 'tooling/lint/deep-entries.test.mjs': ['tooling/lint/oxlint-plugin-garden/deep-entries.json'] };
+  for (const [file, out] of Object.entries(NEEDS_BUILD)) {
+    // A misspelt output never exists: its file would never run, so it must be a workspace's dist, from its own build.
+    const ws = /^((?:apps|packages|services)\/[^/]+)\/dist\/[^/]/.exec(out)?.[1];
+    assert.ok(ws, `${file}: ${out} is not inside a workspace's dist/`);
+    assert.ok(JSON.parse(readFileSync(join(ROOT, ws, 'package.json'), 'utf8')).scripts?.build, `${ws} has no build script`);
+    const inputs = [...localImports(file), ...(read[file] ?? [])];
+    assert.ok(inputs.length > 1, `${file} imports none of its own tooling`);
+    for (const changed of inputs) {
+      const flags = classify([changed]);
+      const builds = flags.full || (flags.affected && buildFilters([changed], readEdges([changed]), 'BASE').includes(`./${ws}`));
+      assert.ok(builds, `a change to ${changed} does not build ${ws}, so CI never runs ${file} on it`);
+    }
+  }
 });
