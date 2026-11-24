@@ -1,5 +1,5 @@
 import type { Refusal } from '@intafaced/ui/lit/templates';
-import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from '../../../shared/api';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
 import { refusalCopy } from '../../../data/refusals';
 import type { UiLocale } from '../../../shared/i18n';
@@ -18,6 +18,13 @@ const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9
 export function failureRefusal(result: Failed, locale: UiLocale): Refusal {
   const { t } = uiCopy.forLocale(locale);
   if (isServiceNotConnected(result.code)) return { variant: 'parked', title: t('not_mounted'), body: t('serviceNotConnected') };
+  if (isVerifyFirst(result))
+    return {
+      variant: 'refused',
+      title: t('verifyFirstTitle'),
+      body: t('verifyFirst'),
+      action: { label: t('verifyNow'), href: '/verification' },
+    };
   const message = result.message.trim();
   const rawCode = RAW_CODE.test(message)
     ? message

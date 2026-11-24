@@ -9,7 +9,8 @@ import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { renderAuthoredCopy } from '../../shared/i18n';
 import { uiDirection } from '../../shared/locale';
 import { useFailureWords } from '../../shared/failure-words';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import { copy as legacyCopy, t as copyText } from './copy';
 import { present, useActionState, type Presented } from './action-state';
 import { Waiting } from './volt-parts';
@@ -34,6 +35,7 @@ export function KitDetails({ items }: { items: readonly [string, ReactNode][] })
 /** A failed send, in the shared `Failure`'s words, the title in its own language. */
 function ActionFailure({ result, lang }: { result: Failed; lang?: string }) {
   const words = useFailureWords()(result);
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div data-testid="failure" className="lt-refusal" role={words.role} lang={lang}>
       <h3 className="lt-refusal-title">

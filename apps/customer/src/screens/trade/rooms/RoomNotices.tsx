@@ -5,9 +5,11 @@
 import type { ReactNode } from 'react';
 import { Button, EmptyState, formatAsOf } from './ui';
 import type { Words } from './refusals';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { BLOCK_WORDS, type RoomWriter } from './write';
 
 export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRetry?: () => void; size?: 'inline' | 'panel' }) {
+  if (words.verify) return <VerifyFirstNote />;
   return (
     <EmptyState
       variant="refused"

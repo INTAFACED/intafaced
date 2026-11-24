@@ -1,5 +1,6 @@
 import { Button } from '@intafaced/ui/lit';
-import { isServiceNotConnected, type ApiResult } from './api';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from './api';
+import { VerifyFirstNote } from './verify-first';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
 import { canTryAgain, embeddedKey, RAW_CODE } from './failure-words';
@@ -34,6 +35,8 @@ export function Failure({ result, retry, className }: FailureProps) {
       </div>
     );
   }
+  // A person not yet verified reads one plain ask to verify, never the gate's own sentence or its code.
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
