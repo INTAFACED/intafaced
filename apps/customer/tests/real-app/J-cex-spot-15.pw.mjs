@@ -1,12 +1,12 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { openDesk, signUp, verify } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-15, in the running app (docs/roadmap/journeys.json): a developer builds a trading bot against the API.
 // One test per step, titled "J-cex-spot-15 #<n>", checking what the step's words say. The steps here read the portal,
-// the error catalogues, the changelog, the bot policy and the order types the API publishes; nothing places an order or
-// moves money. #2 publishes two TEST changelog entries through the founders' four-eyes desk, as an operator would.
+// the error catalogues, the changelog and the bot policy; nothing places an order or moves money. Step #4 and the API
+// steps live in J-cex-spot-15-api.pw.mjs with the user-venue door on. #2 publishes two TEST changelog entries through
+// the founders' four-eyes desk, as an operator would.
 const J = 'J-cex-spot-15';
 
 test.describe.configure({ mode: 'default' });
@@ -150,45 +150,4 @@ test(`${J} #3 reads the bot policy: "Bot policy: not yet published" until it is,
   const text = await markdown.text();
   expect(text).toContain('GET /api/trade/developer-portal/bot-policy');
   expect(text).not.toMatch(CLAIM);
-});
-
-test(`${J} #4 reads which order types the API accepts: the same list the ticket shows`, async ({ page }) => {
-  test.setTimeout(240_000);
-  // What the API itself says it takes: GET /api/v1/order-types, through the edge.
-  const answer = await page.request.get('/api/v1/order-types');
-  expect(answer.status(), await answer.text()).toBe(200);
-  const published = await answer.json();
-  expect(published.accepted.length).toBeGreaterThan(0);
-
-  // The portal's page names each accepted type, in the API's order.
-  await page.goto('/developers');
-  await page.getByRole('main').getByRole('link', { name: 'Order types', exact: true }).click();
-  await expect(page).toHaveURL(/\/developers\/order-types$/);
-  const accepted = page.getByTestId('order-types-accepted').locator('tbody tr');
-  await expect(accepted).toHaveCount(published.accepted.length);
-  expect(await accepted.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-type')))).toEqual(
-    published.accepted.map((row) => row.id),
-  );
-  const docNames = (await accepted.locator('th').allInnerTexts()).map((name) => name.trim());
-  // Each row shows the API's own example body for that type, whole.
-  const examples = await accepted.locator('pre').allInnerTexts();
-  expect(examples.map((text) => JSON.parse(text))).toEqual(published.accepted.map((row) => row.send.example));
-  const refused = page.getByTestId('order-types-refused').locator('tbody tr');
-  await expect(refused).toHaveCount(published.refused.length);
-  const docRefused = (await refused.locator('th').allInnerTexts()).map((name) => name.trim());
-  for (const row of published.refused) {
-    await expect(page.locator(`[data-testid="order-types-refused"] tbody tr[data-type="${row.id}"]`)).toContainText(row.code);
-  }
-
-  // The trading ticket a person sees: its type tabs, in order, and the kinds it lists as unavailable.
-  const who = await signUp(page, 'cs15t');
-  await verify(page, who);
-  await openDesk(page, who, 'BTC/USDT');
-  const tabs = page.getByRole('tablist', { name: 'Order type' }).getByRole('tab');
-  await expect(tabs.first()).toBeVisible();
-  const ticketNames = (await tabs.allInnerTexts()).map((name) => name.trim());
-  expect(ticketNames, 'the API lists exactly the ticket’s types, in the ticket’s order').toEqual(docNames);
-  await page.getByRole('button', { name: 'Other order types (not available)' }).click();
-  // What the ticket lists as unavailable, the API lists as refused: the menu's items, once it has opened, in order.
-  await expect(page.getByRole('menu').getByTestId('dk-type-name')).toHaveText(docRefused);
 });
