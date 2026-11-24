@@ -301,6 +301,25 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('0.05') } })), 'not_offered');
   });
 
+  it('#10657: a perp order and a spot sell each carry their own builder fee, each refused above its own protocol cap', async () => {
+    const fake = fakeVenue();
+    fake.info.maxBuilderFee = () => 10_000; // the trader approved 1000 bps: only the venue's cap binds here
+    const venue = venueWith(fake);
+    const perp = await venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10') } }));
+    expect(perp.builderFee).toEqual({ builder: BUILDER, feeBps: a('10') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10.1') } })),
+      'builder_fee_above_cap',
+    );
+    const spotSell = order({ symbol: 'PURR-USDC', side: 'sell', amount: a('10'), price: a('0.1') });
+    const spot = await venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100') } });
+    expect(spot.builderFee).toEqual({ builder: BUILDER, feeBps: a('100') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100.1') } }),
+      'builder_fee_above_cap',
+    );
+  });
+
   it('an agent: refused when the venue does not list it, refused owner-only actions', async () => {
     const fake = fakeVenue();
     const venue = venueWith(fake);
@@ -912,8 +931,9 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { known: true, value: a('1') },
     ]);
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
-    // The venue publishes no builder-fee cap through info, so none is typed in: every market reads "not known".
-    expect(anon.map((m) => m.builderFeeCapBps)).toEqual(anon.map(() => ({ known: false })));
+    // The builder-fee cap is the venue's protocol-wide one by kind: 0.1% on perps, 1% on spot.
+    expect(eth.builderFeeCapBps).toEqual({ known: true, value: a('10') });
+    expect(anon.find((m) => m.symbol === 'PURR-USDC')!.builderFeeCapBps).toEqual({ known: true, value: a('100') });
     expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
   });
 });
