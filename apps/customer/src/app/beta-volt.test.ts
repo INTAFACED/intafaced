@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';
 import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
-import { findRoom, rooms } from './navigation';
+import { findRoom, rooms, searchRooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
+import { allServices } from '../screens/more/tiles';
 
 const count = voltCount();
 const state = new Map(count.rooms.map((room) => [room.key, room.state]));
@@ -49,6 +50,24 @@ describe("the beta's menus", () => {
       expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
     }
     expect(betaHides('/money/activity')).toBe(false);
+  });
+
+  it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/trade/futures')).toBe('volt');
+    expect(betaHides('/trade/futures', betaList)).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', betaList)).toBe(false);
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(
+        trade?.items.map((item) => item.href),
+        `Trade menu in ${mode} mode`,
+      ).toContain('/trade/futures');
+    }
+    const moreTrade = allServices().find((group) => group.id === 'Trade');
+    expect(moreTrade?.rooms.map((room) => room.path)).toContain('/trade/futures');
+    expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {

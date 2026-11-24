@@ -390,7 +390,7 @@ function LineRow({
         data-ref={line.ref}
         data-state={line.state}
       >
-        <td>
+        <td data-label={t('Activity')}>
           <div className="lt-row lt-row-nowrap">
             <span className="lt-stack lt-stack-tight">
               {fill ? (
@@ -407,7 +407,7 @@ function LineRow({
                   </Button>
                 </span>
               ) : (
-                <span data-testid="money-act__title" className="lt-strong lt-nowrap">
+                <span data-testid="money-act__title" className="lt-strong">
                   {titleOf(line, t)}
                 </span>
               )}
@@ -432,12 +432,12 @@ function LineRow({
             </span>
           </div>
         </td>
-        <td data-testid="money-act__time" className="lt-nowrap">
+        <td data-testid="money-act__time" data-label={t('Date')} className="lt-nowrap">
           <time className="lt-nowrap" dateTime={line.at}>
             {stamp(line.at, zone)}
           </time>
         </td>
-        <td data-testid="money-act__amount" className="lt-end">
+        <td data-testid="money-act__amount" data-label={t('Amount')} className="lt-end">
           <Amount
             value={counted ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
             hidden={hidden}
@@ -445,7 +445,7 @@ function LineRow({
             data-direction={line.direction}
           />
         </td>
-        <td data-testid="money-act__status">
+        <td data-testid="money-act__status" data-label={t('Status')}>
           {line.state === 'completed' ? (
             <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
               <Check size={14} aria-hidden="true" />
@@ -542,11 +542,11 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
                   data-part={part.part}
                   data-from-hold={part.fromHold ? 'yes' : undefined}
                 >
-                  <td>{partWord(part.part, part.fromHold, t)}</td>
-                  <td>
+                  <td data-label={t('Part')}>{partWord(part.part, part.fromHold, t)}</td>
+                  <td data-label={t('Source reference')}>
                     <code className="lt-mono">{part.fill ?? order ?? ''}</code>
                   </td>
-                  <td className="lt-end">
+                  <td data-label={t('Amount')} className="lt-end">
                     <Amount
                       value={`${part.up ? '+' : '−'}${exact(part.amount)} ${part.asset}`}
                       hidden={hidden}

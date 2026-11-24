@@ -379,13 +379,13 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
     : null;
   return (
     <tr data-testid="money-act" data-kind={item.kind} data-ref={item.txId} data-source={item.heldAt ? 'partner' : undefined}>
-      <td>
+      <td data-label={t('Activity')}>
         <div className="lt-row lt-row-nowrap">
           <span className={ICON_TONE[item.direction]} data-direction={item.direction} aria-hidden="true">
             <Icon size={18} />
           </span>
           <span className="lt-stack lt-stack-tight">
-            <a data-testid="money-act__title" className="lt-link lt-strong lt-nowrap" href={detailHref(group)}>
+            <a data-testid="money-act__title" className="lt-link lt-strong" href={detailHref(group)}>
               {title}
             </a>
             {sub ? (
@@ -401,12 +401,12 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
           </span>
         </div>
       </td>
-      <td data-testid="money-act__time" className="lt-nowrap">
+      <td data-testid="money-act__time" data-label={t('Date')} className="lt-nowrap">
         <time className="lt-nowrap" dateTime={item.postedAt}>
           {stamp(item.postedAt, timeZone)}
         </time>
       </td>
-      <td data-testid="money-act__amount" className="lt-end">
+      <td data-testid="money-act__amount" data-label={t('Amount')} className="lt-end">
         <Amount
           value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
           hidden={hidden}
@@ -414,7 +414,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
           data-direction={item.direction}
         />
       </td>
-      <td data-testid="money-act__status">
+      <td data-testid="money-act__status" data-label={t('Status')}>
         {holding ? (
           <span data-testid="money-act__hold" className="lt-muted lt-nowrap">
             {t('Set aside')}

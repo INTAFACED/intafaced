@@ -106,7 +106,7 @@ function FillRow({
   const share = shareWords(row, t);
   return (
     <tr data-testid="money-copied-fill" data-fill={row.fillId} data-share={row.feeShare.state}>
-      <td>
+      <td data-label={t('Trade')}>
         <div className="lt-stack lt-stack-tight">
           <span className="lt-strong">
             {row.side === 'buy' ? t('Bought {amount} {symbol} at {price}', words) : t('Sold {amount} {symbol} at {price}', words)}
@@ -120,19 +120,19 @@ function FillRow({
           </span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__venue-fee" className="lt-end">
+      <td data-testid="money-copied-fill__venue-fee" data-label={t('Venue fee')} className="lt-end">
         <div className="lt-stack lt-stack-tight">
           <span>{t('{amount} {asset}', { amount: exact(row.venueFee.amount), asset: row.venueFee.asset })}</span>
           <span className="lt-hint">{t('From {venue}, as it reports it', { venue })}</span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__builder-fee" className="lt-end">
+      <td data-testid="money-copied-fill__builder-fee" data-label={t('Our builder fee')} className="lt-end">
         <div className="lt-stack lt-stack-tight">
           <span>{t('{amount} {asset}', { amount: exact(row.builderFee.amount), asset: row.builderFee.asset })}</span>
           <span className="lt-hint">{t('From INTAFACED, charged on the venue')}</span>
         </div>
       </td>
-      <td data-testid="money-copied-fill__share">
+      <td data-testid="money-copied-fill__share" data-label={t('Leader’s share of our builder fee')}>
         <div className="lt-stack lt-stack-tight">
           {share.amount ? <span>{share.amount}</span> : null}
           <span className="lt-hint">{share.state}</span>
