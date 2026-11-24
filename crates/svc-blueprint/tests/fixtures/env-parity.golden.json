@@ -1,0 +1,959 @@
+{
+  "cases": [
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_URL": "http://engine.example:4108"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_URL": "http://engine.example:4108",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_URL": "  http://engine.example:4108  "
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_URL": "http://engine.example:4108",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_URL": "   "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_URL": "engine"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "HTTP"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_MODE: Invalid option: expected one of \"http\"|\"mock\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_CREW_CAPACITY": "1"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_CREW_CAPACITY: Too small: expected number to be >=2\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "LOG_LEVEL": "loud"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LOG_LEVEL: Invalid option: expected one of \"fatal\"|\"error\"|\"warn\"|\"info\"|\"debug\"|\"trace\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "1.5"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_TIMEOUT_MS: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "soon"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_TIMEOUT_MS: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_CARD_RENDERER_URL": "render"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_CARD_RENDERER_URL: Invalid URL\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_ENGINE_API_KEY": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_API_KEY: Too small: expected string to have >=1 characters\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_URL: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "BLUEPRINT_SEASON": "9007199254740993"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_SEASON: Too big: expected int to be <=9007199254740991\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "remote",
+        "BLUEPRINT_ENGINE_URL": "not a url",
+        "BLUEPRINT_CREW_CAPACITY": "1"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: Invalid URL\n  - BLUEPRINT_ENGINE_MODE: Invalid option: expected one of \"http\"|\"mock\"\n  - BLUEPRINT_CREW_CAPACITY: Too small: expected number to be >=2"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "999",
+        "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": "60001"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_TIMEOUT_MS: Too small: expected number to be >=1000\n  - BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: Too big: expected number to be <=60000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "120000",
+        "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": "500"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 120000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 500
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "1.5",
+        "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": "soon"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_TIMEOUT_MS: Invalid input: expected int, received number\n  - BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_TIMEOUT_MS": "",
+        "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": " "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_TIMEOUT_MS: Too small: expected number to be >=1000\n  - BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: Too small: expected number to be >=500"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_API_KEY": "",
+        "BLUEPRINT_CARD_RENDERER_API_KEY": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_API_KEY: Too small: expected string to have >=1 characters\n  - BLUEPRINT_CARD_RENDERER_API_KEY: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_ENGINE_API_KEY": " key ",
+        "BLUEPRINT_CARD_RENDERER_API_KEY": "placeholder-renderer-key"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_API_KEY": " key ",
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000,
+          "BLUEPRINT_CARD_RENDERER_API_KEY": "placeholder-renderer-key"
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CREW_CAPACITY": "6",
+        "BLUEPRINT_MENTOR_SHORTLIST_SIZE": "3",
+        "BLUEPRINT_SEASON": "1",
+        "BLUEPRINT_SHARES_PER_OWNER": "0",
+        "BLUEPRINT_OPENS_LIST_LIMIT": "0"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CREW_CAPACITY": 6,
+          "BLUEPRINT_MENTOR_SHORTLIST_SIZE": 3,
+          "BLUEPRINT_SEASON": 1,
+          "BLUEPRINT_SHARES_PER_OWNER": 0,
+          "BLUEPRINT_OPENS_LIST_LIMIT": 0,
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CREW_CAPACITY": " ",
+        "BLUEPRINT_MENTOR_SHORTLIST_SIZE": "",
+        "BLUEPRINT_SEASON": "  ",
+        "BLUEPRINT_SHARES_PER_OWNER": "",
+        "BLUEPRINT_OPENS_LIST_LIMIT": " "
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CREW_CAPACITY": "25",
+        "BLUEPRINT_MENTOR_SHORTLIST_SIZE": "0",
+        "BLUEPRINT_SEASON": "0",
+        "BLUEPRINT_SHARES_PER_OWNER": "-1",
+        "BLUEPRINT_OPENS_LIST_LIMIT": "1.5"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_CREW_CAPACITY: Too big: expected number to be <=24\n  - BLUEPRINT_MENTOR_SHORTLIST_SIZE: Too small: expected number to be >=1\n  - BLUEPRINT_SEASON: Too small: expected number to be >=1\n  - BLUEPRINT_SHARES_PER_OWNER: Too small: expected number to be >=0\n  - BLUEPRINT_OPENS_LIST_LIMIT: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CREW_CAPACITY": " 6 ",
+        "BLUEPRINT_MENTOR_SHORTLIST_SIZE": "11",
+        "BLUEPRINT_SEASON": "one",
+        "BLUEPRINT_SHARES_PER_OWNER": "1e3"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_MENTOR_SHORTLIST_SIZE: Too big: expected number to be <=10\n  - BLUEPRINT_SEASON: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CREW_CAPACITY": "2",
+        "BLUEPRINT_MENTOR_SHORTLIST_SIZE": "10",
+        "BLUEPRINT_SEASON": "9007199254740993",
+        "BLUEPRINT_OPENS_LIST_LIMIT": "0x10"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_SEASON: Too big: expected int to be <=9007199254740991"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CARD_RENDERER_URL": ""
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CARD_RENDERER_URL": " "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_CARD_RENDERER_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CARD_RENDERER_URL": "https://render.example/card"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "mock",
+          "BLUEPRINT_CARD_RENDERER_URL": "https://render.example/card",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "BLUEPRINT_CARD_RENDERER_URL": "render"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_CARD_RENDERER_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "HTTP_PORT": "4100",
+        "SERVICE_NAME": "svc-blueprint-2",
+        "LOG_LEVEL": "loud"
+      },
+      "answer": {
+        "refused": "Invalid environment for svc-blueprint-2:\n  - LOG_LEVEL: Invalid option: expected one of \"fatal\"|\"error\"|\"warn\"|\"info\"|\"debug\"|\"trace\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "HTTP_PORT": "1.5",
+        "NODE_ENV": "staging",
+        "SERVICE_NAME": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for :\n  - NODE_ENV: Invalid option: expected one of \"development\"|\"test\"|\"production\"\n  - HTTP_PORT: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "301"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_SECRET: Too small: expected string to have >=32 characters\n  - EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: Too big: expected number to be <=300"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "test",
+        "DATABASE_POOL_MAX": "201",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "DATABASE_SSL": "YES",
+        "NATS_URL": "  "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_URL: Invalid input: expected string, received undefined\n  - DATABASE_POOL_MAX: Too big: expected number to be <=200\n  - NATS_URL: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock"
+      },
+      "answer": {
+        "refused": "DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (APP_ENV=prod, config.dev_material_in_production_posture). Refusing to start.\nOnly APP_ENV exactly \"dev\" or \"test\" may run on dev keys, the Anvil chain or published passwords.\n  - DATABASE_URL uses a connection password that is published in this repo (or equals the user name)"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "mock",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_MODE=mock (blueprint.prod_engine_config). Production must reach a real Neural Engine over HTTP — mock is a local stand-in, not a fallback. Set BLUEPRINT_ENGINE_MODE=http and BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - BLUEPRINT_ENGINE_URL: BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://localhost:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://localhost:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://127.8.0.1:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://127.8.0.1:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://[::1]:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://[::1]:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://[::ffff:7f00:1]:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://[::ffff:7f00:1]:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://localhost.:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://localhost.:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://0.0.0.0:4108"
+      },
+      "answer": {
+        "refused": "APP_ENV=prod refuses BLUEPRINT_ENGINE_URL=http://0.0.0.0:4108 (blueprint.prod_engine_config). Loopback is not a production engine. Set BLUEPRINT_ENGINE_URL to the engine deployment."
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "https://engine.example"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "prod",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://redis.internal:6379",
+          "NATS_URL": "nats://nats.internal:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+          "BLUEPRINT_ENGINE_URL": "https://engine.example",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://128.0.0.1:4108"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "prod",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://redis.internal:6379",
+          "NATS_URL": "nats://nats.internal:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+          "BLUEPRINT_ENGINE_URL": "http://128.0.0.1:4108",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "staging",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "BLUEPRINT_ENGINE_URL": "http://localhost:4108"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "staging",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://redis.internal:6379",
+          "NATS_URL": "nats://nats.internal:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+          "BLUEPRINT_ENGINE_URL": "http://localhost:4108",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+        "DATABASE_POOL_MAX": "4",
+        "BLUEPRINT_ENGINE_MODE": "http",
+        "NATS_URL": "nats://nats.internal:4222",
+        "REDIS_URL": "redis://redis.internal:6379",
+        "NODE_ENV": "production",
+        "BLUEPRINT_ENGINE_URL": "https://engine.example"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "production",
+          "APP_ENV": "prod",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-blueprint",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://blueprint:a-placeholder-not-published@db.internal:5432/blueprint",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://redis.internal:6379",
+          "NATS_URL": "nats://nats.internal:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "a-placeholder-blueprint-prod-edge-secret-not-published",
+          "BLUEPRINT_ENGINE_URL": "https://engine.example",
+          "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
+          "BLUEPRINT_ENGINE_MODE": "http",
+          "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000
+        }
+      }
+    }
+  ]
+}
