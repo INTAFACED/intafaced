@@ -45,7 +45,8 @@ export function VenueMarketRules({ market, venueName }: { market: VenueMarket; v
         {rows.map(([rule, name, value]) => (
           <div key={rule} data-rule={rule}>
             <dt>{name}</dt>
-            <dd className="lt-num">{value}</dd>
+            {/* A rule's value is often a sentence ("Limit prices within 95% of …"): it wraps in the narrow ticket column. */}
+            <dd>{value}</dd>
           </div>
         ))}
       </dl>

@@ -26,7 +26,8 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
         {rows.map(([name, value]) => (
           <div key={name}>
             <dt>{name}</dt>
-            <dd className="lt-num">{value}</dd>
+            {/* A rule's value is often a sentence ("Limit prices within 95% of …"): it wraps in the narrow ticket column. */}
+            <dd>{value}</dd>
           </div>
         ))}
       </dl>

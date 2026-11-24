@@ -429,7 +429,7 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
         .slice(0, 8)
         .map(
           (el) =>
-            `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}[${el.getAttribute('data-testid') ?? ''}] to ${Math.round(el.getBoundingClientRect().right)}`,
+            `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}[${el.getAttribute('data-testid') ?? ''}] "${(el.textContent ?? '').trim().slice(0, 40)}" to ${Math.round(el.getBoundingClientRect().right)}`,
         );
       return { scroll: document.documentElement.scrollWidth, view, past };
     });
