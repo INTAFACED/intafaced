@@ -1,4 +1,4 @@
-import { memo, useId, useMemo, useRef, useState } from 'react';
+import { memo, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMounted, useTimeout } from '../../../shared/outside';
 import { useBackoffPoll } from '../../../shared/backoff-poll';
 import { useResource } from '../../../shared/resource';
@@ -130,7 +130,18 @@ function SessionShut({ market }: { market: DeskMarket }) {
   );
 }
 
-function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
+function RefusalNote({
+  failure,
+  onRetry,
+  onDismiss,
+  children,
+}: {
+  failure: Failure;
+  onRetry?: () => void;
+  onDismiss?: () => void;
+  /** An action the refusal offers (a band refusal's move to the edge), inside the note so nothing covers it. */
+  children?: ReactNode;
+}) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
@@ -159,6 +170,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
           {action.label}
         </a>
       ) : null}
+      {children}
       {reference ? <p className="dk-note-ref">{reference}</p> : null}
     </div>
   );
@@ -996,11 +1008,15 @@ function SideForm({
         {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
           <p className="lt-hint">{t('Checking the order')}</p>
         ) : null}
-        {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
-        {tradable && checked.ok && live.state === 'blocked' ? bandEdge(live.failure) : null}
+        {tradable && checked.ok && live.state === 'blocked' ? (
+          <RefusalNote failure={live.failure}>{bandEdge(live.failure)}</RefusalNote>
+        ) : null}
         {tradable && checked.ok && live.state === 'error' ? <RefusalNote failure={{ kind: 'network' }} onRetry={retry} /> : null}
-        {failure ? <RefusalNote failure={failure} onDismiss={() => setFailure(null)} /> : null}
-        {failure ? bandEdge(failure) : null}
+        {failure ? (
+          <RefusalNote failure={failure} onDismiss={() => setFailure(null)}>
+            {bandEdge(failure)}
+          </RefusalNote>
+        ) : null}
         {adjusted !== null && price === adjusted.to ? (
           <p className="dk-note dk-note--warn" role="status" data-testid="dk-adjusted">
             {t('Price adjusted', { from: adjusted.from, to: adjusted.to, asset: market.quote })}

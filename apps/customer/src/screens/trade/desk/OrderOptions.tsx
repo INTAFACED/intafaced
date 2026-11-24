@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
 import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import type { OrderType } from './order-math';
 import type { TypeReasonKey } from './order-type-access';
 import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, TYPE_TAB_KEY, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
@@ -19,7 +20,10 @@ export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, Ty
         <ChevronDown size={14} aria-hidden="true" />
       </MenuTrigger>
       <MenuContent align="start" className="dk-type-menu">
-        {[...refused].map(([kind, reason]) => (
+        {SPOT_TICKET_ORDER_TYPES.flatMap((kind) => {
+          const reason = refused.get(kind);
+          return reason === undefined ? [] : [[kind, reason] as const];
+        }).map(([kind, reason]) => (
           <MenuItem key={kind} disabled className="dk-type-item" data-testid={`dk-type-off-${kind}`}>
             <span className="dk-type-name" data-testid="dk-type-name">
               {t(TYPE_TAB_KEY[kind])}
