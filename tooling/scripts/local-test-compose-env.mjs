@@ -229,6 +229,23 @@ export function testerServiceEnv(stackEnv, composeKeys, { root, state, mountsSta
   return out;
 }
 
+/**
+ * The secrets every service shares, from this stack's own secrets.json, in place of .env.example's published dev values:
+ * the LOCAL TEST tools sign with this stack's (the content seed's ledger posts with `internal`, the gates' tokens with
+ * `jwt`), as they do on `pnpm local:stack`. This env file comes after .env.example, so its values win, for every service
+ * alike: each still shares ONE value. Pure.
+ */
+export function sharedSecrets(secrets) {
+  const out = {
+    INTERNAL_SERVICE_SECRET: secrets?.internal,
+    EDGE_PRINCIPAL_SECRET: secrets?.edgePrincipal,
+    JWT_ACCESS_SECRET: secrets?.jwt,
+  };
+  for (const [key, value] of Object.entries(out))
+    if (typeof value !== 'string' || value.length < 32) throw new Error(`refusing: secrets.json has no ${key} of at least 32 characters`);
+  return out;
+}
+
 /** The tester stack's marker file in its state folder, the one every LOCAL TEST tool reads. */
 const MARKER_FILE = 'LOCAL-TEST-STACK.json';
 
@@ -348,7 +365,9 @@ async function main(argv) {
   if (conflicts.length)
     throw new Error(`refusing: compose shares a variable the stack sets differently per service:\n  ${conflicts.join('\n  ')}`);
   if (unfilled.length) throw new Error(`refusing: compose requires values the stack does not run with: ${unfilled.join(', ')}`);
-  fs.writeFileSync(out, renderEnvFile({ ...values, ...testerUser(), LOCAL_TESTER_STACK_ID: stackId }), { mode: 0o600 });
+  fs.writeFileSync(out, renderEnvFile({ ...values, ...sharedSecrets(secrets), ...testerUser(), LOCAL_TESTER_STACK_ID: stackId }), {
+    mode: 0o600,
+  });
   const composeKeys = new Set(Object.values(services).flatMap((svc) => Object.keys(svc.environment ?? {})));
   for (const [svc, name] of Object.entries(TESTER_ENV_FILES)) {
     const file = path.join(process.env.LOCAL_STACK_STATE, `tester-${name}.env`);

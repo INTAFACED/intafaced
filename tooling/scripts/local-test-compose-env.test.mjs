@@ -9,6 +9,7 @@ import {
   blankKeys,
   blankableVariable,
   composeMarker,
+  sharedSecrets,
   testerServiceEnv,
   composeEnvValues,
   envFileValue,
@@ -173,4 +174,15 @@ test('testerServiceEnv: only the LOCAL TEST settings no compose service sets, ne
     OUTBOX: '/state/email-outbox.log',
   });
   assert.deepEqual(testerServiceEnv(stack, composeKeys, { ...opts, mountsState: false }), { IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600' });
+});
+
+test("sharedSecrets: the stack's own internal, edge principal and token secrets, each refused when missing or short", () => {
+  const secrets = { internal: 'i'.repeat(64), edgePrincipal: 'e'.repeat(64), jwt: 'j'.repeat(64) };
+  assert.deepEqual(sharedSecrets(secrets), {
+    INTERNAL_SERVICE_SECRET: 'i'.repeat(64),
+    EDGE_PRINCIPAL_SECRET: 'e'.repeat(64),
+    JWT_ACCESS_SECRET: 'j'.repeat(64),
+  });
+  assert.throws(() => sharedSecrets({ ...secrets, internal: undefined }), /INTERNAL_SERVICE_SECRET/);
+  assert.throws(() => sharedSecrets({ ...secrets, jwt: 'short' }), /JWT_ACCESS_SECRET/);
 });
