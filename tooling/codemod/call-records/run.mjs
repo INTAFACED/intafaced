@@ -23,8 +23,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, normalize, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseSync } from 'oxc-parser';
-import { walk } from './ast.mjs';
+import { createRequire } from 'node:module';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
@@ -60,10 +59,14 @@ export function appTypeErrors(repo = REPO) {
   return errors;
 }
 
+// The parser is loaded only when a run has a type error to place, so the run's other steps need nothing beside them.
+const load = createRequire(import.meta.url);
+const walk = (...args) => load('./ast.mjs').walk(...args);
+
 /** A parsed program, or undefined when the text does not parse. */
 function programOf(file, text) {
   try {
-    const { program, errors } = parseSync(file, text);
+    const { program, errors } = load('oxc-parser').parseSync(file, text);
     return errors.length ? undefined : program;
   } catch {
     return undefined;
