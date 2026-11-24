@@ -44,6 +44,12 @@ import { exportFileName, exportListCsv, importSummary, IMPORT_MAX_BYTES, readImp
 import { MAX_WIDTH, MIN_WIDTH, readWatchlistView, writeWatchlistView, type WatchlistView } from './view';
 import { useWatchlists, type RecordUpdate } from './store';
 
+/** Each column's width until the person resizes it, so a narrow panel scrolls the table sideways rather than drawing its
+ *  columns over each other (the table's layout is fixed, so the columns keep these widths). */
+const DEFAULT_WIDTH: Record<WatchlistColumn, number> = { symbol: 104, last: 96, change: 80, high: 96, low: 96, volume: 104 };
+/** The last column: a row's Details and Remove buttons. */
+const ACTIONS_WIDTH = 136;
+
 const COLUMN_LABEL: Record<WatchlistColumn, 'Market' | 'Last' | 'Change 24h' | 'High 24h' | 'Low 24h' | 'Volume 24h'> = {
   symbol: 'Market',
   last: 'Last',
@@ -596,7 +602,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
               aria-label={t('Watchlist rows')}
               data-sorted={sort ? `${sort.column}:${sort.direction}` : ''}
             >
-              <ColumnWidths widths={[...WATCHLIST_COLUMNS.map((column) => view.widths[column]), undefined]} />
+              <ColumnWidths widths={[...WATCHLIST_COLUMNS.map((column) => view.widths[column] ?? DEFAULT_WIDTH[column]), ACTIONS_WIDTH]} />
               <thead>
                 <tr>
                   {WATCHLIST_COLUMNS.map((column) => {
