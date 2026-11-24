@@ -149,11 +149,10 @@ export interface RoutedOrder {
   readonly venueClientOrderId: string;
 }
 
-/** One order a stored action sent: its venue client id, our builder fee rate on it (or null), any label, and whether the venue took it. */
+/** One order a stored action sent: its venue client id, our builder fee rate on it (or null), and whether the venue took it. */
 interface SentOrder {
   readonly venueClientOrderId: string;
   readonly feeBps: Amount | null;
-  readonly label: string | null;
   readonly accepted: boolean;
 }
 
@@ -165,14 +164,12 @@ interface SentOrder {
  */
 export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'prepared' | 'lastOutcome'>): readonly SentOrder[] {
   const took = !!lastOutcome?.definite && lastOutcome.accepted;
-  const labelOf = (raw: string | null | undefined) => (typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null);
   if (prepared.intent.kind === 'place_order') {
     if (prepared.venueClientOrderId === null) return [];
     return [
       {
         venueClientOrderId: prepared.venueClientOrderId,
         feeBps: prepared.builderFee?.feeBps ?? null,
-        label: labelOf(prepared.intent.label),
         accepted: took,
       },
     ];
@@ -185,7 +182,6 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
       {
         venueClientOrderId: venueClientOrderId(prepared.venueId, order.clientOrderKey),
         feeBps: order.builderFee?.feeBps ?? null,
-        label: labelOf(order.label),
         accepted: placed?.accepted === true,
       },
     ];
@@ -195,10 +191,11 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
   return prepared.intent.orders.map((order, i) => ({
     venueClientOrderId: venueClientOrderId(prepared.venueId, order.clientOrderKey),
     feeBps: order.builderFee?.feeBps ?? null,
-    label: labelOf(order.label),
     accepted: took && legs[i]?.accepted === true,
   }));
 }
+
+const labelOf = (raw: string | null | undefined) => (typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null);
 
 /** Client-id → label pairs from one signed action on `account`. */
 function labelsFromRow(
@@ -213,8 +210,20 @@ function labelsFromRow(
     !sameAddress(p.account.subAccount ?? null, account.subAccount)
   )
     return [];
+  if (p.intent.kind === 'place_order') {
+    const label = labelOf(p.intent.label);
+    return p.venueClientOrderId !== null && label !== null ? [[p.venueClientOrderId.toLowerCase(), label]] : [];
+  }
+  if (p.intent.kind === 'replace_order') {
+    const label = labelOf(p.intent.order.label);
+    return label !== null ? [[venueClientOrderId(p.venueId, p.intent.order.clientOrderKey).toLowerCase(), label]] : [];
+  }
+  if (p.intent.kind !== 'place_orders') return [];
   const pairs: [string, string][] = [];
-  for (const o of ordersOf(row)) if (o.label !== null) pairs.push([o.venueClientOrderId.toLowerCase(), o.label]);
+  for (const order of p.intent.orders) {
+    const label = labelOf(order.label);
+    if (label !== null) pairs.push([venueClientOrderId(p.venueId, order.clientOrderKey).toLowerCase(), label]);
+  }
   return pairs;
 }
 
