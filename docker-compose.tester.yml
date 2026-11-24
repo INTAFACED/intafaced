@@ -26,6 +26,16 @@ services:
 
   # The seed shares the host's network and reaches each service the LOCAL TEST tools call on its own loopback port, as
   # the compose marker lists them; never on another address.
+  # The edge keeps its kill-switch state in the state folder, where compose-env records "nothing is killed" once, as
+  # `pnpm local:stack` does: on a new volume it would halt every module until an operator wrote that. A file the edge or
+  # an operator changed later is never overwritten. It runs as the folder's owner, so it can write its own switch.
+  svc-edge:
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    environment:
+      EDGE_KILL_STATE_PATH: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/edge-kill-state.json
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+
   svc-ledger:
     ports: ['127.0.0.1:4001:4001']
   svc-trade:

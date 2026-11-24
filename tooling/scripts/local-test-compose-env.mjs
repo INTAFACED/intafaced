@@ -252,6 +252,16 @@ export function composeMarker(services, stackId, now = new Date()) {
   };
 }
 
+/**
+ * The edge's kill-switch file for the compose stack (docker-compose.tester.yml): "nothing is killed", written once, as
+ * `pnpm local:stack` does. A file already there (the edge's own, or an operator's) is left as it is.
+ */
+function writeEdgeKillState(stateDir, now = new Date()) {
+  const file = path.join(stateDir, 'edge-kill-state.json');
+  if (fs.existsSync(file)) return;
+  fs.writeFileSync(file, `${JSON.stringify({ killed: [], updatedAt: now.toISOString() }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+}
+
 function writeComposeMarker(stateDir, services, stackId) {
   const marker = composeMarker(services, stackId);
   const file = path.join(stateDir, MARKER_FILE);
@@ -299,6 +309,7 @@ async function main(argv) {
   // The compose stack's marker and its founder pair's draft, before the stack's envs are read: identity's env then holds
   // the draft's invites, so the founder seed can enrol on the first compose up.
   const marker = writeComposeMarker(process.env.LOCAL_STACK_STATE, services, stackId);
+  writeEdgeKillState(process.env.LOCAL_STACK_STATE);
   const { ensureFounderVaultDraft } = await import('./local-test-founders.mjs');
   ensureFounderVaultDraft({ stateDir: process.env.LOCAL_STACK_STATE, marker, edgeUrl: `http://127.0.0.1:${marker.ports.edge}` });
   const stackEnvs = Object.fromEntries(localTestServiceEnvs(secrets).map((s) => [s.name, s.env]));
