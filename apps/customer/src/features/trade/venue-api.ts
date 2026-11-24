@@ -230,6 +230,8 @@ export const keys = {
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
   /** One reverse of a position: its close is `<key>:close` and its open `<key>:open`, each under the one reverse key. */
   reverse: (owner: string, draft: string) => `order:${part(owner)}:reverse:${draft}`,
+  /** One split order batch (J-derivatives-02 #5): children are `<key>:1`, `<key>:2`, ... under this action key. */
+  split: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:split:${draft}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */

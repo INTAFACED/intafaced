@@ -195,12 +195,20 @@ describe('the owner spread limit (J-cex-spot-03 #2)', () => {
 });
 
 describe('the door bounds a spot market order by the owner protection', () => {
-  it("a perpetual's market order is not bounded by it: the futures ticket's own worst price goes to the venue as typed", async () => {
-    // Past the spot bound (60311) and with the protection blank: the venue is asked, on preview and prepare.
-    const { d, asked } = door(null);
-    const perp = order({ symbol: 'BTC-PERP', price: a('62000') });
-    expect(await refusal(() => d.preview(principal, owner, perp))).toBe('passed');
-    expect(asked.previews).toBe(1);
+  it("a perpetual market open refuses trade.slippage_cap_unset when the cap is blank (J-derivatives-02 #5), while reduce-only closes pass and a set cap lets the ticket's worst price through", async () => {
+    const blank = door(null);
+    const perpOpen = order({ symbol: 'BTC-PERP', price: a('62000'), reduceOnly: false });
+    expect(await refusal(() => blank.d.preview(principal, owner, perpOpen))).toBe('trade.slippage_cap_unset');
+    expect(await refusal(() => blank.d.prepare(principal, { owner, signer, intent: perpOpen }))).toBe('trade.slippage_cap_unset');
+    expect(blank.asked).toEqual({ previews: 0, prepares: 0 });
+    // Reduce-only close is never blocked by a blank slippage cap.
+    const perpClose = order({ symbol: 'BTC-PERP', side: 'sell', price: a('58000'), reduceOnly: true });
+    expect(await refusal(() => blank.d.preview(principal, owner, perpClose))).toBe('passed');
+    expect(blank.asked.previews).toBe(1);
+    // With a cap published, the futures ticket's typed worst price goes to the venue as typed.
+    const set = door(50);
+    expect(await refusal(() => set.d.preview(principal, owner, perpOpen))).toBe('passed');
+    expect(set.asked.previews).toBe(1);
   });
 
   it('blank cap: a market order refuses trade.slippage_cap_unset on preview and prepare, and the venue is never asked', async () => {

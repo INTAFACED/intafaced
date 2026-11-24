@@ -512,7 +512,7 @@ describe('/api/v1/venue/*', () => {
 
   it("J-derivatives-21: markets carry the venue's listing, rules and feed; a leverage above the cap is trade.venue.leverage_above_cap naming it; a stale feed is trade.venue.feed_stale", async () => {
     // A TEST builder fee, so a perp order is not refused builder_fee_not_published first.
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const markets = await app.inject({ method: 'GET', url: '/api/v1/venue/markets' });
     expect(markets.statusCode).toBe(200);
     const xau = markets.json().value.find((m: { symbol: string }) => m.symbol === 'XAU-PERP');
@@ -588,7 +588,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27: a stock perpetual carries the venue's home-market session; off hours an opening market order is trade.venue.market_off_hours in the venue's words", async () => {
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const read = async () =>
       (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
         .json()
@@ -646,7 +646,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27 #7 #8: a market's own margin account is read on the main account and funded by the owner's signed move; an open past the deployer's open-interest cap is trade.venue.open_interest_above_cap naming it", async () => {
-    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', 50, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
     const control = (path: string, body: unknown) =>
       fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

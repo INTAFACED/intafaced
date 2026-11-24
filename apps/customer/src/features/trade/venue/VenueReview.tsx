@@ -70,6 +70,8 @@ export function ReviewDialog({
   owner,
   run,
   confirmLabel,
+  confirmDisabled = false,
+  beforeConfirm,
   extra,
   after,
   result,
@@ -84,6 +86,10 @@ export function ReviewDialog({
   owner: string;
   run: RunAction;
   confirmLabel: string;
+  /** Extra gate before Confirm can be pressed (e.g. accepting a higher margin tier, J-derivatives-02 #6). */
+  confirmDisabled?: boolean;
+  /** Content shown directly above the Confirm button (e.g. the new margin tier acceptance block). */
+  beforeConfirm?: ReactNode;
   extra?: ReactNode;
   /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
   after?: ReactNode;
@@ -115,10 +121,38 @@ export function ReviewDialog({
     account.reload();
   }
 
+  const actions = (
+    <>
+      {approved === false ? (
+        <Button tone="primary" disabled={busy} onClick={() => void approve()}>
+          {t('Approve in wallet')}
+        </Button>
+      ) : null}
+      <OutcomeLine result={approving} owner={owner} />
+      {beforeConfirm}
+      <div className="lt-row">
+        <Button
+          tone="primary"
+          disabled={
+            approved !== true || confirmDisabled || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')
+          }
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
+        <Button tone="secondary" onClick={onClose}>
+          {t('Close review')}
+        </Button>
+      </div>
+      <OutcomeLine result={result} owner={owner} />
+    </>
+  );
+
   return (
     <Sheet open title={title} onClose={onClose} closeLabel={ui('closeDialog')} closeLang={uiLanguage('closeDialog')}>
       <div data-testid="venue-review" className="lt-stack">
         <TestMark test={status.test} />
+        {beforeConfirm ? actions : null}
         <dl className="lt-kv">
           <div>
             <dt>{t('Venue locks')}</dt>
@@ -179,23 +213,7 @@ export function ReviewDialog({
           </div>
         </dl>
         <AsOfLine asOf={preview.asOf} />
-        {approved === false ? (
-          <Button tone="primary" disabled={busy} onClick={() => void approve()}>
-            {t('Approve in wallet')}
-          </Button>
-        ) : null}
-        <OutcomeLine result={approving} owner={owner} />
-        <Button
-          tone="primary"
-          disabled={approved !== true || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')}
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </Button>{' '}
-        <Button tone="secondary" onClick={onClose}>
-          {t('Close review')}
-        </Button>
-        <OutcomeLine result={result} owner={owner} />
+        {beforeConfirm ? null : actions}
         {after}
       </div>
     </Sheet>

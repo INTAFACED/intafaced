@@ -60,6 +60,7 @@ export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
     // Hyperliquid publishes no figure for its price band (error-responses docs state only "order too far from reference
     // price"), so it stays null and is left to Hyperliquid to enforce (J-cex-spot-04 #6).
     priceBandBps: null,
+    priceBand: { known: false },
     // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
     // are not read from the info API by this adapter yet: each is not known, never guessed.
     listedBy: { known: false },
