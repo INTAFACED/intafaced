@@ -30,7 +30,6 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
-const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 /** The study series the chart library draws (key, pane, type, colour), as the chart writes them back. */
@@ -120,23 +119,29 @@ test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: dr
   await expect(row(page, 'funding-1')).not.toContainText('is not published');
 
   // Open interest and the on-chain series are published by no source the chart reads: each is refused by name on this
-  // market and nothing is drawn for either.
-  await expect(legend(page)).toContainText(`Open interest is not published for ${MARKET_NAME}.`);
-  await expect(legend(page)).toContainText(`On-chain series is not published for ${MARKET_NAME}.`);
+  // market with its typed refusal code and nothing is drawn for either.
+  await expect(row(page, 'open-interest-1').locator('[data-code="trade.study.series_unpublished"]')).toContainText(
+    `Open interest is not published for ${MARKET_NAME}.`,
+  );
+  await expect(row(page, 'on-chain-1').locator('[data-code="trade.study.series_unpublished"]')).toContainText(
+    `On-chain series is not published for ${MARKET_NAME}.`,
+  );
   for (const id of ['open-interest-1', 'on-chain-1']) {
     await expect(row(page, id)).toBeVisible();
     await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
   }
   expect((await drawnStudies(page)).filter((x) => /^(open-interest|on-chain)-1(:|$)/.test(x.key))).toEqual([]);
 
-  // Otherwise: on a market whose asset has no published funding, funding too is refused by name and nothing is drawn.
+  // Otherwise: on a market whose asset has no published funding, funding too is refused by name with its typed code and nothing is drawn.
   const other = await marketWithoutFunding(since);
   const otherPair = other.replace('/', '-');
   await openChart(page, `/charts/${otherPair}`);
   // The workbench keeps its studies across markets; a workbench that kept none gets the funding study added here.
   if ((await page.locator('[data-study^="funding-"]').count()) === 0) await addStudy(page, 'funding', 'Funding rate');
   const fundingId = (await page.locator('[data-study^="funding-"]').first().getAttribute('data-study')) ?? '';
-  await expect(row(page, fundingId)).toContainText(`Funding rate is not published for ${other}.`);
+  await expect(row(page, fundingId).locator('[data-code="trade.study.series_unpublished"]')).toContainText(
+    `Funding rate is not published for ${other}.`,
+  );
   await expect(row(page, fundingId).locator('[data-series]')).toHaveCount(0);
   await expect
     .poll(async () => (await drawnStudies(page)).filter((x) => /^(funding|open-interest|on-chain)-\d+(:|$)/.test(x.key)))

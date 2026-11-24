@@ -238,7 +238,7 @@ function StudyRow({
   if (result === null || result.status === 'loading') body = <span className="lt-muted">{t('Loading')}</span>;
   else if (result.status === 'refused')
     body = (
-      <span className="lt-muted" role="status">
+      <span className="lt-muted" role="status" data-code={result.reason === 'notServed' ? 'trade.study.series_unpublished' : undefined}>
         {reasonText(result, t, word)}
       </span>
     );

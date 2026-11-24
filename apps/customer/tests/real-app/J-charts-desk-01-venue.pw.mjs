@@ -200,7 +200,7 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #1 opens /charts/BTC-USDC and sees the last bars at the saved interval with a header naming both`, async ({
+test(`${J} #1 opens /charts/BTC-USDC on the launch model and sees the last bars at the saved interval with a header naming both`, async ({
   page,
   stepPicture,
 }) => {
@@ -250,7 +250,10 @@ test(`${J} #1 opens /charts/BTC-USDC and sees the last bars at the saved interva
     .toBe(true);
 });
 
-test(`${J} #2 picks 1h, then another interval from More, and the pressed one is marked`, async ({ page, stepPicture }) => {
+test(`${J} #2 picks 1h on the launch model, then another interval from More, and the pressed one is marked`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page);
   await page.getByRole('group', { name: 'Chart intervals', exact: true }).first().getByRole('button', { name: '1h', exact: true }).click();
   await expect(title(page)).toHaveText(`${SYMBOL} · 1h`);
@@ -265,7 +268,7 @@ test(`${J} #2 picks 1h, then another interval from More, and the pressed one is 
   await stepPicture();
 });
 
-test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({
+test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi on the launch model, and the choice is kept`, async ({
   page,
   stepPicture,
 }) => {
@@ -356,7 +359,7 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
   await stepPicture();
 });
 
-test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({
+test(`${J} #4 scrolls back to the oldest bar on the launch model, more history loads with a stated depth, and keys zoom and pan`, async ({
   page,
   stepPicture,
 }) => {
@@ -415,7 +418,10 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   await stepPicture();
 });
 
-test(`${J} #5 jumps to a date and sees it, or is told there is no data that far back`, async ({ page, stepPicture }) => {
+test(`${J} #5 jumps to a date on the launch model and sees it, or is told there is no data that far back`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page, `${CHART}?interval=15m`);
   const date = page.getByLabel('Go to date', { exact: true }).first();
   const go = async (ms) => {
@@ -453,7 +459,7 @@ test(`${J} #5 jumps to a date and sees it, or is told there is no data that far 
   await stepPicture();
 });
 
-test(`${J} #6 changes the colour scheme and the price source; a source the market does not serve is refused`, async ({
+test(`${J} #6 changes the colour scheme and the price source on the launch model; a source the market does not serve is refused`, async ({
   page,
   stepPicture,
 }) => {
@@ -481,7 +487,7 @@ test(`${J} #6 changes the colour scheme and the price source; a source the marke
   await stepPicture();
 });
 
-test(`${J} #7 reads the numbers the chart plots: the venue's bars in seconds, the axis format from the tick size`, async ({
+test(`${J} #7 reads the numbers the chart plots on the launch model: the venue's bars in seconds, the axis format from the tick size`, async ({
   page,
   stepPicture,
 }) => {
@@ -533,7 +539,10 @@ test(`${J} #7 reads the numbers the chart plots: the venue's bars in seconds, th
   await stepPicture();
 });
 
-test(`${J} #8 opens a symbol at an interval the feed does not offer and is told so by name`, async ({ page, stepPicture }) => {
+test(`${J} #8 opens a symbol at an interval the feed does not offer on the launch model and is told so by name`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page, `${CHART}?interval=3d`);
   const note = page.locator('[data-code="trade.datafeed.interval_unsupported"]');
   await expect(note).toContainText('doesn’t offer the 3d interval');
