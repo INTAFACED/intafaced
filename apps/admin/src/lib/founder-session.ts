@@ -320,6 +320,22 @@ export async function founderEdgeRecordCall<R extends EdgeRecord>(
 }
 
 /**
+ * `founderEdgeRecordCall` for a caller that reads the answer with its own `.safeParse()` and so decides what an answer it
+ * can't read means (a staff check reads it as "not staff"): an answer the record refuses comes back as `undefined`, never a
+ * throw, and the caller's own parse refuses it as before. A refusal or an unreachable service still throws.
+ */
+export async function founderEdgeRecordRead<R extends EdgeRecord>(
+  config: AdminSessionConfig,
+  record: R,
+  input: ProcedureInput<R>,
+  accessToken?: string,
+): Promise<ProcedureOutput<R> | undefined> {
+  const raw = await founderEdgeCall(config, record.module, record.path, record.kind === 'query' ? 'GET' : 'POST', input, accessToken);
+  const parsed = record.output.safeParse(raw);
+  return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : undefined;
+}
+
+/**
  * Who the console admits: a current founder, everywhere. On a local or test stack only (`APP_ENV` exactly `dev` or `test`,
  * the raw value), also a member of identity's labelled TEST staff roster (support, compliance, risk, finance), so staff
  * journeys can run as staff. Anywhere else the TEST path is never asked: production stays founder-only, and a
