@@ -128,9 +128,39 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
     expect(await d.builderFeeFor('BTC-PERP', 'sell')).toEqual({ carries: true, feeBps: a('0.3') });
     expect(await d.builderFeeFor('BTC-USDC', 'sell')).toEqual({ carries: true, feeBps: a('0.4') });
     expect(await d.builderFeeFor('BTC-USDC', 'buy')).toEqual({ carries: false });
+    // The preview carries the versioned builder fee rate (null on a spot buy, which carries none).
+    const sellPreview = await d.preview(principal, owner, sell());
+    expect(sellPreview.value.builderFeeBps).toBe(a('0.4'));
+    const buyPreview = await d.preview(principal, owner, sell({ side: 'buy', price: a('50000') }));
+    expect(buyPreview.value.builderFeeBps).toBeNull();
     // The spot sell is prepared for signing at the spot rate.
     const prepared = await d.prepare(principal, { owner, signer, intent: sell() });
     expect(prepared.prepared.builderFee).toEqual({ builder: BUILDER.address, feeBps: a('0.4') });
+  });
+
+  it('a preview switches builderFeeBps at the new version effective time, and keeps the schedule rate before discounts', async () => {
+    let at = new Date('2026-11-24T10:00:00.000Z');
+    const cutoff = new Date('2026-11-24T10:05:00.000Z');
+    const v1 = parseBuilderFees({ [sim.venue.id]: { defaultGroup: 'spot', groups: { spot: '2' } } });
+    const v2 = parseBuilderFees({ [sim.venue.id]: { defaultGroup: 'spot', groups: { spot: '3' } } });
+    const d = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: allowAll,
+      builder: BUILDER,
+      builderFeesAt: async (when) => (when < cutoff ? v1 : v2),
+      feeDiscounts: { rankBps: async () => 25, coupons: new FixedFeeSaver(COUPON, 1) },
+      slippageCapBps: null,
+      now: () => at,
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+    });
+    const before = await d.preview(principal, owner, sell());
+    expect(before.value.builderFeeBps).toBe(a('2'));
+    expect(before.value.feeDiscount).toEqual({ source: 'coupon', bps: 5000, code: 'TEST-SAVER', voucherId: COUPON.voucherId });
+    at = cutoff;
+    const after = await d.preview(principal, owner, sell());
+    expect(after.value.builderFeeBps).toBe(a('3'));
   });
 
   it('a coupon that beats the rank is taken once and the order is signed at its rate; a replay takes nothing more', async () => {
@@ -138,6 +168,7 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
     const d = door({ rankBps: async () => 25, coupons });
     const intent = sell();
     const preview = await d.preview(principal, owner, intent);
+    expect(preview.value.builderFeeBps).toBe(BUILDER.feeBps);
     expect(preview.value.feeDiscount).toEqual({ source: 'coupon', bps: 5000, code: 'TEST-SAVER', voucherId: COUPON.voucherId });
     // A preview names the coupon and takes nothing.
     expect(coupons.calls.map((c) => c.mode)).toEqual(['quote']);
