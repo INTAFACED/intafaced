@@ -75,9 +75,9 @@ function notHealthyLogs(env) {
 
 // The step's own start: a fresh compose up with the tester profile, from the documented example env and the values
 // `compose-env` writes for this state directory (LOCAL TEST settings and generated keys), on a state directory nothing
-// else has written. The real-app run seeds the `pnpm local:stack` stack instead (#1 above), so this
-// stays red by name until a fresh compose up starts and its seed service runs once and reports what it made.
-test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_seed until a fresh compose up seeds)`, () => {
+// else has written. The real-app run seeds the `pnpm local:stack` stack too (#1 in J-home-ia-11.pw.mjs); this one
+// passes only when a fresh compose up starts and its seed service runs once and reports what it made.
+test(`${J} #1 a fresh compose up with the tester profile seeds`, () => {
   test.setTimeout(30 * 60_000);
   const state = mkdtempSync(path.join(tmpdir(), 'compose-tester-'));
   const env = { APP_ENV: 'test', LOCAL_STACK_STATE: state };
