@@ -858,6 +858,17 @@ import { CAMPAIGNS_DISTRIBUTION_MINE } from './campaigns-distribution-procedures
 
 import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from './campaigns-drops-procedures.js';
 
+import {
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+} from './campaigns-ops-procedures.js';
+
 import { CAMPAIGNS_PARTICIPATION_MINE } from './campaigns-participation-procedures.js';
 
 import { CAMPAIGNS_POINTS_PROGRAMME, CAMPAIGNS_POINTS_CONVERT, CAMPAIGNS_POINTS_REDEEM } from './campaigns-points-procedures.js';
@@ -3318,6 +3329,17 @@ const part_campaigns_distribution_procedures: readonly ProcedureRecord[] = [CAMP
 
 const part_campaigns_drops_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM];
 
+const part_campaigns_ops_procedures: readonly ProcedureRecord[] = [
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+];
+
 const part_campaigns_participation_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_PARTICIPATION_MINE];
 
 const part_campaigns_points_procedures: readonly ProcedureRecord[] = [
@@ -5115,6 +5137,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_campaigns_catalogue_procedures,
   ...part_campaigns_distribution_procedures,
   ...part_campaigns_drops_procedures,
+  ...part_campaigns_ops_procedures,
   ...part_campaigns_participation_procedures,
   ...part_campaigns_points_procedures,
   ...part_campaigns_procedures,
