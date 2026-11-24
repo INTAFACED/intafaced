@@ -332,6 +332,8 @@ export const NOT_GATES = {
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; its tests are main-first.test.mjs.",
   'model-check.mjs':
     "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
+  'beta-hides.mjs':
+    "which customer-app paths the hosted beta hides, by the beta build's own rule (beta-volt.ts betaHides over volt-count.ts); journey-verdict.mjs runs it on a journeys run's recorded screens to name the steps not proven on the beta (notOnBeta). Not a doctrine gate: it judges nothing on its own and needs a run's screens; its tests are in journey-verdict.test.mjs.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'look-paths.mjs':
