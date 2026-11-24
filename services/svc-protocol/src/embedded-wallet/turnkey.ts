@@ -1,4 +1,5 @@
 import { createECDH, createPrivateKey, createSign, type KeyObject } from 'node:crypto';
+import { isRecord } from '@intafaced/contracts/guards';
 import type { ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, isAddress, type Address } from 'viem';
 import {
@@ -10,8 +11,7 @@ import {
 } from './provider.js';
 
 /**
- * THE OWNER'S EMBEDDED-WALLET PROVIDER, wired (issue #10582; OWNER-VALUES row 12: the wallet provider is the one the
- * partner chose on 23 Nov 2026). Server side only, with no vendor SDK: svc-protocol signs each request with the
+ * THE OWNER'S EMBEDDED-WALLET PROVIDER, the one the owner's settings name `turnkey`. Server side only, with no vendor SDK: svc-protocol signs each request with the
  * organisation's backend API key (P-256), the way the provider's own Apache-2.0 `api-key-stamper` does, and asks two
  * things:
  *
@@ -112,7 +112,6 @@ export function turnkeyStamp(body: string, publicKey: string, key: KeyObject): s
   return b64url(Buffer.from(JSON.stringify({ publicKey, scheme: STAMP_SCHEME, signature })));
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const providerId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(v);
 
 export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
@@ -154,10 +153,10 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
   /** The wallet's Ethereum address in one sub-organisation; null when it holds none. */
   async function addressOf(subOrgId: string, walletId: string): Promise<Address | null> {
     const answer = await call('/public/v1/query/list_wallet_accounts', { organizationId: subOrgId, walletId });
-    const accounts = isObject(answer) && Array.isArray(answer.accounts) ? answer.accounts : [];
+    const accounts = isRecord(answer) && Array.isArray(answer.accounts) ? answer.accounts : [];
     for (const account of accounts)
       if (
-        isObject(account) &&
+        isRecord(account) &&
         account.path === ETH_ACCOUNT.path &&
         typeof account.address === 'string' &&
         isAddress(account.address, { strict: false })
@@ -173,13 +172,13 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
       filterType: 'NAME',
       filterValue: turnkeySubOrgName(ownerRef),
     });
-    const ids = isObject(found) && Array.isArray(found.organizationIds) ? found.organizationIds.filter(providerId) : [];
-    if (ids.length === 0) return null;
-    if (ids.length > 1) throw new ProviderUnavailableError(info.displayName, 'holds more than one wallet for this person');
-    const subOrgId = ids[0]!;
+    const ids = isRecord(found) && Array.isArray(found.organizationIds) ? found.organizationIds.filter(providerId) : [];
+    const [subOrgId, ...others] = ids;
+    if (subOrgId === undefined) return null;
+    if (others.length > 0) throw new ProviderUnavailableError(info.displayName, 'holds more than one wallet for this person');
     const listed = await call('/public/v1/query/list_wallets', { organizationId: subOrgId });
-    const wallets = isObject(listed) && Array.isArray(listed.wallets) ? listed.wallets : [];
-    const walletId = wallets.map((w) => (isObject(w) ? w.walletId : null)).find(providerId);
+    const wallets = isRecord(listed) && Array.isArray(listed.wallets) ? listed.wallets : [];
+    const walletId = wallets.map((w) => (isRecord(w) ? w.walletId : null)).find(providerId);
     if (!walletId) throw new ProviderUnavailableError(info.displayName, 'holds this person but no wallet');
     const address = await addressOf(subOrgId, walletId);
     if (!address) throw new ProviderUnavailableError(info.displayName, 'holds a wallet with no Ethereum account');
@@ -223,15 +222,15 @@ export function turnkeyAdapter(settings: TurnkeySettings, fetcher: typeof fetch 
           wallet: { walletName: 'INTAFACED wallet', accounts: [ETH_ACCOUNT] },
         },
       });
-      const activity = isObject(answer) && isObject(answer.activity) ? answer.activity : null;
+      const activity = isRecord(answer) && isRecord(answer.activity) ? answer.activity : null;
       const status = activity?.status;
       if (status === 'ACTIVITY_STATUS_FAILED' || status === 'ACTIVITY_STATUS_REJECTED')
         throw new ProviderRefusedError(info.displayName, 400);
-      if (status !== 'ACTIVITY_STATUS_COMPLETED' || !isObject(activity?.result))
+      if (status !== 'ACTIVITY_STATUS_COMPLETED' || !isRecord(activity?.result))
         throw new ProviderUnavailableError(info.displayName, 'did not finish making the wallet');
-      const result = Object.entries(activity.result).find(([k, v]) => k.startsWith('createSubOrganizationResult') && isObject(v))?.[1];
-      const subOrgId = isObject(result) ? result.subOrganizationId : null;
-      const wallet = isObject(result) && isObject(result.wallet) ? result.wallet : null;
+      const result = Object.entries(activity.result).find(([k, v]) => k.startsWith('createSubOrganizationResult') && isRecord(v))?.[1];
+      const subOrgId = isRecord(result) ? result.subOrganizationId : null;
+      const wallet = isRecord(result) && isRecord(result.wallet) ? result.wallet : null;
       const walletId = wallet?.walletId;
       const address = Array.isArray(wallet?.addresses) ? wallet.addresses[0] : null;
       if (!providerId(subOrgId) || !providerId(walletId) || typeof address !== 'string' || !isAddress(address, { strict: false }))

@@ -1,11 +1,12 @@
 import { createECDH, createPublicKey, createVerify } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { isRecord } from '@intafaced/contracts/guards';
 import { embeddedWalletKey, type EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
 import { EmbeddedWalletRefusedError, MemoryEmbeddedWalletStore, createEmbeddedWallet } from './embedded.js';
 import { embeddedWalletFromSetting } from './provider.js';
 import { TURNKEY_API_BASE_URL, turnkeyAdapter, turnkeyApiKey, turnkeyStamp, turnkeySubOrgName, type TurnkeySettings } from './turnkey.js';
 
-/** #10582: the owner's wallet provider, wired. Every request is checked against the provider's published API shape. */
+/** The owner's wallet provider. Every request is checked against the provider's published API shape. */
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const ORG = '6b2c1c5e-0000-4000-8000-000000000001';
 const SUB = '6b2c1c5e-0000-4000-8000-0000000000aa';
@@ -35,13 +36,15 @@ type Call = { url: string; body: Record<string, unknown>; stamp: string };
 /** A provider answering by path, recording each signed call. */
 function provider(answers: Record<string, (body: Record<string, unknown>) => { status: number; body: unknown }>) {
   const calls: Call[] = [];
-  const fetcher = (async (url: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    calls.push({ url, body, stamp: (init.headers as Record<string, string>)['X-Stamp']! });
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input);
+    const body: unknown = JSON.parse(String(init?.body));
+    if (!isRecord(body)) throw new Error('the adapter sent a body that is not an object');
+    calls.push({ url, body, stamp: new Headers(init?.headers).get('X-Stamp') ?? '' });
     const path = url.slice(TURNKEY_API_BASE_URL.length);
     const answer = answers[path]?.(body) ?? { status: 404, body: {} };
     return new Response(JSON.stringify(answer.body), { status: answer.status });
-  }) as unknown as typeof fetch;
+  };
   return { fetcher, calls };
 }
 const ok = (body: unknown) => () => ({ status: 200, body });
@@ -215,10 +218,10 @@ describe('the owner’s wallet provider: making the wallet', () => {
       },
       { '/public/v1/query/list_suborgs': ok({ organizationIds: [SUB, 'other-sub'] }) },
     ];
-    const thrown: typeof fetch = (async () => {
+    const thrown: typeof fetch = async () => {
       throw new TypeError('fetch failed');
-    }) as typeof fetch;
-    const notJson = (async () => new Response('<html>', { status: 200 })) as unknown as typeof fetch;
+    };
+    const notJson: typeof fetch = async () => new Response('<html>', { status: 200 });
     const fetchers = [...downs.map((d) => provider(d).fetcher), thrown, notJson];
     for (const fetcher of fetchers) {
       const store = new MemoryEmbeddedWalletStore();
