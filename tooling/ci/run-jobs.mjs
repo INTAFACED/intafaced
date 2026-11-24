@@ -1,3 +1,4 @@
+// Read by tooling/ci/*: the one jobs-list reader.
 // A run's jobs, read in pages of JOBS_PAGE and followed to the last page: the one way to read a run's jobs list.
 //
 // GitHub's jobs page costs it about 0.2 s a job on a run that has been re-run, and its gateway answers 502 at about 10 s.
