@@ -89,6 +89,7 @@ test('svc-protocol reads the TEST chain through its gate, with the seeded factor
   const env = protocol(ctx(() => ({ rpcUrl: GATE_URL, factory, router: '0x1' }))).env();
   assert.equal(env.PROTOCOL_RPC_URL, GATE_URL);
   assert.equal(env.PROTOCOL_AMM_FACTORY_ADDRESS, factory);
+  assert.equal('PROTOCOL_SWAP_PAYMASTER_ADDRESS' in env, false, 'swap paymaster stays blank by default');
 });
 
 test('anvilBin: the named binary only if it exists, else anvil on PATH, else none', () => {

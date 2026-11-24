@@ -93,6 +93,34 @@ describe('protocol.amm.feeLevels', () => {
     }).amm.feeLevels();
     expect(fees.levels.normal.overCap).toBe(false);
     expect(fees.blocks).toBe(20);
+    expect(fees.sponsored).toBe(false);
+  });
+
+  it('reports sponsored only when a configured paymaster is funded on chain', async () => {
+    const paymaster = '0x000000000000000000000000000000000000cafe' as const;
+    const funded = await caller({
+      chain: {
+        config: { chainId: 84532 },
+        gasPrice: async () => QUOTE,
+        paymasterFunded: async (addr: string) => addr.toLowerCase() === paymaster,
+      } as unknown as ProtocolRouterDeps['chain'],
+      swapFeeCapWei: () => 100_000_000_000n,
+      gasPercentiles: () => ({ percentiles: [10, 50, 90], blocks: 20 }),
+      swapPaymasterAddress: () => paymaster,
+    }).amm.feeLevels();
+    expect(funded.sponsored).toBe(true);
+
+    const empty = await caller({
+      chain: {
+        config: { chainId: 84532 },
+        gasPrice: async () => QUOTE,
+        paymasterFunded: async () => false,
+      } as unknown as ProtocolRouterDeps['chain'],
+      swapFeeCapWei: () => 100_000_000_000n,
+      gasPercentiles: () => ({ percentiles: [10, 50, 90], blocks: 20 }),
+      swapPaymasterAddress: () => paymaster,
+    }).amm.feeLevels();
+    expect(empty.sponsored).toBe(false);
   });
 
   it.each<[string, Partial<ProtocolRouterDeps>, string]>([
