@@ -9,7 +9,7 @@ import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { createExplorerApi } from '../../features/protocol/explorer/explorer-api';
 import { createVenueAccountApi } from '../../features/protocol/venue-wallet/venue-account-api';
 import { venueConvertApi } from '../../features/trade/venue-convert-api';
-import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
+import { WalletBar, readAllVenueOrders, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
 import { Amount, Button, StateBlock } from './ui-deps';
@@ -61,6 +61,7 @@ export function SourceActivity({
   asset,
   hidden,
   source = null,
+  includeOrders = true,
 }: {
   status: VenueUp;
   filters: ActivityFilters;
@@ -68,11 +69,21 @@ export function SourceActivity({
   hidden: boolean;
   /** One source's lines only (J-portfolio-01 #6: the records behind one figure), or every source's. */
   source?: SourceKind | null;
+  /** Group fills by order and include resting (Set aside) and cancelled orders (J-portfolio-03 #3). */
+  includeOrders?: boolean;
 }) {
   const chainId = status.chainId ?? APP_CHAIN_ID;
   return (
     <WalletProvider chainId={chainId} scope="activity">
-      <Sources status={status} chainId={chainId} filters={filters} asset={asset} hidden={hidden} source={source} />
+      <Sources
+        status={status}
+        chainId={chainId}
+        filters={filters}
+        asset={asset}
+        hidden={hidden}
+        source={source}
+        includeOrders={includeOrders}
+      />
     </WalletProvider>
   );
 }
@@ -92,6 +103,7 @@ function Sources({
   asset,
   hidden,
   source,
+  includeOrders,
 }: {
   status: VenueUp;
   chainId: number;
@@ -99,6 +111,7 @@ function Sources({
   asset: string | null;
   hidden: boolean;
   source: SourceKind | null;
+  includeOrders: boolean;
 }) {
   const { t } = sourcesCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -121,27 +134,30 @@ function Sources({
   const venueRead = usePolled(
     async (signal) => {
       if (!owner) return null;
-      const [fills, deposits, conversions] = await Promise.all([
+      const [fills, deposits, conversions, orders] = await Promise.all([
         venue.fills(owner, ALL_FILLS_SINCE, signal),
         venueAccount.deposits(owner, signal),
         converts.history(owner, signal),
+        includeOrders ? readAllVenueOrders(venue, owner, signal) : Promise.resolve({ ok: true as const, data: [] }),
       ]);
       if (!fills.ok) return fills;
       // A venue that publishes no deposit list still has its fills: the list says the deposits aren't offered.
       if (!deposits.ok && !/not_offered/.test(`${deposits.code ?? ''} ${deposits.message}`)) return deposits;
       // A deployment with no venue Convert wired has no conversions: its fills are trades. Any other failure is a failure.
       if (!conversions.ok && !/venue_convert_unwired/.test(`${conversions.code ?? ''} ${conversions.message}`)) return conversions;
+      if (!orders.ok) return orders;
       return {
         ok: true as const,
         data: {
           fills: fills.data.value,
           deposits: deposits.ok ? deposits.data.value : [],
           conversions: conversions.ok ? conversions.data.conversions : [],
+          orders: orders.data,
           asOf: fills.data.asOf,
         },
       };
     },
-    `activity:venue:${owner ?? 'none'}`,
+    `activity:venue:${owner ?? 'none'}:${includeOrders ? 'orders' : 'records'}`,
     READ_EVERY_MS,
   );
   const bank = useActivity({});
@@ -154,7 +170,7 @@ function Sources({
     : { state: 'off' };
   const venuePart: Part = owner
     ? partOf(venueRead, (read) => ({
-        lines: venueLines(read.fills, read.deposits, venueName, read.conversions),
+        lines: venueLines(read.fills, read.deposits, venueName, read.conversions, read.orders, { includeOrders }),
         note: t('Venue read', { name: venueName, time: asOfText(read.asOf) }),
       }))
     : { state: 'off' };
@@ -299,6 +315,8 @@ function SourceNote({
 function titleOf(line: SourceLine, t: T): string {
   if (line.source === 'wallet') return line.direction === 'in' ? t('Received in your wallet') : t('Sent from your wallet');
   if (line.source === 'venue') {
+    if (line.kind === 'order_hold') return t('Set aside for an order');
+    if (line.kind === 'order_cancelled') return t('Order cancelled · nothing spent');
     if (line.detail?.kind === 'trade' && line.detail.convert)
       return t('Converted {from} to {to}', { from: line.detail.convert.from, to: line.detail.convert.to });
     if (line.detail?.kind === 'trade') return t(line.detail.side === 'buy' ? 'Bought {asset}' : 'Sold {asset}', { asset: line.asset });
@@ -329,12 +347,14 @@ function subOf(line: SourceLine, t: T): string | null {
   if (!detail) return null;
   switch (detail.kind) {
     case 'trade': {
-      const parts = [
+      const parts: string[] = [];
+      if (detail.fills && detail.fills.length > 1) parts.push(t('{count} fills', { count: String(detail.fills.length) }));
+      parts.push(
         t(detail.side === 'buy' ? 'Paid {amount} {asset}' : 'Got {amount} {asset}', {
           amount: exact(detail.quote.amount),
           asset: detail.quote.asset,
         }),
-      ];
+      );
       if (detail.fee)
         parts.push(
           t(detail.fee.rebate ? 'Rebate {amount} {asset}' : 'Fee {amount} {asset}', {
@@ -344,6 +364,13 @@ function subOf(line: SourceLine, t: T): string | null {
         );
       return parts.join(' · ');
     }
+    case 'order':
+      return t(detail.side === 'buy' ? 'Order buy {amount} {base} at {price} {quote}' : 'Order sell {amount} {base} at {price} {quote}', {
+        amount: exact(detail.orderAmount),
+        base: detail.base,
+        price: exact(detail.price),
+        quote: detail.quote,
+      });
     case 'space':
       return t('In account {name}', { name: detail.name });
     case 'confirming':
@@ -375,10 +402,12 @@ function LineRow({
 }) {
   const up = line.direction === 'in';
   const counted = line.state === 'completed';
+  const holding = line.state === 'set_aside';
   const sub = subOf(line, t);
   const amount = exact(line.amount);
   const [open, setOpen] = useState(false);
   const fill = line.source === 'venue' && line.detail?.kind === 'trade' ? line.detail : null;
+  const orderId = line.detail?.kind === 'trade' || line.detail?.kind === 'order' ? (line.detail.order ?? undefined) : undefined;
   const partsId = `money-act-parts-${line.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
   return (
     <>
@@ -389,6 +418,7 @@ function LineRow({
         data-type={typeOf(line.kind)}
         data-source={line.source}
         data-ref={line.ref}
+        data-order={orderId}
         data-state={line.state}
       >
         <td>
@@ -425,7 +455,7 @@ function LineRow({
                   </>
                 ) : null}
               </span>
-              {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, a deposit or a partner move id. */}
+              {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, an order id, a deposit or a partner move id. */}
               <span data-testid="money-act__ref" className="lt-hint lt-wrap">
                 {t('Source reference {ref}', { ref: line.ref })}
               </span>
@@ -437,7 +467,7 @@ function LineRow({
         </td>
         <td className="money-num">
           <Amount
-            value={counted ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
+            value={counted || holding ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
             hidden={hidden}
             className={counted ? (up ? 'text-up-text' : 'text-down-text') : undefined}
             data-direction={line.direction}
@@ -449,6 +479,12 @@ function LineRow({
               <Check size={14} aria-hidden="true" />
               {t('Completed')}
             </span>
+          ) : line.state === 'set_aside' ? (
+            <span data-testid="money-act__hold" className="money-act__hold">
+              {t('Set aside')}
+            </span>
+          ) : line.state === 'cancelled' ? (
+            <span>{t('Cancelled')}</span>
           ) : line.state === 'confirming' && line.detail?.kind === 'confirming' ? (
             <span>
               {t('Confirming {count} of {required}', { count: String(line.detail.confirmations), required: String(line.detail.required) })}
@@ -504,14 +540,17 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
   const record = read.data?.value ?? null;
   const parts = fillParts(group, record);
   const bought = line.detail?.kind === 'trade' && line.detail.side === 'buy';
+  const multiFill = line.detail?.kind === 'trade' && (line.detail.fills?.length ?? 1) > 1;
   return (
     <tr data-testid="money-act__parts-row" className="money-act__parts-row">
       <td colSpan={4}>
         <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="lt-stack">
           <h3 className="money-detail__h">{t('Parts of this order')}</h3>
-          <p className="lt-hint" data-label="fill-reference">
-            {t('Fill reference')} <code className="lt-mono">{line.ref}</code>
-          </p>
+          {!multiFill ? (
+            <p className="lt-hint" data-label="fill-reference">
+              {t('Fill reference')} <code className="lt-mono">{line.ref}</code>
+            </p>
+          ) : null}
           {order ? (
             <p className="lt-hint" data-label="order-reference">
               {t('Order reference')} <code className="lt-mono">{order}</code>

@@ -6,7 +6,7 @@ import { navigate } from '../../../app/location';
 import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { buybackRunsCopy } from '../buyback-runs-copy';
-import { Details, Limit } from '../catalogue-parts';
+import { Details, formatBpsPercent, Limit } from '../catalogue-parts';
 import { t as copyText, Text } from '../copy';
 import { downloadCsv, toCsv } from '../depth-csv';
 import { useTokenReads, type TokenTab } from '../Token';
@@ -80,7 +80,7 @@ export function TokenRoom({ paper }: { paper: boolean }) {
                           : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
                       [copyText('token.access.tier'), tierLabel(a.tier)],
-                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
+                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: formatBpsPercent(a.feeDiscountBps) })],
                     ]}
                   />
                 )}
@@ -142,9 +142,6 @@ export function TokenRoom({ paper }: { paper: boolean }) {
               </p>
               <p className="lt-hint">
                 <Text k="token.the.token.asset.is.deployment.configurable.stake" />
-              </p>
-              <p className="lt-hint">
-                <Text k="token.your.existing.stake.records.remain.readable.a" />
               </p>
             </Section>
           </div>

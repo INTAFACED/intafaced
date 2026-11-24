@@ -1,6 +1,8 @@
 import { useMemo, useRef } from 'react';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { FillsTable as VenueFillsTable, VenueFrame, WalletBar, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
+import { readAllVenueOrders } from '../../features/trade/venue/VenueKit';
+import type { VenueOrder } from '../../features/trade/venue-api';
 import '../trade/desk/desk.css';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
@@ -125,12 +127,31 @@ function VenueFills({ test, asset }: { test: boolean; asset: string | null }) {
 
 function OwnerVenueFills({ owner, test, asset }: { owner: string; test: boolean; asset: string | null }) {
   const api = useVenueApi();
-  const { resource } = useResource((signal) => api.fills(owner, EVERY_FILL, signal), `venue-fills:${owner}`);
-  const fills = resource.status === 'ready' ? resource.data : null;
+  const { resource } = useResource(async (signal) => {
+    const [fills, orders] = await Promise.all([api.fills(owner, EVERY_FILL, signal), readAllVenueOrders(api, owner, signal)]);
+    if (!fills.ok) return fills;
+    return {
+      ok: true as const,
+      data: {
+        fills: fills.data,
+        // If order history is unavailable, fills still show without a guessed order type.
+        orders: orders.ok ? orders.data.map((entry) => entry.order) : [],
+      },
+    };
+  }, `venue-fills:${owner}`);
+  const fills = resource.status === 'ready' ? resource.data.fills : null;
+  const orderList = resource.status === 'ready' ? resource.data.orders : null;
+  const orderMap = useMemo(() => {
+    const map = new Map<string, VenueOrder>();
+    for (const order of orderList ?? []) {
+      if (order.venueClientOrderId) map.set(order.venueClientOrderId.toLowerCase(), order);
+    }
+    return map;
+  }, [orderList]);
   const shown = fills && asset ? { ...fills, value: fills.value.filter((f) => f.symbol.split('-').includes(asset)) } : fills;
   // Newest first, as the rest of Activity reads.
   const sorted = shown ? { ...shown, value: [...shown.value].sort((a, b) => b.filledAt.localeCompare(a.filledAt)) } : null;
-  return <VenueFillsTable fills={sorted} test={test} withTotal />;
+  return <VenueFillsTable fills={sorted} test={test} withTotal orders={orderMap} groupByOrder />;
 }
 
 export function OrdersPanel() {
