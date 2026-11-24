@@ -44,7 +44,7 @@ const AuditRow = z.object({
 });
 const DueRow = z.object({ user_id: z.string(), recorded_at: z.date(), published_at: z.date().nullable() });
 
-export class SupportAccountFreezeNotFound extends Error {
+class SupportAccountFreezeNotFound extends Error {
   readonly code = 'identity.account_not_found' as const;
   constructor() {
     super('account not found');
