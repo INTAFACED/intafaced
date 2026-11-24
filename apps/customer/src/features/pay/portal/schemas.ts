@@ -215,7 +215,6 @@ export type NotificationKind = (typeof notificationKinds)[number];
 export type Notification = z.infer<typeof notificationSchema>;
 export type Preference = z.infer<typeof preferenceSchema>;
 export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
-export const markedSchema = z.object({ marked: z.number().int() });
 
 const merchantRecordSchema = z
   .object({
@@ -269,7 +268,6 @@ export {
   evidenceSchema,
   customerSummarySchema,
   kybCurrentSchema,
-  memberSchema,
   notificationKinds,
   preferenceSchema,
 };

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { responseSchema } from './renderer-response.js';
 import type { CardRaster } from '@intafaced/contracts';
 import type { CardRasterizeRequest, CardRenderer } from './card-renderer.js';
 
@@ -24,12 +24,6 @@ import type { CardRasterizeRequest, CardRenderer } from './card-renderer.js';
  * `protocol` means it answered and we could not use the answer, which is a
  * contract mismatch with a different owner and no amount of retrying fixes it.
  */
-
-const responseSchema = z.object({
-  url: z.string().url(),
-  /** Bytes written. Required: a renderer that reports 0 has not rendered anything. */
-  bytes: z.number().int().positive(),
-});
 
 export interface HttpCardRendererOptions {
   readonly baseUrl: string;

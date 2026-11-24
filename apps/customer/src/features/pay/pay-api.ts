@@ -110,7 +110,7 @@ import {
   IDENTITY_API_KEYS_CREATE,
   IDENTITY_API_KEYS_LIST,
 } from '@intafaced/contracts/identity-api-keys-procedures';
-import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_QUOTE, BANK_TRANSFERS_SENT, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 import { callAs } from '../../shared/api';
 
 /** Future session integration seam, not a claim inferred from a JWT mode or merchant KYB.
@@ -608,6 +608,25 @@ export function createPersonalPayApi(
         recoveryCurrent,
       );
     },
+    /** The send this device is still confirming (its transfer id), or null when none is unsettled. */
+    unsettledSend: () => guard.reference(`${userId}:send`),
+    /**
+     * Settles the send this device is still confirming by the bank's own answer about that exact send: only Completed
+     * clears it; Confirming, a refusal or a failed read leaves Send waiting. Nothing is ever sent again from here.
+     */
+    settleSend: (isCurrent: () => boolean) =>
+      guard.checkOriginal(
+        `${userId}:send`,
+        async (original) => {
+          const unresolved = () =>
+            payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+          if (!original.reference) return unresolved();
+          const read = await api.call(BANK_TRANSFERS_SENT, { transferId: original.reference });
+          if (!read.ok) return read;
+          return read.data.status === 'completed' ? read : unresolved();
+        },
+        isCurrent,
+      ),
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_OFFERS_LIST, input, { signal }),
     /** One board page, filtered and sorted by the service; `cursor` continues the previous page under the same query. */

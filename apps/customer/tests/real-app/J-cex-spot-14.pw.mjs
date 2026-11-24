@@ -358,6 +358,7 @@ test.describe('on the outside TEST venue', () => {
 
 test(`${J} #3 a market order on a limit-only market is refused as limit-only, and a limit inside the band is accepted`, async ({
   page,
+  stepPicture,
 }) => {
   const who = await account(page);
   const client = await api(who);
@@ -374,14 +375,16 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     await expect(page.getByTestId('dk-ticker')).toContainText('Limit only');
     const before = held(await client.balances(), 'USDC');
     const sent = placements(page);
-    // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
-    await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-    await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.001');
-    const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-    await expect(form).toContainText('Market orders are paused here');
-    await expect(form).toContainText('Place a limit order instead');
-    await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
-    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+    // A market order: the ticket offers no Market tab here; it lists Market, disabled, with the limit-only reason (the
+    // desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
+    await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+    await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
+    await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
+    const marketRow = page.getByTestId('dk-type-off-market');
+    await expect(marketRow).toHaveAttribute('aria-disabled', 'true');
+    await expect(marketRow).toHaveText('MarketThis market is taking limit orders only right now.');
+    await stepPicture();
+    await page.keyboard.press('Escape');
     await page.waitForTimeout(1000);
     expect(orderSends(sent)).toHaveLength(0);
     // The door itself refuses the same order with the typed code, before any hold.
@@ -567,6 +570,7 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
 
 test(`${J} #7 a market inside its opening window or the higher-risk zone shows a badge; a market order is refused with the window reason and a limit is accepted`, async ({
   page,
+  stepPicture,
 }) => {
   // A new listing inside its opening window: the stack lists one TEST market whose window ends weeks after the seed
   // (TWIN/USDC). The read names when the window ends.
@@ -584,14 +588,16 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   const quote = windowed.quote;
   const before = held(await client.balances(), quote);
   const sent = placements(page);
-  // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
-  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-  await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('1');
-  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-  await expect(form).toContainText('This market is in its opening window', { timeout: UNBUILT_MS });
-  await expect(form).toContainText('Place a limit order instead');
-  await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
-  await expect(page.getByRole('button', { name: `Buy ${windowed.base}`, exact: true })).toBeDisabled();
+  // A market order: the ticket offers no Market tab inside the window; it lists Market, disabled, with the window reason
+  // (the desk's order-type list, J-cex-spot-04 #1), so nothing can be sent or held.
+  await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+  await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
+  await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
+  await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('dk-type-off-market')).toHaveText(
+    'MarketThis market takes limit orders only until its opening window ends.',
+  );
+  await page.keyboard.press('Escape');
   // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no order request leaves the page
   await page.waitForTimeout(1000);
   expect(sent.filter((body) => body?.symbol === windowed.symbol)).toHaveLength(0);
@@ -637,14 +643,16 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   const zoneQuote = zoned.quote;
   const zoneBefore = held(await client.balances(), zoneQuote);
   const zoneSent = placements(page);
-  // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
-  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-  await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('1');
-  const zoneForm = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-  await expect(zoneForm).toContainText('This market is in the higher-risk zone', { timeout: UNBUILT_MS });
-  await expect(zoneForm).toContainText('Place a limit order instead');
-  await expect(zoneForm).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
-  await expect(page.getByRole('button', { name: `Buy ${zoned.base}`, exact: true })).toBeDisabled();
+  // A market order: no Market tab in the zone; Market is listed, disabled, with the zone reason (J-cex-spot-04 #1).
+  await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
+  await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
+  await page.getByRole('button', { name: 'Other order types (not available)', exact: true }).click();
+  await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('dk-type-off-market')).toHaveText(
+    'MarketThis market is in the higher-risk zone, which takes limit orders only.',
+  );
+  await stepPicture();
+  await page.keyboard.press('Escape');
   // The door refuses the same market order with the zone reason, before any hold.
   const zoneMarket = await client.post('/api/v1/orders', {
     symbol: zoned.symbol,

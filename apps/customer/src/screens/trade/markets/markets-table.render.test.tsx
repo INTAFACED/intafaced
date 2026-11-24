@@ -98,7 +98,8 @@ describe('the markets table on the kit', () => {
 });
 
 // The beta's build draws a link to a room it hides as nothing, with every word inside it (src/app/beta-links.ts).
-// With the beta's own room list, Pro's desk is hidden; a row must still name its pair, outside any link the beta drops.
+// With the beta's own room list, a row must name its pair outside any link the beta drops. The spot desk is in Volt,
+// so its link stays; a room the beta hides still may not carry a pair's name.
 describe("the markets table and top cards in the beta's build", () => {
   afterEach(() => vi.unstubAllGlobals());
   const droppedLinks = (html: string) =>
@@ -111,7 +112,7 @@ describe("the markets table and top cards in the beta's build", () => {
 
   it('names every pair, in Pro, with no link the beta would drop', () => {
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(voltCount().rooms, rooms));
-    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(true); // the case the beta walk saw; when the desk joins Volt this test reads as the plain case
+    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(false); // the desk is in Volt: the beta shows it
     const table = renderToStaticMarkup(
       <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
     );

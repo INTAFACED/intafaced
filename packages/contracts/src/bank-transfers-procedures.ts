@@ -159,6 +159,41 @@ export const BANK_TRANSFERS_HELD = defineProcedure({
   ],
 });
 
+/**
+ * The sender's own send to another person, by its transfer id, as its status page reads it (J-pay-01 #6): Confirming
+ * while the bank has reserved it and does not yet know it was made (the partner's answer was lost, or the partner is
+ * not answering), Completed once it posted, with the partner's move or the ledger transaction as its reference. Reading
+ * it asks the book that holds the money whether the move under the send's key was made, and settles it when it was;
+ * it never lets a send go. Nobody else can read it, and a stranger gets the same not-found as a missing id.
+ */
+export const BANK_TRANSFERS_SENT = defineProcedure({
+  ...base,
+  name: 'bank.transfers.sent',
+  kind: 'query',
+  path: 'transfers.sent',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ transferId: z.string().min(8).max(64) }),
+  output: z.object({
+    transferId: z.string(),
+    status: z.enum(['confirming', 'completed']),
+    amount: amountString,
+    assetId: assetIdSchema,
+    note: z.string().nullable(),
+    toHandle: z.string().nullable(),
+    /** The partner bank's move, once it is known to be made; null on the ledger path and while confirming. */
+    partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
+    /** The ledger transaction, once posted on our own book; null at the partner and while confirming. */
+    ledgerTxId: z.string().nullable(),
+    createdAt: z.string().datetime(),
+    postedAt: z.string().datetime().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { transferId: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_TRANSFERS_TO_USER = defineProcedure({
   ...base,
   name: 'bank.transfers.toUser',

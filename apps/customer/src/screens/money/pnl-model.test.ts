@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
+  atSellPrice,
   coinMethod,
   lotAccountFromQuery,
   lotAccounts,
@@ -48,6 +49,37 @@ const row = (asset: string, amount: string, usdValue: string | null): MoneyRow =
   share: null,
   priceSymbol: null,
   priceUsd: null,
+});
+
+describe('atSellPrice (#10702: unrealised is what selling now would return)', () => {
+  const priced = (asset: string, amount: string, usdValue: string, priceSymbol: string): MoneyRow => ({
+    ...row(asset, amount, usdValue),
+    priceSymbol,
+    priceUsd: null,
+  });
+  it('values a coin at its best bid, not the last trade: 1 BTC bought for 200, last 250, bid 240, is +40', () => {
+    const rows = atSellPrice([priced('BTC', '1', '250', 'BTC-USDT')], { 'BTC/USDT': { bid: '240' } });
+    expect(rows).toEqual([{ ...priced('BTC', '1', '250', 'BTC-USDT'), usdValue: '240', priceUsd: '240' }]);
+    expect(pnlView(book(), rows).unrealisedUsd).toBe('40');
+  });
+  it('right after a buy at the ask, unrealised is the spread and the fee, not the fee alone', () => {
+    // The walk: 0.00153846 BTC for 99.90 at the ask; the last trade is that fill (64,871.11), the bid is 64,683.23.
+    const bought = book({
+      assets: [{ assetId: asAssetId('BTC'), openQty: '0.00153846', openCostUsd: '99.9', held: '0.00153846', uncountedQty: '0' }],
+    });
+    const atLast = [priced('BTC', '0.00153846', '99.80063668', 'BTC/USDT')];
+    expect(pnlView(bought, atLast).unrealisedUsd).toBe('-0.09936332');
+    // 0.00153846 * 64,683.23 = 99.5125620258, less 99.90
+    const atBid = atSellPrice(atLast, { 'BTC/USDT': { bid: '64683.23' } });
+    expect(pnlView(bought, atBid).unrealisedUsd).toBe('-0.3874379742');
+  });
+  it('keeps the row when its market has no bid, or it has no price at all', () => {
+    const rows = [priced('BTC', '1', '250', 'BTC-USDT'), row('USDT', '10', '10'), row('XAU', '1', null)];
+    expect(atSellPrice(rows, { 'BTC/USDT': { bid: null } })).toEqual(rows);
+    expect(atSellPrice(rows, {})).toEqual(rows);
+    expect(atSellPrice(rows, null)).toEqual(rows);
+    expect(atSellPrice(null, {})).toBeNull();
+  });
 });
 
 describe('pnlView', () => {

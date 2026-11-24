@@ -61,6 +61,13 @@ describe('receiptFrom', () => {
       fee: { cost: '0.00000015', currency: 'BTC' },
     });
   });
+  it("says what a fee in the coin is worth in dollars, at the fills' average price (#10702)", () => {
+    // 0.00000015 BTC at 65,014.18 = 0.009752127
+    expect(receiptFrom(order(), [trade()]).fee).toEqual({ cost: '0.00000015', currency: 'BTC', usd: '0.009752127' });
+    // A fee in the dollar coin is that many dollars.
+    const sell = receiptFrom(order({ side: 'sell' }), [trade({ fee: { cost: '0.04915925', currency: 'USDT', rate: '0.001' } })]);
+    expect(sell.fee).toEqual({ cost: '0.04915925', currency: 'USDT', usd: '0.04915925' });
+  });
 
   it('adds up several fills and keeps one fee line when they charged the same asset', () => {
     const receipt = receiptFrom(order({ amount: '0.0002', filled: '0.0002' }), [

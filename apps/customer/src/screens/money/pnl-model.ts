@@ -72,6 +72,25 @@ function otherOf(held: Scaled | null, open: Scaled): Decimal {
   return decOrNull(left > 0n ? left : 0n) ?? '0';
 }
 
+/**
+ * The Money rows valued at what selling them now would get: a priced coin at its market's best bid, not at the last trade.
+ * Right after a buy the last trade is often the buyer's own fill at the ask, so valuing at it hides the spread a sale would
+ * pay. A row whose market has no bid keeps the Money screen's value; dollar coins and unpriced coins are unchanged.
+ */
+export function atSellPrice(
+  rows: readonly MoneyRow[] | null,
+  tickers: Readonly<Record<string, { bid: Decimal | null } | undefined>> | null,
+): MoneyRow[] | null {
+  if (rows === null || tickers === null) return rows === null ? null : [...rows];
+  return rows.map((row) => {
+    if (row.priceSymbol === null || dec(row.usdValue) === null) return row;
+    const bid = dec(tickers[row.priceSymbol.replace('-', '/')]?.bid);
+    const amount = dec(row.amount);
+    if (bid === null || bid <= 0n || amount === null) return row;
+    return { ...row, usdValue: decOrNull(times(amount, bid)), priceUsd: decOrNull(bid) };
+  });
+}
+
 /** What `qty` of a coin is worth now at the Money screen's valuation (never more than all of it); null with no price. */
 function valueOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
   const total = dec(row?.amount);
