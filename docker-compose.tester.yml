@@ -116,8 +116,11 @@ services:
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
 
   # svc-bank runs its TEST partner (the partner Home's TEST balance and founder b's TEST payment go through) with the
-  # rest of its `pnpm local:stack` settings, from compose-env's tester-bank.env.
+  # rest of its `pnpm local:stack` settings, from compose-env's tester-bank.env. Like the seed, it runs with NODE_ENV
+  # development, as `pnpm local:stack` runs it: the TEST partner and the TEST age door refuse to start under production.
   svc-bank:
+    environment:
+      NODE_ENV: development
     env_file:
       # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
       - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-bank.env'
