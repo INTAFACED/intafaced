@@ -40,7 +40,7 @@ const TRANSPORTS: Record<string, string> = {
   'smart-card': 'AUTHENTICATOR_TRANSPORT_SMART_CARD',
 };
 /** How long svc-identity waits for the provider before it says the provider is down. */
-export const PROVIDER_TIMEOUT_MS = 8000;
+const PROVIDER_TIMEOUT_MS = 8000;
 
 export interface ProviderWallet {
   readonly walletId: string;

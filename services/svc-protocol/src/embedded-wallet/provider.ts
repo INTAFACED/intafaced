@@ -149,7 +149,7 @@ function requireIdentityUrl(raw: string | undefined): string {
 }
 
 /** The room names where the key is kept without naming the vendor (user-facing copy names no partner). */
-export const OWNER_PROVIDER_DISPLAY_NAME = 'your wallet provider';
+const OWNER_PROVIDER_DISPLAY_NAME = 'your wallet provider';
 
 /**
  * The owner's provider (`turnkey`), reached through svc-identity's `embeddedWallet.provision`, which holds the provider's
