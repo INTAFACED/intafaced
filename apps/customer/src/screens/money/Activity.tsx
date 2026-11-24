@@ -404,7 +404,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
       <td data-testid="money-act__time" className="lt-nowrap">
         <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
       </td>
-      <td className="lt-end">
+      <td data-testid="money-act__amount" className="lt-end">
         <Amount
           value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
           hidden={hidden}

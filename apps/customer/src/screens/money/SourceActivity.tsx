@@ -388,16 +388,18 @@ function LineRow({
           <div className="lt-row lt-row-nowrap">
             <span className="lt-stack lt-stack-tight">
               {fill ? (
-                <Button
-                  tone="quiet"
-                  size="sm"
-                  data-testid="money-act__title"
-                  aria-expanded={open}
-                  aria-controls={partsId}
-                  onClick={() => setOpen((was) => !was)}
-                >
-                  {titleOf(line, t)}
-                </Button>
+                <span className="lt-row">
+                  <Button
+                    tone="quiet"
+                    size="sm"
+                    data-testid="money-act__title"
+                    aria-expanded={open}
+                    aria-controls={partsId}
+                    onClick={() => setOpen((was) => !was)}
+                  >
+                    {titleOf(line, t)}
+                  </Button>
+                </span>
               ) : (
                 <span data-testid="money-act__title" className="lt-strong">
                   {titleOf(line, t)}
@@ -427,7 +429,7 @@ function LineRow({
         <td data-testid="money-act__time" className="lt-nowrap">
           <time dateTime={line.at}>{stamp(line.at, zone)}</time>
         </td>
-        <td className="lt-end">
+        <td data-testid="money-act__amount" className="lt-end">
           <Amount
             value={counted ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
             hidden={hidden}
