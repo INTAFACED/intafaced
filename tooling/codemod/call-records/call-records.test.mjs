@@ -32,8 +32,8 @@ import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
-import { canon, doorTree, treeOf } from './door-check.mjs';
-import { samplesFor } from './samples.mjs';
+import { canon, doorTree, knowRefines, recordsToHold, treeOf } from './door-check.mjs';
+import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -2228,6 +2228,39 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
     accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
     "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
   );
+  // svc-bank's rows: `scopedProcedure(scope, guards)` with a nested Region and Kyc. Before, every one of them was named
+  // "which this reader does not map to a record's", and its callers stayed by name.
+  const bank = (path, fields) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n${fields
+      .map((f) => `            ${f},`)
+      .join('\n')}\n        }),\n        slice: Slice::Accounts,\n        has_input: true,\n    },`;
+  const kycFull =
+    'region: Some(Region {\n                kyc: Some(Kyc {\n                    module: "bank",\n                    min_tier: "full",\n                }),\n            })';
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      bank('salary.details', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull, 'own_session: None']),
+      bank('convertCash.carry', [
+        'scope: "bank:write"',
+        'tier: Some("full")',
+        'person: false',
+        'region: Some(Region { kyc: None })',
+        'own_session: None',
+      ]),
+      bank('ops.free', ['scope: "admin:read"', 'tier: None', 'person: true', 'region: None', 'own_session: Some("bank.own_only")']),
+      bank('no.tier', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: Some(Region { kyc: None })', 'own_session: None']),
+      bank('other.module', ['scope: "bank:read"', 'tier: None', 'person: false', kycFull.replace('"bank"', '"pay"'), 'own_session: None']),
+      bank('odd.field', ['scope: "bank:read"', 'tier: None', 'person: false', 'region: None', 'own_session: None', 'plane: Some("x")']),
+    ].join('\n'),
+  );
+  const bankCalls = Object.fromEntries(callsOf(dir, 'bank'));
+  assert.deepEqual(bankCalls['salary.details'].access, { caller: 'scope', scope: 'bank:read', module: 'bank' });
+  assert.deepEqual(bankCalls['convertCash.carry'].access, { caller: 'scope', scope: 'bank:write', module: 'bank', tier: 'full' });
+  assert.deepEqual(bankCalls['ops.free'].access, { caller: 'scope', scope: 'admin:read', person: true, ownSession: 'bank.own_only' });
+  for (const path of ['no.tier', 'other.module', 'odd.field']) {
+    assert.equal(bankCalls[path].access, null, path);
+    assert.match(bankCalls[path].why, /which this reader does not map to a record's/, path);
+  }
   writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
   assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
@@ -2242,12 +2275,49 @@ test("a record's input is held to the door's tree: the same zod parts match, one
   assert.notEqual(canon(treeOf(z.strictObject({ slug: z.string().min(2) }))), canon(doorTree(nodes, 0)));
 });
 
+test("a door record is held as the door names it: a refine whatever its arrow's parentheses, a fixed length, and each record the run wrote", async () => {
+  const { z } = await contractsZod();
+  // svc-bank's recorder names `value=>/[1-9]/.test(value)`; prettier writes the record's `(value) => /[1-9]/.test(value)`.
+  knowRefines([['value=>/[1-9]/.test(value)', 'some_nonzero_digit']]);
+  const tree = treeOf(
+    z.strictObject({ amount: z.string().refine((value) => /[1-9]/.test(value), 'above zero'), currency: z.string().length(3) }),
+  );
+  assert.equal(tree.shape[0][1].checks[0].id, 'some_nonzero_digit');
+  assert.deepEqual(tree.shape[1][1].checks, [{ k: 'length_equals', n: 3 }]);
+  // A record the run just wrote is not in the registry yet: it is held all the same. Before, it was skipped, and the run
+  // printed "3 records held; 0 differ" over seven new svc-bank records, every one of which differed.
+  const registered = { name: 'bank.old', transport: 'trpc' };
+  const written = { name: 'bank.new', transport: 'trpc' };
+  assert.deepEqual(recordsToHold({ OLD: registered }, [{ NEW: written, base: { service: 'svc-bank' } }]), [written]);
+  assert.deepEqual(recordsToHold({ OLD: registered }, []), [registered]);
+});
+
 test("a door record's accepted sample is the door's own accepted request, and none is guessed without one", async () => {
   const { z } = await contractsZod();
   const record = { name: 'X', path: 'p', input: z.object({ from: z.string() }) };
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test("svc-bank's replay gives each call the first input its door let through; one it refused every way gives none", () => {
+  const ans = (byInput) =>
+    Object.fromEntries(
+      Object.entries(byInput).flatMap(([input, st]) => [
+        [`${input} anon`, [401, 0]],
+        [`${input} customer`, [st, 1]],
+      ]),
+    );
+  const inputs = { sample: '{"currency":"xxx"}', 'sample-nulls': '{"currency":null}' };
+  assert.deepEqual(bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 412, 'sample-nulls': 400 })), { currency: 'xxx' });
+  assert.deepEqual(bankAccepted({ sample: '{"a":1}' }, ans({ absent: 400, empty: 200, sample: 400 })), {});
+  assert.equal(typeof bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 400, 'sample-nulls': 403 })), 'symbol');
+  // The recording itself: before, svc-bank's parts were read as svc-agents' and named no call, so every bank record was
+  // left with "no accepted input found the door lets through".
+  const bank = doorAccepts('crates/svc-bank');
+  assert.deepEqual(bank.get('salary.form'), { currency: 'xxx' });
+  assert.deepEqual(bank.get('salary.details'), {});
+  assert.equal(bank.has('analytics.compare'), false, 'its recorded sample is refused by every caller');
 });
 
 test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {

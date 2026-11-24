@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
-import { request } from './bank-call-schemas.js';
+import { request, assetId, amount, country, ONRAMP_METHODS, rail, quote } from './bank-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `addMoney.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -36,5 +36,34 @@ export const BANK_ADD_MONEY_REQUESTS = defineProcedure({
   samples: [
     { verdict: 'accept', input: { limit: 1 } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Every way to pay in, each with its quote or the reason there is none (`blocker`, with the rail it needs). */
+export const BANK_ADD_MONEY_METHODS = defineProcedure({
+  ...base,
+  name: 'bank.addMoney.methods',
+  kind: 'query',
+  path: 'addMoney.methods',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ assetId, amount, country }).strict(),
+  checks: { amount_holds: { at: 'input.amount', says: 'The amount must be above zero' } },
+  output: z.object({
+    methods: z.array(
+      z.object({
+        method: z.enum(ONRAMP_METHODS),
+        rail,
+        quote: quote.nullable(),
+        blocker: z.string().nullable(),
+        standIn: z.string().nullable(),
+        payStandIn: z.string().nullable(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { assetId: 'placeholder', amount: '1.50', country: 'DE' } },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'amount_holds', input: { assetId: 'placeholder', amount: '0', country: 'DE' } },
   ],
 });

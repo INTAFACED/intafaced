@@ -1,9 +1,10 @@
-import { betaHides } from './beta-volt';
+import { betaHidden } from './feature-registry';
 
 /**
  * The beta's links: with the beta switch on, no link anywhere in the app opens a room the beta hides. Every link
  * the app draws, in a room or in the kit (@intafaced/ui), is a JSX `<a>`, so the beta's build swaps React's JSX runtime
- * for this wrap of it (vite.config.ts betaVolt) and an `<a>` whose app path betaHides() draws nothing, whoever wrote it.
+ * for this wrap of it (vite.config.ts betaVolt) and an `<a>` whose app path betaHidden() leaves out (not in Volt, switched
+ * off, or not the account's) draws nothing, whoever wrote it.
  * Other builds use React's runtime untouched. An anchor made outside JSX is refused by beta-links.test.ts.
  */
 type Make = (type: unknown, props: Record<string, unknown> | null, ...rest: unknown[]) => unknown;
@@ -24,7 +25,7 @@ export function appPath(href: unknown): string | undefined {
 /** Whether the beta's build leaves out a link to `href` (always no with the switch off). */
 export function betaDropsLink(href: unknown): boolean {
   const path = appPath(href);
-  return path !== undefined && betaHides(path);
+  return path !== undefined && betaHidden(path);
 }
 
 /**
