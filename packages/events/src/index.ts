@@ -14,8 +14,13 @@ export {
   JetStreamEventBus,
   ensureStream,
   nakBackoffMs,
+  retryTransientJetStream,
   DEFAULT_MAX_DELIVER,
   ACK_WAIT_MS,
   ACK_WAIT_NS,
+  JS_API_TIMEOUT_MS,
+  JS_SETUP_RETRY_FOR_MS,
+  TRANSIENT_JS_CODES,
   type JetStreamBusOptions,
+  type JetStreamRetryOptions,
 } from './jetstream-bus.js';
