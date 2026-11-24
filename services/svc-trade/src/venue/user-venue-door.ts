@@ -40,6 +40,7 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  VENUE_CANDLE_INTERVALS,
   type VenueCandleInterval,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
@@ -1421,11 +1422,47 @@ export class UserVenueDoor {
     return { ...read, symbol: spot.symbol, test: isTestVenue(venue.venue) };
   }
 
-  async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
-    const venue = await this.listedVenue(symbol);
+  /** The deepest history one candle read answers on the chart workbench (matches HISTORY_DEPTH). */
+  static readonly CHART_CANDLE_DEPTH = 720;
+
+  async marketCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    const venue = await this.listedVenue(read.symbol);
     if (!venue.candles)
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
-    return { ...(await venue.candles(symbol, interval, limit)), test: isTestVenue(venue.venue) };
+    const query = read.since ? { limit: read.limit, since: read.since } : read.limit;
+    return { ...(await venue.candles(read.symbol, read.interval, query)), test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * Public chart markets (J-charts-desk-01): every venue market we list, with its tick and lot sizes, venue status,
+   * listing routing and the intervals this venue serves, signed in or signed out.
+   */
+  async chartMarkets() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    return {
+      venueId: read.venueId,
+      venueName: venue.venue.displayName,
+      test: isTestVenue(venue.venue),
+      intervals: Object.keys(VENUE_CANDLE_INTERVALS),
+      asOf: read.asOf,
+      value: read.value.map((m) => ({
+        symbol: m.symbol,
+        kind: m.kind,
+        baseAsset: m.baseAsset,
+        quoteAsset: m.quoteAsset,
+        tickSize: m.tickSize,
+        lotSize: m.lotSize,
+        minOrderNotional: m.minOrderNotional ?? null,
+        status: m.status ?? null,
+        listing: m.listing,
+      })),
+    };
+  }
+
+  /** Public chart candles (J-charts-desk-01): the venue's own candles on a listed market, signed in or signed out. */
+  async chartCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    return { ...(await this.marketCandles(read)), depth: UserVenueDoor.CHART_CANDLE_DEPTH };
   }
 
   /** The venue, once `symbol` is a market we list on it; else `not_offered`. */

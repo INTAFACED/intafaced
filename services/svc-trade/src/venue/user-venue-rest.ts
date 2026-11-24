@@ -429,6 +429,38 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
   );
 
+  // J-charts-desk-01: public venue markets and candles for the chart workbench, signed in or signed out.
+  // Door off refuses 404 trade.user_venue_off so the workbench falls back only when the venue door is switched off.
+  app.get<{ Querystring: Query }>('/api/v1/venue/chart-markets', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.chartMarkets(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query & { symbol?: string; interval?: string; limit?: string; since?: string } }>(
+    '/api/v1/venue/chart-candles',
+    publicRead,
+    async (req, reply) => {
+      return answer(
+        reply,
+        async (d) => {
+          const interval = req.query.interval ?? '';
+          if (!isCandleInterval(interval)) throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+          const sinceRaw = req.query.since;
+          let since: Date | undefined;
+          if (sinceRaw !== undefined && sinceRaw !== '') {
+            since = new Date(sinceRaw);
+            if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+          }
+          return d.chartCandles({
+            symbol: symbolOf(req.query.symbol),
+            interval,
+            limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+            since,
+          });
+        },
+        req.query.venueId,
+      );
+    },
+  );
+
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
   app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
     return answer(reply, async (d) => {
@@ -639,7 +671,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
     return raw;
   };
-  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string; since?: string };
   app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
@@ -654,7 +686,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const interval = req.query.interval ?? '';
       if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
-      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
+      const sinceRaw = req.query.since;
+      let since: Date | undefined;
+      if (sinceRaw !== undefined && sinceRaw !== '') {
+        since = new Date(sinceRaw);
+        if (Number.isNaN(since.getTime())) throw new VenueWireError('since must be an ISO time');
+      }
+      return d.marketCandles({
+        symbol: symbolOf(req.query.symbol),
+        interval: interval as VenueCandleInterval,
+        limit: whole(req.query.limit, 'limit', UserVenueDoor.CHART_CANDLE_DEPTH, 240),
+        since,
+      });
     });
   });
 
