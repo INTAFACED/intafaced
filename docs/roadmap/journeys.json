@@ -3149,7 +3149,7 @@
     "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-ops-01"], "noSlice": false },
-      { "n": 2, "slices": ["D-ops-01", "D-account-07"], "noSlice": false, "deferred": true },
+      { "n": 2, "slices": ["D-ops-01"], "noSlice": false },
       { "n": 3, "slices": ["D-account-07"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["D-instruments-03"], "noSlice": false },
       { "n": 5, "slices": ["D-margin-01"], "noSlice": false },
