@@ -32,7 +32,7 @@ import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
-import { canon, doorTree, treeOf } from './door-check.mjs';
+import { canon, doorTree, knowRefines, recordsToHold, treeOf } from './door-check.mjs';
 import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -2273,6 +2273,23 @@ test("a record's input is held to the door's tree: the same zod parts match, one
   ];
   assert.equal(canon(treeOf(z.strictObject({ slug: z.string().min(1) }))), canon(doorTree(nodes, 0)));
   assert.notEqual(canon(treeOf(z.strictObject({ slug: z.string().min(2) }))), canon(doorTree(nodes, 0)));
+});
+
+test("a door record is held as the door names it: a refine whatever its arrow's parentheses, a fixed length, and each record the run wrote", async () => {
+  const { z } = await contractsZod();
+  // svc-bank's recorder names `value=>/[1-9]/.test(value)`; prettier writes the record's `(value) => /[1-9]/.test(value)`.
+  knowRefines([['value=>/[1-9]/.test(value)', 'some_nonzero_digit']]);
+  const tree = treeOf(
+    z.strictObject({ amount: z.string().refine((value) => /[1-9]/.test(value), 'above zero'), currency: z.string().length(3) }),
+  );
+  assert.equal(tree.shape[0][1].checks[0].id, 'some_nonzero_digit');
+  assert.deepEqual(tree.shape[1][1].checks, [{ k: 'length_equals', n: 3 }]);
+  // A record the run just wrote is not in the registry yet: it is held all the same. Before, it was skipped, and the run
+  // printed "3 records held; 0 differ" over seven new svc-bank records, every one of which differed.
+  const registered = { name: 'bank.old', transport: 'trpc' };
+  const written = { name: 'bank.new', transport: 'trpc' };
+  assert.deepEqual(recordsToHold({ OLD: registered }, [{ NEW: written, base: { service: 'svc-bank' } }]), [written]);
+  assert.deepEqual(recordsToHold({ OLD: registered }, []), [registered]);
 });
 
 test("a door record's accepted sample is the door's own accepted request, and none is guessed without one", async () => {
