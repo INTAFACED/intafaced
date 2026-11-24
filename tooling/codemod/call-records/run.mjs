@@ -23,6 +23,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, normalize, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parseSync } from 'oxc-parser';
+import { walk } from './ast.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
@@ -44,17 +46,122 @@ export function appTypeErrors(repo = REPO) {
       maxBuffer: 64 * 1024 * 1024,
     });
     for (const line of (r.stdout ?? '').split('\n')) {
-      const m = /^([^(]+)\((\d+),\d+\): (error TS\d+: .*)$/.exec(line);
-      if (m) errors.push({ file: `apps/${app}/${m[1]}`, key: `apps/${app}/${m[1]}: ${m[3]}`, text: `apps/${app}/${line}` });
+      const m = /^([^(]+)\((\d+),(\d+)\): (error TS\d+: .*)$/.exec(line);
+      if (m)
+        errors.push({
+          file: `apps/${app}/${m[1]}`,
+          key: `apps/${app}/${m[1]}: ${m[4]}`,
+          text: `apps/${app}/${line}`,
+          line: Number(m[2]),
+          col: Number(m[3]),
+        });
     }
   }
   return errors;
 }
 
+/** A parsed program, or undefined when the text does not parse. */
+function programOf(file, text) {
+  try {
+    const { program, errors } = parseSync(file, text);
+    return errors.length ? undefined : program;
+  } catch {
+    return undefined;
+  }
+}
+
+const FUNCTIONS = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
+
+/**
+ * The name another file calls a node by: a member that is a function (`payments: () => ...`, a method), or a
+ * declaration at the top of the file (`export const paymentsApi = ...`, `function payments()`). A local (`const page =
+ * await queryRecord(...)`) or a data key (`{ kind: 'x' }`) names nothing outside, and would match any screen's `page`.
+ */
+function declaredName(node, parents) {
+  if (
+    (node.type === 'MethodDefinition' || (node.type === 'Property' && FUNCTIONS.has(node.value?.type))) &&
+    node.key?.type === 'Identifier'
+  )
+    return node.key.name;
+  const top = (n) => {
+    const up = parents.get(n);
+    return up?.type === 'Program' || (up?.type === 'ExportNamedDeclaration' && parents.get(up)?.type === 'Program');
+  };
+  if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && top(parents.get(node))) return node.id.name;
+  if (node.type === 'FunctionDeclaration' && node.id && top(node)) return node.id.name;
+  return undefined;
+}
+
+/**
+ * The names each moved record is reached by in one caller file: the record's own name, and every member or declaration
+ * name around a use of it (`payments` in `payments: (...) => queryRecord(PAY_PAYMENT_LIST, ...)`). Map: path → Set.
+ */
+function handlesIn(file, text, moved) {
+  const program = programOf(file, text);
+  const records = new Map(moved.filter((m) => m.record).map((m) => [m.record, m.path]));
+  const handles = new Map();
+  if (!program || !records.size) return handles;
+  const parents = new Map();
+  walk(program, (node, parent) => {
+    parents.set(node, parent);
+    if (node.type === 'ImportDeclaration') return false;
+  });
+  for (const node of parents.keys()) {
+    const path = node.type === 'Identifier' ? records.get(node.name) : undefined;
+    if (!path) continue;
+    const names = handles.get(path) ?? new Set([node.name]);
+    for (let n = parents.get(node); n; n = parents.get(n)) {
+      const name = declaredName(n, parents);
+      if (name) names.add(name);
+    }
+    handles.set(path, names);
+  }
+  return handles;
+}
+
+/**
+ * Of the paths that might own an error, the ones the code around it names: from the innermost node at the error's line
+ * and column outwards, the first enclosing node, short of the whole file, that names a path's record or a member around
+ * a use of it. A call two lines on in the same api file, or one the screen never touches, owns nothing; none named, or
+ * no position: every path, as before.
+ */
+function nearestOwners(e, paths, callerFiles, moved) {
+  if (!e.line || paths.length < 2) return paths;
+  const program = programOf(e.file, e.source);
+  if (!program) return paths;
+  const handles = new Map();
+  for (const [f, text] of callerFiles)
+    for (const [path, names] of handlesIn(f, text, moved)) {
+      if (!paths.includes(path)) continue;
+      const all = handles.get(path) ?? new Set();
+      for (const n of names) all.add(n);
+      handles.set(path, all);
+    }
+  const lines = e.source.split('\n');
+  const at = lines.slice(0, e.line - 1).reduce((n, l) => n + l.length + 1, 0) + Math.max(0, (e.col ?? 1) - 1);
+  const chain = [];
+  walk(program, (node) => {
+    if (node.start > at || node.end <= at) return false;
+    chain.push(node);
+  });
+  for (const node of chain.reverse()) {
+    if (node === program) break;
+    const named = new Set();
+    walk(node, (n) => {
+      if (n.type === 'Identifier') named.add(n.name);
+    });
+    const found = paths.filter((p) => [...(handles.get(p) ?? [])].some((h) => named.has(h)));
+    if (found.length) return found;
+  }
+  return paths;
+}
+
 /**
  * Which moved calls own each new type error: the paths with a caller in the erring file, else in the nearest files it
  * reaches by relative imports (a screen, or its test, reading a type the moved file now takes from its record), up to
- * four imports away. `moved` is the step-1 summary's [{ path, files }]. Map: file → Map(path → error).
+ * four imports away; of those, only the ones the code around the error names (nearestOwners), so one error leaves one
+ * call, not every moved call in its file. `moved` is the step-1 summary's [{ path, record, files }]. Map: file →
+ * Map(path → error).
  */
 export function ownersOf(errors, moved, read = (f) => readFileSync(join(REPO, f), 'utf8')) {
   const byFile = new Map();
@@ -78,7 +185,8 @@ export function ownersOf(errors, moved, read = (f) => readFileSync(join(REPO, f)
   const owners = new Map();
   for (const e of errors) {
     let paths = [];
-    let ring = [[e.file, readOr(e.file) ?? '']];
+    const source = readOr(e.file) ?? '';
+    let ring = [[e.file, source]];
     const seen = new Set([noExt(e.file)]);
     for (let hop = 0; hop <= 4 && ring.length; hop++) {
       paths = ring.flatMap(([f]) => byFile.get(noExt(f)) ?? []);
@@ -97,6 +205,8 @@ export function ownersOf(errors, moved, read = (f) => readFileSync(join(REPO, f)
       ring = next;
     }
     if (!paths.length) continue;
+    const callerFiles = ring.filter(([f]) => byFile.has(noExt(f)));
+    paths = nearestOwners({ ...e, source }, [...new Set(paths)], callerFiles, moved);
     const own = owners.get(e.file) ?? new Map();
     for (const p of paths) if (!own.has(p)) own.set(p, e.text.replace(/^\S+?\(\d+,\d+\): /, ''));
     owners.set(e.file, own);
