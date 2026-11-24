@@ -118,9 +118,15 @@ services:
   # svc-bank runs its TEST partner (the partner Home's TEST balance and founder b's TEST payment go through) with the
   # rest of its `pnpm local:stack` settings, from compose-env's tester-bank.env. Like the seed, it runs with NODE_ENV
   # development, as `pnpm local:stack` runs it: the TEST partner and the TEST age door refuse to start under production.
+  # Its TEST pay-in partner (payin-sim) sends a browser to bank's own page and back to the customer app, both on loopback,
+  # as on `pnpm local:stack`: here bank on its published 4009 and the customer app on compose's 8090. The env file drops
+  # the stack's own addresses (hostOnly), so these are set here.
   svc-bank:
+    ports: ['127.0.0.1:4009:4009']
     environment:
       NODE_ENV: development
+      BANK_PAYIN_SIM_PAGE_URL: http://127.0.0.1:4009
+      BANK_PAYIN_SIM_RETURN_URL: http://127.0.0.1:8090/bank/ramps/new
     env_file:
       # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
       - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-bank.env'
