@@ -8,10 +8,17 @@ mod env_parity;
 mod input_parity;
 #[path = "port_notes.rs"]
 mod port_notes;
+#[path = "profile_db.rs"]
+mod profile_db;
 #[path = "refusals.rs"]
 mod refusals;
+#[path = "store_pg.rs"]
+mod store_pg;
 #[path = "wire_replay.rs"]
 mod wire_replay;
+
+// The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod support;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.
 #[test]

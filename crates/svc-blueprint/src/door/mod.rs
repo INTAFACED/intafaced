@@ -13,7 +13,9 @@
 //! 2. a scoped call needs a signed-in caller (`protectedProcedure`), then holds the scope, then is served in their
 //!    region for the record's module (`scopedProcedure`'s `requireScope` and `refuseJurisdiction`);
 //! 3. the input, read only now and checked by the record's zod schema (`inputs`);
-//! 4. then the call's slice answers. Until a slice is ported, its calls answer that it is not ported.
+//! 4. then the call's slice answers. Until a slice is ported, its calls answer that it is not ported;
+//! 5. what a handler returns is parsed by the record's output schema (`.output(record.output)`): what leaves is that
+//!    parse, and an answer that fails it is tRPC's `Output validation failed`.
 //!
 //! `tests/wire_replay.rs` holds the door to the TypeScript's recorded answers.
 
@@ -30,6 +32,7 @@ use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
+use crate::db::Store;
 use crate::errors::Refusal;
 
 /// The records' published schema: the one list of the calls.
@@ -243,14 +246,31 @@ pub fn not_ported(slice: Slice) -> Refusal {
     ))
 }
 
-/// The slices' answers. Only the door's own call is served by the shell.
-fn handle(ctx: &Ctx<'_>) -> Result<Option<Json>, Refusal> {
+/// The slices' answers.
+fn handle(store: &Store, ctx: &Ctx<'_>) -> Result<Option<Json>, Refusal> {
     match ctx.call.slice {
         Slice::Door => Ok(Some(Json::obj([
             ("ok", Json::Bool(true)),
             ("service", Json::str("svc-blueprint")),
         ]))),
+        Slice::Profile => crate::profile::handle(store, ctx),
         other => Err(not_ported(other)),
+    }
+}
+
+/// tRPC's output check: the answer as the record's output schema returns it (its key order, unknown keys dropped).
+fn output(path: &str, answer: Option<Json>) -> Result<Option<Json>, TrpcError> {
+    let broken = |m: String| TrpcError::plain("INTERNAL_SERVER_ERROR", m);
+    let Some(part) = inputs::output_part(path).map_err(broken)? else {
+        return Ok(answer);
+    };
+    let value = answer.as_ref().map_or(Value::Undefined, Value::from_json);
+    match inputs::parse_part(part, value).map_err(broken)? {
+        Ok(v) => Ok(v.to_json()),
+        Err(_) => Err(TrpcError::plain(
+            "INTERNAL_SERVER_ERROR",
+            "Output validation failed",
+        )),
     }
 }
 
@@ -262,6 +282,8 @@ pub struct DoorConfig {
     pub env: BTreeMap<String, String>,
     /// The clock.
     pub now: fn() -> Instant,
+    /// The `blueprint` schema's pool (`db::open`), or a store that refuses every query.
+    pub store: Store,
 }
 
 pub struct BlueprintDoor {
@@ -270,6 +292,7 @@ pub struct BlueprintDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    store: Store,
 }
 
 /// The system clock.
@@ -297,6 +320,7 @@ impl BlueprintDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            store: config.store,
         })
     }
 
@@ -377,13 +401,14 @@ impl BlueprintDoor {
             region: &region,
             now,
         };
-        handle(&ctx).map_err(|r| {
+        let answer = handle(&self.store, &ctx).map_err(|r| {
             if call.mapped {
                 r.mapped()
             } else {
                 r.unmapped()
             }
-        })
+        })?;
+        output(path, answer)
     }
 }
 
