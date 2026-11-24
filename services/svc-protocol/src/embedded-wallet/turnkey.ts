@@ -44,7 +44,7 @@ const TRANSPORTS: Record<string, string> = {
   'smart-card': 'AUTHENTICATOR_TRANSPORT_SMART_CARD',
 };
 /** The room names where the key is kept without naming the vendor (user-facing copy names no partner). */
-export const TURNKEY_DISPLAY_NAME = 'your wallet provider';
+const TURNKEY_DISPLAY_NAME = 'your wallet provider';
 
 export interface TurnkeySettings {
   readonly organizationId: string | undefined;
