@@ -26,6 +26,17 @@ export function poolCandles(candles: readonly PoolCandle[], when: (date: Date) =
   }));
 }
 
+/**
+ * The chart's time axis for a day of candles: the indexer's day starts at any second (now less 24 hours), but its candles
+ * start on whole widths, so the newest candle runs past the day's end and the oldest may start before it. The axis is
+ * widened to whole candle widths on both sides, so every candle the day holds is drawn inside the chart.
+ */
+export function candleAxis(since: number, seconds: number, width: number): { start: number; seconds: number; width: number } {
+  const start = Math.floor(since / width) * width;
+  const end = Math.ceil((since + seconds) / width) * width;
+  return { start, seconds: Math.max(end - start, width), width };
+}
+
 /** Lowest low and highest high as the indexer gave them, compared as decimals without a float. */
 function extreme(values: readonly string[], pick: 'min' | 'max'): string {
   return values.reduce((best, value) => {

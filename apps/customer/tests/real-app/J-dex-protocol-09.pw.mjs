@@ -589,24 +589,74 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
   await expect(tradeRow(buy)).toContainText(`Buy ${symbol0}`);
   await expect(tradeRow(sell)).toContainText(`Sell ${symbol0}`);
 
-  // candles
-  const chart = page.getByRole('img', { name: /^Price chart: / });
-  await expect(chart).toBeVisible();
-  expect(await chart.getByTestId('pool-candle').count()).toBeGreaterThan(0);
-
-  // volume: the last day's swaps, at least the two mined here
-  const volume = page.getByTestId('pool-volume');
-  await expect(volume).toContainText(/in the last 24 hours, \d+ swaps$/);
-  expect(Number(/(\d+) swaps$/.exec(await volume.innerText())[1])).toBeGreaterThanOrEqual(2);
-
-  // the reserves shown are the pool's own getReserves() at the block the page names
+  // The block the page reads the pool at: its reserves are the pool's own getReserves() there.
   const reservesLabel = page.getByText(/^Reserves after block \d+$/);
   await expect(reservesLabel).toBeVisible();
   const height = BigInt(/(\d+)$/.exec(await reservesLabel.innerText())[1]);
   const [r0, r1] = await reader.readContract({ address: poolAddress, abi: poolAbi, functionName: 'getReserves', blockNumber: height });
+  const symbol1 = await reader.readContract({ address: token1, abi: erc20, functionName: 'symbol' });
   await expect(reservesLabel.locator('xpath=following-sibling::dd')).toHaveText(
-    `${formatUnits(r0, decimals0)} ${symbol0} · ${formatUnits(r1, decimals1)} ${await reader.readContract({ address: token1, abi: erc20, functionName: 'symbol' })}`,
+    `${formatUnits(r0, decimals0)} ${symbol0} · ${formatUnits(r1, decimals1)} ${symbol1}`,
   );
+
+  // The pool's own day, read from the chain up to that block: every Swap and Sync it logged in the last 24 hours.
+  const events = parseAbi([
+    'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
+    'event Sync(uint112 reserve0, uint112 reserve1)',
+  ]);
+  const since = BigInt(Math.floor(Date.now() / 1000) - 24 * 3600);
+  const times = new Map();
+  const timeOf = async (blockNumber) => {
+    if (!times.has(blockNumber)) times.set(blockNumber, (await reader.getBlock({ blockNumber })).timestamp);
+    return times.get(blockNumber);
+  };
+  const dayLogs = async (eventName) => {
+    const logs = await reader.getLogs({
+      address: poolAddress,
+      event: events.find((e) => e.name === eventName),
+      fromBlock: 0n,
+      toBlock: height,
+    });
+    const timed = [];
+    for (const log of logs) {
+      const time = await timeOf(log.blockNumber);
+      if (time >= since) timed.push({ ...log.args, time });
+    }
+    return timed;
+  };
+  const daySwaps = await dayLogs('Swap');
+  const daySyncs = (await dayLogs('Sync')).filter((sync) => sync.reserve0 > 0n);
+
+  // volume: the day's swaps on the chain, each counted once, and their TEST Token B side summed
+  const volume1 = daySwaps.reduce((sum, swap) => sum + swap.amount1In + swap.amount1Out, 0n);
+  expect(daySwaps.length, 'the chain holds the buy and the sell mined here').toBeGreaterThanOrEqual(2);
+  await expect(page.getByTestId('pool-volume')).toHaveText(
+    `${formatUnits(volume1, decimals1)} ${symbol1} in the last 24 hours, ${daySwaps.length} swaps`,
+  );
+
+  // candles: one 1-hour candle for each hour the pool's reserves changed in, the newest closing at the reserves after
+  // the sell mined here, with the swaps timed in that hour; and each drawn inside the chart, not past its edge.
+  const chart = page.getByRole('img', { name: `Price chart: ${symbol0} in ${symbol1}, last 24 hours, 1 hour candles`, exact: true });
+  await expect(chart).toBeVisible();
+  const hour = (time) => time - (time % 3600n);
+  const hours = [...new Set(daySyncs.map((sync) => hour(sync.time)))];
+  const candles = chart.getByTestId('pool-candle');
+  await expect(candles).toHaveCount(hours.length);
+  const newest = hours.at(-1);
+  const newestSwaps = daySwaps.filter((swap) => hour(swap.time) === newest).length;
+  const last = await candles.last().locator('title').textContent();
+  const closing = /close ([\d.]+), (\d+) swaps$/.exec(last);
+  expect(closing, `the newest candle names its close and its swaps: ${last}`).not.toBeNull();
+  expect(Number(closing[2])).toBe(newestSwaps);
+  const price = Number(formatUnits(r1, decimals1)) / Number(formatUnits(r0, decimals0));
+  expect(Math.abs(Number(closing[1]) - price) / price).toBeLessThan(1e-12);
+  const [, , chartWidth] = (await chart.getAttribute('viewBox')).split(' ').map(Number);
+  for (const body of await candles.locator('rect').all()) {
+    const x = Number(await body.getAttribute('x'));
+    const width = Number(await body.getAttribute('width'));
+    expect(x, 'a candle starts inside the chart').toBeGreaterThanOrEqual(0);
+    expect(x + width, 'a candle ends inside the chart').toBeLessThanOrEqual(chartWidth);
+  }
 
   // The pool page holds what the step names: its candles, its volume and its buy and sell rows.
   await stepPicture();
