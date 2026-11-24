@@ -174,7 +174,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Open interest market hint': 'This contract’s open interest is near its limit of {limit} {base}.',
   'Open interest unset': 'Not published',
   'Open interest unset hint': 'The open interest limit for this contract is not published, so nothing can be opened on it.',
-  'Unknown figure': 'The service did not publish this figure.',
+  'Unknown figure': 'This figure is not available right now.',
 
   // Open
   'Open long': 'Open long',
@@ -186,8 +186,8 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Confirm title long': 'Open long {symbol}',
   'Confirm title short': 'Open short {symbol}',
   'Confirm body':
-    'You commit {total} {asset} now. The position is isolated: it can lose only its own margin. It opens at the mark the service accepts, not at the price shown here.',
-  'Confirm body unknown': 'The service did not give a total to commit, so this cannot be confirmed.',
+    'You commit {total} {asset} now. The position is isolated: it can lose only its own margin. It opens at the live mark price when accepted, not at the price shown here.',
+  'Confirm body unknown': 'The total to commit is not available, so this cannot be confirmed.',
   'Confirm changed': 'The numbers moved since you reviewed. Check them and confirm again. Nothing was sent.',
   'Confirm form changed': 'The form changed while we checked, so nothing was sent. Review again.',
   'Size row': 'Size',
@@ -202,8 +202,8 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Off no size': 'Enter a size above zero.',
   'Off no leverage': 'Choose a leverage.',
   'Off not reviewed': 'Review the numbers first. Opening needs a review of exactly this size and leverage.',
-  'Off not orderable': 'The service will not open this size at this leverage. See the reasons above.',
-  'Off missing figures': 'The service left out a key figure, so the cost cannot be confirmed.',
+  'Off not orderable': 'This size and leverage cannot be opened right now. See the reasons above.',
+  'Off missing figures': 'A key figure is missing, so the cost cannot be confirmed.',
   'Off over cap': 'This leverage is above the cap for this contract.',
   'Off balance unknown': 'Your free balance is unknown, so the cost cannot be checked.',
   'Off insufficient': 'Your free balance is lower than the margin plus fee.',
@@ -241,7 +241,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
     'Looked for a matching position and found none, so the first request may not have arrived. Sending the same request again keeps its request id, so it can open at most one position.',
   'Send same request again': 'Send the same request again',
   'No mark': 'No mark',
-  'No mark reason': 'The service has no mark price for this contract right now.',
+  'No mark reason': 'No mark price is available for this contract right now.',
   'Check status': 'Check status',
   'Unreadable body':
     'This device cannot read its record of an earlier request, so trading is held. Reload the page; if this stays, contact support.',
