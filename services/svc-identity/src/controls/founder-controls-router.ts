@@ -49,7 +49,7 @@ import {
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
-import { identityFreezeInputSchema, identityRestoreInputSchema } from '@intafaced/contracts/identity-compliance-procedures';
+import { identityFreezeInputSchema } from '@intafaced/contracts/identity-compliance-procedures';
 
 export type FounderControlsPort = Pick<
   FounderControls,
