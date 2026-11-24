@@ -5,6 +5,7 @@ import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn 
 import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 import { testVenue, tradePayloadHash, venueForThisFile, venueInfo } from './venue.mjs';
 import { utcMinuteOf } from './clock.mjs';
+import { configureStatusPage, statusDefinition, statusRead } from './status-page.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
@@ -23,6 +24,9 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const LIMITED = 'BTC/USDC';
 /** A room or label a step needs that is not built answers within this, so an unbuilt step fails fast. */
 const UNBUILT_MS = 8_000;
+/** #2's one TEST platform-status component, and the labelled TEST owner values it runs with where the stack has none. */
+const STATUS_COMPONENT = { id: 'trading', name: 'TEST Trading', group: null, source: null };
+const TEST_STATUS_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -193,6 +197,13 @@ const tradeable = (m) => modeOf(m) === 'OPEN' && m.listing.delistsAt === null;
 
 test.describe('on the outside TEST venue', () => {
   venueForThisFile(test);
+  /** #2 puts the founders' status definition back as it found it, whatever happened in the step. */
+  let restoreStatus = null;
+  test.afterEach(async () => {
+    const restore = restoreStatus;
+    restoreStatus = null;
+    if (restore) await restore();
+  });
 
   test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
     page,
@@ -287,16 +298,37 @@ test.describe('on the outside TEST venue', () => {
     stepPicture,
   }) => {
     const mine = await venueMarkets();
+    // Platform status needs a defined page to have an as-of time: the founders define one TEST component (its owner
+    // values TEST where blank), and what was defined before is put back after the step.
+    const definedBefore = await statusDefinition();
+    test.info().attach('status definition before', { body: JSON.stringify(definedBefore), contentType: 'application/json' });
+    await configureStatusPage(
+      {
+        components: [STATUS_COMPONENT],
+        componentCap: definedBefore.componentCap ?? TEST_STATUS_VALUES.componentCap,
+        stalenessSeconds: definedBefore.stalenessSeconds ?? TEST_STATUS_VALUES.stalenessSeconds,
+        uptimeDays: definedBefore.uptimeDays ?? TEST_STATUS_VALUES.uptimeDays,
+      },
+      `TEST journey ${J} #2`,
+    );
+    restoreStatus = () =>
+      configureStatusPage(
+        {
+          components: definedBefore.components,
+          componentCap: definedBefore.componentCap,
+          stalenessSeconds: definedBefore.stalenessSeconds,
+          uptimeDays: definedBefore.uptimeDays,
+        },
+        `TEST journey ${J} #2: definition put back`,
+      );
     await page.goto('/status');
     await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
 
     // Platform status: the page draws exactly the components svc-notify's status read publishes (statusPage.read, the read
-    // the page itself makes), each by its name and its state, and the overall state the read gives; or, with none defined,
-    // the honest line and no overall state. Read again on each poll: the page re-reads every 30 seconds.
-    const statusRead = async () => (await (await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).json()).result.data;
+    // the page itself makes), each by its name and its state, and the overall state the read gives. Read again on each
+    // poll: the page re-reads every 30 seconds.
     const drawnStatus = async () => {
-      const none = await page.getByTestId('status-components-none').count();
-      const overall = none ? 'none_defined' : await page.getByTestId('status-overall').getAttribute('data-state');
+      const overall = await page.getByTestId('status-overall').getAttribute('data-state');
       const rows = await page.locator('[data-testid^="status-component-"]').evaluateAll((els) =>
         els
           .filter((el) => el.tagName === 'LI')
@@ -310,21 +342,34 @@ test.describe('on the outside TEST venue', () => {
     };
     const publishedStatus = async () => {
       const read = await statusRead();
-      return {
-        overall: read.overall,
-        rows: read.overall === 'none_defined' ? [] : read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })),
-      };
+      return { overall: read.overall, rows: read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })) };
     };
-    await expect(page.getByTestId('status-components').first()).toBeVisible();
+    await expect(page.getByTestId('status-overall')).toBeVisible();
     await expect
       .poll(async () => JSON.stringify(await drawnStatus()) === JSON.stringify(await publishedStatus()), {
         timeout: 45_000,
         message: 'the page shows the components and overall state svc-notify publishes',
       })
       .toBe(true);
-    const published = await publishedStatus();
-    if (published.overall === 'none_defined') await expect(page.getByTestId('status-components-none')).toBeVisible();
-    else expect(published.rows.length, 'a defined status page has components').toBeGreaterThan(0);
+    expect((await publishedStatus()).rows.map((r) => r.id)).toEqual([STATUS_COMPONENT.id]);
+    await expect(page.getByTestId(`status-component-${STATUS_COMPONENT.id}`)).toContainText(STATUS_COMPONENT.name);
+
+    // Platform status's as-of time is svc-notify's own read time, in UTC, to the minute: the read is made before and after
+    // the page's line, so the line is one of the two answers, never a time of the page's own.
+    const statusAsOf = page.getByTestId('status-asof');
+    await expect(statusAsOf).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+    const minuteLine = (iso) => `As of ${utcMinuteOf(Date.parse(iso)).replace('T', ' ')} UTC`;
+    await expect
+      .poll(
+        async () => {
+          const before = minuteLine((await statusRead()).asOf);
+          const shown = (await statusAsOf.textContent())?.trim();
+          const after = minuteLine((await statusRead()).asOf);
+          return shown === before || shown === after;
+        },
+        { timeout: 75_000, message: "the platform status as-of line is svc-notify's status read's own asOf" },
+      )
+      .toBe(true);
 
     // Trading modes per market, each with its effect, from the venue's own state with our listing beside it: every market
     // the venue read lists has its row, in the mode its own fields give.
@@ -348,7 +393,7 @@ test.describe('on the outside TEST venue', () => {
     // page's line, so the line is one of the two answers, never a time of the page's own.
     const line = page.getByTestId('status-modes-asof');
     await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
-    const asOfLine = (read) => `As of ${utcMinuteOf(Date.parse(read.asOf)).replace('T', ' ')} UTC`;
+    const asOfLine = (read) => minuteLine(read.asOf);
     await expect
       .poll(
         async () => {
