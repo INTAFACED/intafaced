@@ -7,9 +7,10 @@ import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit
 // J-portfolio-03, in the running app (docs/roadmap/journeys.json): "I find any movement of my money, open its detail, and
 // annotate it". One test per step, titled "J-portfolio-03 #<n>", run in order on one TEST account funded with TEST 1000
 // USDT. Every row is checked against the bank's own activity read and the ledger balances, never against fixtures.
-// On the launch model, where INTAFACED holds none of the customer's money, steps #1 and #4 read each place that holds the
-// money, not our ledger: those steps are J-portfolio-03-venue.pw.mjs's. The tests here keep #1's and #4's ledger branch
-// (the custodial layer, kept and switched off) as it is, titled for the door off; #2 #3 #5 #6 #7 #8 stay steps of this file.
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1, #3, #4 and #5 read each place that
+// holds the money, not our ledger: those steps are J-portfolio-03-venue.pw.mjs's. The tests here keep #1's, #3's, #4's
+// and #5's ledger branch (the custodial layer, kept and switched off) as it is, titled for the door off; #2 #6 #7 #8 stay
+// steps of this file.
 //
 // The kinds this stack can make: a deposit (the TEST welcome funds), a trade, a conversion (Convert, settled from the
 // house's TEST inventory), an order set aside, a cancelled order and a move to one of the person's own spaces. Earn has no rate configured on the stack (`earn.pools` refuses, a blank setting
@@ -412,7 +413,7 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await expect(activity(page)).toContainText('No ZZZ activity');
 });
 
-test(`${J} #3 reads a traded order: its lines share one row, a cancelled order is one row, a resting order is set aside`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads a traded order: its lines share one row, a cancelled order is one row, a resting order is set aside`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -541,7 +542,7 @@ test(`${J}, with the user-venue door off, on our own ledger (the custodial branc
   await expect(page).toHaveURL(/\/coin\/BTC/);
 });
 
-test(`${J} #5 opens Trades: one row per trade with price, total and fee, and partial fills grouped under their order and its type`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens Trades: one row per trade with price, total and fee, and partial fills grouped under their order and its type`, async ({
   page,
 }) => {
   const who = account();
