@@ -209,7 +209,7 @@ export function SignUp() {
               <h2>{t('step1')}</h2>
               {!pending && (
                 <form ref={form} method="post" className="lt-stack" onSubmit={start}>
-                  <fieldset className="lt-stack" disabled={busy}>
+                  <fieldset className="lt-group lt-stack" disabled={busy}>
                     <legend>{t('accountType')}</legend>
                     {(['individual', 'business'] as const).map((kind) => (
                       <Radio
@@ -223,7 +223,7 @@ export function SignUp() {
                       </Radio>
                     ))}
                   </fieldset>
-                  <fieldset className="lt-stack" disabled={busy}>
+                  <fieldset className="lt-group lt-stack" disabled={busy}>
                     <legend>{t('channel')}</legend>
                     {(['email', 'phone'] as const).map((kind) => (
                       <Radio key={kind} name="channel" value={kind} checked={channel === kind} onSelect={() => setChannel(kind)}>
@@ -296,7 +296,7 @@ export function SignUp() {
                       options={[{ value: '', label: t('subdivisionPick') }, ...provinces.map((p) => ({ value: p.code, label: p.name }))]}
                     />
                   )}
-                  <fieldset className="lt-stack" disabled={busy}>
+                  <fieldset className="lt-group lt-stack" disabled={busy}>
                     <legend>{t('usPerson')}</legend>
                     <small className="lt-muted">{t('usPersonHint')}</small>
                     {(['yes', 'no'] as const).map((answer) => (

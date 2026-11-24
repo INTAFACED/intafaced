@@ -108,7 +108,7 @@ function KeyForm({ detail, t }: { detail: SandboxDetail; t: T }) {
         autoComplete="off"
         onChange={(event) => setName(event.target.value)}
       />
-      <fieldset className="lt-stack">
+      <fieldset className="lt-group lt-stack">
         <legend>{t('permissions')}</legend>
         {(Object.keys(KEY_PRESETS) as KeyPreset[]).map((choice) => (
           <Radio key={choice} name="preset" checked={preset === choice} onSelect={() => setPreset(choice)}>
