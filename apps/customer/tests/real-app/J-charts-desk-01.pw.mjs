@@ -15,8 +15,9 @@ import {
 
 // J-charts-desk-01, with the user-venue door off, on our own engine (docs/roadmap/journeys.json): a person opens
 // `/charts/BTC-USDT` signed out, switches interval and style, reads history and the numbers the chart plots. The bars
-// are the stack's own TEST trades (pnpm local:market), read through Edge. `J-charts-desk-01-venue.pw.mjs` runs the
-// same `#1` to `#8` steps against the TEST venue beside this file; both must pass for each step to pass.
+// are the stack's own TEST trades (pnpm local:market), read through Edge. `J-charts-desk-01-venue.pw.mjs` carries the
+// canonical `#1` to `#8` step titles against the TEST venue's own record (`venueRecord`); here each engine-path check
+// keeps running as "part of #<n>, checked on today's engine chart".
 const J = 'J-charts-desk-01';
 const CHART = '/charts/BTC-USDT';
 
@@ -83,7 +84,9 @@ async function lastCandle(interval) {
   return rows[rows.length - 1];
 }
 
-test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interval with a header naming both`, async ({ page }) => {
+test(`${J}, part of #1, checked on today's engine chart: opens /charts/BTC-USDT and sees the last bars at the saved interval with a header naming both`, async ({
+  page,
+}) => {
   await openChart(page);
   await expect(title(page)).toHaveText('BTC/USDT · 15m');
   await expect(pressedInterval(page)).toHaveText('15m');
@@ -125,7 +128,9 @@ test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interva
     .toBe(true);
 });
 
-test(`${J} #2 picks 1h, then another interval from More, and the pressed one is marked`, async ({ page }) => {
+test(`${J}, part of #2, checked on today's engine chart: picks 1h, then another interval from More, and the pressed one is marked`, async ({
+  page,
+}) => {
   await openChart(page);
   await page.getByRole('group', { name: 'Chart intervals' }).first().getByRole('button', { name: '1h', exact: true }).click();
   await expect(title(page)).toHaveText('BTC/USDT · 1h');
@@ -139,7 +144,9 @@ test(`${J} #2 picks 1h, then another interval from More, and the pressed one is 
   await keepsRightEdge(page, '30m');
 });
 
-test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's engine chart: switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({
+  page,
+}) => {
   await openChart(page);
   const styles = page.getByRole('group', { name: 'Chart style' }).first();
   const pick = async (label, id) => {
@@ -226,7 +233,9 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     .toEqual(['Candlestick', true, true, true, 'Candlestick', true, 'ok']);
 });
 
-test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {
+test(`${J}, part of #4, checked on today's engine chart: scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({
+  page,
+}) => {
   await openChart(page, `${CHART}?interval=1m`);
   const before = Number(await canvas(page).getAttribute('data-bars'));
   // Opening the chart reads only the recent bars; the older block waits until the person scrolls back.
@@ -288,7 +297,9 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   expect(v3.to - v3.from).toBeCloseTo(v2.to - v2.from, 0);
 });
 
-test(`${J} #5 jumps to a date and sees it, or is told there is no data that far back`, async ({ page }) => {
+test(`${J}, part of #5, checked on today's engine chart: jumps to a date and sees it, or is told there is no data that far back`, async ({
+  page,
+}) => {
   await openChart(page, `${CHART}?interval=15m`);
   const date = page.getByLabel('Go to date').first();
   const go = async (ms) => {
@@ -325,7 +336,9 @@ test(`${J} #5 jumps to a date and sees it, or is told there is no data that far 
     .toBe(true);
 });
 
-test(`${J} #6 changes the colour scheme and the price source; a source the market does not serve is refused`, async ({ page }) => {
+test(`${J}, part of #6, checked on today's engine chart: changes the colour scheme and the price source; a source the market does not serve is refused`, async ({
+  page,
+}) => {
   await openChart(page);
   // The chart follows the app theme: the library draws on the theme's own background token.
   const themeBg = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--if-bg').trim());
@@ -349,7 +362,9 @@ test(`${J} #6 changes the colour scheme and the price source; a source the marke
   await expect(refusal).toContainText('can’t draw Mark price');
 });
 
-test(`${J} #7 reads the numbers the chart plots: the service's bars, the axis format from the tick size`, async ({ page }) => {
+test(`${J}, part of #7, checked on today's engine chart: reads the numbers the chart plots: the service's bars, the axis format from the tick size`, async ({
+  page,
+}) => {
   await openChart(page, `${CHART}?interval=1m`);
   const legend = page.getByTestId('chart-legend').first();
   // The legend shows the newest bar; it equals the newest candle Edge serves (re-read while the market maker trades).
@@ -393,7 +408,9 @@ test(`${J} #7 reads the numbers the chart plots: the service's bars, the axis fo
   }
 });
 
-test(`${J} #8 opens a symbol at an interval the feed does not offer and is told so by name`, async ({ page }) => {
+test(`${J}, part of #8, checked on today's engine chart: opens a symbol at an interval the feed does not offer and is told so by name`, async ({
+  page,
+}) => {
   await openChart(page, `${CHART}?interval=3d`);
   const note = page.locator('[data-code="trade.datafeed.interval_unsupported"]');
   await expect(note).toContainText('doesn’t offer the 3d interval');

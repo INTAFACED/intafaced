@@ -16,19 +16,20 @@ import {
 } from './charts-desk-01.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ownSpotMarket } from './own-market.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-charts-desk-01 on the launch model, in the running app against the stack's TEST venue simulator
 // (docs/roadmap/journeys.json): a person opens the chart workbench on a listed venue market (signed out), switches
 // interval and chart style, scrolls back through venue candle history, jumps to a date, changes colours and price
 // source, reads the venue's plotted numbers and tick-size axis formatting, and sees an unoffered interval refused.
-// Every candle is read from the TEST venue (packages/venue-sim) through svc-trade's public venue chart routes, never
-// from our own engine's book or `/ohlcv`. J-charts-desk-01.pw.mjs keeps the engine-path checks on `/charts/BTC-USDT`
-// with the user-venue door off beside this file.
+// Every candle and market rule is compared straight against the TEST venue's own record (venueRecord), never from our
+// own engine's book or `/ohlcv`. J-charts-desk-01.pw.mjs keeps the engine-path checks on `/charts/BTC-USDT` as
+// "part of #<n>" beside this file.
 const J = 'J-charts-desk-01';
 const SYMBOL = 'BTC-USDC';
 const CHART = `/charts/${SYMBOL}`;
 const DESK = `/trade/spot/${SYMBOL}`;
+const VENUE_READER = otherTraderKey('charts01-live-btc').address.toLowerCase();
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -58,16 +59,14 @@ function shownUnits(text) {
   return toUnits(clean);
 }
 
-/** Read candles straight from the TEST venue simulator (loopback), never through our door. */
+/** Read candles straight from the TEST venue's own record (loopback), never through our door. */
 async function venueCandles(symbol, interval, limit, since) {
-  const { status, body } = await testVenue('/candles', {
+  return venueRecord(VENUE_READER, '/candles', {
     symbol,
     interval,
     limit,
     ...(since ? { since: new Date(since).toISOString() } : {}),
   });
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body;
 }
 
 /**
@@ -84,10 +83,9 @@ async function expectedWindow(interval, symbol = SYMBOL) {
   return { first, last: now, bars: (now - first) / step + 1 };
 }
 
-/** A market as the TEST venue publishes it (its tick size is `tickSize`). */
+/** A market as the TEST venue publishes it in its own record (its tick size is `tickSize`). */
 async function venueMarketOf(symbol) {
-  const { status, body } = await testVenue('/markets', {});
-  expect(status).toBe(200);
+  const body = await venueRecord(VENUE_READER, '/markets', {});
   const market = body.value.find((m) => m.symbol === symbol);
   expect(market, `${symbol} is published on the TEST venue`).toBeTruthy();
   return market;
@@ -398,9 +396,20 @@ test(`${J} #4 scrolls back to the oldest bar on the launch model, more history l
   for (let i = 0; i < 12; i += 1) await page.keyboard.press('-');
   for (let i = 0; i < 40; i += 1) await page.keyboard.press('ArrowLeft');
   await expect(page.getByTestId('chart-depth').first()).toContainText(/bars loaded, from .+\. This interval keeps the last 720 bars/);
+  const deepSince = (Math.floor(Date.now() / STEP_MS['1m']) - 719) * STEP_MS['1m'];
+  await closedMinute(page, deepSince);
+  const deepRows = (await venueCandles(SYMBOL, '1m', 720, deepSince)).value;
+  expect(deepRows.length, 'TEST venue serves deeper 1m history than the opening 240-bar window').toBeGreaterThan(0);
+  const venueFirst = Math.floor(Date.parse(deepRows[0].openAt) / STEP_MS['1m']) * STEP_MS['1m'];
+  expect(venueFirst).toBeLessThan(firstBefore);
+  await expect
+    .poll(async () => {
+      const got = await drawn(page);
+      return [got.held > before, got.heldFirst === venueFirst, got.held === (got.heldLast - venueFirst) / STEP_MS['1m'] + 1];
+    })
+    .toEqual([true, true, true]);
   const after = Number(await canvas(page).getAttribute('data-bars'));
   expect(after).toBeGreaterThan(before);
-  await expect.poll(async () => Number(await canvas(page).getAttribute('data-first'))).toBeLessThan(firstBefore);
   await expect(page.getByTestId('chart-depth').first()).toContainText(`${after} bars loaded, from `);
 
   const box = await canvas(page).boundingBox();
@@ -476,6 +485,9 @@ test(`${J} #6 changes the colour scheme and the price source on the launch model
   await page.reload();
   await expect(canvas(page)).toHaveAttribute('data-scheme', 'inverted');
   await expect.poll(async () => [(await drawn(page)).up, (await drawn(page)).down]).toEqual([standard.down, standard.up]);
+  const market = await venueMarketOf(SYMBOL);
+  expect(market.kind).toBe('spot');
+  expect(market.mark.known).toBe(false);
   const source = page.getByRole('combobox', { name: 'Price source', exact: true }).first();
   await source.selectOption({ label: 'Best bid' });
   const refusal = page.locator('[data-code="trade.chart.basis_unpublished"]').first();
@@ -484,6 +496,16 @@ test(`${J} #6 changes the colour scheme and the price source on the launch model
   await expect(source).toHaveValue('last');
   await source.selectOption({ label: 'Mark price' });
   await expect(refusal).toContainText('can’t draw Mark price');
+  await expect
+    .poll(
+      async () => {
+        const latest = await lastVenueCandle('15m');
+        const shown = shownUnits(await page.getByTestId('chart-legend').first().locator('b').nth(3).textContent());
+        return shown !== null && shown === toUnits(latest.closePrice);
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   await stepPicture();
 });
 
@@ -543,6 +565,8 @@ test(`${J} #8 opens a symbol at an interval the feed does not offer on the launc
   page,
   stepPicture,
 }) => {
+  const market = await venueMarketOf(SYMBOL);
+  expect(market.symbol).toBe(SYMBOL);
   await openChart(page, `${CHART}?interval=3d`);
   const note = page.locator('[data-code="trade.datafeed.interval_unsupported"]');
   await expect(note).toContainText('doesn’t offer the 3d interval');
@@ -550,6 +574,7 @@ test(`${J} #8 opens a symbol at an interval the feed does not offer on the launc
   await expect(
     page.getByRole('group', { name: 'Chart intervals', exact: true }).first().getByRole('button', { name: '3d', exact: true }),
   ).toHaveCount(0);
+  await expect.poll(async () => (await drawn(page)).heldLast, { timeout: 30_000 }).toBe((await expectedWindow('15m')).last);
   // The public venue candles route itself refuses the unoffered interval with a typed code.
   const refused = await fetch(`${EDGE}/api/v1/venue/chart-candles?symbol=${encodeURIComponent(SYMBOL)}&interval=3d`);
   expect(refused.status).toBe(400);
