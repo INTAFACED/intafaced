@@ -12,7 +12,8 @@ import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
-import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { readOf } from '@/lib/desk-read';
+import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
 import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
 import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
@@ -55,9 +56,6 @@ import {
   BANK_OPS_FAILED_TRANSFERS,
   BANK_OPS_TRANSFER_DETAIL,
 } from '@intafaced/contracts/bank-ops-2-procedures';
-
-/** A read whose call has a record: its module and path are the record's, never typed again here. */
-export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.

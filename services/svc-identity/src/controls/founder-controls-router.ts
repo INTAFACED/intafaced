@@ -2,10 +2,6 @@ import { z } from 'zod';
 import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
   accountOperatorEntitlementSchema,
-  accountClosureHistoryInputSchema,
-  accountClosureResultSchema,
-  accountTierHistoryInputSchema,
-  accountTierResultSchema,
   accountLimitOverrideSetInputSchema,
   accountLimitResultSchema,
   customerDetailReviewSchema,
@@ -46,6 +42,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
   IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
@@ -159,10 +158,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         ({ ctx, input }) => controlCall(() => controls.closureState(ctx, input)),
         codedRefusal,
       ),
-      closureHistory: protectedProcedure
-        .input(accountClosureHistoryInputSchema)
-        .output(z.array(accountClosureResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input))),
+      closureHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input)),
+        codedRefusal,
+      ),
       // Archive of a closed customer record (J-ops-console-04 #10): four-eyes, irreversible, and the dormancy proposals.
       archive: mountRecord(
         IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
@@ -196,10 +196,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         ({ ctx, input }) => controlCall(() => controls.tierState(ctx, input)),
         codedRefusal,
       ),
-      tierHistory: protectedProcedure
-        .input(accountTierHistoryInputSchema)
-        .output(z.array(accountTierResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input))),
+      tierHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input)),
+        codedRefusal,
+      ),
       // Customer details (J-ops-console-04 #9): open details apply at once; name, date of birth and tax number go through a
       // compliance review the other founder passes. Values are encrypted at rest; the history names fields, never values.
       details: protectedProcedure
@@ -277,10 +278,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
       changeOperatorEntitlement: protectedProcedure
         .input(founderEntitlementChangeSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.changeEntitlement(ctx, input))),
-      operatorStatus: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountOperatorEntitlementSchema)
-        .query(({ ctx }) => controlCall(() => controls.operatorStatus(ctx))),
+      operatorStatus: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
+        ({ ctx }) => controlCall(() => controls.operatorStatus(ctx)),
+        codedRefusal,
+      ),
       // POST reads retain exact body bytes for required service HMAC verification.
       // Enabled is a query-time observation, never account-change or future
       // admission authority. Consumers must not positive-cache.
