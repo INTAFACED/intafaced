@@ -149,8 +149,9 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
     await expect(friend.getByTestId('waitlist-invited-by')).toContainText(code);
     await joinAs(friend, `jc20-friend${n}-${tag}@local-test.invalid`);
     await friend.context().close();
+    const after = await shownRank(page);
     await expect(page.getByTestId('waitlist-referred')).toHaveText(String(n));
-    return shownRank(page);
+    return after;
   };
   // Each of my first three friends moves me up: past the rival with one, then two, then three friends.
   for (const n of [1, 2, 3]) {
