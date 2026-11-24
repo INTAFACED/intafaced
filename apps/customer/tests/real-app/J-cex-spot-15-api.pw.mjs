@@ -1,6 +1,7 @@
 // World: book, restart
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
@@ -477,4 +478,136 @@ test(`${J} #7 goes over the per-user budget: edge.rate_limited with the reset ti
   } finally {
     await page.context().close();
   }
+});
+
+// ── #10: historical tick, book and trade data downloads with checksum ──────────────────────────────────────────────────
+const HISTORY_BOOK_SWITCH = 'LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL';
+const HISTORY_MARKET = 'BTC/USDT';
+
+test(`${J} #10 downloads historical tick, book and trade data: a file for a published window with its checksum`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+
+  // ── Documented schemas for trades, candles and book snapshots ───────────────────────────────────────────────────────
+  const schemasRes = await page.request.get('/api/v1/history/schemas');
+  expect(schemasRes.status(), await schemasRes.text()).toBe(200);
+  const schemasBody = await schemasRes.json();
+  expect(schemasBody.provenance).toBe("this venue's own matching sequence");
+  expect(schemasBody.schemas.map((entry) => entry.kind)).toEqual(['trades', 'candles', 'book_snapshots']);
+  for (const entry of schemasBody.schemas) {
+    expect(entry).toMatchObject({ format: 'ndjson', compression: 'gzip', checksumAlgorithm: 'sha256' });
+    expect(entry.fields.some((f) => /user|account|orderId/i.test(f.name))).toBe(false);
+  }
+
+  // ── Published manifests: wait for trades, candles and book_snapshots on BTC/USDT from the book world ────────────────
+  let published = null;
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(`/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}`);
+        if (res.status() !== 200) return [];
+        const body = await res.json();
+        published = body;
+        return [...new Set(body.datasets.map((d) => d.kind))].sort();
+      },
+      { timeout: 60_000, intervals: [1_000, 2_000], message: 'trades, candles and book_snapshots datasets materialize' },
+    )
+    .toEqual(['book_snapshots', 'candles', 'trades']);
+
+  expect(published.bookSnapshotsStatus).toBe('configured');
+  expect(published.bookIntervalMs).toBeGreaterThan(0);
+
+  // The bot's API key reads the exact same dataset list through the edge's metered trade door.
+  const viaKey = await withKey(s.key, { path: `/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}` });
+  expect(viaKey.status, JSON.stringify(viaKey.body)).toBe(200);
+  expect(viaKey.body.datasets.map((d) => d.id)).toEqual(published.datasets.map((d) => d.id));
+
+  // ── Download each kind through edge and verify SHA-256 checksum + gunzipped NDJSON contents ─────────────────────────
+  const byKind = Object.fromEntries(
+    ['trades', 'candles', 'book_snapshots'].map((kind) => [kind, published.datasets.find((d) => d.kind === kind)]),
+  );
+  for (const kind of ['trades', 'candles', 'book_snapshots']) {
+    const manifest = byKind[kind];
+    expect(manifest, `${kind} manifest exists`).toBeTruthy();
+    expect(manifest.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(manifest.windowStart).toBe(`${manifest.day}T00:00:00.000Z`);
+    expect(manifest.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.rowCount).toBeGreaterThan(0);
+    expect(manifest.provenance).toBe("this venue's own matching sequence");
+
+    const dl = await page.request.get(manifest.downloadPath);
+    expect(dl.status(), `download ${kind}`).toBe(200);
+    expect(dl.headers()['content-type']).toContain('application/gzip');
+    expect(dl.headers()['x-content-sha256']).toBe(manifest.sha256);
+    expect(dl.headers()['content-disposition']).toContain('.ndjson.gz');
+
+    const bytes = await dl.body();
+    expect(bytes.byteLength).toBe(manifest.byteLength);
+    expect(createHash('sha256').update(bytes).digest('hex'), `${kind} SHA-256 matches manifest`).toBe(manifest.sha256);
+
+    const rows = gunzipSync(bytes)
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(rows).toHaveLength(manifest.rowCount);
+    for (const row of rows) {
+      expect(row.symbol).toBe(HISTORY_MARKET);
+      expect(row.schemaVersion).toBe(manifest.schemaVersion);
+      expect(row).not.toHaveProperty('userId');
+      expect(row).not.toHaveProperty('orderId');
+      expect(row).not.toHaveProperty('accountId');
+    }
+    if (kind === 'trades') {
+      expect(rows[0].id).toBe(String(rows[0].sequence));
+      expect(['buy', 'sell']).toContain(rows[0].side);
+      expect(typeof rows[0].price).toBe('string');
+      expect(typeof rows[0].qty).toBe('string');
+    } else if (kind === 'book_snapshots') {
+      expect(Array.isArray(rows[0].bids)).toBe(true);
+      expect(Array.isArray(rows[0].asks)).toBe(true);
+    }
+  }
+
+  // ── Unknown dataset id refuses with 404 trade.history_dataset_not_found ─────────────────────────────────────────────
+  const missing = await page.request.get('/api/v1/history/datasets/99999999-9999-4999-8999-999999999999/download');
+  expect(missing.status()).toBe(404);
+  expect((await missing.json()).intafacedCode).toBe('trade.history_dataset_not_found');
+
+  // ── Blank book interval refuses trade.history_book_interval_unset ───────────────────────────────────────────────────
+  await restartService('trade', { [HISTORY_BOOK_SWITCH]: 'off' });
+  try {
+    const refusedBook = await page.request.get('/api/v1/history/datasets?kind=book_snapshots');
+    expect(refusedBook.status(), await refusedBook.text()).toBe(400);
+    expect((await refusedBook.json()).intafacedCode).toBe('trade.history_book_interval_unset');
+    const unfiltered = await page.request.get(`/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}`);
+    expect(unfiltered.status()).toBe(200);
+    expect(await unfiltered.json()).toMatchObject({
+      bookSnapshotsStatus: 'unset',
+      bookSnapshotsCode: 'trade.history_book_interval_unset',
+    });
+  } finally {
+    await restartService('trade', { [HISTORY_BOOK_SWITCH]: null });
+  }
+
+  // ── Customer Data downloads room under Markets shows the published windows, checksums and download links ────────────
+  // Enter from All services (/more) and click Data downloads as a trader does, rather than deep-linking.
+  await page.goto('/more');
+  await page.getByRole('main').getByRole('link', { name: 'Data downloads', exact: true }).click();
+  await expect(page).toHaveURL(/\/trade\/markets\/downloads$/);
+  await expect(page.getByRole('heading', { name: 'Data downloads', level: 1, exact: true })).toBeVisible();
+  const table = page.getByTestId('history-datasets-table');
+  await expect(table).toBeVisible();
+  for (const kind of ['trades', 'candles', 'book_snapshots']) {
+    const manifest = byKind[kind];
+    const row = table.locator(`tbody tr[data-dataset-id="${manifest.id}"]`);
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-sha256', manifest.sha256);
+    await expect(row.getByTestId(`checksum-${manifest.id}`)).toHaveText(manifest.sha256);
+    await expect(row.getByTestId(`download-${manifest.id}`)).toHaveAttribute('href', manifest.downloadPath);
+  }
+  await stepPicture();
 });

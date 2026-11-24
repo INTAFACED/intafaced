@@ -42,6 +42,7 @@ import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
+import { historyDownloadHeaders, isBinaryHistoryReply } from './history-download-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
 import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
@@ -685,11 +686,13 @@ await app.register(async (api) => {
           return reply.code(502).send({ error: userCopy('edge.upstream_unavailable'), code: 'edge.upstream_unavailable' });
         }
 
-        const text = await response.text();
+        const binaryHistory = isBinaryHistoryReply(url.pathname, response.headers.get('content-type'));
+        const payload = binaryHistory ? Buffer.from(await response.arrayBuffer()) : await response.text();
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
           ...statusBadgeHeaders(url.pathname, response.headers),
+          ...historyDownloadHeaders(url.pathname, response.headers),
           ...idempotencyHeaders(url.pathname, response.headers),
         };
         // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.
@@ -708,7 +711,7 @@ await app.register(async (api) => {
         // Only now is the body the service's: the envelope adds `requestId` to an error and changes nothing else.
         // Every refusal above this line is the edge's own and gets the full edge body.
         markProxied(req);
-        return sent.send(text);
+        return sent.send(payload);
       },
     );
   });
