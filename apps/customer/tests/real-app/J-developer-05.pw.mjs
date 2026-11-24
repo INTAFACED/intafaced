@@ -184,6 +184,7 @@ test(`${J} #4 sends two requests with the same key at once: the second gets the 
 
 test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say accepted is not final; read by key it is unknown until the venue answers; a retry on the same key never creates a second venue order`, async ({
   browser,
+  stepPicture,
 }) => {
   const s = state();
   // The docs page says it, in the app.
@@ -197,6 +198,7 @@ test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say acce
     await expect(final).toContainText(
       'A retry on the same key sends the same signed order again, so the venue never creates a second order.',
     );
+    await stepPicture(page);
   } finally {
     await page.close();
   }
