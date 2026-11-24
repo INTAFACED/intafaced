@@ -1,5 +1,5 @@
 import { turnkeyAdapter } from '../src/embedded-wallet/turnkey.js';
-import { softwarePasskey } from './software-passkey.js';
+import { softwarePasskey } from '../src/embedded-wallet/software-passkey.js';
 
 /**
  * The one-off live check of the owner's wallet provider (allowed by REVIEW.md, entry of 2026-11-24): the service's own adapter

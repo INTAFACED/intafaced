@@ -2,7 +2,7 @@ import { createPublicKey } from 'node:crypto';
 import { embeddedWalletPasskeySchema } from '@intafaced/contracts/protocol-embedded-wallet';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
 import { describe, expect, it } from 'vitest';
-import { softwarePasskey } from '../../scripts/software-passkey.js';
+import { softwarePasskey } from './software-passkey.js';
 
 /**
  * The live check's TEST passkey must read as a real WebAuthn registration, or the provider refuses it. Checked by the

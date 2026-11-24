@@ -3,7 +3,7 @@ import type { EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedd
 
 /**
  * A TEST passkey made in software, for the one-off live check against the owner's wallet provider
- * (scripts/turnkey-live-check.ts, `.github/workflows/vendor-live-check.yml`). It is what a browser hands the page after
+ * (services/svc-identity/scripts/turnkey-live-check.ts, `.github/workflows/vendor-live-check.yml`). It is what a browser hands the page after
  * `navigator.credentials.create`: a P-256 credential, its public key, and a WebAuthn registration with the "none"
  * attestation most passkeys send. Its private key stays in this process and is dropped when it ends, so the TEST wallet
  * bound to it can never sign anything. Never used by the service itself.
