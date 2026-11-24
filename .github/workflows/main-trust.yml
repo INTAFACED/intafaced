@@ -34,6 +34,10 @@ name: Main trust
 # After each Real-app journeys run on main (`spent`): an open automatic revert whose failing steps main's run passed
 # outright with the culprit still in is closed (tooling/ci/journeys-revert.mjs spent).
 #
+# After PR checks on main, on a push whose subject is an automatic journeys revert's (`back`): the journeys it names start
+# alone on that commit (tooling/ci/journeys-revert.mjs confirm). It was journeys-back.yml, whose run on every push to main
+# skipped on all but about one a day; PR checks is the quickest workflow that runs on every push (about 30 seconds).
+#
 # After each Real-app journeys run on main (`held`): an open, armed pull request red only on steps main was red on and is
 # no longer red on gets its branch updated from main, once per main recovery, so it runs again on its own and merges if it
 # is otherwise green; a red of its own stays red.
@@ -226,3 +230,40 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODE: ${{ github.event_name == 'schedule' && 'all' || 'main' }}
         run: node tooling/ci/journeys-revive.mjs "$MODE"
+
+  # When the automatic journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs open) merges into main, start the
+  # journeys it names alone on that commit (main-bisect.yml with `confirm`, in its own group), so the proof that the break
+  # is back waits behind no full run. Main's full Real-app journeys run still runs to its end and must pass them; the break
+  # issue closes only then (post-merge-trust.mjs). A main journeys run still going on a commit that holds the reverted one
+  # and not the revert is cancelled, so that full run starts at once instead of behind it (plant 2, #7957: 39 minutes,
+  # 13:39 to 14:18 UTC on 11 Nov 2026). Only the App's own revert/auto- pull request, merged as this very commit, counts
+  # (journeys-revert.mjs confirm). It follows PR checks, which runs on every push to main: a run of it replaced while
+  # waiting ends cancelled and still starts this, on the revert's commit. The first attempt only, so Main trust's re-run of
+  # a red PR checks starts nothing twice. (Failure it prevents: plant 1 on 11 Nov 2026 waited 43 minutes after its revert
+  # merged for a full run to prove it green.)
+  back:
+    name: Start the journeys alone on main
+    if: >-
+      github.event.workflow_run.name == 'PR checks' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      (startsWith(github.event.workflow_run.head_commit.message, 'Revert #') ||
+      startsWith(github.event.workflow_run.head_commit.message, 'ci: revert #'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      actions: write # start main-bisect.yml, cancel main's journeys run on a commit the revert undoes
+      pull-requests: read # the revert's own pull request
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Start them
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SUBJECT: ${{ github.event.workflow_run.head_commit.message }}
+        run: node tooling/ci/journeys-revert.mjs confirm
