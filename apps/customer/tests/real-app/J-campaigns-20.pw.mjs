@@ -419,6 +419,10 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
   expect(mine.waves.length).toBeGreaterThan(0);
   // The wave #3 released, by its number.
   await expect(page.getByTestId('drop-wave')).toHaveText(`Wave ${state('waveNumber').waveNumber}, released`);
+  // My rank: my wave was released, so I hold no place in the queue. The room shows what identity holds for me, read here
+  // the way the room reads it: no rank, and the released wave's number.
+  const myPlace = await (await api(me)).get('/api/identity/trpc/waitlist.mine');
+  expect(myPlace.body?.result?.data).toMatchObject({ rank: null, release: { waveNumber: state('waveNumber').waveNumber } });
   await expect(page.getByTestId('drop-rank')).toHaveText('—');
   await expect(page.getByTestId('drop-season-name')).toHaveText(`TEST season ${tag}`);
   // Season points read "not running" with the blocker J-campaigns-15 names: the owner's points decision.
