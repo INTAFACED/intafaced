@@ -180,14 +180,28 @@ export function MarketsList({
       cellMarks: () => ({ 'data-col': key, 'data-cell': key }),
       cell,
     });
-    const price = (key: string, header: string, field: 'last' | 'bid' | 'ask' | 'high24h' | 'low24h') =>
+    // Two figures of one kind in one column, one over the other (bid over ask, high over low), so Pro's columns fit a
+    // laptop's width without scrolling. The column sorts by its upper figure.
+    const pricePair = (
+      key: string,
+      header: string,
+      upper: { field: 'bid' | 'high24h'; label: string },
+      lower: { field: 'ask' | 'low24h'; label: string },
+    ) =>
       figure(
         key,
         header,
-        ({ ticker }) => ticker?.[field] ?? null,
+        ({ ticker }) => ticker?.[upper.field] ?? null,
         ({ market, ticker }) => (
-          <span className="lt-num" dir="ltr">
-            {priceText(market, ticker?.[field])}
+          <span className="lt-lines">
+            <span className="lt-num" dir="ltr" data-slot={upper.field}>
+              <span className="lt-sr">{upper.label} </span>
+              {priceText(market, ticker?.[upper.field])}
+            </span>
+            <span className="lt-num lt-muted" dir="ltr" data-slot={lower.field}>
+              <span className="lt-sr">{lower.label} </span>
+              {priceText(market, ticker?.[lower.field])}
+            </span>
           </span>
         ),
       );
@@ -395,11 +409,9 @@ export function MarketsList({
           name,
           last,
           change,
-          price('bid', t('Bid'), 'bid'),
-          price('ask', t('Ask'), 'ask'),
+          pricePair('bid', t('Bid / Ask'), { field: 'bid', label: t('Bid') }, { field: 'ask', label: t('Ask') }),
           spread,
-          price('high', t('24h high'), 'high24h'),
-          price('low', t('24h low'), 'low24h'),
+          pricePair('high', t('24h high / low'), { field: 'high24h', label: t('24h high') }, { field: 'low24h', label: t('24h low') }),
           volume,
           chart,
           status,

@@ -11,8 +11,11 @@
  */
 import { z } from 'zod';
 
-/** The tiers a key can be on: live keys on `base`, sandbox keys on `sandbox`. A grant raises one key above its tier. */
-export const RATE_TIER_IDS = ['base', 'sandbox'] as const;
+/**
+ * The tiers: live keys on `base`, sandbox keys on `sandbox`; a grant raises one key above its tier. `user` is the
+ * per-user budget: every key of one account, in one environment, spends from it together as well as from its own.
+ */
+export const RATE_TIER_IDS = ['base', 'sandbox', 'user'] as const;
 export type RateTierId = (typeof RATE_TIER_IDS)[number];
 
 /** Largest refill a request or a grant may name (a shape bound, not an owner ceiling). */
@@ -41,10 +44,18 @@ export const rateTiersOutputSchema = z
 export type RateTiersOutput = z.infer<typeof rateTiersOutputSchema>;
 
 /**
- * One key's limit as identity hands it to the edge in the key exchange. Null: no tier applies (blank tiers), so the
- * edge refuses every call of that key with `edge.limits_unset`.
+ * One key's limit as identity hands it to the edge in the key exchange, with the per-user budget its account's keys
+ * share (`user`). Null: no key tier or no per-user budget applies (blank tiers), so the edge refuses every call of that
+ * key with `edge.limits_unset`.
  */
-export const keyRateLimitSchema = z.object({ tier: z.enum([...RATE_TIER_IDS, 'granted']), burst: count, refillPerMinute: count }).strict();
+export const keyRateLimitSchema = z
+  .object({
+    tier: z.enum(['base', 'sandbox', 'granted']),
+    burst: count,
+    refillPerMinute: count,
+    user: z.object({ burst: count, refillPerMinute: count }).strict(),
+  })
+  .strict();
 export type KeyRateLimit = z.infer<typeof keyRateLimitSchema>;
 
 /** One row of the edge's cost table: `METHOD /path` with `*` for one segment and a trailing `**` for the rest. */
@@ -68,8 +79,8 @@ export const rateCostsOutputSchema = z
   .strict();
 export type RateCostsOutput = z.infer<typeof rateCostsOutputSchema>;
 
-/** Which limit refused a call. */
-export const RATE_LIMIT_REASONS = ['global', 'endpoint', 'concurrency'] as const;
+/** Which limit refused a call. `user`: the per-user budget every key of the account shares is spent. */
+export const RATE_LIMIT_REASONS = ['global', 'endpoint', 'concurrency', 'user'] as const;
 export type RateLimitReason = (typeof RATE_LIMIT_REASONS)[number];
 
 /**

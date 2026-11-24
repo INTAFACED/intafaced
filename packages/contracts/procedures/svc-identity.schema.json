@@ -9104,7 +9104,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "enum": ["base", "sandbox"]
+                  "enum": ["base", "sandbox", "user"]
                 },
                 "burst": {
                   "type": "integer",
@@ -12434,6 +12434,7 @@
         "identity.developer_role_none": "FORBIDDEN",
         "identity.key_rotate_overlap_unset": "PRECONDITION_FAILED",
         "identity.key_rotate_overlap_too_long": "BAD_REQUEST",
+        "identity.rate_limits_unset": "PRECONDITION_FAILED",
         "identity.developer_org_denied": "NOT_FOUND",
         "identity.developer_role_denied": "FORBIDDEN",
         "identity.developer_role_unknown": "BAD_REQUEST",

@@ -1119,9 +1119,7 @@
     "steps": [
       { "n": 1, "slices": ["BK-xfer-03"], "noSlice": false },
       { "n": 2, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 3, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 4, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 5, "slices": ["BK-xfer-03"], "noSlice": false }
+      { "n": 3, "slices": ["BK-xfer-03"], "noSlice": false }
     ]
   },
   {
@@ -1257,7 +1255,8 @@
       { "n": 5, "slices": ["BK-cissue-04"], "noSlice": false },
       { "n": 6, "slices": ["BK-cissue-04"], "noSlice": false },
       { "n": 7, "slices": ["RC-bank-02"], "noSlice": false },
-      { "n": 8, "slices": [], "noSlice": true }
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true }
     ]
   },
   {
