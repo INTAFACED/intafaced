@@ -25,6 +25,7 @@ const run = (id, path, conclusion = 'success', extra = {}) => ({
   path: `.github/workflows/${path}`,
   event: path === 'ci-review.yml' || path === 'merge-seal.yml' ? 'pull_request_target' : 'pull_request',
   head_sha: SHA,
+  pull_requests: [{ number: 5, base: { ref: 'main' } }],
   status: conclusion ? 'completed' : 'in_progress',
   conclusion,
   ...extra,
@@ -36,7 +37,7 @@ const green = () => [
   run(4, 'ci-review.yml'),
   run(5, 'merge-seal.yml', null),
 ];
-const reviewJob = (verdict, { test = 'skipped', conclusion = 'success', status = 'completed' } = {}) => ({
+const reviewJob = (verdict, { test = 'skipped', conclusion = 'success', status = 'completed', down = 'skipped' } = {}) => ({
   id: 77,
   name: 'CI review',
   status,
@@ -45,15 +46,23 @@ const reviewJob = (verdict, { test = 'skipped', conclusion = 'success', status =
     { name: 'Review', conclusion: 'success' },
     { name: 'Verdict', conclusion: verdict },
     { name: 'Test verdict', conclusion: test },
+    { name: 'Judge down', conclusion: down },
   ],
 });
 const PASS = reviewJob('success');
-const DOWN = reviewJob('skipped');
+const DOWN = reviewJob('skipped', { test: 'skipped', down: 'success' });
+// No verdict and no judge down: a cancelled job, or one failing before it judged.
+const CANCELLED = reviewJob(null, { test: null, conclusion: 'cancelled' });
+const BROKE = reviewJob('skipped', { conclusion: 'failure' });
 const files = (...names) => names.map((filename) => ({ filename }));
 
 test('only the judges’ own files make a change the judges’ alone; a review file is told apart', () => {
   assert.deepEqual(judgeOnly(files('tooling/ci/journey-seal.mjs', '.github/workflows/merge-seal.yml')), { judge: true, review: false });
-  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', 'tooling/ci/journey-seal.mjs')), { judge: true, review: true });
+  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', '.github/workflows/ci-review.yml')), { judge: true, review: true });
+  // the review's code with a seal or proof file is the judges' alone, but needs the PASS
+  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', 'tooling/ci/journey-seal.mjs')), { judge: true, review: false });
+  assert.deepEqual(judgeOnly(files('tooling/ci/step-read.mjs')), { judge: true, review: false });
+  assert.deepEqual(judgeOnly(files('tooling/ci/test-judge.mjs')), { judge: true, review: false });
   // planted: one other file, a rename from one, a brief, nothing at all, or an unreadable entry
   for (const f of [
     files('tooling/ci/ci-review.mjs', 'apps/customer/src/app.tsx'),
@@ -76,22 +85,25 @@ test('every listed judge file exists, and no brief is listed', () => {
   assert.ok(SEAL_FILES.includes('tooling/ci/judge-repair.mjs') && !REVIEW_FILES.includes('tooling/ci/judge-repair.mjs'));
 });
 
-test('passes: a change to the review’s code with every other check green, and the review PASSing or giving no verdict', () => {
+test('passes: a change to the review’s code with every other check green, and the review PASSing or its judge down', () => {
   assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, review: true, factory: 'run\n' }).act, 'pass');
   const down = judge({ sha: SHA, runs: green(), reviewJob: DOWN, review: true, factory: 'run' });
   assert.equal(down.act, 'pass');
-  assert.match(down.why, /no verdict/);
-  // the review failing before it judged (no Verdict) is no verdict either
-  assert.equal(
-    judge({ sha: SHA, runs: green(), reviewJob: reviewJob('skipped', { conclusion: 'failure' }), review: true, factory: 'run' }).act,
-    'pass',
-  );
+  assert.match(down.why, /judge down/);
 });
 
-test('passes: a change to the seal’s files alone only with the review’s PASS', () => {
+test('refuses: no PASS and no judge down, as a cancelled review or one failing before it judged (#10746 review)', () => {
+  for (const j of [CANCELLED, BROKE, reviewJob('skipped', { conclusion: 'cancelled', down: 'success' })]) {
+    const v = judge({ sha: SHA, runs: green(), reviewJob: j, review: true, factory: 'run' });
+    assert.equal(v.act, 'refuse', JSON.stringify(j));
+    assert.match(v.why, /needs the CI review's PASS or the judge down/);
+  }
+});
+
+test('passes: a change to the seal’s, the proof reader’s or the test judge’s files only with the review’s PASS', () => {
   assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, review: false, factory: 'run' }).act, 'pass');
-  // planted: the review down, or failing before its verdict
-  for (const j of [DOWN, reviewJob('skipped', { conclusion: 'failure' }), reviewJob('success', { conclusion: 'failure' })]) {
+  // planted: the review down, cancelled, failing before its verdict, or its Verdict passed in a job that failed
+  for (const j of [DOWN, CANCELLED, BROKE, reviewJob('success', { conclusion: 'failure' })]) {
     const v = judge({ sha: SHA, runs: green(), reviewJob: j, review: false, factory: 'run' });
     assert.equal(v.act, 'refuse');
     assert.match(v.why, /needs the CI review's PASS/);
@@ -246,6 +258,15 @@ test('main: a passing change writes pass=true; every planted fault writes nothin
     ['not into main', github({ pull: { base: { ref: 'side' } } })],
     ['CI red', github({ runs: [...green(), run(9, 'ci.yml', 'failure')] })],
     ['a review FAIL', github({ attempts: { 4: [[reviewJob('failure', { conclusion: 'failure' })]] } })],
+    ['the review cancelled', github({ attempts: { 4: [[CANCELLED]] } })],
+    [
+      'a PASS on a review against another base',
+      github({
+        runs: [...green().slice(0, 3), run(4, 'ci-review.yml', 'success', { pull_requests: [{ number: 5, base: { ref: 'side' } }] })],
+      }),
+    ],
+    ['a proof-count file with the judge down', github({ prFiles: files('tooling/ci/step-read.mjs'), attempts: { 4: [[DOWN]] } })],
+    ['the test judge with the judge down', github({ prFiles: files('tooling/ci/test-judge.mjs'), attempts: { 4: [[DOWN]] } })],
     ['a pause', github({ factory: 'pause\n' })],
     ['still going after every poll', github({ runs: [...green(), run(9, 'real-app-journeys.yml', null)] })],
   ]) {
@@ -325,7 +346,7 @@ test('main: a FAIL in any attempt, any run on the head, or any head with the sam
     ['a FAIL on another head with the same tree', github({ others: [otherHead(40, [[FAIL]])] })],
     ['a FAIL on attempt 1 of another head with the same tree', github({ others: [otherHead(40, [[FAIL], [PASS]])] })],
     // (c) a new run failing before its Verdict, or down, after an older run's FAIL on this head
-    ['a new run failing before Verdict', github(twoRuns(FAIL, reviewJob('skipped', { conclusion: 'failure' })))],
+    ['a new run failing before Verdict', github(twoRuns(FAIL, BROKE))],
     ['a new run down', github(twoRuns(FAIL, DOWN))],
     ['a new run passing', github(twoRuns(FAIL, PASS))],
     ['a head too old for the tree index', github({ mergeBase: new Date(Date.now() - FRESH_MS - 60_000).toISOString() })],

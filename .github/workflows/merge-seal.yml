@@ -112,8 +112,8 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       # A change to the judges alone (judge-repair.mjs JUDGE_FILES; project-state#4001, in place of the floor's one admin
-      # merge): it passes when every other check on the head is green and the CI review did not FAIL it, and a change to
-      # the seal's files alone needs the review's PASS. It imports none of the scripts it can repair, waits here while a
+      # merge): it passes when every other check on the head is green and the CI review PASSed it with no FAIL standing,
+      # or, for the review's own code alone, the judge is down. It imports none of the scripts it can repair, waits here while a
       # check is going (a re-check leaves a seal in this step alone, journey-seal.mjs recheckStep), and on any other
       # answer or error passes nothing: the steps below then judge the change as any other.
       - name: 'A change to the judges alone: every other check green, and no FAIL from the CI review'
