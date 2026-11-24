@@ -117,15 +117,15 @@
 <thead>
 <tr>
 <th scope="col">Permission</th>
-<th scope="col">Endpoints</th>
+<th scope="col" data-align="start">Endpoints</th>
 </tr>
 </thead>
 <tbody>
 <tr data-scope="trade:read">
-<th scope="row">
+<th scope="row" style="vertical-align: top; white-space: nowrap;">
 <code class="lt-mono">trade:read</code>
 </th>
-<td>
+<td data-align="start" style="vertical-align: top; padding-block: var(--lit-gap-item);">
 <ul>
 <li>
 <code class="lt-mono">GET /api/v1/time</code>
@@ -575,10 +575,10 @@
 </td>
 </tr>
 <tr data-scope="trade:write">
-<th scope="row">
+<th scope="row" style="vertical-align: top; white-space: nowrap;">
 <code class="lt-mono">trade:write</code>
 </th>
-<td>
+<td data-align="start" style="vertical-align: top; padding-block: var(--lit-gap-item);">
 <ul>
 <li>
 <code class="lt-mono">POST /api/v1/orders</code>
@@ -887,10 +887,10 @@
 </td>
 </tr>
 <tr data-scope="copy:lead">
-<th scope="row">
+<th scope="row" style="vertical-align: top; white-space: nowrap;">
 <code class="lt-mono">copy:lead</code>
 </th>
-<td>
+<td data-align="start" style="vertical-align: top; padding-block: var(--lit-gap-item);">
 <ul>
 <li>
 <code class="lt-mono">POST /api/v1/copy/lead/orders</code>
@@ -899,10 +899,10 @@
 </td>
 </tr>
 <tr data-scope="admin:read" data-never-on-key="">
-<th scope="row">
+<th scope="row" style="vertical-align: top; white-space: nowrap;">
 <code class="lt-mono">admin:read</code>
 </th>
-<td>Never on a key: only a staff session holds it, so a key is refused on these staff routes.<ul>
+<td data-align="start" style="vertical-align: top; padding-block: var(--lit-gap-item);">Never on a key: only a staff session holds it, so a key is refused on these staff routes.<ul>
 <li>
 <code class="lt-mono">GET /api/v1/admin/orders/open</code>
 </li>
@@ -913,10 +913,10 @@
 </td>
 </tr>
 <tr data-scope="trade:withdraw" data-never-on-key="">
-<th scope="row">
+<th scope="row" style="vertical-align: top; white-space: nowrap;">
 <code class="lt-mono">trade:withdraw</code>
 </th>
-<td>Never on a key: withdrawing is interactive only. No route takes it from a key; a venue withdrawal through POST /api/v1/venue/prepare and /submit is refused from a key with scope.interactive_only.</td>
+<td data-align="start" style="vertical-align: top; padding-block: var(--lit-gap-item);">Never on a key: withdrawing is interactive only. No route takes it from a key; a venue withdrawal through POST /api/v1/venue/prepare and /submit is refused from a key with scope.interactive_only.</td>
 </tr>
 </tbody>
 </table>
