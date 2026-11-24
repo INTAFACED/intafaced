@@ -1063,6 +1063,8 @@ import {
 
 import { IDENTITY_DEVELOPER_SUPPORT_KEYS, IDENTITY_DEVELOPER_SUPPORT_CALLS } from './identity-developer-support-procedures.js';
 
+import { IDENTITY_EMBEDDED_WALLET_PROVISION } from './identity-embedded-wallet-procedures.js';
+
 import { IDENTITY_FACTOR_STATUS } from './identity-factor-status-procedures.js';
 
 import { IDENTITY_FREEZE_LINK_REDEEM } from './identity-freeze-link-procedures.js';
@@ -3513,6 +3515,8 @@ const part_identity_developer_support_procedures: readonly ProcedureRecord[] = [
   IDENTITY_DEVELOPER_SUPPORT_CALLS,
 ];
 
+const part_identity_embedded_wallet_procedures: readonly ProcedureRecord[] = [IDENTITY_EMBEDDED_WALLET_PROVISION];
+
 const part_identity_factor_status_procedures: readonly ProcedureRecord[] = [IDENTITY_FACTOR_STATUS];
 
 const part_identity_freeze_link_procedures: readonly ProcedureRecord[] = [IDENTITY_FREEZE_LINK_REDEEM];
@@ -5078,6 +5082,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_developer_keys_procedures,
   ...part_identity_developer_sandboxes_procedures,
   ...part_identity_developer_support_procedures,
+  ...part_identity_embedded_wallet_procedures,
   ...part_identity_factor_status_procedures,
   ...part_identity_freeze_link_procedures,
   ...part_identity_handle_procedures,

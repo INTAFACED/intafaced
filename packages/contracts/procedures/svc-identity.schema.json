@@ -19654,6 +19654,125 @@
         }
       ]
     },
+    "identity.embeddedWallet.provision": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "embeddedWallet.provision",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "person": true
+      },
+      "refusals": {
+        "wallet.embedded_provider_unset": "PRECONDITION_FAILED",
+        "wallet.embedded_provider_down": "SERVICE_UNAVAILABLE",
+        "wallet.embedded_wallet_mismatch": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "passkey": {
+            "type": "object",
+            "properties": {
+              "credentialId": {
+                "type": "string",
+                "maxLength": 1400,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "publicKey": {
+                "type": "string",
+                "maxLength": 400,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "algorithm": {
+                "type": "number",
+                "const": -7
+              },
+              "registration": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "clientDataJson": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "attestationObject": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "transports": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["ble", "internal", "nfc", "usb", "hybrid", "smart-card"]
+                    }
+                  }
+                },
+                "required": ["challenge", "clientDataJson", "attestationObject", "transports"]
+              }
+            },
+            "required": ["credentialId", "publicKey", "algorithm"]
+          }
+        },
+        "required": ["passkey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "walletId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]{1,160}$"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "ownerRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["walletId", "address", "ownerRef"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "passkey": {
+              "credentialId": "TEST-credential",
+              "publicKey": "TEST-key",
+              "algorithm": -7
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "passkey": {
+              "credentialId": "TEST-credential",
+              "publicKey": "TEST-key",
+              "algorithm": -8
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "identity.factorStatus": {
       "service": "svc-identity",
       "module": "identity",

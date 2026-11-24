@@ -317,12 +317,18 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_WALLET_SANCTIONS: blankIsUnset(z.string().max(100_000).optional()),
     /**
      * The embedded self-custody wallet's provider (J-wallet-22, src/embedded-wallet/provider.ts; OWNER 237). The owner's
-     * setting, NO DEFAULT: blank refuses `wallet.embedded_provider_unset` and no wallet is made. `privy` or `turnkey` are
-     * known but unwired in this build (`wallet.embedded_provider_unwired`). `TEST:test` is the labelled TEST provider,
-     * refused at boot outside APP_ENV dev or test; it needs the TEST provider's loopback URL below.
+     * setting, NO DEFAULT: blank refuses `wallet.embedded_provider_unset` and no wallet is made. `turnkey` is the owner's
+     * provider, reached through svc-identity at IDENTITY_URL below; `privy` is known but unwired
+     * in this build (`wallet.embedded_provider_unwired`). `TEST:test` is the labelled TEST provider, refused at boot
+     * outside APP_ENV dev or test; it needs the TEST provider's loopback URL below.
      */
     PROTOCOL_EMBEDDED_WALLET_PROVIDER: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_EMBEDDED_WALLET_TEST_URL: blankIsUnset(z.string().max(200).optional()),
+    /**
+     * svc-identity's URL, read only when the provider is `turnkey`: svc-identity holds the provider's API key and makes
+     * the wallet (`IDENTITY_EMBEDDED_WALLET_PROVISION`), so this service declares no key. Blank then refuses to boot.
+     */
+    IDENTITY_URL: blankIsUnset(z.string().url().optional()),
     /**
      * Who pays the network fee of a person's own deposit when their wallet holds none of the chain's gas token
      * (J-wallet-24 #2). The owner's setting, NO DEFAULT: sponsoring gas is INTAFACED's spending, so blank is unset and
