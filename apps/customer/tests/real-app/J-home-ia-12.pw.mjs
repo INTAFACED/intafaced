@@ -118,7 +118,7 @@ async function startsLine(browser) {
     expect((await venuePositions(owner)).map((p) => `${p.symbol}:${p.side}`).sort()).toEqual([`${PERP}:long`, `${STOCK}:long`]);
     // The spot orders rest on a TEST spot market of this file's own, whose book only this file trades
     // (garden/no-shared-market-on-book): nothing another journey left there can fill them.
-    const spot = (await ownSpotMarket(J, 'JHT', 'a')).symbol;
+    const spot = (await ownSpotMarket(J, 'JHT', 'A')).symbol;
     const orders = [
       (await ownRun(walletKey, order(spot, 'buy', '1', '2', 'GTC', 'a'))).order.venueClientOrderId,
       (await ownRun(walletKey, order(spot, 'buy', '1', '3', 'GTC', 'b'))).order.venueClientOrderId,
