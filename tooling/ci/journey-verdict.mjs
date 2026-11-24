@@ -10,7 +10,10 @@
  * Red when any of these holds (green otherwise):
  *   - a step failed and is not in the baseline's `steps` (a step in `notBaselined` counts as failing, as the runbook says);
  *   - a step that passed in the baseline's named run is skipped or missing now (on a targeted run, only steps whose test
- *     file the run named);
+ *     file the run named). A step this commit's docs/roadmap/journeys.json no longer lists (the head's, for a pull
+ *     request judged with its own rule) and that is missing now is retired, not red: the journey-list guard lets a step
+ *     leave the list only on an owner's `Journey-retired:` line. The verdict names it as retired. A step still on the
+ *     list stays red when missing, money or not, and a retired step that is skipped or fails now stays red;
  *   - a failing step's entry is listed twice, its `money` disagrees with the money rule at this run's commit, or its
  *     state is not one the runbook allows;
  *   - an `unbuilt` step passed in a finished run on main after the baseline's named run (it was built, so a failure now
@@ -407,8 +410,20 @@ export function judge({
         .map(([k]) => k)
         .sort(byStep)
     : [];
+  // A step the journey list no longer holds (the head's rule when given, else this commit's: each holds every step of
+  // docs/roadmap/journeys.json) left with its test, so its absence is the retirement, not a lost pass. Only absent: a
+  // retired step whose test still runs and is skipped or fails stays red. (Failure it prevents: #10592 retired J-bank-05
+  // #4 and #5 on the owner's line, OWNER 291, and the verdict read them as "passed in run 1719, missing now", run
+  // 45304484379, so no retirement could pass.) Keyed by step, never by file: a journey file renamed or deleted while its
+  // steps are still listed stays red; a journey retired whole leaves the list with all its steps.
+  const listed = new Set(Object.keys(headMoney ?? money ?? {}));
+  const retired = [];
   for (const [step, s] of Object.entries(named.states))
-    if ((s === 'passed' || s === 'flaky') && !RAN.has(newest.states[step]) && inScope(step, named.files)) failing.add(step);
+    if ((s === 'passed' || s === 'flaky') && !RAN.has(newest.states[step]) && inScope(step, named.files)) {
+      if (newest.states[step] === undefined && !listed.has(step)) retired.push(step);
+      else failing.add(step);
+    }
+  retired.sort(byStep);
   const entries = new Map();
   const dupes = new Set();
   for (const e of baseline?.steps ?? []) entries.has(e.step) ? dupes.add(e.step) : entries.set(e.step, e);
@@ -485,7 +500,7 @@ export function judge({
     testsFailing++;
     red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
   }
-  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead };
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead, retired };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -1127,7 +1142,7 @@ function main() {
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
           onMain,
         })
-      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [] };
+      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [], retired: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
@@ -1179,6 +1194,12 @@ function main() {
     ...(verdict.red.length
       ? verdict.red.map((r) => `- ${r.step}${r.money ? ' (money)' : ''}: ${r.why}`)
       : ['Every failing step is on the list by its rules, so this run is green.']),
+    '',
+    `### Retired: passed in run ${baseline.run?.number}, no longer on the journey list, missing now: ${verdict.retired.length}`,
+    '',
+    "A step docs/roadmap/journeys.json no longer lists left with its test; the journey-list guard lets a step leave the list only on an owner's `Journey-retired:` line. It does not turn this verdict red. A step still on the list stays red when missing.",
+    '',
+    ...(verdict.retired.length ? verdict.retired.map((step) => `- ${step}: retired, missing now`) : ['None.']),
     '',
     `### Set aside by the machine: ${asideRows.filter((r) => r.active).length}`,
     '',

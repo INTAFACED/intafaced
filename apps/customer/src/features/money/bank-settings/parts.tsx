@@ -1,7 +1,8 @@
 import { useId, type ReactNode } from 'react';
 import { Button, Switch } from '@intafaced/ui/lit';
 import { Skeleton, type Refusal as RoomRefusal } from '@intafaced/ui/lit/templates';
-import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import type { Resource } from '../../../shared/resource';
 import { canTryAgain } from '../../../shared/try-again';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
@@ -41,6 +42,14 @@ function failureWords(
 ): FailureWords {
   const { t } = ui;
   if (isServiceNotConnected(result.code)) return { title: t('not_mounted'), body: t('serviceNotConnected'), role: 'status', retry: false };
+  if (isVerifyFirst(result))
+    return {
+      title: t('verifyFirstTitle'),
+      body: t('verifyFirst'),
+      action: { label: t('verifyNow'), href: '/verification' },
+      role: 'status',
+      retry: false,
+    };
   const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     const words = refusalCopy(result.code ?? rawCode);
@@ -79,7 +88,7 @@ export function useRoomRefusal(): (result: Failed) => { refusal: RoomRefusal; re
         variant: UNREACHABLE.has(result.reason) ? 'unreachable' : 'refused',
         title: words.title,
         body: words.body,
-        reference: words.reference ?? result.code,
+        reference: isVerifyFirst(result) ? undefined : (words.reference ?? result.code),
         action: words.action,
       },
       retry: words.retry,
@@ -91,6 +100,7 @@ export function useRoomRefusal(): (result: Failed) => { refusal: RoomRefusal; re
 export function Failure({ result, retry }: { result: Failed; retry?: () => void }) {
   const ui = uiCopy.useCopy();
   const words = failureWords(result, ui);
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div className="lt-refusal" data-testid="failure" data-refusal="refused" role={words.role}>
       <h3 className="lt-refusal-title">{words.title}</h3>
@@ -231,18 +241,16 @@ export function Fact({ label, children }: { label: ReactNode; children: ReactNod
 
 /** How many records a list read, what the limit means, and the way to read more where the service allows it. */
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="lt-toolbar">
       <span className="lt-hint">
         {count}
         {copyText('components.records.returned.requested.limit')}.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </span>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button tone="secondary" onClick={onMore}>
           {copyText('components.load.up.to')}
           {Math.min(200, limit + 50)}

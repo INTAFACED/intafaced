@@ -4,7 +4,8 @@ import { type DistributionKind, type DistributionRecord } from '@intafaced/contr
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
-import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { FirstState, RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { Coins } from 'lucide-react';
 import { dividendsCopy as copy } from './dividends-copy';
 import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
 import { CAMPAIGNS_DISTRIBUTION_MINE } from '@intafaced/contracts/campaigns-distribution-procedures';
@@ -126,15 +127,28 @@ export function DividendsView({
                     ) : (
                       <tr data-testid="dividends-empty" data-kind={kind} data-empty="">
                         <td colSpan={headers.length}>
-                          <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
-                          {kind === 'airdrop' ? (
+                          {kind === 'airdrop' && records.status === 'ready' ? (
+                            // A new account's first state: what this list holds and where airdrops come from.
+                            <FirstState
+                              icon={<Coins size={24} />}
+                              title={t('emptyTitle')}
+                              body={t('emptyBody')}
+                              points={[t('firstPointSnapshot'), t('firstPointShare'), t('firstPointWallet')]}
+                              action={{ label: t('firstAction'), href: '/campaigns' }}
+                            />
+                          ) : (
                             <>
-                              <br />
-                              <span className="lt-hint">
-                                <Copy k="emptyBody" />
-                              </span>
+                              <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
+                              {kind === 'airdrop' ? (
+                                <>
+                                  <br />
+                                  <span className="lt-hint">
+                                    <Copy k="emptyBody" />
+                                  </span>
+                                </>
+                              ) : null}
                             </>
-                          ) : null}
+                          )}
                         </td>
                       </tr>
                     )}

@@ -1,6 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { Button, Field, Loading } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import { useSession } from '../session';
 import { countryOptions } from '../public';
 import { useBankRecord } from './components';
@@ -20,6 +22,8 @@ import { BANK_CARDS_CATALOGUE, BANK_CARDS_ACCEPT_TERMS, BANK_CARDS_ORDER } from 
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
+/** Each part of the room reads and refuses in its own panel, so the template itself is always ready. */
+const READY: RoomState = { kind: 'ready' };
 
 export function CardOrderRoom() {
   const { t } = cardOrderCopy.useCopy();
@@ -48,15 +52,32 @@ export function CardOrderRoom() {
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [result, setResult] = useState<{ id: string; text: string; simulated: boolean } | null>(null);
 
-  if (catalogue.resource.status === 'loading') return <Loading />;
+  // The room sits on the kit's flow template, which draws its title, the page's margins and its place under the app's bar.
+  const room = (step: ReactNode, state: RoomState = READY, summary?: ReactNode) => (
+    <FlowTemplate
+      title={t('title')}
+      description={t('description')}
+      roomAction={
+        <a className="lt-link" href="/bank/cards">
+          {t('back')}
+        </a>
+      }
+      state={state}
+      step={step}
+      summary={summary}
+    />
+  );
+  if (catalogue.resource.status === 'loading') return room(<Loading />);
+  if (catalogue.resource.status === 'failed' && isVerifyFirst(catalogue.resource.failure))
+    return room(<VerifyFirstNote code={catalogue.resource.failure.code} />);
   if (catalogue.resource.status === 'failed') {
-    return (
+    return room(
       <div className="lt-stack">
         <Refusal failure={catalogue.resource.failure} />
         <Button variant="ghost" onClick={catalogue.reload}>
           {t('retry')}
         </Button>
-      </div>
+      </div>,
     );
   }
   const c = catalogue.resource.data;
@@ -137,33 +158,8 @@ export function CardOrderRoom() {
   }
 
   const speedName = (s: string) => (s === 'express' ? t('express') : s === 'signed' ? t('signed') : t('standard'));
-  return (
+  return room(
     <div className="lt-stack">
-      <h1>{t('title')}</h1>
-      <p className="lt-muted">{t('description')}</p>
-      <a className="lt-link" href="/bank/cards">
-        {t('back')}
-      </a>
-      <DepthPanel title={t('programmeTitle')}>
-        <p data-testid="card-programme" data-simulated={String(c.programme.simulated)}>
-          {c.programme.id === 'none'
-            ? t('noIssuer')
-            : c.programme.simulated
-              ? t('simulation')
-              : t('live', { name: c.programme.displayName })}
-        </p>
-      </DepthPanel>
-      <DepthPanel title={t('productsTitle')}>
-        <ul data-testid="card-products">
-          <li data-testid="card-product-virtual">
-            {t('virtualProduct')} · {t('network', { network: c.network })}
-          </li>
-          <li data-testid="card-product-physical">
-            {t('physicalProduct')} · {t('network', { network: c.network })}
-          </li>
-        </ul>
-        <p className="lt-muted">{t('feeNotSet')}</p>
-      </DepthPanel>
       <DepthPanel title={t('eligibilityTitle')}>
         <label className="lt-field">
           <span>{t('countryLabel')}</span>
@@ -178,12 +174,6 @@ export function CardOrderRoom() {
         <p data-testid="card-eligibility" data-eligible={c.eligible ? 'yes' : 'no'} data-code={c.reason ?? ''} role="status">
           {c.eligible ? t('eligible', { country: nameOf(c.country) }) : t('notEligible', { country: nameOf(c.country) })}
         </p>
-      </DepthPanel>
-      <DepthPanel title={t('limitsTitle')}>
-        <ul data-testid="card-count-limit">
-          <li>{t('virtualLimit', { held: String(product('virtual')?.held ?? 0), limit: String(product('virtual')?.limit ?? 0) })}</li>
-          <li>{t('physicalLimit', { held: String(product('physical')?.held ?? 0), limit: String(product('physical')?.limit ?? 0) })}</li>
-        </ul>
       </DepthPanel>
       <DepthPanel title={t('termsTitle')}>
         <div data-testid="card-terms" className="lt-stack">
@@ -294,6 +284,35 @@ export function CardOrderRoom() {
           </p>
         )}
       </DepthPanel>
-    </div>
+    </div>,
+    READY,
+    <div className="lt-stack">
+      <DepthPanel title={t('programmeTitle')}>
+        <p data-testid="card-programme" data-simulated={String(c.programme.simulated)}>
+          {c.programme.id === 'none'
+            ? t('noIssuer')
+            : c.programme.simulated
+              ? t('simulation')
+              : t('live', { name: c.programme.displayName })}
+        </p>
+      </DepthPanel>
+      <DepthPanel title={t('productsTitle')}>
+        <ul data-testid="card-products">
+          <li data-testid="card-product-virtual">
+            {t('virtualProduct')} · {t('network', { network: c.network })}
+          </li>
+          <li data-testid="card-product-physical">
+            {t('physicalProduct')} · {t('network', { network: c.network })}
+          </li>
+        </ul>
+        <p className="lt-muted">{t('feeNotSet')}</p>
+      </DepthPanel>
+      <DepthPanel title={t('limitsTitle')}>
+        <ul data-testid="card-count-limit">
+          <li>{t('virtualLimit', { held: String(product('virtual')?.held ?? 0), limit: String(product('virtual')?.limit ?? 0) })}</li>
+          <li>{t('physicalLimit', { held: String(product('physical')?.held ?? 0), limit: String(product('physical')?.limit ?? 0) })}</li>
+        </ul>
+      </DepthPanel>
+    </div>,
   );
 }

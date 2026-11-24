@@ -620,6 +620,40 @@ test('states: loading, no balances, error with retry, signed out', async ({ page
   await expect(page.getByRole('link', { name: 'Log in to see your handle' })).toBeVisible();
 });
 
+test('not verified yet: Send and Request say to verify in plain words, and nothing reads as failed (#10596)', async ({ page }) => {
+  const kyc = () => refusal(403, 'kyc required', 'denied.kyc_required');
+  await mock(page, { spaces: kyc, waiting: kyc, activity: kyc });
+  const plain = async () => {
+    const text = await page.getByTestId('pay-card').locator('xpath=ancestor::main[1]').innerText();
+    expect(text).not.toMatch(/couldn’t load|couldn't load|kyc|denied/i);
+  };
+  for (const [path, name] of [
+    ['/pay/send', 'send'],
+    ['/pay/request', 'request'],
+  ]) {
+    await open(page, path);
+    const box = page.getByTestId(`${name}-panel`).getByTestId('pay-spaces-refused');
+    await expect(box).toContainText('Verify your identity first');
+    await expect(box).toContainText('You need a verified account to do this.');
+    await expect(box.getByText('Verify now')).toBeVisible();
+    // Nothing can be waiting for an unverified person to answer, and the recent list says to verify once, not twice.
+    await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
+    await expect(page.getByTestId('recent-recipients')).toHaveCount(0);
+    await expect(page.getByTestId('recent-payments')).toContainText('Verify your identity first');
+    await plain();
+    await shotBoth(page, `${name}-not-verified`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await shot(page, `${name}-not-verified-390x844`);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+  await open(page, '/pay/receive');
+  await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
+  await plain();
+  await shotBoth(page, 'receive-not-verified');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot(page, 'receive-not-verified-390x844');
+});
+
 test('a named space is told apart from the main one', async ({ page }) => {
   await mock(page, {
     spaces: () => ({

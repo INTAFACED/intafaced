@@ -105,6 +105,7 @@ fn sources(
         fetch: Arc::new(fetch.clone()),
         timeout_ms: 1000,
         open_items: open,
+        report_urls: Vec::new(),
     }
 }
 

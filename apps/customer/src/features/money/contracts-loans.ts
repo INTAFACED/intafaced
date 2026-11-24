@@ -134,8 +134,4 @@ const loanLedgerCheckSchema = z.object({
 });
 export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const loansReads = {} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const loansWrites = {} as const;

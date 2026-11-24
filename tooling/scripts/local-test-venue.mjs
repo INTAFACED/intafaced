@@ -170,9 +170,16 @@ export async function serveTestVenue({
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
   const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
   // The first TEST venue takes several orders in one signed action, as the venue it stands for does (J-derivatives-03 #9);
-  // the second takes one order per signature, so the app's other branch runs against a venue too.
+  // the second takes one order per signature, so the app's other branch runs against a venue too. The second also offers
+  // hedge mode and moves an open position between accounts, which the first, as the venue it stands for, does not
+  // (J-derivatives-05 #3 #7).
   const which = second
-    ? { id: id ? `${id}-b` : SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
+    ? {
+        id: id ? `${id}-b` : SECOND_TEST_VENUE.id,
+        displayName: SECOND_TEST_VENUE.displayName,
+        positionModes: ['one_way', 'hedge'],
+        positionMoves: true,
+      }
     : {
         ...(id ? { id } : {}),
         ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION,

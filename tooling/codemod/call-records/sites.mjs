@@ -1,9 +1,10 @@
 // Every app call that names its service and call by strings: the shapes `garden/no-call-by-name` counts
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
-import { fanOut } from './fan.mjs';
+import { fanOut, valuesOf } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
 import { businessSite } from './pay-business.mjs';
 import { toolSite } from './tool-forms.mjs';
@@ -108,7 +109,7 @@ export function findSites(repo) {
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
         const spec = key === 'procedure' && !desk && !entry ? writeSpec(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
-        else if (spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...spec });
+        else if (spec) for (const one of spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...one });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
@@ -174,7 +175,14 @@ function deskRead(p, n) {
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;
     const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
+    // A file that takes only types from a server-only entry may be read by a client component: a value import of the
+    // helper would pull the server code into the browser bundle (admin's account search, read by `'use client'`).
+    const problem =
+      helperFrom && type.typeOnly && serverOnly(p.file, helperFrom)
+        ? `${helper} comes from ${helperFrom}, which is server-only, and this file takes only its types: a client file may read it`
+        : undefined;
     return {
+      ...(problem ? { problem } : {}),
       module: literal(moduleProp.value),
       path: literal(n.value),
       kind,
@@ -188,6 +196,17 @@ function deskRead(p, n) {
   return undefined;
 }
 
+/** Whether an import names a module that starts `import 'server-only'`: a relative file, or `@/` under its app's src. */
+function serverOnly(file, from) {
+  const app = /^(.*\/apps\/[^/]+)\//.exec(file)?.[1];
+  const base =
+    from.startsWith('@/') && app ? join(app, 'src', from.slice(2)) : from.startsWith('.') ? join(dirname(file), from) : undefined;
+  if (!base) return false;
+  for (const f of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')])
+    if (existsSync(f)) return /^\s*import ['"]server-only['"]/m.test(readFileSync(f, 'utf8').split('\n').slice(0, 5).join('\n'));
+  return false;
+}
+
 /** The keys every bank write spec has beside its call (`ActionSpec`, apps/customer/src/features/money/components.tsx). */
 const SPEC_KEYS = ['title', 'notes', 'input'];
 /**
@@ -196,16 +215,24 @@ const SPEC_KEYS = ['title', 'notes', 'input'];
  * Its answer schema is the hand one the dialog held it to, `bankWrites[path]` (`schema`), so a check there is not lost.
  */
 function writeSpec(p, n) {
-  const path = literal(n.value);
   const obj = p.parents.get(n);
-  if (!path || obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
+  if (obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
   const keys = new Set(obj.properties.map((pr) => (pr.type === 'Property' ? keyOf(pr) : undefined)));
   if (!SPEC_KEYS.every((k) => keys.has(k))) return undefined;
-  const site = { module: 'bank', path, kind: 'mutation' };
+  // A `procedure:` picked by a `? :` (`approve ? 'business.approve' : 'business.reject'`) is one site per call, written
+  // as one `record: approve ? A : B` once every call has its record (fan.mjs's `fanIn`).
+  const path = literal(n.value);
+  const set = path ? { values: [{ value: path }] } : n.value.type === 'ConditionalExpression' ? valuesOf(p, n.value) : undefined;
+  if (!set?.values) return undefined;
   const repo = p.file.slice(0, p.file.indexOf('/apps/customer/src/'));
-  const hand = repo ? handSchemas(repo).find((h) => h.map.endsWith('Writes') && h.name === path) : undefined;
-  if (hand) site.schema = { p: hand.p, node: hand.prop.value };
-  return site;
+  const hands = repo ? handSchemas(repo) : [];
+  return set.values.map((v, at) => {
+    const site = { module: 'bank', path: v.value, kind: 'mutation' };
+    if (set.values.length > 1) site.fan = { key: n, at, size: set.values.length, test: v.test };
+    const hand = hands.find((h) => h.map.endsWith('Writes') && h.name === v.value);
+    if (hand) site.schema = { p: hand.p, node: hand.prop.value };
+    return site;
+  });
 }
 
 /** The ops-desk reads in one parsed file. */

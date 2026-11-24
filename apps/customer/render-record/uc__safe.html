@@ -125,46 +125,12 @@
 <h1 class="lt-title">Security</h1>
 <p class="lt-description">Passkeys, two-step sign-in and where you’re signed in.</p>
 </div>
+<div class="lt-room-action">
+<a class="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">Staff access: who looked at your trading account</a>
+</div>
 </header>
 <div class="lt-body">
 <div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="Security sections">
-<ul>
-<li>
-<a class="lt-link" href="#security-passkeys">Passkeys</a>
-</li>
-<li>
-<a class="lt-link" href="#security-authenticator">Authenticator app</a>
-</li>
-<li>
-<a class="lt-link" href="#security-passkey-names">Passkey names and types</a>
-</li>
-<li>
-<a class="lt-link" href="#security-signin-methods">Ways to sign in</a>
-</li>
-<li>
-<a class="lt-link" href="#security-password">Password</a>
-</li>
-<li>
-<a class="lt-link" href="#security-recovery-keys">Recovery keys</a>
-</li>
-<li>
-<a class="lt-link" href="#security-sessions">Where you’re signed in</a>
-</li>
-<li>
-<a class="lt-link" href="#security-api-key-records">API keys</a>
-</li>
-</ul>
-</nav>
-<nav aria-label="Related rooms">
-<ul>
-<li>
-<a class="lt-link" href="/uc/safe/staff-access" data-testid="staff-access-link">Staff access: who looked at your trading account</a>
-</li>
-</ul>
-</nav>
-</section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
@@ -187,7 +153,6 @@
 </button>
 </div>
 </section>
-<div>
 <section data-testid="security__passkeys" id="security-passkeys" aria-label="Passkeys">
 <div class="lt-toolbar">
 <h2>
@@ -231,15 +196,17 @@
 <span lang="en" dir="ltr" data-i18n="account.security.memory">Your setup key and recovery codes are shown once. Save them before you leave this page.</span>
 </p>
 </section>
-<div data-testid="failure" class="lt-refusal" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.invalid_response">Information could not be verified</span>
-</h3>
-<p class="lt-refusal-body" lang="en">The service response could not be verified.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<section data-testid="security__card" aria-label="Your devices" lang="en">
+<h2>Your devices</h2>
+<p>Each row is a device you are signed in on. Signing a device out ends its sign-in; it has to sign in again.</p>
+<ul data-testid="security__rows">
+</ul>
+<button aria-expanded="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Show more (2 idle for over a day)</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Sign out all other devices</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Refresh</button>
 </div>
+</section>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -406,7 +373,6 @@
 </button>
 </div>
 </section>
-</div>
 <section data-testid="security__card" aria-labelledby="_r_6_" lang="en">
 <header>
 <h2 id="_r_6_">

@@ -1,24 +1,19 @@
 // World: stack, restart
-import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, verifiedBusiness } from './merchant.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, tool } from './stack.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { businessReadyPerson, openBusiness, uuidOf, verifiedBusiness } from './merchant.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, restartService } from './stack.mjs';
+import { ADMIN } from './admin.mjs';
 import { rooms } from '../../src/app/navigation.ts';
 import { isHiddenPath } from '../../src/app/feature-registry.ts';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
 // prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser. #7's Business half makes
 // its own verified TEST merchant with one TEST card payment, and a TEST business profile to search from.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: svc-support's help search matches an article's id and keys, not the title a person reads, so typing the title
-//   lists nothing under Help.
-// - #6: the header search sends no search-miss count (kind `search_miss`) when nothing is found.
+// Each step takes its picture with `stepPicture()` on the screen its words name, before it moves on.
 const J = 'J-home-ia-02';
 const RUN = Date.now().toString(36);
-const UNBUILT = { timeout: 5_000 };
 // A published help article in the platform's own catalogue (svc-support kb-catalog, kb-account-access).
 const ARTICLE = 'Sign-in and account access';
 
@@ -58,22 +53,11 @@ async function dropdown(page, door) {
  * tooling/scripts/local-stack-services/ops.mjs), and restarts it on the TEST value after, even when `fn` fails.
  */
 async function withOpsValueBlank(key, fn) {
-  const restart = (value) => {
-    const before = process.env[key];
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-    try {
-      tool('local-test-stack.mjs', 'restart', 'ops');
-    } finally {
-      if (before === undefined) delete process.env[key];
-      else process.env[key] = before;
-    }
-  };
-  restart('off');
+  await restartService('ops', { [key]: 'off' });
   try {
     return await fn();
   } finally {
-    restart(undefined);
+    await restartService('ops', { [key]: null });
   }
 }
 
@@ -86,6 +70,9 @@ async function search(page, words) {
   return panel;
 }
 
+/** One group of the open search panel ("Pages", "Help", "Payments"): its heading and the rows under it. */
+const searchGroup = (panel, name) => panel.locator(`xpath=.//ul[@role="listbox"]/li[div[normalize-space()="${name}"]]`);
+
 /** Pick Simple or Pro in Settings (a choice kept on this device). */
 async function chooseLayout(page, mode) {
   await page.goto('/view');
@@ -97,6 +84,7 @@ async function chooseLayout(page, mode) {
 
 test(`${J} #1 the top bar has five doors with full dropdowns, the same five on the phone bar; /bank is its own room; Simple groups Advanced, Pro lists every row`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   // Every row of each door's dropdown for a signed-in person, in order (the app's menu table, apps/customer/src/app/menus.ts);
@@ -211,6 +199,20 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
   await expect(phoneBar.getByRole('link')).toHaveText(DOORS);
   await phoneBar.getByRole('link', { name: 'More', exact: true }).click();
   await expect(page).toHaveURL(/\/more$/);
+
+  // Back on the computer, in Simple: the five doors, and Trade's dropdown open with its Advanced group under its heading.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/home');
+  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(DOORS);
+  const trade = await dropdown(page, 'Trade');
+  expect(
+    trade.filter((row) => row.advanced).map((row) => row.href),
+    "Trade's Advanced group in Simple",
+  ).toEqual(advancedOf('Trade'));
+  await expect(
+    mainNav(page).getByRole('group', { name: 'Trade', exact: true }).getByRole('list', { name: 'Advanced', exact: true }),
+  ).toBeVisible();
+  await stepPicture();
 });
 
 // #2's route table: the app's one list of rooms (apps/customer/src/app/navigation.ts), read here as the app reads it.
@@ -251,7 +253,10 @@ const WEB3 = [
   },
 ];
 
-test(`${J} #2 More and All services list every room from the one route table, with the Web3 rooms and their blockers`, async ({ page }) => {
+test(`${J} #2 More and All services list every room from the one route table, with the Web3 rooms and their blockers`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(180_000);
   await signIn(page, who);
   await page.goto('/more');
@@ -318,6 +323,11 @@ test(`${J} #2 More and All services list every room from the one route table, wi
 
   // A tile opens its room, which is all there with honest labels: never INTACHAIN, never "coming soon".
   await page.goto('/more');
+  await expect(web3.locator('a[href="/chain"]').getByTestId('more-tile__line')).toHaveText(
+    `Blocked: ${Object.keys(WEB3[1].words).join(' · ')}`,
+  );
+  await expect(index.getByRole('heading', { name: 'All services', exact: true })).toBeVisible();
+  await stepPicture();
   await web3.locator('a[href="/chain"]').click();
   await expect(page).toHaveURL(/\/chain$/);
   await expect(page.locator('main h1')).toHaveText('Chain');
@@ -325,7 +335,7 @@ test(`${J} #2 More and All services list every room from the one route table, wi
   await expect(page.locator('main')).not.toContainText(/coming soon/i);
 });
 
-test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter opens it`, async ({ page }) => {
+test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter opens it`, async ({ page, stepPicture }) => {
   await signIn(page, who);
   await page.goto('/home');
   const panel = await search(page, 'earn');
@@ -334,23 +344,26 @@ test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter o
   await expect(row).toContainText('Earn');
   // The first page row is Earn; Enter opens the active row.
   await expect(panel.getByRole('option').first()).toContainText('Earn');
+  await stepPicture();
   await page.getByRole('combobox', { name: 'Search markets', exact: true }).press('Enter');
   await expect(page).toHaveURL(/\/bank\/earn/);
 });
 
-test(`${J} #4 typing "chain" lists the parked room and says it opens to its blockers`, async ({ page }) => {
+test(`${J} #4 typing "chain" lists the parked room and says it opens to its blockers`, async ({ page, stepPicture }) => {
   await signIn(page, who);
   await page.goto('/home');
   const panel = await search(page, 'chain');
   const row = panel.getByRole('option').filter({ hasText: 'More > Chain' });
   await expect(row).toBeVisible();
   await expect(row).toContainText('Opens to its blockers');
+  await stepPicture();
   await row.click();
   await expect(page).toHaveURL(/\/chain$/);
 });
 
 test(`${J} #5 typing a help article's title lists it under Help and opens it; with no help result limit set the search says so and still offers Help`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   await signIn(page, who);
@@ -360,7 +373,9 @@ test(`${J} #5 typing a help article's title lists it under Help and opens it; wi
     await page.goto('/home');
     const unset = await search(page, ARTICLE);
     await expect(
-      unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
+      searchGroup(unset, 'Help')
+        .getByRole('status')
+        .filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
     ).toBeVisible();
     await expect(unset.getByRole('option', { name: ARTICLE, exact: true })).toHaveCount(0);
     await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
@@ -370,8 +385,9 @@ test(`${J} #5 typing a help article's title lists it under Help and opens it; wi
   // With the limit set, the article is listed under Help by the title a person reads, and opens.
   await page.goto('/home');
   const panel = await search(page, ARTICLE);
-  const article = panel.getByRole('option', { name: ARTICLE, exact: true });
-  await expect(article).toBeVisible(UNBUILT);
+  const article = searchGroup(panel, 'Help').getByRole('option', { name: ARTICLE, exact: true });
+  await expect(article).toBeVisible();
+  await stepPicture();
   await article.click();
   await expect(page).toHaveURL(/\/helpdetail\?id=kb-account-access/);
   await expect(page.locator('main')).toContainText(ARTICLE);
@@ -391,32 +407,50 @@ async function founderMisses(page) {
 
 test(`${J} #6 a search that finds nothing says so plainly, and one miss is counted for the founders without who searched`, async ({
   page,
-  browser,
+  founders,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   // The founders' count before this person's miss, read where the founders read it.
-  const desk = await (await browser.newContext()).newPage();
-  await founderSignIn(desk, 'a');
+  const { page: desk } = await founders.console('a');
   const before = await founderMisses(desk);
   await signIn(page, who);
   await page.goto('/home');
   const counted = [];
-  page.on('request', (req) => {
-    if ((req.postData() ?? '').includes('search_miss')) counted.push(req.postData());
+  const sentWith = [];
+  page.on('request', async (req) => {
+    if ((req.postData() ?? '').includes('search_miss')) {
+      counted.push(req.postData());
+      sentWith.push(await req.allHeaders());
+    }
   });
   const words = `zq nothing ${RUN}`;
   const panel = await search(page, words);
   await expect(panel.getByRole('status').filter({ hasText: `No results for "${words}"` })).toBeVisible();
   // Help is still offered, so a miss has somewhere to go.
   await expect(panel.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
+  await stepPicture();
 
   // One count of kind search_miss goes to the founders' metrics desk (HM-desks-02), carrying neither the account nor
   // the words searched (storing the words is a separate owner switch, off while blank).
-  await expect.poll(() => counted.length, UNBUILT).toBe(1);
+  await expect.poll(() => counted.length).toBe(1);
   expect(counted[0]).not.toContain(words);
   expect(counted[0]).not.toContain(RUN);
   expect(counted[0]).not.toContain(who.email);
   expect(counted[0]).not.toContain(who.handle);
+  // It is sent signed out: no bearer token names the account.
+  await expect.poll(() => sentWith.length).toBe(1);
+  expect(sentWith[0].authorization ?? '', 'the miss carries no bearer token').toBe('');
+
+  // svc-notify's count takes nothing but the kind: the same call, through Edge, with the account added is refused
+  // before anything is counted, so no account or words can reach what it stores.
+  const withAccount = await fetch(`${EDGE}/api/notify/trpc/navMetrics.searchMiss`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'search_miss', account: who.email, words }),
+  });
+  expect(withAccount.status, 'a miss that names the account is refused').toBe(400);
+  expect(await withAccount.text()).toContain('BAD_REQUEST');
 
   // The founders' desk now counts this miss (others' misses may land too, so at least one more), and what it shows is a
   // count per day: neither the words searched nor who searched appear anywhere on it.
@@ -426,14 +460,7 @@ test(`${J} #6 a search that finds nothing says so plainly, and one miss is count
   await expect(after.panel).not.toContainText(RUN);
   await expect(after.panel).not.toContainText(who.email);
   await expect(after.panel).not.toContainText(who.handle);
-  await desk.context().close();
 });
-
-/** A stable uuid for a journey key, so a create sent again in this run names the same record (idempotency keys are business keys). */
-function uuidOf(seed) {
-  const h = createHash('sha256').update(seed).digest('hex');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
-}
 
 /** One authenticated call through Edge as `who`; the answer's data, or an error naming the refusal. */
 async function call(route, token, body) {
@@ -488,6 +515,7 @@ const pageRow = (panel, room) =>
 test(`${J} #7 in Business mode a merchant payment id finds the payment; in Personal mode Business-only rooms are absent from search`, async ({
   browser,
   page,
+  stepPicture,
 }) => {
   test.setTimeout(900_000);
   // Personal: no Business-only room is offered. Every one is searched by its own title: the route table's Business rooms
@@ -551,8 +579,9 @@ test(`${J} #7 in Business mode a merchant payment id finds the payment; in Perso
       await expect(pageRow(business, room), `${room.path} is offered in Business`).toBeVisible();
     }
     const found = await search(owner, payment.id);
-    const row = found.getByRole('option').filter({ hasText: payment.id });
-    await expect(row).toBeVisible(UNBUILT);
+    const row = searchGroup(found, 'Payments').getByRole('option').filter({ hasText: payment.id });
+    await expect(row).toBeVisible();
+    await stepPicture(owner);
     await row.click();
     await expect(owner).toHaveURL(new RegExp(payment.id));
   } finally {
@@ -562,6 +591,7 @@ test(`${J} #7 in Business mode a merchant payment id finds the payment; in Perso
 
 test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask to sign in and come back to the same room`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(120_000);
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
@@ -572,7 +602,7 @@ test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask
   await expect(page).toHaveURL(/\/help$/);
   await expect(main.getByRole('heading', { level: 1, name: 'How can we help?', exact: true })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Search answers', exact: true })).toBeVisible();
-  await expect(page.getByText('Sign in to continue')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toHaveCount(0);
   await page.goto('/trade');
   await expect(page).toHaveURL(/\/trade$/);
   const markets = page.getByRole('grid', { name: 'Markets', exact: true });
@@ -583,21 +613,22 @@ test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask
       .filter({ has: page.getByTestId('mkt-name__ticker') })
       .first(),
   ).toBeVisible();
-  await expect(page.getByText('Sign in to continue')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toHaveCount(0);
   // A private room, with its query, asks to sign in and then opens exactly that room.
   const target = '/money?asset=BTC';
   await page.goto(target);
-  await expect(page.getByText('Sign in to continue')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
   await page.locator('main').getByRole('link', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/login\?redirect=/);
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(new RegExp(`${target.replace('?', '\\?')}$`));
-  await expect(page.getByText('Sign in to continue')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toHaveCount(0);
   // It is the Money room itself, signed in: its actions show, and no sign-in form or link is left.
   await expect(main.getByRole('navigation', { name: 'Actions', exact: true })).toBeVisible();
   await expect(page.locator('input[name=password]')).toHaveCount(0);
   await expect(main.getByRole('link', { name: 'Sign in', exact: true })).toHaveCount(0);
+  await stepPicture(page);
   await context.close();
 });

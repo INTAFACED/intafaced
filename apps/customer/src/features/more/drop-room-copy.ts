@@ -4,6 +4,7 @@ const en = {
   waitlistTitle: 'Your place in the waitlist',
   waitlistLoading: 'Reading your place in the queue',
   waitlistNone: 'This account’s email is not on the waitlist.',
+  waitlistNoneBody: 'An account whose email joined the waitlist sees its rank and release wave here.',
   waitlistUnverified: 'Confirm your email to see your place in the queue.',
   rank: 'Rank',
   rankValue: '#{rank} of {waiting} waiting',
@@ -14,6 +15,11 @@ const en = {
   seasonTitle: 'Season',
   seasonLoading: 'Reading the season and drops',
   seasonNone: 'No season is published right now.',
+  seasonNoneBody: 'A season runs between set dates. Task campaigns in it earn season points, and its limited drops open here to claim.',
+  firstPointPoints: 'Season points from task campaigns',
+  firstPointDrops: 'Limited drops, claimed while they last',
+  firstPointMoney: 'A claim moves no money',
+  firstAction: 'Browse the campaigns',
   seasonName: 'Season',
   seasonWindow: 'Runs',
   seasonWindowValue: '{start} to {end}',
@@ -103,6 +109,13 @@ const es = {
   'launch.schedule_unset': 'El calendario del token no está fijado, así que no hay nada que reclamar. No se publicó nada.',
   'audit.external': 'Un reclamo en mainnet espera la auditoría de seguridad externa. No se publicó nada.',
   'chain.go': 'El reclamo en cadena no está desplegado. No se publicó nada.',
+  waitlistNoneBody: 'Una cuenta cuyo correo se unió a la lista de espera ve aquí su puesto y su tanda de acceso.',
+  seasonNoneBody:
+    'Una temporada dura entre fechas fijas. Sus campañas de tareas dan puntos de temporada, y sus lanzamientos limitados se abren aquí para reclamar.',
+  firstPointPoints: 'Puntos de temporada por campañas de tareas',
+  firstPointDrops: 'Lanzamientos limitados, hasta agotarse',
+  firstPointMoney: 'Reclamar no mueve dinero',
+  firstAction: 'Ver las campañas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   waitlistTitle: 'Votre place sur la liste d’attente',
@@ -155,5 +168,12 @@ const fr = {
   'launch.schedule_unset': 'Le calendrier du jeton n’est pas fixé, il n’y a donc rien à réclamer. Rien n’a été publié.',
   'audit.external': 'Une réclamation sur mainnet attend l’audit de sécurité externe. Rien n’a été publié.',
   'chain.go': 'La réclamation on-chain n’est pas déployée. Rien n’a été publié.',
+  waitlistNoneBody: 'Un compte dont l’e-mail a rejoint la liste d’attente voit ici son rang et sa vague d’accès.',
+  seasonNoneBody:
+    'Une saison se déroule entre des dates fixées. Ses campagnes de tâches rapportent des points de saison, et ses éditions limitées s’ouvrent ici.',
+  firstPointPoints: 'Des points de saison grâce aux campagnes de tâches',
+  firstPointDrops: 'Des éditions limitées, jusqu’à épuisement',
+  firstPointMoney: 'Une réclamation ne déplace pas d’argent',
+  firstAction: 'Parcourir les campagnes',
 } satisfies Record<keyof typeof en, string>;
 export const dropRoomCopy = defineCopy('more.campaigns.drops', en, { es, fr });

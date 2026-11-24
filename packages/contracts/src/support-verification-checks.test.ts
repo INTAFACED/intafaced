@@ -28,7 +28,8 @@ describe('the balance disclosure gate (RC-support-public-01)', () => {
       withdrawal_id: 'svc-pay',
       deposit_id: 'svc-pay',
     });
-    expect(SUPPORT_DISCLOSURE_OWNER).toEqual({ balance: 'svc-ledger', fills: 'svc-trade', destination: 'svc-pay' });
+    // svc-trade answers the balance: it serves the customer's own balance read, a projection of the ledger.
+    expect(SUPPORT_DISCLOSURE_OWNER).toEqual({ balance: 'svc-trade', fills: 'svc-trade', destination: 'svc-pay' });
     expect(SUPPORT_VERIFICATION_ERROR_CODES).toContain('support.verification_checks_required');
   });
 

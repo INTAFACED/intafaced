@@ -1,0 +1,123 @@
+# Stack rehearsal: builds every image of the containerised stack and starts it the way a hosted deploy does
+# (APP_ENV=staging, the beta posture), on a throwaway runner, and tears it down (#9166). Every service but the edge must
+# turn healthy; the edge must refuse for exactly the owner's missing screening list.
+#
+# Nothing else builds the Dockerfiles or boots docker-compose.apps.yml: Real-app journeys start the local process
+# stack, and staging-deploy.yml needs a host that has not been bought. So this is how anyone knows the hosted stack
+# starts. It reaches no host, holds no deploy credential, and is not a required check.
+#
+# Every secret the stack needs is made fresh on the runner (tooling/infra/rehearsal-env.mjs), masked, and dies with it.
+# No repository secret is read, and no outside service is called: the chain and mail endpoints are `.invalid` names.
+# A bad container's last log lines are printed with hex runs and URL credentials masked.
+#
+# Each run also proves its own health gate: it swaps one service onto an image broken on purpose and requires the
+# gate to name that service and fail. A gate that passes a broken image fails the run.
+name: Stack rehearsal
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 19 * * *'
+  pull_request:
+    paths:
+      - Dockerfile
+      - '**/Dockerfile'
+      - .dockerignore
+      - 'docker-compose*.yml'
+      - 'tooling/infra/**'
+      - .env.example
+      # What the customer site image builds with beyond its Dockerfile.
+      - apps/customer/vite.config.ts
+      - apps/customer/tsconfig.build.json
+      - apps/customer/package.json
+      - .github/workflows/stack-rehearsal.yml
+
+concurrency:
+  group: stack-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    name: Build, boot and smoke the containerised stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      COMPOSE: docker compose -f docker-compose.apps.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No repository secret is read: every value is made here, and the owner's screening list stays unset.
+      - name: Settings made on the runner
+        run: node tooling/infra/rehearsal-env.mjs .env "$RUNNER_TEMP/roles.sql"
+
+      - name: Build every image
+        run: $COMPOSE build
+
+      - name: Database up, roles rotated off the published passwords
+        run: |
+          set -euo pipefail
+          $COMPOSE up -d --no-build --wait postgres
+          $COMPOSE exec -T postgres psql -q -U intafaced -d intafaced -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/roles.sql"
+
+      # A staging edge refuses to boot without the owner's screening list (packages/config/src/jurisdiction.ts
+      # assertScreeningConfigured), and that list is a repository secret this workflow does not read: only the owner may
+      # let it. So the rehearsal starts everything but the edge and the customer site behind it, and then proves the edge
+      # refuses for exactly that reason, so nothing else hides there. The sign-in smoke through the site waits on the
+      # owner's answer (project-state nino issue named in #9166).
+      - name: Start the stack, all but the edge and the site behind it
+        run: |
+          set -euo pipefail
+          mapfile -t services < <($COMPOSE config --services | grep -vxE 'svc-edge|vendor-shell')
+          $COMPOSE up -d --no-build "${services[@]}" || echo "::warning::compose up stopped early; the health gate reads why"
+
+      - name: Every container is healthy
+        run: tooling/infra/compose-health.sh 90 -f docker-compose.apps.yml
+
+      - name: The edge refuses to start without the owner's screening list, and for nothing else
+        run: |
+          set -euo pipefail
+          $COMPOSE up -d --no-build --no-deps svc-edge
+          for _ in $(seq 1 30); do
+            logs=$($COMPOSE logs --no-color svc-edge 2>&1 || true)
+            if grep -q 'denied.screening_unconfigured' <<< "$logs"; then
+              echo "svc-edge refused to boot: denied.screening_unconfigured (no screening list), as a staging host does until the owner sets it"
+              other=$(printf '%s\n' "$logs" | grep -oE '\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_unconfigured|_refused|_required|_not_required|_in_production_posture)\b' | grep -vx 'denied.screening_unconfigured' | sort -u || true)
+              [ -z "$other" ] || { echo "::error::svc-edge also refused for: $other"; exit 1; }
+              $COMPOSE rm -sf svc-edge >/dev/null
+              exit 0
+            fi
+            health=$(docker inspect intafaced-svc-edge --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>/dev/null || true)
+            [ "$health" != healthy ] || { echo "::error::svc-edge became healthy with no screening list: the screening guard did not hold"; exit 1; }
+            sleep 5
+          done
+          echo "::error::svc-edge neither refused with denied.screening_unconfigured nor started"
+          printf '%s\n' "$logs" | tail -n 25 | sed -E 's/[0-9a-fA-F]{16,}/<hex>/g; s#://[^/@ ]*@#://<credentials>@#g' | cut -c1-400
+          exit 1
+
+      - name: The health gate fails on an image broken on purpose
+        run: |
+          set -euo pipefail
+          printf 'FROM intafaced/app:dev\nUSER root\nRUN rm -rf services/svc-notify/dist\nUSER node\n' \
+            | docker build -q -t intafaced/app:rehearsal-broken - >/dev/null
+          printf 'services:\n  svc-notify:\n    image: intafaced/app:rehearsal-broken\n' > "$RUNNER_TEMP/broken.yml"
+          $COMPOSE -f "$RUNNER_TEMP/broken.yml" up -d --no-build --no-deps svc-notify
+          if out=$(tooling/infra/compose-health.sh 30 -f docker-compose.apps.yml); then
+            echo "$out"
+            echo "::error::the health gate passed a stack whose svc-notify image is broken"
+            exit 1
+          fi
+          echo "$out"
+          printf '%s\n' "$out" | sed -n '/terminal bad state/,/all containers/p' | grep -q 'intafaced-svc-notify ' \
+            || { echo "::error::the health gate failed, but did not name svc-notify"; exit 1; }
+          echo "the gate named the broken service and failed, as it must"
+
+      - name: Tear down
+        if: always()
+        run: |
+          $COMPOSE down -v --remove-orphans || true
+          rm -f .env "$RUNNER_TEMP/roles.sql"

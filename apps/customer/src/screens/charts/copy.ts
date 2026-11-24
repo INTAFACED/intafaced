@@ -159,6 +159,8 @@ const messages = {
   'Banner lifecycle': 'Market state unavailable. Order entry is refused until the market state can be read.',
   'Banner down': 'Data is down. The candles shown are the last ones read and are not live. Last trade {tick}.',
   'Banner stale': 'Data is stale. The candles shown were last read {seconds} s ago and are not live. Last trade {tick}.',
+  'Banner stale age':
+    'Data is stale. The last trade was {seconds} s ago, past the {threshold} s stale age, so the candles shown are not live. Last trade {tick}.',
   'Banner delayed':
     'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
   'Banner delayed class no age': "Delayed. This market's data class is delayed; the last trade's time is not read.",
@@ -175,6 +177,7 @@ const messages = {
     'Source: executed trades on this venue; seeded fills are not counted. A quiet interval is drawn as a flat bar at the previous close, marked filled: no trade happened in it.',
   // The chart's settings, kept on this device.
   'Chart settings': 'Chart settings',
+  'Chart tools': 'Chart tools',
   'Settings sections': 'Chart settings sections',
   'Settings tab symbol': 'Symbol',
   'Settings tab status': 'Status line',

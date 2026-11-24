@@ -1825,7 +1825,11 @@ test('recheckTargets: only pull requests with auto-merge armed are re-sealed; ar
     (await recheckTargets({ finished, pulls: list, sha, repo: 'o/r', filesOf })).map((p) => p.number);
   assert.deepEqual(await numbers('CI'), [1, 3], 'after CI: every armed pull request on the head, none that is not armed');
   assert.deepEqual(await numbers('Real-app journeys'), [3], 'after a journeys run: armed and naming steps');
-  assert.deepEqual(await numbers('CI review'), [1, 3], 'after the CI review: every armed pull request on the head');
+  assert.deepEqual(
+    await numbers('CI review', [...pulls, { ...pr(6, 'J-x #1', null), draft: true }]),
+    [1, 2, 3, 4],
+    'after the CI review: every ready pull request on the head, armed or not (sealedOnReview), never a draft',
+  );
   assert.deepEqual(await numbers('CI', [pr(5, 'J-x #1', null)]), [], 'disarmed again before the re-check read it: left alone');
   // Planted: without the filter, an unarmed pull request named by its title would be re-sealed after a journeys run.
   const unfiltered = await recheckTargets({

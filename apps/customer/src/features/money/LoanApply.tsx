@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Loading } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import { amount, bps, date, positiveMoney, type ActionSpec, useBankRecord } from './components';
 import { LOAN_ELIGIBILITY_KEYS, type LoanEligibility, type LoanFees, type LoanQuote } from './contracts';
 import { DepthPanel, DisabledAction } from './DepthParts';
@@ -9,6 +10,7 @@ import './bank-depth.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
 import { BANK_LOANS_QUOTE, BANK_LOANS_FEES } from '@intafaced/contracts/bank-loans-2-procedures';
 import { BANK_LOANS_OPEN } from '@intafaced/contracts/bank-loans-3-procedures';
+import { shownCode, withCode } from '../../shared/reference';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -36,11 +38,12 @@ export function applyRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message'>)
   };
   const code = failure.code ?? '';
   const said = words[code] ?? failure.message;
-  return code.includes('.') ? `${said} ${t('reference', { code })}` : said;
+  return code.includes('.') ? withCode(said, code, (shown) => t('reference', { code: shown })) : said;
 }
 
 function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
   const { t } = loanApplyCopy.useCopy();
+  if (isVerifyFirst(failure)) return <VerifyFirstNote code={failure.code} />;
   return (
     <div role="alert" className="error-text" data-code={failure.code ?? ''}>
       <p>{applyRefusal(t, failure)}</p>
@@ -104,7 +107,7 @@ function EligibilityList({ eligibility }: { eligibility: LoanEligibility }) {
               <dt>{t(`elig_${key}`)}</dt>
               <dd>
                 {t(`state_${reason.state}`)}
-                {reason.code ? ` ${t('reference', { code: reason.code })}` : ''}
+                {shownCode(reason.code) ? ` ${t('reference', { code: reason.code! })}` : ''}
               </dd>
             </div>
           );

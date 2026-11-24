@@ -1,5 +1,6 @@
 import type { ApiResult } from '../../shared/api';
 import type { loanDetailCopy } from './loan-detail-copy';
+import { withCode } from '../../shared/reference';
 
 type Copy = ReturnType<typeof loanDetailCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -33,7 +34,7 @@ export function loanRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message' | 
                           : code === 'bank.loan_not_found'
                             ? t('notYours')
                             : failure.message;
-  return code.includes('.') ? `${words} ${t('reference', { code })}` : words;
+  return code.includes('.') ? withCode(words, code, (shown) => t('reference', { code: shown })) : words;
 }
 
 /**

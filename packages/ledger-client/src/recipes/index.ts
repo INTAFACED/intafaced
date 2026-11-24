@@ -68,6 +68,14 @@ import {
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
+// An operator's corrective reversal, built by svc-ledger from the stored original; not in `recipes` (no grant on `/trpc/post`). See ./operator-reverse.ts.
+export {
+  OPERATOR_REVERSAL_MODULE,
+  OPERATOR_REVERSAL_REASON,
+  operatorReversalKey,
+  operatorReverse,
+  type OperatorReverseInput,
+} from './operator-reverse.js';
 export { makerRebateFor, tradeFillMakerRebate, type MakerRebate, type TradeFillMakerRebateInput } from './fill-rebate.js';
 export {
   BUILDER_FEE_MODULE,

@@ -1,3 +1,4 @@
+import { betaAccess, betaHides, betaRooms, type BetaNeed } from './beta-volt';
 import { hasPattern, matchPath } from './path-match';
 
 /**
@@ -9,6 +10,10 @@ import { hasPattern, matchPath } from './path-match';
  *
  * `hidden` stays as a mechanism (the lookups below, and every `isHiddenPath` consumer, still honour it) but no row uses
  * it, and no build redirects a hidden path any more: a Docker build behaves exactly like `vite dev`.
+ *
+ * The beta's build alone (owner decision, 23 Nov 2026: "Hide unfinished screens from the beta's menus") also drops from
+ * its menus, lists and links each `blocked` row's rooms and each row whose `needs` the signed-in account lacks
+ * (`betaOffFeatureFor`); the rooms keep their routes, and every other build shows them all.
  */
 export type FeatureStatus = 'live' | 'blocked' | 'hidden';
 export type FeatureTab = 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public';
@@ -28,10 +33,22 @@ export interface Feature {
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
+  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, the venue door on, or a venue that offers staking or vaults. */
+  needs?: BetaNeed;
 }
 
-// `/pay/checkout` is the payer-facing hosted checkout: it stays public and is not hidden here.
+// A business's own rooms. `/pay/checkout` is the merchant's checkout room; the payer opens it from a shared link, which
+// the beta's menus rule never touches.
+/** Where a person opens a business account: for someone who has none yet, so the beta's menus never ask for one. */
+const businessOnboardingPaths = [
+  '/pay/onboarding',
+  '/pay/onboarding/business',
+  '/pay/onboarding/verification',
+  '/pay/onboarding/go-live',
+  '/identbusiness',
+];
 const businessPaySlugs = [
+  'checkout',
   'refunds',
   'refunds/new',
   'refunds/:refundId',
@@ -69,10 +86,6 @@ const businessPaySlugs = [
   'developer/webhooks',
   'developer/webhooks/:endpointId',
   'developer/deliveries',
-  'onboarding',
-  'onboarding/business',
-  'onboarding/verification',
-  'onboarding/go-live',
   'team',
   'exports',
   'notifications',
@@ -338,6 +351,23 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-credit-previews',
+    label: 'Credit previews',
+    paths: [
+      '/bank/loans/overdraft',
+      '/bank/loans/personal',
+      '/bank/loans/schedule',
+      '/bank/cards/credit-card',
+      '/bank/cards/credit',
+      '/bank/business/loan',
+    ],
+    status: 'blocked',
+    reason:
+      'Overdraft, personal and business loans, credit cards and revolving credit are not offered: their engines are not built and need a licence INTAFACED does not hold, so the bank refuses every action with preview.engine_not_built',
+    unlock: 'a lending licence and a built engine, then J-bank-12 passing on main with a real offer',
+    tab: 'money',
+  },
+  {
     id: 'margin-futures-options',
     label: 'Options',
     paths: ['/trade/options'],
@@ -563,13 +593,55 @@ export const features: readonly Feature[] = [
   {
     id: 'business-pay',
     label: 'Business Pay and business account',
-    paths: [...businessPaySlugs.map((slug) => `/pay/${slug}`), '/identbusiness'],
+    paths: businessPaySlugs.map((slug) => `/pay/${slug}`),
     status: 'live',
+    needs: 'business',
     reason: 'The rooms open from the signed-in session: business access comes from merchant.myAccess, with no separate provider',
     unlock: 'already live',
     tab: 'pay',
     checked:
       '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs and, since 2026-10-29, the room walk in J-merchant-01-team.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
+  },
+  {
+    id: 'business-onboarding',
+    label: 'Opening a business account',
+    paths: businessOnboardingPaths,
+    status: 'live',
+    reason: 'Setup opens from the signed-in session, as Business Pay does',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: 'as business-pay: J-merchant-01.pw.mjs leads a person with no business to setup.',
+  },
+  {
+    id: 'user-venue',
+    label: "Trading on the customer's own venue account",
+    paths: ['/trade/account', '/trade/positions', '/uc/trading-permissions', '/fees'],
+    status: 'live',
+    needs: 'venue',
+    reason:
+      "The rooms read svc-trade's user-venue door (/api/v1/venue/status); with TRADE_USER_VENUE_URL unset it answers off and each room says so",
+    unlock: 'already live where the door is on',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-staking',
+    label: "Staking on the customer's own venue account",
+    paths: ['/trade/staking'],
+    status: 'live',
+    needs: 'staking',
+    reason: "The room reads the venue's own staking terms (/api/v1/venue/staking); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers staking',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-vaults',
+    label: "Vaults on the customer's own venue account",
+    paths: ['/trade/vaults'],
+    status: 'live',
+    needs: 'vaults',
+    reason: "The room reads the venue's own vault list (/api/v1/venue/vaults); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers vaults',
+    tab: 'trade',
   },
   {
     id: 'more-rooms',
@@ -691,19 +763,36 @@ export const features: readonly Feature[] = [
     tab: 'public',
   },
   {
+    id: 'owner-blank-pages',
+    label: 'Platform status, trading rulebook, support chat, official channels and the money mule policy',
+    paths: ['/status', '/rulebook', '/support/chat', '/help/official-channels', '/help/mule-policy'],
+    status: 'blocked',
+    reason:
+      'Owner values not set: the components the status page reports on, the published rulebook, support hours, the official channel list and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner sets the status components, publishes the rulebook, the channel list and the mule policy, and sets support hours',
+    tab: 'public',
+  },
+  {
+    id: 'chain-protocol',
+    label: 'INTACHAIN explorer and the Protocol room',
+    paths: ['/chain', '/chain/*', '/protocol', '/protocol/*'],
+    status: 'blocked',
+    reason:
+      'Every action in these rooms carries a standing blocker (features/protocol/blockers.ts roomStandingBlockers: no chain service, no bridge service, not audited), so each room only reads a test network and says it is not launched',
+    unlock: 'INTACHAIN runs its chain service and the external audit is published',
+    tab: 'public',
+  },
+  {
     id: 'help-support',
     label: 'Help and Support',
     paths: [
       '/help',
       '/helplist',
       '/helpdetail',
-      '/help/official-channels',
-      '/help/mule-policy',
       '/help/category/:id',
       '/help/section/:id',
       '/support',
       '/support/new',
-      '/support/chat',
       '/support/tickets',
       '/support/tickets/:ticketId',
       '/support/guest/verify',
@@ -773,8 +862,28 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
         })),
   );
 }
+/**
+ * In the beta's build only, the row that keeps `path` out of the menus: one switched off (`blocked`), or one whose `needs`
+ * the signed-in account lacks. A room comes back by itself when its row goes live or the account gains what it needs.
+ */
+export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
+  if (!betaRooms()) return undefined;
+  return features.find(
+    (feature) =>
+      (feature.status === 'blocked' || (feature.needs !== undefined && !access[feature.needs])) &&
+      feature.paths.some((pattern) => patternMatches(pattern, path)),
+  );
+}
+/**
+ * In the beta's build only, whether the beta leaves `path` out: a room not yet in Volt, switched off, or not the account's.
+ * The one test for the menus (isHiddenPath), every drawn link (beta-links.ts) and every move in code (location.ts).
+ */
+export function betaHidden(path: string): boolean {
+  return betaHides(path) || betaOffFeatureFor(path) !== undefined;
+}
+/** Hidden by a feature row, or, in the beta's build only, by betaHidden. */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHidden(path);
 }
 
 const tabHomes: Record<FeatureTab, string> = {

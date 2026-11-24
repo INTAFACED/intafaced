@@ -6,7 +6,7 @@ import {
 } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics';
 import { OPS_CAPITAL_ASSET, OPS_CAPITAL_CONTACT_MAX, OPS_CAPITAL_MINIMUM } from '@intafaced/contracts/ops-capital';
-import { DEPOSIT_ADDRESS, METADATA_KEY, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
+import { CASE_REF, DEPOSIT_ADDRESS, METADATA_KEY, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
 import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance';
 import {
   LAUNCH_ID,
@@ -243,6 +243,18 @@ export type DeskRequest =
    */
   | { readonly kind: 'ops.reconciliation_alert.accept'; readonly alertId: string; readonly evidenceHash: string; readonly reason: string }
   /**
+   * Reverse one posted ledger transaction (svc-ops `ledgerReversals.execute`, OPS-ledger-desk-02, J-ops-console-05 #1-#3). The
+   * request was stored first as svc-ops' intent row `requestNo`; the approval binds that row, the original, the reason and the
+   * case reference. The ledger builds the compensating transaction from the stored original.
+   */
+  | {
+      readonly kind: 'ops.ledger.reverse';
+      readonly requestNo: string;
+      readonly originalTxId: string;
+      readonly reason: string;
+      readonly caseRef: string;
+    }
+  /**
    * Set or clear one asset's minimum buffer on the capital monitor (svc-ops `capital.setThreshold`, J-ops-console-24 #1).
    * `minimum` blank clears it (the asset is not monitored again) and then `contact` is blank too. Both founders sign the
    * asset, the minimum, the contact a breach is escalated to and the reason.
@@ -327,6 +339,8 @@ const CERT_ID = /^[a-z0-9:_-]{1,64}$/;
 const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
 const HOLD_NO = /^[1-9][0-9]{0,18}$/;
+/** svc-ops' reversal request number. */
+const REVERSAL_NO = /^[1-9][0-9]{0,18}$/;
 /**
  * svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it), and a watermark: printable with no spaces, at
  * most 256 characters. Every service reports its position as a decimal string (contracts `restoreWatermarkReadSchema`), and a
@@ -394,8 +408,10 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version) || !isRunInstant(raw.asOf)) return null;
     if (typeof raw.margin !== 'string') return null;
-    // A run now reads at its own instant, so it carries no margin; a past run always names the one it reads with.
-    if (raw.asOf === 'now' ? raw.margin !== 'unset' : !reconciliationDecimalSchema.safeParse(raw.margin).success) return null;
+    // A run now reads at its own instant, so it carries no margin. A past run names the one it reads with, or `unset` to
+    // leave it blank: svc-ledger then reads with the control's own margin, or refuses ops.control_margin_unset itself.
+    if (raw.asOf === 'now' ? raw.margin !== 'unset' : raw.margin !== 'unset' && !reconciliationDecimalSchema.safeParse(raw.margin).success)
+      return null;
     return {
       kind: 'ledger.reconciliation_control.run',
       controlId: raw.controlId,
@@ -724,6 +740,20 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (raw.reason !== '' && !validReason(raw.reason)) return null;
     return { kind: 'ops.reconciliation_alert.accept', alertId: raw.alertId, evidenceHash: raw.evidenceHash, reason: raw.reason as string };
   }
+  // svc-ops binds the request number, the original, the reason and the case reference to the approval.
+  if (raw.kind === 'ops.ledger.reverse') {
+    if (keys !== 'caseRef,kind,originalTxId,reason,requestNo') return null;
+    if (typeof raw.requestNo !== 'string' || !REVERSAL_NO.test(raw.requestNo)) return null;
+    if (typeof raw.originalTxId !== 'string' || !UUID.test(raw.originalTxId)) return null;
+    if (typeof raw.caseRef !== 'string' || !CASE_REF.test(raw.caseRef) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'ops.ledger.reverse',
+      requestNo: raw.requestNo,
+      originalTxId: raw.originalTxId,
+      reason: raw.reason,
+      caseRef: raw.caseRef,
+    };
+  }
   // svc-ops binds the asset, minimum, contact and reason to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.capital.threshold.set') {
     if (keys !== 'assetId,contact,kind,minimum,reason') return null;
@@ -948,6 +978,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `CONFIRM HOLD ${request.holdNo}`;
     case 'ops.reconciliation_alert.accept':
       return `ACCEPT ALERT ${request.alertId.slice(0, 8)}`;
+    case 'ops.ledger.reverse':
+      return `REVERSE REQUEST ${request.requestNo}`;
     case 'protocol.pool.hide':
       return `HIDE POOL ${request.poolAddress.slice(0, 10)}`;
     case 'protocol.pool.restore':
@@ -1079,6 +1111,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Confirm staff hold ${request.holdNo} on customer ${request.userId} ("${request.reason}"): whatever ${request.assetId} is still held when it runs moves out of the customer's balance to the owner-named account. It cannot be undone from this console. svc-ops refuses while the owner has named no such account (owner.decision).`;
     case 'ops.reconciliation_alert.accept':
       return `Accept the discrepancy on reconciliation alert ${request.alertId} ("${request.reason}"). The alert closes as accepted and its evidence is frozen at hash ${request.evidenceHash}: a later failure with the same figures changes nothing, and different figures open a new alert. svc-ops refuses if the evidence no longer has that hash. No balance or freeze changes, and nothing is posted to the ledger.`;
+    case 'ops.ledger.reverse':
+      return `Reverse ledger transaction ${request.originalTxId} (reversal request ${request.requestNo}, case ${request.caseRef}: "${request.reason}"). svc-ledger books one linked compensating transaction built from the stored original: every leg flipped, the same amount, so the pair nets to zero per asset. The original stays in the book and shows it is reversed. svc-ops refuses if the transaction is already reversed; a transaction is reversed once.`;
     case 'ops.capital.threshold.set':
       return request.minimum === ''
         ? `Clear the minimum buffer for ${request.assetId} ("${request.reason}"): the capital monitor shows it as not monitored again, and no breach alert opens for it. No money moves.`

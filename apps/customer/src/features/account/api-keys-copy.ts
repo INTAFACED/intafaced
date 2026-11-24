@@ -5,10 +5,8 @@ const messages = {
   intro: 'Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.',
   create: 'Create a key',
   backToKeys: 'Back to API keys',
-  sectionsLabel: 'API key sections',
   explain:
     'A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.',
-  detailSectionsLabel: 'Key sections',
   detailExplain:
     'An earlier end date saves at once; a later one needs your passkey or a code. Rotating makes a new key and keeps the old one working only for the overlap you choose.',
   security: 'Security',
@@ -145,6 +143,7 @@ const messages = {
   'refused.identity.key_name_taken': 'You already have a key with this name. Choose another name. Nothing was created.',
   'refused.identity.key_expiry_invalid': 'Choose an end date in the future. Nothing was created.',
   'refused.identity.key_cap_unset': 'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
+  'refused.identity.rate_limits_unset': 'No rate budget is set for API keys yet, so a key could make no call. No key was issued.',
   'refused.identity.key_signing_unset':
     'Keys that place orders sign every request, and request signing is not set up, so this key is refused. Nothing was created.',
   'refused.identity.key_lead_not_approved':

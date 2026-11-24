@@ -2,7 +2,8 @@ import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
 import { isValidElement, useId, useRef, type ReactNode } from 'react';
 import { useOverflows } from '../../shared/use-overflows';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
@@ -16,6 +17,7 @@ export { PayTime, payTimeText } from './pay-time';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <StateBlock

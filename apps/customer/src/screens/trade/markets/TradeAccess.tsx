@@ -4,6 +4,8 @@ import { useSession } from '../../../features/session/session';
 import { useResource } from '../../../shared/resource';
 import { Button, StatusNote } from '@intafaced/ui/lit';
 import { marketsCopy } from './copy';
+import { callAs } from '../../../shared/api';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 
 /** The lowest level the spot desk takes orders from (svc-trade's `requireTier(principal, 'basic')`). */
 const TRADE_LEVEL = KYC_LADDER_LEVELS.indexOf('basic');
@@ -32,7 +34,7 @@ export function useTradeAccess(): TradeAccessState | null {
   const { resource } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'kyc.status', { limit: 1 }, verificationStatus(userId, 1), { signal })
+        ? callAs(api, IDENTITY_KYC_STATUS, { limit: 1 }, verificationStatus(userId, 1), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `trade-access:${userId ?? 'guest'}`,
   );
@@ -58,7 +60,7 @@ export function TradeAccess() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'kyc.status', { limit: 1 }, verificationStatus(userId, 1), { signal })
+        ? callAs(api, IDENTITY_KYC_STATUS, { limit: 1 }, verificationStatus(userId, 1), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `trade-access:${userId ?? 'guest'}`,
   );

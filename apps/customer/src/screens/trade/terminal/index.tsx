@@ -26,6 +26,8 @@ import { useWriteGuard } from '../copybots/guard';
 import { useLive } from '../copybots/live';
 import { RefusalNote } from '../copybots/parts';
 import { terminalCopy } from './copy';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { CandlestickChart } from 'lucide-react';
 
 type TabId = 'orders' | 'history' | 'positions' | 'algo' | 'dom';
 const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom'];
@@ -51,6 +53,16 @@ function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
           />
         )}
       </Gate>
+      {open.status === 'ready' && rows.length === 0 ? (
+        // Nothing open yet: what the terminal gathers and the one place to start.
+        <FirstState
+          icon={<CandlestickChart size={24} />}
+          title={t('First title')}
+          body={t('First body')}
+          points={[t('First point orders'), t('First point history'), t('First point algo')]}
+          action={{ label: t('First action'), href: '/trade/spot/BTC-USDT' }}
+        />
+      ) : null}
       {cancel.notice}
       {cancel.dialog}
     </div>

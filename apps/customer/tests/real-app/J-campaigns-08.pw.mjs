@@ -5,8 +5,8 @@ import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
 import { api, journeyState, signOutBrowser, stepState, tool } from './stack.mjs';
-import { venueForThisFile } from './venue.mjs';
-import { chainReceipt, chainUsd, rewardFunds } from './reward-funds.mjs';
+import { chainBalance, venueForThisFile } from './venue.mjs';
+import { chainReceipt, rewardFunds } from './reward-funds.mjs';
 import { connectWallet, data, myRewards, operatorPair, usdUnits, verifyBasic, walletOf } from './campaign-desk.mjs';
 import { connections } from './venue-room.mjs';
 
@@ -106,6 +106,9 @@ async function paidOnce(who, redemption, wallet) {
   ]);
   return receipt;
 }
+
+/** The connected wallet's TEST USD, as the TEST chain itself reports it: the outside record of what was paid to it. */
+const walletUsd = (wallet) => chainBalance(TOKEN_USD.address, wallet);
 
 /** A voucher redemption's record, read again. */
 const redemptionOf = async (who, voucherId, sequence) =>
@@ -248,12 +251,13 @@ test(`${J} #4 validates the code: nothing changes, and I see what it would give`
 
 test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed once and paid once to the connected wallet with its chain reference; a lost reply leaves it pending retry and the reconciler finishes it`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { me, wallet, voucherId, campaignId } = state('me', 'wallet', 'voucherId', 'campaignId');
   // INTAFACED's TEST budget: the USDC pot and the rewards wallet hold this file's TEST builder fees.
   await fundRewards(me);
-  const walletBefore = await chainUsd(wallet);
+  const walletBefore = await walletUsd(wallet);
   const client = await api(me);
   const [one, two] = await Promise.all([
     client.post('/api/campaigns/trpc/vouchers.redeem', { voucherId, amount: PART, sequence: 1 }),
@@ -269,7 +273,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   const [v] = (await walletOf(me)).filter((x) => x.id === voucherId);
   expect(v.redemptions).toHaveLength(1);
   const receipt = await paidOnce(me, v.redemptions[0], wallet);
-  expect(await chainUsd(wallet)).toBe(walletBefore + usdUnits(PART));
+  expect(await walletUsd(wallet)).toBe(walletBefore + usdUnits(PART));
   // On screen: the one redemption, paid to my wallet, with the chain transaction that paid it.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
@@ -293,7 +297,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   await issue(campaignId, code);
   const claimed = (await client.post('/api/campaigns/trpc/vouchers.claim', { code })).body?.result?.data;
   expect(claimed, 'the second voucher is claimed').toMatchObject({ state: 'claimed' });
-  const lostBefore = await chainUsd(wallet);
+  const lostBefore = await walletUsd(wallet);
   let lost;
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
@@ -309,7 +313,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
     await expect(pending).toHaveCount(1, { timeout: 30_000 });
     await expect(pending.first()).not.toHaveAttribute('data-state', 'paid');
     await expect(pending.first()).toContainText('still open');
-    expect(await chainUsd(wallet)).toBe(lostBefore);
+    expect(await walletUsd(wallet)).toBe(lostBefore);
   } finally {
     tool('local-test-stack.mjs', 'start', '--only', 'ledger');
   }
@@ -319,9 +323,23 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   // The voucher's whole face value, recorded owed once and paid once.
   expect(finished.amount).toBe(FACE);
   await paidOnce(me, finished, wallet);
-  expect(await chainUsd(wallet)).toBe(lostBefore + usdUnits(FACE));
+  expect(await walletUsd(wallet)).toBe(lostBefore + usdUnits(FACE));
   // The first voucher's redemption still has its one payment.
   await paidOnce(me, await redemptionOf(me, voucherId, 1), wallet);
+  // On screen once the reconciler has finished: both vouchers' redemptions paid to my wallet, each with its chain transaction.
+  await page.reload();
+  await openWallet(page);
+  for (const [id, tx] of [
+    [voucherId, v.redemptions[0].reward.payout.chainTx],
+    [claimed.id, finished.reward.payout.chainTx],
+  ]) {
+    const paidRows = voucherRow(page, id).getByTestId('voucher-redemptions').locator('li');
+    await expect(paidRows).toHaveCount(1);
+    await expect(paidRows.first()).toHaveAttribute('data-state', 'paid');
+    await expect(paidRows.first().getByTestId('voucher-paid-to')).toHaveAttribute('data-wallet', wallet);
+    await expect(paidRows.first().getByTestId('voucher-chain-tx')).toHaveAttribute('data-tx', tx);
+  }
+  await stepPicture(page);
   run.write({ ...run.read(), paidVoucherId: claimed.id });
 });
 
@@ -350,6 +368,7 @@ test(`${J} #6 uses part of a voucher: the remainder, never more than the face va
 
 test(`${J} #7 lets a voucher expire: it expires once and a late redemption refuses; what was already paid stays in the wallet and the record says it was paid`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   const { me, wallet } = state('me', 'wallet');
@@ -370,7 +389,13 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   await expect.poll(async () => (await redemptionOf(me, voucher.id, 1))?.reward.state, { timeout: 90_000 }).toBe('paid');
   const paid = await redemptionOf(me, voucher.id, 1);
   await paidOnce(me, paid, wallet);
-  const walletAtPayment = await chainUsd(wallet);
+  // Every redemption of mine paid (#6's included), so nothing else lands in the wallet while this voucher expires.
+  await expect
+    .poll(async () => (await walletOf(me)).flatMap((x) => x.redemptions).filter((r) => r.reward.state !== 'paid').length, {
+      timeout: 120_000,
+    })
+    .toBe(0);
+  const walletAtPayment = await walletUsd(wallet);
   // The use-by date passes; the sweep marks it expired once, however many passes run.
   await expect.poll(async () => (await walletOf(me)).find((v) => v.id === voucher.id).expiredAt, { timeout: 180_000 }).toBeTruthy();
   const marked = (await walletOf(me)).find((v) => v.id === voucher.id);
@@ -386,7 +411,7 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   expect(v.redemptions[0].reward.state).toBe('paid');
   expect(v.redemptions[0].reward.payout).toEqual(paid.reward.payout);
   await paidOnce(me, v.redemptions[0], wallet);
-  expect(await chainUsd(wallet)).toBeGreaterThanOrEqual(walletAtPayment);
+  expect(await walletUsd(wallet)).toBe(walletAtPayment);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
   await openWallet(page);
@@ -397,5 +422,6 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   await expect(kept).toHaveCount(1);
   await expect(kept.first()).toHaveAttribute('data-state', 'paid');
   await expect(kept.first().getByTestId('voucher-chain-tx')).toHaveAttribute('data-tx', paid.reward.payout.chainTx);
+  await stepPicture(page);
   await signOutBrowser(page.context());
 });

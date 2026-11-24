@@ -13,6 +13,7 @@ import { guestCopy } from './support-guest-copy';
 import { guestCreate, guestRefusalWords, guestVerify, keptToken, refusalCode } from './support-guest';
 import '../../shared/support-desk.css';
 import '../../shared/public-pages.css';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -166,7 +167,7 @@ export function GuestVerify() {
     setRefusal(null);
     const answer = await writeContract(api, guestVerify, { token });
     setBusy(false);
-    if (answer.ok) location.assign(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
+    if (answer.ok) leaveTo(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
     else setRefusal(answer);
   }
 

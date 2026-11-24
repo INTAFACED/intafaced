@@ -1,7 +1,9 @@
+import { replyAccepted } from '@intafaced/contracts/procedure';
+import { BANK_TRANSFERS_CREATE } from '@intafaced/contracts/bank-transfers-2-procedures';
 import { describe, expect, it } from 'vitest';
 import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
 import { BANK_CARDS_ISSUE, BANK_CARDS_SET_CHANNELS, BANK_CARDS_SET_LIMITS } from '@intafaced/contracts/bank-cards-2-procedures';
-import { bankWrites, cardSchema, myRoleSchema, pendingApprovalsSchema, teamSchema } from './contracts';
+import { cardSchema, myRoleSchema, pendingApprovalsSchema, teamSchema } from './contracts';
 
 const card = {
   id: '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11',
@@ -93,7 +95,12 @@ describe('what the team reads return', () => {
 });
 
 describe('what a move into a space returns (transfers.create)', () => {
-  const reply = bankWrites['transfers.create'];
+  // The record's schema and its own `accept` checks, as `api.call` runs them for every caller.
+  const reply = {
+    safeParse: (data: unknown) => ({
+      success: BANK_TRANSFERS_CREATE.output.safeParse(data).success && replyAccepted(BANK_TRANSFERS_CREATE, data),
+    }),
+  };
   const move = { id: 'test-partner-move-1', label: 'TEST partner bank', movedAt: '2026-11-15T00:00:00.000Z' };
 
   it('is confirmed by the ledger’s transaction, or by the partner bank’s one move with no ledger transaction', () => {

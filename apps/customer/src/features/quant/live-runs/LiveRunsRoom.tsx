@@ -12,7 +12,12 @@ const BASE = liveRunsBase;
 export function LiveRunsRoom() {
   const api = useApi();
   const { t } = liveRunCopy.useCopy();
-  const list = useResource((signal) => api.rest(BASE, listSchema, { signal }), 'quant-live-runs');
+  // svc-trade's user-venue door is off on this deployment: there is no run to list and none can start, said in words.
+  const list = useResource(async (signal) => {
+    const read = await api.rest(BASE, listSchema, { signal });
+    if (read.ok) return { ok: true as const, data: { off: false, runs: read.data.runs } };
+    return read.code === 'trade.user_venue_off' ? { ok: true as const, data: { off: true, runs: [] } } : read;
+  }, 'quant-live-runs');
   return (
     <RecordListTemplate
       title={t('listTitle')}
@@ -23,7 +28,11 @@ export function LiveRunsRoom() {
           <p className="lt-hint">{t('intro')}</p>
           <ReadView resource={list.resource} retry={list.reload}>
             {(data) =>
-              data.runs.length === 0 ? (
+              data.off ? (
+                <p className="lt-hint" data-testid="live-runs-off">
+                  {t('venueOff')}
+                </p>
+              ) : data.runs.length === 0 ? (
                 <p className="lt-hint">{t('none')}</p>
               ) : (
                 <div tabIndex={0} role="region" aria-label={t('listTitle')}>

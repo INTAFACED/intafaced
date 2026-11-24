@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { AssetIcon, Button, EmptyState, Fold, RefusalBox, Select } from '@intafaced/ui/lit';
 import { AllocationBar } from './allocation-chart';
@@ -46,6 +46,8 @@ import { ValuationNote } from './ValuationNote';
 import { HoldingsChange } from './HoldingsChange';
 import { ChangeLine, HeroTotal, Shown, btcParts, signOf, usdParts } from './money-parts';
 import { MoneyOverview } from './MoneyRoom';
+import { PartnerAccount } from './WhereItSits';
+import { usePartnerRead } from './standing-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -539,6 +541,9 @@ export default function Portfolio() {
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
   const accounts = useNamedAccounts();
+  // The partner bank's account, when it holds this person's money: no ledger balance counts it, so an empty ledger is
+  // not "nothing held" and its zero is not a total; the partner's own figures are shown instead.
+  const atPartner = usePartnerRead().state !== 'none';
 
   const view = portfolio.status === 'ready' ? portfolio.data : null;
   // BTC only when the bank gave both its BTC total and the price behind it; otherwise every value stays in USD.
@@ -613,26 +618,10 @@ export default function Portfolio() {
       <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
     </div>
   );
-  const hero = loading ? null : (
-    <div data-testid="money-head" className="lt-stack">
-      {label}
-      {view ? (
-        <Headline view={view} hidden={hideBalances} copy={copy} />
-      ) : portfolio.status === 'empty' ? (
-        <div data-testid="money-total">
-          {/* The balance call answered with no assets, so zero is correct here and only here. */}
-          <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
-        </div>
-      ) : null}
-      <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
-    </div>
-  );
-
-  let body;
-  if (portfolio.status === 'loading') {
-    body = null;
-  } else if (portfolio.status === 'error') {
-    body = (
+  // A read that failed or was refused says so where the figure would be, so the balance card is never left blank.
+  let failure: ReactNode = null;
+  if (portfolio.status === 'error') {
+    failure = (
       <div data-testid="money-state" data-slot="state-block" data-kind="error" className="lt-stack">
         <RefusalBox refusal={{ variant: 'unreachable', title: t('Couldn’t load your balance'), body: '' }} />
         <div className="lt-actions">
@@ -645,13 +634,36 @@ export default function Portfolio() {
   } else if (portfolio.status === 'refused') {
     // The raw service code never reaches the screen: only a short reference a customer can quote to support.
     const words = refusalCopy(portfolio.code);
-    body = (
+    failure = (
       <div data-testid="money-state" data-slot="state-block" data-kind="refused">
         <RefusalBox
           refusal={{ variant: 'refused', title: words.title, body: words.body ?? '', reference: words.reference, action: words.action }}
         />
       </div>
     );
+  }
+  const hero = loading ? null : (
+    <div data-testid="money-head" className="lt-stack">
+      {label}
+      {view ? (
+        <Headline view={view} hidden={hideBalances} copy={copy} />
+      ) : portfolio.status === 'empty' && !atPartner ? (
+        <div data-testid="money-total">
+          {/* The balance call answered with no assets, so zero is correct here and only here. */}
+          <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
+        </div>
+      ) : (
+        failure
+      )}
+      <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
+    </div>
+  );
+
+  let body;
+  if (portfolio.status === 'loading' || failure) {
+    body = null;
+  } else if ((portfolio.status === 'empty' || !view) && atPartner) {
+    body = <PartnerAccount />;
   } else if (portfolio.status === 'empty' || !view) {
     body = (
       <>
@@ -708,6 +720,7 @@ export default function Portfolio() {
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
         {/* Main account and spaces together, so it is shown for all accounts only. */}
         {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
+        {!scoped ? <PartnerAccount /> : null}
         {/* A named account is listed here only while it holds something (J-portfolio-06 #5); the picker above offers them all. */}
         {!scoped && heldAccounts.length > 0 ? <Accounts accounts={heldAccounts} hidden={hideBalances} copy={copy} /> : null}
         {isHiddenPath('/money/pnl') ? null : (

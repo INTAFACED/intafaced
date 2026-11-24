@@ -15,7 +15,6 @@ import {
   usePreferenceObservation,
 } from '../../shared/preferences';
 import { TradingSettings } from './TradingSettings';
-import { tradingSettingsCopy } from './trading-settings-copy';
 import { useAccountViewStatus } from './ViewSync';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
@@ -83,22 +82,6 @@ export function View() {
         title={copyText('view.view')}
         description={copyText('view.choose.how.the.product.feels.on.this')}
         state={{ kind: 'ready' }}
-        index={
-          <nav aria-label={copyText('view.sections')}>
-            <ul>
-              <li>
-                <a className="lt-link" href="#view-display">
-                  <Text k="view.display" />
-                </a>
-              </li>
-              <li>
-                <a className="lt-link" href="#view-trading">
-                  <tradingSettingsCopy.Copy k="title" />
-                </a>
-              </li>
-            </ul>
-          </nav>
-        }
         explain={
           <p>
             <Text k="view.explain" />

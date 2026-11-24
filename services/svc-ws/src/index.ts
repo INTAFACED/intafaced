@@ -349,6 +349,7 @@ const busLifecycle = createBusLifecycle({
           await half.orders.unsubscribe().catch(() => undefined);
           await half.fills.unsubscribe().catch(() => undefined);
           await half.positions.unsubscribe().catch(() => undefined);
+          await half.balances.unsubscribe().catch(() => undefined);
         },
         announce: () => privateOrderHub.announceBus(true),
       });
@@ -422,6 +423,9 @@ const busLifecycle = createBusLifecycle({
             },
             async () => {
               await privateHalf?.positions.unsubscribe();
+            },
+            async () => {
+              await privateHalf?.balances.unsubscribe();
             },
             async () => {
               await dropHalf?.fills.unsubscribe();

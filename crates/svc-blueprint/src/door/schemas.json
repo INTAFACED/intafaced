@@ -1,0 +1,106 @@
+{
+  "nodes": [
+    { "t": "object", "shape": [["size", 1]] },
+    { "t": "default", "in": 2, "value": "portrait" },
+    { "t": "enum", "values": ["portrait", "landscape"] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 4],
+        ["shareId", 6],
+        ["size", 8]
+      ],
+      "checks": [{ "k": "refine", "id": "subject_or_share", "msg": "A subject or a share is required" }]
+    },
+    { "t": "optional", "in": 5 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 7 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "default", "in": 2, "value": "portrait" },
+    {
+      "t": "object",
+      "shape": [
+        ["locale", 10],
+        ["responses", 12],
+        ["birthData", 16],
+        ["visibility", 23],
+        ["mentorAvailable", 25]
+      ]
+    },
+    { "t": "default", "in": 11, "value": "en" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 10 }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 13,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["key", 14],
+        ["value", 15]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 2000 }
+      ]
+    },
+    { "t": "optional", "in": 17 },
+    {
+      "t": "object",
+      "shape": [
+        ["date", 18],
+        ["time", 19],
+        ["place", 21]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d{4}-\\d{2}-\\d{2}$/" }] },
+    { "t": "optional", "in": 20 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d{2}:\\d{2}$/" }] },
+    { "t": "optional", "in": 22 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "default", "in": 24, "value": "private" },
+    { "t": "enum", "values": ["private", "crew", "public"] },
+    { "t": "default", "in": 26, "value": false },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["visibility", 24]] },
+    { "t": "object", "shape": [["size", 2]] },
+    { "t": "object", "shape": [["shareId", 30]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    }
+  ],
+  "inputs": { "card": 0, "cardOf": 3, "onboard": 9, "setVisibility": 27, "shares.create": 28, "shares.openers": 29, "shares.revoke": 29 }
+}

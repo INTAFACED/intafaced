@@ -55,6 +55,11 @@ import { MARKET_LISTING_PIN_ENV } from './live-markets.js';
  */
 
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 const SECRET = 'a-market-wire-replay-edge-secret-long-enough';
@@ -794,7 +799,7 @@ describe('the wire replay: svc-market answers as main did on 2026-11-19', () => 
       for (const [setup] of SETUPS)
         parts(setup, now.answers).forEach((part, i) => writeFileSync(goldenJson(`${setup}-${i + 1}`), json(part)));
     }
-    const read = (name: string): unknown => JSON.parse(readFileSync(goldenJson(name), 'utf8'));
+    const read = (name: string): unknown => JSON.parse(readFileSync(goldenJson(name), 'utf8').replaceAll(RECORDED_STACK, ''));
     const answerFiles = readdirSync(GOLDEN).filter((f) => f !== 'callers.json');
     const golden: Golden = {
       callers: read('callers'),

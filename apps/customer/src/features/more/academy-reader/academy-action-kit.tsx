@@ -9,7 +9,8 @@ import { Sheet } from '@intafaced/ui/lit/templates';
 import { renderAuthoredCopy } from '../../../shared/i18n';
 import { uiDirection } from '../../../shared/locale';
 import { useFailureWords } from '../../../shared/failure-words';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { present, type Presented } from '../action-state';
 import { useAcademyActionState } from '../academy-action-state';
 import { t as moreText } from '../copy';
@@ -30,6 +31,7 @@ function KitPresented({ value }: { value: Presented<ReactNode> }) {
 /** A failed send, in the shared `Failure`'s words. */
 function ActionFailure({ result, lang }: { result: Failed; lang: string }) {
   const words = useFailureWords()(result);
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div data-testid="failure" className="lt-refusal" role={words.role} lang={lang}>
       <h3 className="lt-refusal-title">
