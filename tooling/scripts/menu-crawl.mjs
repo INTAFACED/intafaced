@@ -2,8 +2,10 @@
 // owner decision 24 Nov 2026: a step counts as proven only when it passes on the build the beta serves, reached through
 // its menus). apps/customer/tests/real-app/menu-reach.pw.mjs runs it in the running app, signed out from the front page
 // and signed in from Home: it opens each page it reaches, opens the top bar's door menus and the account menu, and
-// records every link (`a[href]`) the page holds as an edge from the page to the link's path. It follows links only, never
-// a button, so it changes nothing; a room it opens once (its first address) stands for every address of that room.
+// records every visible link (`a[href]`) the page shows as an edge from the page to the link's path, and where each page
+// it opened landed (`opened`: [path, landed]): a link counts only to a room the crawl opened and saw as itself, not one
+// that sent it elsewhere (a sign-in guard). It follows links only, never a button, so it changes nothing; a room it
+// opens once (its first address) stands for every address of that room.
 export const MENU_REACH = 'menu reach';
 
 /** Paths a link may name that are no page to open: a file, the API, or a step that signs the crawler out. */
@@ -26,7 +28,8 @@ export function linkPath(href, origin) {
 /**
  * Breadth first from `roots`, at most `limit` pages. `open(path)` shows the page and resolves to the path it landed on
  * (a guard or an alias may move it); `links()` gives the hrefs the page holds, its menus opened. `roomOf(path)` names the
- * room a path opens (null: no room). A room is opened once. Returns { edges: [[from, to]], opened, errors, partial }.
+ * room a path opens (null: no room). A room is opened once. Returns { edges: [[from, to]], opened: [[path, landed]],
+ * errors, partial, left }.
  */
 export async function crawlFrom(roots, { open, links, roomOf, origin, limit = 500, deadline = Infinity, now = Date.now }) {
   const edges = [];
@@ -60,7 +63,7 @@ export async function crawlFrom(roots, { open, links, roomOf, origin, limit = 50
       });
       continue;
     }
-    opened.push(path);
+    opened.push([path, at]);
     if (at !== path) {
       edges.push([path, at]);
       enqueue(at);
@@ -94,7 +97,8 @@ const dedupe = (edges) => [...new Map(edges.map((e) => [e.join('\n'), e])).value
  * opens them on its first page only.
  */
 export async function pageLinks(page, { menus = false } = {}) {
-  const read = () => page.$$eval('a[href]', (as) => as.map((a) => a.getAttribute('href')));
+  // Shown links only: one a trader can see at this size (checkVisibility), not a phone-only or collapsed copy.
+  const read = () => page.$$eval('a[href]', (as) => as.filter((a) => a.checkVisibility()).map((a) => a.getAttribute('href')));
   const hrefs = new Set(await read());
   if (!menus) return [...hrefs].filter(Boolean);
   const add = async () => {
@@ -103,7 +107,8 @@ export async function pageLinks(page, { menus = false } = {}) {
   for (const item of await page.locator('[data-testid="tb-item"]').all()) {
     try {
       await item.hover({ timeout: 2_000 });
-      await page.locator('[data-testid="tb-menu"]').first().waitFor({ state: 'visible', timeout: 1_000 });
+      // A menu's rows can load after its box (Pay's grouped menu): wait for a row's link.
+      await page.locator('[data-testid="tb-menu"] a[href]').first().waitFor({ state: 'visible', timeout: 2_000 });
       await add();
     } catch {
       /* a door with no menu */
@@ -120,4 +125,29 @@ export async function pageLinks(page, { menus = false } = {}) {
     /* no account menu here */
   }
   return [...hrefs].filter(Boolean);
+}
+
+/**
+ * Waits until the page's links stop changing: the count of `a[href]` held for half a second, at most `timeout`. A move
+ * by the history API leaves the load state as it was, so the load events can't say when a room's links have rendered.
+ */
+export async function settled(page, timeout = 3_000) {
+  await page
+    .waitForFunction(
+      () => {
+        const n = document.querySelectorAll('a[href]').length;
+        const now = performance.now();
+        const w = (window.__menuCrawlSettle ??= { n: -1, since: now });
+        if (n !== w.n) {
+          w.n = n;
+          w.since = now;
+          return false;
+        }
+        return now - w.since >= 500;
+      },
+      null,
+      { polling: 100, timeout },
+    )
+    .catch(() => {});
+  await page.evaluate(() => delete window.__menuCrawlSettle).catch(() => {});
 }

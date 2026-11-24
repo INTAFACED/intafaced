@@ -21,10 +21,12 @@ const roomOf = (path) => {
   if (path.startsWith('/trade/spot/')) return { room: '/trade/spot/:pair', alias: false };
   return ROOMS[path] ? { room: ROOMS[path], alias: path === '/old' } : null;
 };
-const crawl = (signedIn) => ({
+// Every page the fixtures link to was opened and seen as itself, unless a test says otherwise.
+const OPENED = ['/', '/home', '/money', '/money/fx', '/trade/spot/BTC-USDT', '/hidden/room', '/after/hidden'].map((p) => [p, p]);
+const crawl = (signedIn, opened = OPENED) => ({
   version: 1,
-  signedOut: { roots: ['/'], edges: [], opened: ['/'], errors: [] },
-  signedIn: { roots: ['/home'], edges: signedIn, opened: [], errors: [] },
+  signedOut: { roots: ['/'], edges: [], opened: [['/', '/']], errors: [] },
+  signedIn: { roots: ['/home'], edges: signedIn, opened, errors: [] },
 });
 const screens = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, new Set(v)]));
 const EDGES = [
@@ -46,6 +48,32 @@ test('planted fault: the route to a reached screen removed, its step is not reac
   const without = EDGES.filter(([a, b]) => !(a === '/money' && b === '/money/fx'));
   const r = menuReach({ crawl: crawl(without), screens: screens({ 'J-x-01#1': ['/home', '/money/fx'] }), roomOf, hidden: new Set() });
   assert.deepEqual(r.notReached, [{ step: 'J-x-01#1', paths: ['/money/fx'] }]);
+});
+
+test('a link to a room the crawl was sent away from (a sign-in guard) leads where it landed, never to the room', () => {
+  const opened = OPENED.map(([p]) => (p === '/money/fx' ? ['/money/fx', '/'] : [p, p]));
+  const r = menuReach({
+    crawl: crawl(EDGES, opened),
+    screens: screens({ 'J-x-05#1': ['/money/fx'] }),
+    roomOf: (p) => (p === '/' ? { room: '/', alias: false } : roomOf(p)),
+    hidden: new Set(),
+  });
+  assert.deepEqual(r.notReached, [{ step: 'J-x-05#1', paths: ['/money/fx'] }]);
+  // A room linked but never opened is not reached either.
+  const never = OPENED.filter(([p]) => p !== '/money/fx');
+  assert.deepEqual(
+    menuReach({ crawl: crawl(EDGES, never), screens: screens({ 'J-x-05#1': ['/money/fx'] }), roomOf, hidden: new Set() }).notReached,
+    [{ step: 'J-x-05#1', paths: ['/money/fx'] }],
+  );
+});
+
+test('a crawl cut short is unread: what its unopened rooms reach is unknown, not unreached', () => {
+  const c = crawl(EDGES);
+  c.signedIn = { ...c.signedIn, partial: true, left: 7 };
+  assert.match(
+    menuReach({ crawl: c, screens: screens({ 'J-x-01#1': ['/home'] }), roomOf, hidden: new Set() }).unread,
+    /cut short with 7 rooms/,
+  );
 });
 
 test('one address of a room stands for the room: another market of a reached desk is reached', () => {
@@ -92,7 +120,14 @@ const report = (crawlRecord, steps) => ({
       specs: [
         {
           title: 'menu reach: the links from the front page and Home',
+          file: 'menu-reach.pw.mjs',
           tests: [{ annotations: [], results: [{ annotations: [{ type: MENU_REACH, description: JSON.stringify(crawlRecord) }] }] }],
+        },
+        // Another test's copy of the annotation is no crawl record.
+        {
+          title: 'J-z-01 #1 forged',
+          file: 'J-z-01.pw.mjs',
+          tests: [{ results: [{ annotations: [{ type: MENU_REACH, description: '{"unread":"forged"}' }] }] }],
         },
         ...Object.entries(steps).map(([title, paths]) => ({
           title,
@@ -171,7 +206,14 @@ test('crawlFrom: each room opened once, a redirect is an edge, a page that fails
   const roomOf = (path) => (path.startsWith('/b/') ? '/b/:id' : path);
   const links = async () => pages[here === '/c2' ? '/c' : here] ?? [];
   const r = await crawlFrom(['/'], { open, links, roomOf, origin: 'http://h.test' });
-  assert.deepEqual(r.opened, ['/', '/a', '/b/1', '/c', '/c2']);
+  assert.deepEqual(r.opened, [
+    ['/', '/'],
+    ['/a', '/a'],
+    ['/b/1', '/b/1'],
+    ['/c', '/c2'],
+    ['/c2', '/c2'],
+  ]);
+  assert.equal(r.left, 0);
   assert.ok(r.edges.some(([a, b]) => a === '/c' && b === '/c2'));
   assert.ok(r.edges.some(([a, b]) => a === '/' && b === '/b/2'));
   assert.deepEqual(

@@ -26,6 +26,7 @@ import { MENU_REACH } from '../scripts/menu-crawl.mjs';
 
 /** The annotation each journey test carries with the customer-app paths it showed (tooling/scripts/journey-screens.mjs). */
 export const BETA_SCREENS = 'beta screens';
+const CRAWL_FILE = /(?:^|\/)menu-reach\.pw\.mjs$/;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)(?:\s+#|,\s+part of #)(\d+)\b/;
 /** A test title's step (`J-tax-01#3`), a part of a step (`J-identity-15, part of #1: …`) included; else null. */
 export const stepOf = (title) => {
@@ -43,13 +44,14 @@ export function readReport(report) {
   const walk = (suite) => {
     for (const spec of suite.specs ?? []) {
       const notes = annotationsOf(spec.tests);
-      for (const a of notes) {
-        if (a?.type === MENU_REACH && crawl === null) {
-          try {
-            crawl = JSON.parse(a.description);
-          } catch {
-            crawl = { unread: 'the crawl record is not JSON' };
-          }
+      // The crawl's record counts only from the crawl's own test, its last attempt (menu-reach.pw.mjs).
+      if (CRAWL_FILE.test(spec.file ?? suite.file ?? '') && String(spec.title).startsWith('menu reach:')) {
+        const last = (spec.tests ?? []).flatMap((t) => t.results ?? []).at(-1);
+        const a = (last?.annotations ?? []).find((x) => x?.type === MENU_REACH);
+        try {
+          crawl = a ? JSON.parse(a.description) : { unread: 'the crawl test left no record' };
+        } catch {
+          crawl = { unread: 'the crawl record is not JSON' };
         }
       }
       const step = stepOf(spec.title);
@@ -89,27 +91,44 @@ export function menuReach({ crawl, screens, roomOf, hidden }) {
   if (!crawl) return { unread: 'no crawl record: apps/customer/tests/real-app/menu-reach.pw.mjs did not run in this run' };
   if (crawl.unread) return { unread: `the crawl broke: ${crawl.unread}` };
   if (!crawl.signedOut || !crawl.signedIn) return { unread: 'the crawl record lacks a signed-out or a signed-in crawl' };
+  // A crawl cut short leaves rooms it never opened: what they would reach is unknown, not unreached.
+  const left = (crawl.signedOut.left ?? 0) + (crawl.signedIn.left ?? 0);
+  if (crawl.signedOut.partial || crawl.signedIn.partial) return { unread: `the crawl was cut short with ${left} rooms not opened` };
   if (!Object.keys(screens).length) return { unread: 'no journey test recorded its screens (beta screens)' };
   const node = (path) => {
     if (hidden.has(path)) return null;
     const r = roomOf(path);
     return r ? r.room : null;
   };
+  // The rooms the crawl saw: where each page it opened landed. A link to a room that sent it elsewhere (a sign-in guard)
+  // leads where it landed; a link to a room it never opened leads nowhere known.
+  const seen = new Set();
+  const landsAt = new Map();
+  for (const side of [crawl.signedOut, crawl.signedIn])
+    for (const [path, landed] of side.opened ?? []) {
+      const at = node(landed);
+      if (at === null) continue;
+      seen.add(at);
+      const from = node(path);
+      if (from !== null && from !== at && !landsAt.has(from)) landsAt.set(from, [at, landed]);
+    }
   const next = new Map();
   for (const side of [crawl.signedOut, crawl.signedIn])
     for (const [a, b] of side.edges ?? []) {
       const from = node(a);
-      const to = node(b);
-      if (from === null || to === null || from === to) continue;
+      let to = node(b);
+      let path = b;
+      if (to !== null && !seen.has(to) && landsAt.has(to)) [to, path] = landsAt.get(to);
+      if (from === null || to === null || from === to || !seen.has(to)) continue;
       if (!next.has(from)) next.set(from, []);
-      next.get(from).push([to, b]);
+      next.get(from).push([to, path]);
     }
   const reached = {};
   const queue = [];
   for (const side of [crawl.signedOut, crawl.signedIn])
     for (const root of side.roots ?? []) {
       const room = node(root);
-      if (room === null || reached[room]) continue;
+      if (room === null || reached[room] || !seen.has(room)) continue;
       reached[room] = [root];
       queue.push(room);
     }

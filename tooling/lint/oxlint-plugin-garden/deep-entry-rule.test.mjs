@@ -1,6 +1,6 @@
 // garden/no-deep-entry on planted journey files: a `goto` of a detail route, an alias, a business page or a path built
 // from values is refused and names the fix; the front page, Home, a menu row, a listed room, an emailed-link room,
-// another app's address and the crawl itself are quiet. The entry list matches the app (deep-entries.mjs --check).
+// another app's address and the crawl itself are quiet. That the list matches the app: tooling/lint/deep-entries.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -67,9 +67,4 @@ test('refuses a deep entry and names the fix; quiet on the doors, the menus, the
 test('quiet outside the journeys and in the crawl', { skip }, () => {
   const text = "await page.goto('/trade/copy/abc');";
   assert.deepEqual(findings({ 'apps/customer/src/x.mjs': text, [`${DIR}/menu-reach.pw.mjs`]: text }), []);
-});
-
-test('the entry list is the route table and menus as they are (else: node tooling/lint/deep-entries.mjs)', { skip }, async () => {
-  const { FILE, deepEntries } = await import('../deep-entries.mjs');
-  assert.deepEqual(JSON.parse(readFileSync(FILE, 'utf8')).entries, await deepEntries());
 });
