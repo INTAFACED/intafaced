@@ -210,6 +210,7 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
     // In the app on /agents/connect: the ceiling-unset note is shown, and pressing Create agent account sends the
     // request to svc-trade, which refuses agents.account_ceiling_unset before step-up, storage or the wallet.
     const testWallet = await installTestWallet(page, { chainId: venueInfo.chainId, privateKey: state().walletKey });
+    await signIn(page, account);
     await openConnectPage(page);
     await expect(page.getByTestId('agent-connect__ceiling')).toHaveText(
       'No ceiling for agent accounts is set yet, so no agent account can be made.',
