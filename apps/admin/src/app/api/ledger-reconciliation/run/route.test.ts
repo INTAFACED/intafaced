@@ -102,6 +102,18 @@ describe('control run: the two-founder steps', () => {
     await post({ step: 'execute', request: runPast, confirm: PHRASE, approvalId: 'appr_1', operationId: 'op_1' });
     expect(JSON.parse(fn.mock.calls[0]![1]!.body as string)).toMatchObject({ asOf: '2026-10-23T06:30:00.000Z', margin: '0' });
   });
+  it('a past run with a blank margin sends none, and svc-ledger’s ops.control_margin_unset keeps its code', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) =>
+      Response.json({ message: 'ops.control_margin_unset', code: 'ops.control_margin_unset' }, { status: 400 }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const blank = { ...runPast, margin: 'unset' } as DeskRequest;
+    const res = await post({ step: 'execute', request: blank, confirm: PHRASE, approvalId: 'appr_1', operationId: 'op_1' });
+    const sent = JSON.parse(fn.mock.calls[0]![1]!.body as string);
+    expect(sent.asOf).toBe('2026-10-23T06:30:00.000Z');
+    expect('margin' in sent).toBe(false);
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { code: 'ops.control_margin_unset', changed: 'no' } });
+  });
   it('svc-ledger’s refusal of a future instant keeps its code', async () => {
     vi.stubGlobal(
       'fetch',

@@ -173,6 +173,30 @@ async function consolePropose(page, endpoint, request, confirm) {
   );
 }
 
+/**
+ * A past run asked of svc-ledger through the console's own run route with the desk's hold left out: founder A proposes the
+ * exact control, instant, margin (`unset` for blank) and reason, founder B approves it, and A runs it. Returns the console's
+ * answer to the run step, or to the first step that refused.
+ */
+async function serviceRun(controlId, asOf, margin) {
+  const endpoint = '/api/ledger-reconciliation/run';
+  const version = String((await controlsOf(state.a)).find((c) => c.id === controlId)?.version);
+  const request = {
+    kind: 'ledger.reconciliation_control.run',
+    controlId,
+    version,
+    asOf,
+    margin,
+    reason: `LOCAL TEST J-ops-console-07 run ${tag}`,
+  };
+  const phrase = `RUN CONTROL ${controlId.slice(0, 8)}`;
+  const proposed = (await consolePropose(state.a, endpoint, request, phrase)).body;
+  if (!proposed?.ok) return proposed;
+  const approved = (await consoleStep(state.b, endpoint, proposed.packet, 'approve', phrase)).body;
+  if (!approved?.ok) return approved;
+  return (await consoleStep(state.a, endpoint, proposed.packet, 'execute', phrase)).body;
+}
+
 /** The console's control list, as { status, body }; a refusal keeps its code in the body. */
 const readControls = (page) =>
   page.evaluate(async () => {
@@ -692,6 +716,15 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await desk.getByLabel(/^Margin in seconds/).fill('0');
     await expect(desk).toContainText('ledger.reconcile_asof_invalid');
     await expect(desk.getByRole('button', { name: 'Ask a second founder to approve the run' })).toBeDisabled();
+
+    // The same two asked of svc-ledger itself through the console's run route, past the desk's own hold: A proposes, B
+    // approves, A runs, and svc-ledger answers each refusal with its code.
+    const blank = await serviceRun(state.thresholdId, past.toISOString(), 'unset');
+    expect(blank, JSON.stringify(blank).slice(0, 400)).toMatchObject({ ok: false, refusal: { code: 'ops.control_margin_unset' } });
+    const ahead = new Date(Date.now() + 86_400_000);
+    ahead.setUTCSeconds(0, 0);
+    const future = await serviceRun(state.thresholdId, ahead.toISOString(), '0');
+    expect(future, JSON.stringify(future).slice(0, 400)).toMatchObject({ ok: false, refusal: { code: 'ledger.reconcile_asof_invalid' } });
 
     const withMargin = await twoFounderRun(state.thresholdId, { instant: typed, margin: '60' });
     expect(withMargin).toContain(
