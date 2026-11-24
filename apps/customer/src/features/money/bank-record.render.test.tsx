@@ -10,7 +10,7 @@ import { createApiClient } from '../../shared/api';
  * while it is switched off.
  */
 const seen: string[] = [];
-const reply = { result: { data: { from: '2026-01-01', to: '2026-01-31', items: [], sources: [] } } };
+let reply: unknown = { result: { data: { from: '2026-01-01', to: '2026-01-31', items: [], sources: [] } } };
 const api = createApiClient({
   fetch: async (url) => {
     seen.push(String(url));
@@ -49,5 +49,15 @@ describe('useBankRecord: a bank read through its record', () => {
   it('sends nothing while it is switched off', async () => {
     expect(await render(() => useBankRecord(BANK_CALENDAR_WINDOW, INPUT, false))).toBe('failed');
     expect(seen).toEqual([]);
+  });
+  it('reads an answer the record refuses as failed, never as data', async () => {
+    const good = reply;
+    reply = { result: { data: { from: '2026-01-01', items: 'not a list' } } };
+    try {
+      expect(await render(() => useBankRecord(BANK_CALENDAR_WINDOW, INPUT))).toBe('failed');
+      expect(seen).toHaveLength(1);
+    } finally {
+      reply = good;
+    }
   });
 });
