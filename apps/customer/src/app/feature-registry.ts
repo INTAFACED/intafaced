@@ -562,6 +562,16 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'developer-idempotency',
+    label: 'Idempotent order placement',
+    paths: ['/developers/idempotency'],
+    status: 'live',
+    reason: 'Published API idempotency, retry and cursor pagination rules, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-05 #5',
+  },
+  {
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],
@@ -909,6 +919,16 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
  */
 export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
   if (!betaRooms()) return undefined;
+  // An exact live row (such as /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
+  if (
+    features.some(
+      (feature) =>
+        feature.status === 'live' &&
+        (feature.needs === undefined || access[feature.needs]) &&
+        feature.paths.some((pattern) => pattern === path),
+    )
+  )
+    return undefined;
   return features.find(
     (feature) =>
       (feature.status === 'blocked' || (feature.needs !== undefined && !access[feature.needs])) &&

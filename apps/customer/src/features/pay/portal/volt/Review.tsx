@@ -89,6 +89,7 @@ export function Review<T>({
   ready?: boolean;
   notReadyReason?: string;
 }) {
+  const { t: ui, languageFor: uiLanguage } = sharedUi.useCopy();
   const { opened, busy, result, unknown, open, close, confirm } = usePortalReview<T>({ perform, onConfirmed, disabled, stepUp, ready });
   const tone = variant === 'secondary' ? 'secondary' : 'primary';
   const refreshed = Boolean(onConfirmed);
@@ -99,7 +100,13 @@ export function Review<T>({
       </Button>
       <Outcome result={result} title={title} refreshed={refreshed} />
       {opened && (
-        <Sheet open title={payCopy.t('review', { title })} onClose={close}>
+        <Sheet
+          open
+          title={payCopy.t('review', { title })}
+          closeLabel={ui('closeDialog')}
+          closeLang={uiLanguage('closeDialog')}
+          onClose={close}
+        >
           <div data-testid="form-stack">
             <p className="lt-hint">{description}</p>
             {review === undefined ? null : <ExactMoneyScope>{review}</ExactMoneyScope>}

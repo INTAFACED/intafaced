@@ -97,19 +97,14 @@
 <main id="main" tabindex="-1">
 <div class="if-business">
 <div lang="en" style="display: contents;">
-<div data-slot="page" data-width="content" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 mx-auto max-w-(--if-container-max)">
-<header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
-<div data-slot="page-header-breadcrumbs">
-<p class="m-0 text-sm font-medium text-fg-2">Personal Pay</p>
-</div>
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Create an offer</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-base">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
-</div>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Create an offer</h1>
+<p class="lt-description">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
 </div>
 </header>
-<div data-slot="page-body" data-density="comfortable" class="flex min-w-0 flex-col gap-8 pt-4">
+<div class="lt-room-section">
 <div data-testid="p2p-rooms">
 <nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
 <a href="/p2p" class="lt-tab">Offers</a>
@@ -119,78 +114,87 @@
 <a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
 </div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
 <div class="lt-stack">
-<div class="p2p-form" lang="en" dir="ltr">
-<div data-testid="offer-form">
+<div class="lt-stack" lang="en" dir="ltr">
+<div class="lt-stack" data-testid="offer-form">
 <p class="lt-muted">The advertiser terms could not be read just now.</p>
 <form class="lt-stack" novalidate="">
-<fieldset class="p2p-form">
-<div>
-<span class="p2p-legend">Offer type</span>
-<div class="p2p-radio-row" role="radiogroup" aria-label="Offer type">
-<label>
-<input type="radio" checked="" name="offer-side">Sell crypto and receive fiat</label>
-<label>
-<input type="radio" name="offer-side">Buy crypto and pay fiat</label>
-</div>
-</div>
-<div class="form-row">
+<fieldset class="lt-group lt-stack">
+<div class="lt-stack-tight">
+<span class="lt-label">Offer type</span>
+<div class="lt-actions" role="radiogroup" aria-label="Offer type">
 <label class="lt-field">
-<span>Asset</span>
-<input autocomplete="off" maxlength="16" aria-invalid="false" value="">
+<input type="radio" checked="" name="offer-side">
+<span>Sell crypto and receive fiat</span>
 </label>
 <label class="lt-field">
-<span>Fiat currency</span>
-<input maxlength="3" autocomplete="off" aria-invalid="false" value="">
+<input type="radio" name="offer-side">
+<span>Buy crypto and pay fiat</span>
 </label>
+</div>
+</div>
+<div class="lt-field-row">
+<div class="lit-field-control">
+<label for="_r_3_">Asset</label>
+<input autocomplete="off" maxlength="16" aria-invalid="false" id="_r_3_" value="">
+</div>
+<div class="lit-field-control">
+<label for="_r_4_">Fiat currency</label>
+<input maxlength="3" autocomplete="off" aria-invalid="false" id="_r_4_" value="">
+</div>
 </div>
 <div class="lt-stack" data-testid="posting-checklist">
 <p class="lt-muted">Pick a fiat currency to see what posting an ad in it needs.</p>
 </div>
-<div>
-<span class="p2p-legend">Price type</span>
-<div class="p2p-radio-row" role="radiogroup" aria-label="Price type">
-<label>
-<input type="radio" checked="" name="offer-price-type">Fixed price</label>
-<label>
-<input type="radio" name="offer-price-type">Follows a reference (multiplier)</label>
-</div>
-</div>
+<div class="lt-stack-tight">
+<span class="lt-label">Price type</span>
+<div class="lt-actions" role="radiogroup" aria-label="Price type">
 <label class="lt-field">
-<span>Price per unit</span>
-<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" value="">
-</label>
-<div class="form-row">
-<label class="lt-field">
-<span>Minimum per order</span>
-<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" value="">
+<input type="radio" checked="" name="offer-price-type">
+<span>Fixed price</span>
 </label>
 <label class="lt-field">
-<span>Maximum per order</span>
-<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" value="">
+<input type="radio" name="offer-price-type">
+<span>Follows a reference (multiplier)</span>
 </label>
 </div>
-<label class="lt-field">
-<span>Total quantity (optional)</span>
-<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" value="">
-</label>
+</div>
+<div class="lit-field-control">
+<label for="_r_5_">Price per unit</label>
+<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" id="_r_5_" value="">
+</div>
+<div class="lt-field-row">
+<div class="lit-field-control">
+<label for="_r_6_">Minimum per order</label>
+<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" id="_r_6_" value="">
+</div>
+<div class="lit-field-control">
+<label for="_r_7_">Maximum per order</label>
+<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" id="_r_7_" value="">
+</div>
+</div>
+<div class="lit-field-control">
+<label for="_r_8_">Total quantity (optional)</label>
+<input inputmode="decimal" autocomplete="off" maxlength="40" aria-invalid="false" id="_r_8_" value="">
+</div>
 <div class="lt-stack" data-testid="offer-level-limits">
-<p class="lt-muted">The limits for your level could not be read just now. <button type="button" tabindex="0" data-slot="button" data-variant="ghost" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-10 px-5 text-base rounded-pill">Try again</button>
+<p class="lt-muted">The limits for your level could not be read just now. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
 </div>
-<div>
-<span class="p2p-legend">Payment methods</span>
+<div class="lt-stack-tight">
+<span class="lt-label">Payment methods</span>
 <div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
+<div class="lt-refusal" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">
 <span>No services run in the look gate.</span>
 </p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </div>
@@ -205,46 +209,35 @@
 </div>
 </div>
 <div class="lt-stack">
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Service readiness</h2>
-</div>
-</header>
 <div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
+<div class="lt-refusal" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">
 <span>No services run in the look gate.</span>
 </p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Registered payment methods</h2>
-</div>
-</header>
 <div lang="und">
-<div role="status">
-<div data-slot="state-block" data-kind="refused" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Can’t connect right now</p>
-<p class="text-base text-fg-2">
+<div class="lt-refusal" data-refusal="refused" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">
 <span>No services run in the look gate.</span>
 </p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
 </div>
 </div>
 </div>
