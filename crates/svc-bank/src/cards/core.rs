@@ -724,6 +724,13 @@ fn reverse_open_holds(d: &Deps<'_>, card: &Card) -> Result<(), Refusal> {
     super::moves::settle::reverse_open_holds(&super::moves::Moves::bare(d), card)
 }
 
+/// Whether `card` is already closed by the replace that names `replacement_id` for `reason`.
+fn closed_by(card: &Card, replacement_id: &str, reason: &str) -> bool {
+    card.status == "closed"
+        && card.replaced_by_card_id.as_deref() == Some(replacement_id)
+        && card.replace_reason.as_deref() == Some(reason)
+}
+
 fn close_replaced(
     d: &Deps<'_>,
     card: &Card,
@@ -731,10 +738,7 @@ fn close_replaced(
     reason: &str,
 ) -> Result<(), Refusal> {
     let current = with(d.store(), |c| super::card(c, &card.id))?;
-    if current.replaced_by_card_id.as_deref() == Some(replacement_id)
-        && current.status == "closed"
-        && current.replace_reason.as_deref() == Some(reason)
-    {
+    if closed_by(&current, replacement_id, reason) {
         return Ok(());
     }
     if current
@@ -747,8 +751,16 @@ fn close_replaced(
         ));
     }
     if reason == "lost" || reason == "stolen" {
-        if current.status == "active" {
-            set_status(d, &current.id, "frozen", Some(&current.user_id))?;
+        if current.status == "active"
+            && let Err(refusal) = set_status(d, &current.id, "frozen", Some(&current.user_id))
+        {
+            // A same-id replace call may have closed the card since the read above.
+            let now = with(d.store(), |c| super::card(c, &card.id))?;
+            return if closed_by(&now, replacement_id, reason) {
+                Ok(())
+            } else {
+                Err(refusal)
+            };
         }
         reverse_open_holds(d, &current)?;
     }
