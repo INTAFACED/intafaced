@@ -113,79 +113,89 @@
 </nav>
 </div>
 <div data-testid="pp" class="plo-content pp">
-<header data-testid="plo-heading" class="plo-heading">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
 <div>
-<h1>Set up your account</h1>
-<p>Three steps: your business details, verification, and where you get paid. Each step shows what is saved and what still needs to be connected.</p>
+<h1 class="lt-title">Set up your account</h1>
+<p class="lt-description">Three steps: your business details, verification, and where you get paid. Each step shows what is saved and what still needs to be connected.</p>
 </div>
-<a href="/pay/merchant" role="link" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Open the dashboard</a>
+<div class="lt-room-action">
+<div data-testid="plo-heading">
+<a class="lt-button lt-button-secondary" href="/pay/merchant">Open the dashboard</a>
+</div>
+</div>
 </header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
 <div class="lt-stack">
 <nav aria-label="Setup steps">
-<ol class="sa-steps">
-<li class="sa-step">
+<ol class="lt-steps">
+<li class="lt-step">
+<div class="lt-stack-tight">
 <h3>Step 1 of 3: Business details</h3>
 <p>Who you are</p>
 <p>
 <strong>Up next</strong>
 </p>
 <a class="lt-link" href="/pay/onboarding/business">Continue</a>
+</div>
 </li>
-<li class="sa-step">
+<li class="lt-step">
+<div class="lt-stack-tight">
 <h3>Step 2 of 3: Verification</h3>
 <p>Prove who you are</p>
 <p>
 <strong>Not started</strong>
 </p>
 <a class="lt-link" href="/pay/onboarding/verification">Continue</a>
+</div>
 </li>
-<li class="sa-step">
+<li class="lt-step">
+<div class="lt-stack-tight">
 <h3>Step 3 of 3: Payout destination</h3>
 <p>Where you get paid</p>
 <p>
 <strong>Not started</strong>
 </p>
 <a class="lt-link" href="/pay/onboarding/go-live">Continue</a>
+</div>
 </li>
 </ol>
 </nav>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>What is left</h2>
-<p class="lt-muted">Everything between you and live payments, in order.</p>
-</div>
-</header>
-<ul class="sa-list">
+<p class="lt-hint">Everything between you and live payments, in order.</p>
+<ul class="lt-list">
 <li>Tell us about your business (step 1).</li>
 </ul>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>What you can do now</h2>
-<p class="lt-muted">You can try the whole product with test money while setup finishes.</p>
-</div>
-</header>
-<a href="/pay/onboarding/business" role="link" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Start with your business details</a>
-<p class="lt-muted">Your starting limits are test values until you are live. <span class="pp-test" title="Your account is not live yet, so treat this number as a test value.">TEST VALUE</span> <a class="lt-link" href="/pay/limits">Review limits</a>
+<p class="lt-hint">You can try the whole product with test money while setup finishes.</p>
+<a class="lt-button lt-button-primary" href="/pay/onboarding/business">Start with your business details</a>
+<p class="lt-muted">Your starting limits are test values until you are live. <span class="lt-test" title="Your account is not live yet, so treat this number as a test value.">TEST VALUE</span> <a class="lt-link" href="/pay/limits">Review limits</a>
 </p>
 </section>
-<section data-testid="pay-section" class="pay-section">
-<header>
-<div>
+<section data-testid="pay-section">
 <h2>Waiting on us</h2>
-<p class="lt-muted">These parts of setup aren’t open. They don’t hold up test payments.</p>
-</div>
-</header>
+<p class="lt-hint">These parts of setup aren’t open. They don’t hold up test payments.</p>
 <div class="lt-stack">
-<section data-testid="pfo-soon" class="pfo-soon" aria-label="Documents" data-needs="document check provider">
-<p class="pfo-soon-reason">Document checks are not connected here</p>
+<section data-testid="pfo-soon" class="lt-held" aria-label="Documents" data-needs="document check provider">
+<p>Document checks are not connected here</p>
 <h3>Documents</h3>
 <p>Uploading documents isn’t open. The document check isn’t set up, so nothing is asked for here, and a missing document never counts as passed.</p>
 </section>
 </div>
 </section>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

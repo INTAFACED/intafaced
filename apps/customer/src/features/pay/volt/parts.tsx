@@ -57,7 +57,7 @@ export function PayFailure({ result, retry }: { result: Failed; retry?: () => vo
 }
 
 /** Nothing here yet, said honestly, with a caller-owned action (`EmptyState` in `../ui-kit`). */
-function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
+export function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
     <div data-slot="empty-state" className="lt-empty">
       <h3 className="lt-empty-title">{title}</h3>
@@ -70,7 +70,7 @@ function EmptyState({ title, children, action }: { title: ReactNode; children?: 
 /** The shape of what is coming, announced once to assistive tech. */
 function PayLoading({ rows = 3 }: { rows?: number }) {
   return (
-    <div role="status" aria-busy="true" aria-label={uiCopy.t('loading')}>
+    <div data-slot="state-block" data-kind="loading" role="status" aria-busy="true" aria-label={uiCopy.t('loading')}>
       <Skeleton shape="rows" count={rows} />
     </div>
   );

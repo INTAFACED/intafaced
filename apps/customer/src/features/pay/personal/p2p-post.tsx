@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
-import { PayDetails, PayFailure } from '../components';
+import { PayDetails, PayFailure } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer, P2PPostingEligibility, PostOfferInput } from '../schemas';
 import { postCopy } from './p2p-post-copy';
@@ -78,7 +79,7 @@ function LevelLimitsFailure({ code, retry }: { code: string | undefined; retry: 
   return (
     <p className="lt-muted">
       {t('levelFailed')}{' '}
-      <Button variant="ghost" onClick={retry}>
+      <Button tone="quiet" onClick={retry}>
         {t('levelRetry')}
       </Button>
     </p>
@@ -109,7 +110,7 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
     return (
       <p className="lt-muted">
         {t('checklistFailed')}{' '}
-        <Button variant="ghost" onClick={eligibility.reload}>
+        <Button tone="quiet" onClick={eligibility.reload}>
           {t('levelRetry')}
         </Button>
       </p>
@@ -122,7 +123,7 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
       {policy === 'invalid' ? <p className="lt-muted">{t('checklistInvalid')}</p> : null}
       {policy === 'none' ? <p className="lt-muted">{t('checklistNone', { fiat: fiatCurrency })}</p> : null}
       {checks.length > 0 ? (
-        <ul className="p2p-risk-points">
+        <ul className="lt-points">
           {checks.map((check) => (
             <li key={check.id} data-check={check.id} data-state={check.state}>
               <strong>{t(CHECK_LABEL[check.id])}</strong> · {t(STATE_LABEL[check.state])}.{' '}
@@ -178,7 +179,7 @@ export function AdvertiserTermsSheet({
     <Dialog closeLabel={uiCopy.t('closeDialog')} title={t('termsTitle')} onClose={() => (busy ? undefined : onClose())}>
       <div className="lt-stack" data-testid="advertiser-terms">
         <p className="lt-muted">{t('termsVersion', { version })}</p>
-        <ul className="p2p-risk-points">
+        <ul className="lt-points">
           <li>{t('termsBalance')}</li>
           <li>{t('termsRelease')}</li>
           <li>{t('termsHonour')}</li>
@@ -191,10 +192,10 @@ export function AdvertiserTermsSheet({
           </p>
         ) : null}
         <div className="lt-actions">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button tone="quiet" disabled={busy} onClick={onClose}>
             {t('termsClose')}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={() => void accept()}>
+          <Button tone="primary" disabled={busy} onClick={() => void accept()}>
             {busy ? t('termsAccepting') : t('termsAccept')}
           </Button>
         </div>
@@ -335,10 +336,10 @@ export function OfferSummary({
         <PayFailure result={failure} />
       ) : null}
       <div className="lt-actions">
-        <Button variant="ghost" disabled={posting} onClick={onBack}>
+        <Button tone="quiet" disabled={posting} onClick={onBack}>
           {t('back')}
         </Button>
-        <Button variant="primary" disabled={posting} onClick={onConfirm} data-testid="offer-confirm">
+        <Button tone="primary" disabled={posting} onClick={onConfirm} data-testid="offer-confirm">
           {posting ? t('posting') : t('confirm')}
         </Button>
       </div>
@@ -366,7 +367,7 @@ export function OfferReceipt({ offer, onAnother }: { offer: Offer; onAnother: ()
         <a className="lt-button lt-button-secondary" href={`/p2p?asset=${encodeURIComponent(offer.asset)}`}>
           {t('receiptBoard')}
         </a>
-        <Button variant="ghost" onClick={onAnother}>
+        <Button tone="quiet" onClick={onAnother}>
           {t('receiptAnother')}
         </Button>
       </div>

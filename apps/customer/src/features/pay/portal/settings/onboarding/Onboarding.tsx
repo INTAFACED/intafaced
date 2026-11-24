@@ -1,15 +1,17 @@
+// volt-room: /pay/onboarding
+// volt-room: /pay/onboarding/business
+// volt-room: /pay/onboarding/verification
+// volt-room: /pay/onboarding/go-live
+// volt-room: portal:onboarding
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { EmptyState, Field } from '../../../ui-kit';
+import { Field } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { PayDetails, PaySection } from '../../../components';
-import { Chip, Gate, ListShell, MoreFooter, SelectField, TestTag, Timeline } from '../../components';
 import { useCursorList, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
 import type { OnboardingStep } from '../../routes';
 import type { KybEvent, MerchantRecord, StarterFee, kybCurrentSchema } from '../../schemas';
-import { PortalReview } from '../../ui/PortalReview';
 import { DestinationConfirm } from '../../access/DestinationConfirm';
 import type { DestinationProof } from '../../access/destination-step-up';
 import { normaliseReference } from '../../money/Destinations';
@@ -19,13 +21,17 @@ import { useBusinessDraft } from './business-draft';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress, TermsState } from '../account/schemas';
-import { readyAccess, useOptionalMerchantAccess } from '../../access/MerchantAccess';
+import { readyAccess, useOptionalMerchantAccess, type MerchantAccessValue } from '../../access/MerchantAccess';
 import { DateTime } from '../../ui/DateTime';
-import { Blocker } from '../account/ui';
+import { Blocker, OwnerSetsUp, TwoStepFirst } from '../account/ui';
 import { portalCopy } from '../copy';
 import { mc } from '../../money/copy';
 import { starterFeeStory } from '../../ui/fee-story';
 import { describeDestination, railWords } from '../../money/destination';
+import { usePortalHeading } from '../../volt/heading';
+import { Chip, Details, Empty, Gate, LinkButton, ListShell, MoreFooter, Section, SelectField, TestTag, Timeline } from '../../volt/parts';
+import { Review } from '../../volt/Review';
+import { kybWord } from './kyb-word';
 import {
   businessDetails,
   destinationShapeOk,
@@ -43,12 +49,55 @@ export type SavedDestination = { railId: string; kind: string; ref: string };
 type StepState = 'done' | 'current' | 'waiting' | 'todo';
 
 /**
+ * `/pay/onboarding` and its three step addresses (`/business`, `/verification`, `/go-live`) on the flow template.
+ * Renders without a business (`withoutBusiness: 'render'`): a team member sees `OwnerSetsUp`, a session without
+ * two-step sign-in sees `TwoStepFirst`, and otherwise `Onboarding` drives the steps.
+ */
+export function OnboardingRoom({
+  step,
+  portal,
+  access,
+  starterFee,
+  blocked = null,
+}: {
+  step?: OnboardingStep;
+  portal: PortalApi;
+  access: MerchantAccessValue;
+  starterFee: StarterFee | null;
+  blocked?: 'team' | 'two-step' | null;
+}) {
+  const heading = usePortalHeading();
+  return (
+    <FlowTemplate
+      title={heading.title}
+      description={heading.purpose}
+      roomAction={heading.action ? <div data-testid="plo-heading">{heading.action}</div> : undefined}
+      state={{ kind: 'ready' }}
+      mode="pro"
+      step={
+        blocked === 'team' ? (
+          <OwnerSetsUp />
+        ) : blocked === 'two-step' ? (
+          <TwoStepFirst />
+        ) : (
+          <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
+            {(record) => (
+              <Onboarding step={step} portal={portal} merchant={record} reloadMerchant={access.reloadMerchant} starterFee={starterFee} />
+            )}
+          </Gate>
+        )
+      }
+    />
+  );
+}
+
+/**
  * `/pay/onboarding`: the setup overview, and its three steps at their own addresses. Progress is read from the
  * service (a business record, the verification status, the saved destinations), so reloading or switching device
  * never loses it. `starterFee` is the fee INTAFACED has published for new accounts, as the service states it. Until one exists a new
  * account cannot be opened from here: a blank price is refused, never defaulted.
  */
-export function Onboarding({
+function Onboarding({
   portal,
   merchant,
   reloadMerchant,
@@ -150,19 +199,21 @@ export function OnboardingView(props: OnboardingViewProps) {
   return (
     <div className="lt-stack">
       <nav aria-label={t('stepsLabel')}>
-        <ol className="sa-steps">
+        <ol className="lt-steps">
           {items.map(([index, state, title, short, slug]) => (
-            <li key={index} className="sa-step" aria-current={shown === index ? 'step' : undefined}>
-              <h3>
-                {t('stepOf', { n: index + 1 })}: {title}
-              </h3>
-              <p>{short}</p>
-              <p>
-                <strong>{t(`stepState_${state}` as 'stepState_done')}</strong>
-              </p>
-              <a className="lt-link" href={`/pay/onboarding/${slug}`}>
-                {state === 'done' ? a('stepReview') : a('stepOpen')}
-              </a>
+            <li key={index} className="lt-step" aria-current={shown === index ? 'step' : undefined}>
+              <div className="lt-stack-tight">
+                <h3>
+                  {t('stepOf', { n: index + 1 })}: {title}
+                </h3>
+                <p>{short}</p>
+                <p>
+                  <strong>{t(`stepState_${state}` as 'stepState_done')}</strong>
+                </p>
+                <a className="lt-link" href={`/pay/onboarding/${slug}`}>
+                  {state === 'done' ? a('stepReview') : a('stepOpen')}
+                </a>
+              </div>
             </li>
           ))}
         </ol>
@@ -203,18 +254,18 @@ function Terms({
     );
   return (
     <div data-testid="onboarding-terms" className="lt-stack">
-      <h3 className="pp-sub">{a('termsTitle')}</h3>
+      <h3>{a('termsTitle')}</h3>
       <p className="lt-muted">{a('termsBody')}</p>
       <a className="lt-link" href={terms.url} target="_blank" rel="noreferrer noopener">
         {a('termsRead', { version: terms.version })}
       </a>
       {terms.state === 'accepted' ? (
-        <p className="pp-confirmed" role="status">
+        <p className="lt-note-good" role="status">
           {a('termsAccepted', { version: terms.version })} <DateTime value={terms.acceptedAt} />
         </p>
       ) : (
         <div className="lt-actions">
-          <PortalReview
+          <Review
             title={a('termsAccept')}
             variant="primary"
             description={a('termsAcceptBody', { version: terms.version })}
@@ -250,41 +301,39 @@ function Overview(props: OnboardingViewProps) {
   }
   return (
     <>
-      <PaySection title={a('overviewLeftTitle')} description={a('overviewLeftBody')}>
+      <Section title={a('overviewLeftTitle')} description={a('overviewLeftBody')}>
         {merchant && left.length === 0 ? (
-          <p className="pp-confirmed" role="status">
+          <p className="lt-note-good" role="status">
             {a('allDone')}
           </p>
         ) : (
-          <ul className="sa-list">
+          <ul className="lt-list">
             {left.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
         )}
         {merchant && (
-          <PayDetails
+          <Details
             values={[
               [t('factStatus'), <Chip kind="merchant" value={merchant.status} />],
               [t('factVerification'), steps.kybStatus ? <Chip kind="kyb" value={steps.kybStatus} /> : t('notGiven')],
             ]}
           />
         )}
-      </PaySection>
-      <PaySection title={a('overviewNowTitle')} description={a('overviewNowBody')}>
+      </Section>
+      <Section title={a('overviewNowTitle')} description={a('overviewNowBody')}>
         {merchant ? (
           <div className="lt-actions">
-            <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
+            <LinkButton href="/pay/links/new" tone="primary">
               {t('createFirstLink')}
-            </Button>
-            <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/merchant" />}>
-              {t('openDashboard')}
-            </Button>
+            </LinkButton>
+            <LinkButton href="/pay/merchant">{t('openDashboard')}</LinkButton>
           </div>
         ) : (
-          <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/onboarding/business" />}>
+          <LinkButton href="/pay/onboarding/business" tone="primary">
             {a('startBusiness')}
-          </Button>
+          </LinkButton>
         )}
         <p className="lt-muted">
           {a('limitsLine')} <TestTag />{' '}
@@ -292,8 +341,8 @@ function Overview(props: OnboardingViewProps) {
             {t('reviewLimits')}
           </a>
         </p>
-      </PaySection>
-      <PaySection title={a('overviewWaitTitle')} description={a('overviewWaitBody')}>
+      </Section>
+      <Section title={a('overviewWaitTitle')} description={a('overviewWaitBody')}>
         <div className="lt-stack">
           <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
             {a('docsBlocked')}
@@ -304,7 +353,7 @@ function Overview(props: OnboardingViewProps) {
             </Blocker>
           )}
         </div>
-      </PaySection>
+      </Section>
     </>
   );
 }
@@ -322,8 +371,8 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
   if (merchant) {
     const missing = progress.status === 'ready' && progress.data ? progress.data.business.missing : [];
     return (
-      <PaySection title={t('step1Title')} description={t('step1DoneBody')}>
-        <PayDetails
+      <Section title={t('step1Title')} description={t('step1DoneBody')}>
+        <Details
           values={[
             [
               t('factMerchantId'),
@@ -336,21 +385,21 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           ]}
         />
         {missing.length > 0 && (
-          <p className="pp-callout" role="note">
+          <p className="lt-callout" role="note">
             {a('leftBusinessMissing', { fields: missing.map((m) => a(`missing_${m}` as 'missing_legalName')).join(', ') })}
           </p>
         )}
-        <p className="muted pp-note">{a('businessEditElsewhere')}</p>
+        <p className="lt-hint">{a('businessEditElsewhere')}</p>
         <a className="lt-link" href="/pay/settings">
           {a('editBusiness')}
         </a>
-      </PaySection>
+      </Section>
     );
   }
   const invalid = Object.keys(validateBusiness(form)).length > 0;
   const noFee = starterFee === null;
   return (
-    <PaySection title={t('step1Title')} description={t('step1Body')}>
+    <Section title={t('step1Title')} description={t('step1Body')}>
       <form
         data-testid="form-stack"
         className="lt-stack"
@@ -360,7 +409,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           setTried(true);
         }}
       >
-        <fieldset className="sa-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('groupBusiness')}</legend>
           <Field
             label={`${t('fLegalName')} *`}
@@ -380,7 +429,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
             error={errorText('displayName')}
             hint={t('hDisplayName')}
           />
-          <div className="form-row">
+          <div className="lt-field-row">
             <Field
               label={`${t('fCountry')} *`}
               value={form.country}
@@ -401,7 +450,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
             />
           </div>
         </fieldset>
-        <fieldset className="sa-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('groupContact')}</legend>
           <Field
             label={t('fWebsite')}
@@ -423,7 +472,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
             required
           />
         </fieldset>
-        <fieldset className="sa-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('groupVolume')}</legend>
           <Field
             label={t('fExpectedVolume')}
@@ -433,20 +482,20 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
             error={errorText('expectedVolume')}
             hint={t('hExpectedVolume')}
           />
-          <p className="pp-declared">{t('declaredNotVerified')}</p>
+          <p className="lt-hint">{t('declaredNotVerified')}</p>
         </fieldset>
-        <p className="sa-reviewed">{a('sensitiveReviewed')}</p>
+        <p className="lt-hint">{a('sensitiveReviewed')}</p>
         {noFee && (
           <Blocker reason={notLive('reasonFees')} needs="starter fee" title={a('starterFeeTitle')}>
             {a('starterFeeBlocked')}
           </Blocker>
         )}
-        <PortalReview
+        <Review
           title={t('createAccount')}
           variant="primary"
           description={t('createAccountBody')}
           review={
-            <PayDetails
+            <Details
               values={[
                 [t('fLegalName'), form.legalName],
                 [t('fDisplayName'), form.displayName.trim() || t('notGiven')],
@@ -468,9 +517,9 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           disabled={invalid || noFee}
           disabledReason={noFee ? a('starterFeeRefusal') : t('fixFieldsFirst')}
         />
-        {invalid && !noFee && <p className="muted pp-note">{t('fixFieldsFirst')}</p>}
+        {invalid && !noFee && <p className="lt-hint">{t('fixFieldsFirst')}</p>}
       </form>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -480,23 +529,23 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
   const [ref, setRef] = useState('');
   const [submitted, setSubmitted] = useState(false);
   useUnsavedForm(Boolean(ref) && !submitted, a('acUnsaved'));
-  if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
+  if (!merchant) return <Empty title={t('needStep1Title')}>{t('needStep1Body')}</Empty>;
   return (
     <>
-      <PaySection title={t('step2Title')} description={t('step2Body')}>
+      <Section title={t('step2Title')} description={t('step2Body')}>
         <Gate resource={kyb} retry={retry} rows={2}>
           {(current) => {
             const status = current?.kybStatus ?? merchant.kybStatus;
             const canSubmit = status === 'none' || status === 'rejected';
             return (
               <>
-                <PayDetails
+                <Details
                   values={[
                     [t('factVerification'), <Chip kind="kyb" value={status} />],
                     [t('factReference'), current?.kybRef ?? t('notGiven')],
                   ]}
                 />
-                <p className="pp-callout" role="note">
+                <p className="lt-callout" role="note">
                   {status === 'approved'
                     ? t('kybApprovedNote')
                     : status === 'pending'
@@ -516,11 +565,11 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
                       error={ref.length > 0 && ref.trim().length === 0 ? t('err_required') : undefined}
                       required
                     />
-                    <PortalReview
+                    <Review
                       title={t('submitVerification')}
                       variant="primary"
                       description={t('submitVerificationBody')}
-                      review={<PayDetails values={[[t('fKybRef'), ref.trim()]]} />}
+                      review={<Details values={[[t('fKybRef'), ref.trim()]]} />}
                       perform={() => portal.submitKyb(merchant.id, ref.trim())}
                       onConfirmed={() => {
                         setSubmitted(true);
@@ -535,7 +584,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
             );
           }}
         </Gate>
-      </PaySection>
+      </Section>
       <BusinessApplication
         portal={portal}
         merchant={merchant}
@@ -546,7 +595,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
       <a className="lt-link" href="/pay/onboarding/go-live">
         {a('continueGoLive')}
       </a>
-      <PaySection title={t('historyTitle')}>
+      <Section title={t('historyTitle')}>
         {history && (
           <ListShell state={history} retry={retry} empty={{ title: t('kybHistoryEmptyTitle'), body: t('kybHistoryEmptyBody') }}>
             {(rows) => (
@@ -569,12 +618,10 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
             )}
           </ListShell>
         )}
-      </PaySection>
+      </Section>
     </>
   );
 }
-
-import { kybWord } from './kyb-word';
 
 function StepGoLive(props: OnboardingViewProps) {
   const { portal, merchant, rails, saved, onDestinationSaved, retry, progress } = props;
@@ -585,16 +632,16 @@ function StepGoLive(props: OnboardingViewProps) {
   const [ref, setRef] = useState('');
   const [proof, setProof] = useState<DestinationProof>({ code: '' });
   useUnsavedForm(Boolean(ref) && normaliseReference(ref) !== saved?.ref, a('acUnsaved'));
-  if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
+  if (!merchant) return <Empty title={t('needStep1Title')}>{t('needStep1Body')}</Empty>;
   const steps = stepStates(props);
   const onFile = steps.progress?.destination.destinations ?? [];
   return (
     <>
-      <PaySection title={t('step3Title')} description={t('step3Body')}>
+      <Section title={t('step3Title')} description={t('step3Body')}>
         {onFile.length > 0 && (
-          <div>
-            <h3 className="pp-sub">{a('onFileTitle')}</h3>
-            <ul className="sa-list" aria-label={a('onFileTitle')}>
+          <div className="lt-stack-tight">
+            <h3>{a('onFileTitle')}</h3>
+            <ul className="lt-list" aria-label={a('onFileTitle')}>
               {onFile.map((d) => (
                 <li key={`${d.railId}:${d.destinationMasked}`}>{describeDestination(m, d.kind, d.destinationMasked, d.railId)}</li>
               ))}
@@ -634,13 +681,13 @@ function StepGoLive(props: OnboardingViewProps) {
                   error={shapeOk ? undefined : t(kind === 'crypto' ? 'err_address' : 'err_bankRef')}
                   required
                 />
-                <PortalReview
+                <Review
                   title={t('saveDestination')}
                   variant="primary"
                   description={t('saveDestinationBody')}
                   review={
                     <>
-                      <PayDetails
+                      <Details
                         values={[
                           [t('fRail'), railWords(m, chosen.id)],
                           [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
@@ -667,18 +714,18 @@ function StepGoLive(props: OnboardingViewProps) {
                   disabledReason={t(kind === 'crypto' ? 'hAddress' : 'hBankRef')}
                 />
                 {saved && (
-                  <p className="pp-confirmed" role="status">
+                  <p className="lt-note-good" role="status">
                     {t('destinationSaved')}
                   </p>
                 )}
-                <p className="muted pp-note">{a('destinationMasked')}</p>
+                <p className="lt-hint">{a('destinationMasked')}</p>
               </div>
             );
           }}
         </Gate>
-      </PaySection>
-      <PaySection title={a('goLiveReviewTitle')} description={a('goLiveReviewBody')}>
-        <PayDetails
+      </Section>
+      <Section title={a('goLiveReviewTitle')} description={a('goLiveReviewBody')}>
+        <Details
           values={[
             [t('factStatus'), <Chip kind="merchant" value={merchant.status} />],
             [t('factVerification'), steps.kybStatus ? <Chip kind="kyb" value={steps.kybStatus} /> : t('notGiven')],
@@ -705,12 +752,10 @@ function StepGoLive(props: OnboardingViewProps) {
           <a className="lt-link" href="/pay/pricing">
             {t('reviewPricing')}
           </a>
-          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/merchant" />}>
-            {t('openDashboard')}
-          </Button>
+          <LinkButton href="/pay/merchant">{t('openDashboard')}</LinkButton>
         </div>
-        {progress.status === 'failed' && <p className="muted pp-note">{a('progressUnavailable')}</p>}
-      </PaySection>
+        {progress.status === 'failed' && <p className="lt-hint">{a('progressUnavailable')}</p>}
+      </Section>
     </>
   );
 }

@@ -1,11 +1,9 @@
 import './account.css';
-import { Button } from '@intafaced/ui';
 import { readyAccess, useMerchantAccess, type MerchantAccessValue } from '../../access/MerchantAccess';
-import { Gate } from '../../components';
 import type { RoomTable } from '../../rooms-model';
 import { ActivityRoom } from '../activity/Activity';
 import { ComplianceRoom } from '../onboarding/Compliance';
-import { Onboarding } from '../onboarding/Onboarding';
+import { OnboardingRoom } from '../onboarding/Onboarding';
 import { BusinessSettingsRoom } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
 import { InvitationsOnly, TeamRoom } from '../team/Team';
@@ -17,14 +15,8 @@ import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
-import { OwnerSetsUp, TwoStepFirst } from './ui';
 import type { Access } from '../../access/resolve';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
-    {label}
-  </Button>
-);
 const t = portalCopy.t;
 
 /** A person who belongs to a business without owning it. */
@@ -85,32 +77,24 @@ export const accountRooms: RoomTable = {
   },
   onboarding: {
     withoutBusiness: 'render',
+    ownTitle: true,
     header: (route) => ({
       title: route.step
         ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
         : t('pageOnboarding'),
       purpose: t('purposeOnboarding'),
-      action: link('/pay/merchant', t('openDashboard')),
+      action: <LinkButton href="/pay/merchant">{t('openDashboard')}</LinkButton>,
     }),
     // A signed-in team member (a business exists, and they are not its owner) has nothing to set up: the owner does that.
-    render: (route, { portal, access, starterFee }) =>
-      isTeamMember(access.access) ? (
-        <OwnerSetsUp />
-      ) : cannotOpenYet(access) ? (
-        <TwoStepFirst />
-      ) : (
-        <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
-          {(record) => (
-            <Onboarding
-              step={route.step}
-              portal={portal}
-              merchant={record}
-              reloadMerchant={access.reloadMerchant}
-              starterFee={starterFee}
-            />
-          )}
-        </Gate>
-      ),
+    render: (route, { portal, access, starterFee }) => (
+      <OnboardingRoom
+        step={route.step}
+        portal={portal}
+        access={access}
+        starterFee={starterFee}
+        blocked={isTeamMember(access.access) ? 'team' : cannotOpenYet(access) ? 'two-step' : null}
+      />
+    ),
   },
   team: {
     header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: <LinkButton href="#invite">{t('actInvite')}</LinkButton> }),

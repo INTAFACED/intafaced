@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
+import { Button, Checkbox, Field, Radio, Select, TextArea } from '@intafaced/ui/lit';
 import { useResource } from '../../../shared/resource';
-import { EmptyState } from '../ui-kit';
 import type { ApiResult } from '../../../shared/api';
-import { PayDetails, PayFailure, PayState, PayTime } from '../components';
+import { EmptyState, PayDetails, PayFailure, PayState, PayTime } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import { id, type Offer, type OfferUpdateInput } from '../schemas';
 import { myAdsCopy } from './p2p-my-ads-copy';
@@ -17,11 +17,8 @@ import {
   type OfferFormValues,
 } from './p2p-model';
 import { settlementCopy } from './settlement-copy';
-import { P2PReason } from './P2PDepth';
-import { Button } from '@intafaced/ui/lit';
 import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, PostingChecklist, SellAvailability, postInput } from './p2p-post';
 import { postCopy } from './p2p-post-copy';
-import './p2p-depth.css';
 
 /**
  * Create offer (/uc/ad/create) and edit offer (/uc/ad/update?offerId=…).
@@ -46,7 +43,7 @@ export function OfferForm({
   // An edit with no offer chosen shows no form at all: there is nothing to edit and nothing to type into.
   if (mode === 'edit' && !valid)
     return (
-      <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-pick">
+      <div className="lt-stack" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-pick">
         <EmptyState
           title={t('editPickTitle')}
           action={
@@ -60,7 +57,7 @@ export function OfferForm({
       </div>
     );
   return (
-    <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')}>
+    <div className="lt-stack" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')}>
       {mode === 'create' ? (
         <CreateOffer pay={pay} userId={userId} />
       ) : (
@@ -166,8 +163,13 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
   return (
     <>
       {stage.kind === 'form' ? (
-        <div data-testid="offer-form">
-          {keyOff ? <P2PReason title={t('keyOffTitle')}>{t('keyOff')}</P2PReason> : null}
+        <div className="lt-stack" data-testid="offer-form">
+          {keyOff ? (
+            <section className="lt-region" role="note" aria-label={t('keyOffTitle')}>
+              <h3>{t('keyOffTitle')}</h3>
+              <p>{t('keyOff')}</p>
+            </section>
+          ) : null}
           {acceptedNote ? <p className="lt-muted">{acceptedNote}</p> : null}
           <Fields
             pay={pay}
@@ -220,7 +222,7 @@ function EditLive({ pay, userId, offerId }: { pay: PersonalPayApi; userId: strin
       {(live) => (
         <>
           {live.makerId !== userId ? (
-            <p className="error-text" data-testid="offer-not-yours">
+            <p className="lt-error" data-testid="offer-not-yours">
               {t('editNotYours')}
             </p>
           ) : (
@@ -284,12 +286,12 @@ function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
     }
   };
   return (
-    <>
+    <div className="lt-stack">
       {live.status === 'closed' ? <p className="lt-muted">{t('editClosed')}</p> : null}
       <Fields key={live.id} pay={pay} baseline={baseline} mode="edit" onReview={(values) => void save(values)} />
       {saving ? <p className="lt-muted">{myAds.t('editSaving')}</p> : null}
       {result === 'pairFixed' ? (
-        <p className="error-text" role="status">
+        <p className="lt-error" role="status">
           {myAds.t('editPairFixed')}
         </p>
       ) : result === 'unchanged' ? (
@@ -304,13 +306,13 @@ function EditSave({ pay, live }: { pay: PersonalPayApi; live: Offer }) {
           </a>
         </p>
       ) : result && result.code === 'p2p.edit_quota_reached' && result.p2pLimit?.until ? (
-        <p className="error-text" role="status" data-testid="offer-edit-spent">
+        <p className="lt-error" role="status" data-testid="offer-edit-spent">
           {myAds.t('editSpentAt', { limit: result.p2pLimit.cap ?? '' })} <PayTime value={result.p2pLimit.until} />
         </p>
       ) : result ? (
         <PayFailure result={result} />
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -378,18 +380,17 @@ function Fields({
     label: string,
     extra?: { upper?: boolean; mode?: 'decimal' },
   ) => (
-    <label className="lt-field" key={field}>
-      <span>{label}</span>
-      <input
-        value={values[field]}
-        inputMode={extra?.mode}
-        autoComplete="off"
-        maxLength={field === 'asset' ? 16 : 40}
-        aria-invalid={Boolean(shown(field))}
-        onChange={(event) => set(field, extra?.upper ? event.target.value.toUpperCase() : event.target.value)}
-      />
-      {shown(field) ? <small className="error-text">{shown(field)}</small> : null}
-    </label>
+    <Field
+      key={field}
+      label={label}
+      value={values[field]}
+      inputMode={extra?.mode}
+      autoComplete="off"
+      maxLength={field === 'asset' ? 16 : 40}
+      aria-invalid={Boolean(shown(field))}
+      error={shown(field)}
+      onChange={(event) => set(field, extra?.upper ? event.target.value.toUpperCase() : event.target.value)}
+    />
   );
   return (
     <form
@@ -400,75 +401,58 @@ function Fields({
         if (complete && onReview) onReview(values);
       }}
     >
-      <fieldset className="p2p-form">
-        <div>
-          <span className="p2p-legend">{t('sideLabel')}</span>
-          <div className="p2p-radio-row" role="radiogroup" aria-label={t('sideLabel')}>
-            <label>
-              <input type="radio" name="offer-side" checked={values.side === 'sell'} onChange={() => set('side', 'sell')} />
+      <fieldset className="lt-group lt-stack">
+        <div className="lt-stack-tight">
+          <span className="lt-label">{t('sideLabel')}</span>
+          <div className="lt-actions" role="radiogroup" aria-label={t('sideLabel')}>
+            <Radio name="offer-side" checked={values.side === 'sell'} onSelect={() => set('side', 'sell')}>
               {t('sideSell')}
-            </label>
-            <label>
-              <input type="radio" name="offer-side" checked={values.side === 'buy'} onChange={() => set('side', 'buy')} />
+            </Radio>
+            <Radio name="offer-side" checked={values.side === 'buy'} onSelect={() => set('side', 'buy')}>
               {t('sideBuy')}
-            </label>
+            </Radio>
           </div>
         </div>
-        <div className="form-row">
+        <div className="lt-field-row">
           {text('asset', t('fieldAsset'), { upper: true })}
-          <label className="lt-field">
-            <span>{t('fieldFiat')}</span>
-            {fiat.resource.status === 'ready' ? (
-              <select
-                value={values.fiatCurrency}
-                onChange={(event) => set('fiatCurrency', event.target.value)}
-                aria-invalid={Boolean(shown('fiatCurrency'))}
-              >
-                <option value="">{t('fieldFiatPick')}</option>
-                {fiat.resource.data.map((currency) => (
-                  <option key={currency.code} value={currency.code}>
-                    {currency.code} · {currency.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={values.fiatCurrency}
-                maxLength={3}
-                autoComplete="off"
-                onChange={(event) => set('fiatCurrency', event.target.value.toUpperCase())}
-                aria-invalid={Boolean(shown('fiatCurrency'))}
-              />
-            )}
-            {shown('fiatCurrency') ? <small className="error-text">{shown('fiatCurrency')}</small> : null}
-          </label>
+          {fiat.resource.status === 'ready' ? (
+            <Select
+              label={t('fieldFiat')}
+              value={values.fiatCurrency}
+              onChange={(value) => set('fiatCurrency', value)}
+              aria-invalid={Boolean(shown('fiatCurrency'))}
+              hint={shown('fiatCurrency')}
+              options={[
+                { value: '', label: t('fieldFiatPick') },
+                ...fiat.resource.data.map((currency) => ({ value: currency.code, label: `${currency.code} · ${currency.name}` })),
+              ]}
+            />
+          ) : (
+            <Field
+              label={t('fieldFiat')}
+              value={values.fiatCurrency}
+              maxLength={3}
+              autoComplete="off"
+              onChange={(event) => set('fiatCurrency', event.target.value.toUpperCase())}
+              aria-invalid={Boolean(shown('fiatCurrency'))}
+              error={shown('fiatCurrency')}
+            />
+          )}
         </div>
         {mode === 'create' ? <PostingChecklist pay={pay} fiatCurrency={problems.fiatCurrency ? '' : values.fiatCurrency.trim()} /> : null}
-        <div>
-          <span className="p2p-legend">{t('fieldPriceType')}</span>
-          <div className="p2p-radio-row" role="radiogroup" aria-label={t('fieldPriceType')}>
-            <label>
-              <input
-                type="radio"
-                name="offer-price-type"
-                checked={values.priceType === 'fixed'}
-                onChange={() => set('priceType', 'fixed')}
-              />
+        <div className="lt-stack-tight">
+          <span className="lt-label">{t('fieldPriceType')}</span>
+          <div className="lt-actions" role="radiogroup" aria-label={t('fieldPriceType')}>
+            <Radio name="offer-price-type" checked={values.priceType === 'fixed'} onSelect={() => set('priceType', 'fixed')}>
               {t('priceFixed')}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="offer-price-type"
-                checked={values.priceType === 'float'}
-                onChange={() => set('priceType', 'float')}
-              />
+            </Radio>
+            <Radio name="offer-price-type" checked={values.priceType === 'float'} onSelect={() => set('priceType', 'float')}>
               {t('priceFloat')}
-            </label>
+            </Radio>
           </div>
         </div>
         {text('price', values.priceType === 'float' ? t('fieldMultiplier') : t('fieldPrice'), { mode: 'decimal' })}
-        <div className="form-row">
+        <div className="lt-field-row">
           {text('minAmount', t('fieldMin'), { mode: 'decimal' })}
           {text('maxAmount', t('fieldMax'), { mode: 'decimal' })}
         </div>
@@ -477,60 +461,55 @@ function Fields({
           <SellAvailability pay={pay} asset={values.asset.trim().toUpperCase()} />
         ) : null}
         {mode === 'create' ? <LevelLimits pay={pay} side={values.side} /> : null}
-        <div>
-          <span className="p2p-legend">{t('fieldMethods')}</span>
+        <div className="lt-stack-tight">
+          <span className="lt-label">{t('fieldMethods')}</span>
           {methods.resource.status === 'loading' ? <p className="lt-muted">{t('methodsLoading')}</p> : null}
           {methods.resource.status === 'failed' ? <PayFailure result={methods.resource.failure} retry={methods.reload} /> : null}
           {methods.resource.status === 'ready' && methods.resource.data.filter((method) => method.enabled).length === 0 ? (
             <p className="lt-muted">{t('methodsNone')}</p>
           ) : null}
           {methods.resource.status === 'ready' ? (
-            <div className="p2p-check-list">
+            <div className="lt-stack-tight">
               {methods.resource.data
                 .filter((method) => method.enabled || values.methods.includes(method.methodId))
                 .map((method) => (
-                  <label key={`${method.methodId}:${method.country}`}>
-                    <input
-                      type="checkbox"
-                      checked={values.methods.includes(method.methodId)}
-                      onChange={(event) =>
-                        set(
-                          'methods',
-                          event.target.checked
-                            ? [...values.methods, method.methodId]
-                            : values.methods.filter((item) => item !== method.methodId),
-                        )
-                      }
-                    />
+                  <Checkbox
+                    key={`${method.methodId}:${method.country}`}
+                    checked={values.methods.includes(method.methodId)}
+                    onCheckedChange={(checked) =>
+                      set(
+                        'methods',
+                        checked ? [...values.methods, method.methodId] : values.methods.filter((item) => item !== method.methodId),
+                      )
+                    }
+                  >
                     <span lang="und">{method.label}</span>
-                  </label>
+                  </Checkbox>
                 ))}
             </div>
           ) : null}
           {choseNonInstant ? (
-            <label className="p2p-check-list" data-testid="offer-non-instant-consent">
-              <input
-                type="checkbox"
+            <div className="lt-stack-tight" data-testid="offer-non-instant-consent">
+              <Checkbox
                 checked={values.acceptsNonInstant}
                 // The consent is given at post; an edit keeps what the ad was posted with.
                 disabled={mode === 'edit'}
-                onChange={(event) => set('acceptsNonInstant', event.target.checked)}
-              />
-              <span>{settlementCopy.t('consentLabel')}</span>
-            </label>
+                onCheckedChange={(checked) => set('acceptsNonInstant', checked)}
+              >
+                {settlementCopy.t('consentLabel')}
+              </Checkbox>
+            </div>
           ) : null}
-          {shown('methods') ? <small className="error-text">{shown('methods')}</small> : null}
+          {shown('methods') ? <small className="lt-error">{shown('methods')}</small> : null}
         </div>
-        <label className="lt-field">
-          <span>{t('fieldTerms')}</span>
-          <textarea
-            value={values.terms}
-            maxLength={4100}
-            onChange={(event) => set('terms', event.target.value)}
-            aria-invalid={Boolean(shown('terms'))}
-          />
-          {shown('terms') ? <small className="error-text">{shown('terms')}</small> : null}
-        </label>
+        <TextArea
+          label={t('fieldTerms')}
+          value={values.terms}
+          maxLength={4100}
+          onChange={(value) => set('terms', value)}
+          aria-invalid={Boolean(shown('terms'))}
+          hint={shown('terms')}
+        />
       </fieldset>
       {mode === 'edit' ? (
         <PayDetails
