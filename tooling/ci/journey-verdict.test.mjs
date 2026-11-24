@@ -20,6 +20,9 @@ import {
   passesSince,
   priorSetAside,
   readReport,
+  notOnBeta,
+  betaScreensOf,
+  betaHidden,
   regressionState,
   manifestsAt,
   missingArtifact,
@@ -1801,4 +1804,120 @@ test('fetchInputs with a memo reads main history, the named run and each issue o
   assert.match(read({ ...opts, get: flaky, memo: m2, thisRun: judged(905, '2026-11-22T03:00:00Z') }).problems.join(), /HTTP 502/);
   down = false;
   assert.deepEqual(read({ ...opts, get: flaky, memo: m2, thisRun: judged(906, '2026-11-22T03:00:00Z') }).problems, []);
+});
+
+// #10704: a step whose test showed a screen the hosted beta hides is not proven from the run.
+const shown = (title, paths, f = bankFile, where = 'test') => {
+  const a = paths ? [{ type: 'beta screens', description: JSON.stringify(paths) }] : [];
+  return {
+    title,
+    file: f,
+    tests: [where === 'test' ? { status: 'expected', annotations: a } : { status: 'expected', results: [{ annotations: a }] }],
+  };
+};
+
+test("#10704: each step reads its screens from its tests' annotations, on the test or on a result; none without", () => {
+  const r = readReport({
+    suites: [
+      {
+        file: bankFile,
+        specs: [
+          shown('J-bank-05 #1', ['/money', '/trade/spot/BTC-USDT']),
+          shown('J-bank-05 #2', ['/pay'], bankFile, 'result'),
+          shown('J-bank-05 #3', null),
+        ],
+      },
+    ],
+  });
+  assert.deepEqual([...r.screens['J-bank-05#1']], ['/money', '/trade/spot/BTC-USDT']);
+  assert.deepEqual([...r.screens['J-bank-05#2']], ['/pay']);
+  assert.equal(r.screens['J-bank-05#3'], undefined);
+  assert.deepEqual([...betaScreensOf([{ annotations: [{ type: 'beta screens', description: 'not json' }] }])], []);
+});
+
+test('#10704: a step that visited a hidden path is not on the beta; one on shown rooms only, or with no page, is', () => {
+  const screens = { 'J-a-01#2': new Set(['/home', '/dex/pools']), 'J-a-01#1': new Set(['/home']), 'J-a-01#10': new Set(['/dex/pools']) };
+  const asked = [];
+  const got = notOnBeta(screens, (paths) => (asked.push(paths), paths.filter((p) => p === '/dex/pools')));
+  assert.deepEqual(asked, [['/dex/pools', '/home']], 'one call with every path');
+  assert.deepEqual(got, {
+    steps: [
+      { step: 'J-a-01#2', paths: ['/dex/pools'] },
+      { step: 'J-a-01#10', paths: ['/dex/pools'] },
+    ],
+  });
+  assert.deepEqual(
+    notOnBeta({}, () => assert.fail('no paths, no call')),
+    { steps: [] },
+  );
+});
+
+test('#10704: a beta rule that throws or gives no list is unread', () => {
+  const screens = { 'J-a-01#1': new Set(['/home']) };
+  assert.deepEqual(
+    notOnBeta(screens, () => {
+      throw new Error('Cannot find module dist/t.js\nstack');
+    }),
+    { steps: [], unread: 'Cannot find module dist/t.js' },
+  );
+  assert.equal(notOnBeta(screens, () => undefined).unread, 'the rule gave no list');
+  assert.match(
+    (() => {
+      try {
+        betaHidden(['/home'], { rule: '/nonexistent/beta-rule.mjs' });
+      } catch (e) {
+        return e.message;
+      }
+    })(),
+    /Cannot find module/,
+  );
+});
+
+test("#10704: the verdict's own run lists hidden-screen steps in notProven and notOnBeta; an unread rule proves no step", () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const run = (rule) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-beta-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(bankSteps(1, 2, 3)));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(bankSlices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      writeFileSync(join(dir, 'rule.mjs'), rule);
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+      delete env.JOURNEYS_TARGET;
+      const report = {
+        suites: [
+          {
+            file: bankFile,
+            specs: [shown('J-bank-05 #1', ['/home']), shown('J-bank-05 #2', ['/home', '/hidden/room']), shown('J-bank-05 #3', null)],
+          },
+        ],
+      };
+      const args = [verdict, '--report', f('report.json', report), '--named-report', f('named.json', bankReport(1, 2, 3))];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      args.push('--set-aside-out', join(dir, 'set-aside.json'), '--beta-rule', join(dir, 'rule.mjs'));
+      const r = spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+      return { ...r, out: JSON.parse(readFileSync(join(dir, 'set-aside.json'), 'utf8')) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const hides = run(
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.startsWith('/hidden')) }));",
+  );
+  assert.equal(hides.status, 0, hides.stdout + hides.stderr);
+  assert.deepEqual(hides.out.notOnBeta, [{ step: 'J-bank-05#2', paths: ['/hidden/room'] }]);
+  assert.deepEqual(hides.out.notProven, ['J-bank-05#2']);
+  assert.equal(hides.out.betaUnread, undefined);
+  assert.equal(hides.out.incomplete, undefined, 'the set-aside list itself stays complete');
+  assert.match(hides.stdout, /### On a screen the hosted beta hides: 1\n\n[^\n]*\n\n- J-bank-05#2: \/hidden\/room$/m);
+  const broken = run("throw new Error('no dist');");
+  assert.equal(broken.status, 0, 'an unread rule never turns the verdict red');
+  assert.deepEqual(broken.out.notProven, ['J-bank-05#1', 'J-bank-05#2', 'J-bank-05#3']);
+  assert.deepEqual(broken.out.notOnBeta, []);
+  assert.match(broken.out.betaUnread, /no dist|Command failed/);
+  assert.match(broken.stdout, /On a screen the hosted beta hides: unknown/);
 });

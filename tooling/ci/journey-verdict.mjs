@@ -53,7 +53,8 @@
  *   - only on main: a branch run or a targeted run neither adds to the list nor is excused by it. With no complete
  *     earlier list to read (none among main's last PRIOR_LOOKBACK runs), this run's list is incomplete and excuses
  *     nothing; a list starts fresh only when main never had one, so a step's cool-down is never forgotten;
- *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
+ *   - its `notProven` names every set-aside step, every step with a test Playwright called flaky, and every step whose
+ *     test showed a screen the hosted beta hides (`notOnBeta`, by tooling/ci/beta-hides.mjs), so a count of proven
  *     steps leaves them out (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
  *     report.json counts a pass only on the retry as a pass (post-merge-trust.mjs stepStates, roadmap.mjs
  *     passedSteps). Main trust opens one issue per set-aside naming its owner and end date
@@ -69,15 +70,18 @@
  *   (CI) GH_TOKEN GITHUB_REPOSITORY GITHUB_RUN_ID node tooling/ci/journey-verdict.mjs --report <report.json> --fetch
  *        reads the named run's report, the pass history since it, the regression issues and the last run on main's
  *        set-aside.json with GET requests only.
- *   Either form takes --set-aside-out <file>: the set-aside list as JSON, written even when the verdict is red.
+ *   Either form takes --set-aside-out <file>: the set-aside list as JSON, written even when the verdict is red, and
+ *   --beta-rule <script>, a stand-in for tooling/ci/beta-hides.mjs (the tests').
  * Exit 0 = green, 1 = red. Writes the verdict to GITHUB_STEP_SUMMARY when it is set.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BUDGET_TITLE, ghResetWait, waitLine } from './api-budget.mjs';
 import { countCall } from './api-count.mjs';
+import { BETA_SCREENS } from '../scripts/journey-screens.mjs';
 
 export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
@@ -154,6 +158,8 @@ export function readReport(report) {
   const ran = new Set();
   const partial = new Set();
   const partialFailed = new Set();
+  // Each step's customer-app screens, from its tests' `beta screens` annotations (apps/customer/tests/real-app/journey.mjs).
+  const screens = {};
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
@@ -180,6 +186,7 @@ export function readReport(report) {
       }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
+      for (const path of betaScreensOf(tests)) (screens[key] ??= new Set()).add(path);
       const state = specState(tests);
       const had = states[key];
       states[key] = ['failed', 'flaky', 'passed'].find((s) => had === s || state === s) ?? 'skipped';
@@ -191,8 +198,49 @@ export function readReport(report) {
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
   for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
-  return { states, files, ran: [...ran].sort(), retried, tests: tests_, testFiles };
+  return { states, files, ran: [...ran].sort(), retried, tests: tests_, testFiles, screens };
 }
+/** The paths a spec's tests annotated as their screens, on the test or on any of its results; a bad annotation is none. */
+export function betaScreensOf(tests) {
+  const out = new Set();
+  for (const t of tests ?? [])
+    for (const a of [...(t.annotations ?? []), ...(t.results ?? []).flatMap((r) => r.annotations ?? [])]) {
+      if (a?.type !== BETA_SCREENS) continue;
+      try {
+        for (const path of JSON.parse(a.description)) if (typeof path === 'string') out.add(path);
+      } catch {
+        /* not a list: no screens */
+      }
+    }
+  return out;
+}
+/**
+ * The steps whose test showed a screen the hosted beta hides (owner decision 24 Nov 2026: a step counts as proven only
+ * when it passes on the build the beta serves), each with those paths, by `hidden(paths)`: tooling/ci/beta-hides.mjs, the
+ * beta build's own rule. A step with no screens (no page) is none. If the rule can't be read, `unread` says why.
+ */
+export function notOnBeta(screens, hidden) {
+  const all = [...new Set(Object.values(screens ?? {}).flatMap((set) => [...set]))].sort();
+  if (!all.length) return { steps: [] };
+  let hides;
+  try {
+    const got = hidden(all);
+    if (!Array.isArray(got)) throw new Error('the rule gave no list');
+    hides = new Set(got);
+  } catch (e) {
+    return { steps: [], unread: String(e?.message ?? e).split('\n')[0] };
+  }
+  const steps = Object.entries(screens)
+    .map(([step, set]) => ({ step, paths: [...set].filter((path) => hides.has(path)).sort() }))
+    .filter((r) => r.paths.length)
+    .sort((a, b) => byStep(a.step, b.step));
+  return { steps };
+}
+export const BETA_RULE = fileURLToPath(new URL('./beta-hides.mjs', import.meta.url));
+/** The beta rule (`rule`, BETA_RULE unless --beta-rule names a stand-in), run as its own process: it loads the app's
+ *  TypeScript through tsx. */
+export const betaHidden = (paths, { rule = BETA_RULE, exec = execFileSync } = {}) =>
+  JSON.parse(exec(process.execPath, [rule], { input: JSON.stringify(paths), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })).hidden;
 /** One spec's state from its tests (one per project): skipped when all skipped, passed or flaky when all passed
  *  (testPassed), else failed. */
 function specState(tests) {
@@ -1147,11 +1195,15 @@ function main() {
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
     .map(([step, { before, ...a }]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
+  let beta = null;
   if (arg('--set-aside-out')) {
     // Not proven from this run: every set-aside step, and every step with a test Playwright called flaky (a pass only on
     // its retry, or a failure whose retry was skipped), money or not.
     const flakyNow = [...(newest?.retried ?? [])];
-    const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
+    // And every step whose test showed a screen the hosted beta hides; if the beta's rule can't be read, every step.
+    beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
+    const offBeta = beta.unread ? Object.keys(newest.states) : beta.steps.map((r) => r.step);
+    const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow, ...offBeta])].sort(byStep);
     // The ref it ran on: the next run takes the list only from refs/heads/main.
     const out = {
       days: SET_ASIDE_DAYS,
@@ -1160,6 +1212,10 @@ function main() {
       ...(incomplete || !newest ? { incomplete: true } : {}),
       steps: asideRows,
       notProven,
+      // The steps on a screen the hosted beta hides, each with its hidden paths; each is in notProven too. `betaUnread`:
+      // the beta's rule couldn't be read, so every step of this run is in notProven.
+      notOnBeta: beta.steps,
+      ...(beta.unread ? { betaUnread: beta.unread } : {}),
       // The steps that passed only on their retry and no set-aside tracks, each with its journey's owner, for Main
       // trust's one `flaky` issue each. Each is in notProven too.
       flaky: verdict.flaky.map((step) => ({
@@ -1212,6 +1268,20 @@ function main() {
         )
       : ['None.']),
     '',
+    ...(beta
+      ? [
+          `### On a screen the hosted beta hides: ${beta.unread ? 'unknown' : beta.steps.length}`,
+          '',
+          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt) still runs and still gates its pull request, but it is not proven from this run (set-aside.json `notOnBeta`). It doesn't turn this verdict red.",
+          '',
+          ...(beta.unread
+            ? [`The beta's rule couldn't be read (${beta.unread}), so no step of this run counts as proven.`]
+            : beta.steps.length
+              ? beta.steps.map((r) => `- ${r.step}: ${r.paths.join(', ')}`)
+              : ['None.']),
+          '',
+        ]
+      : []),
     `### Steps that passed only on their retry: ${verdict.flaky.length}`,
     '',
     'A step that fails, then passes on its retry, is a pass, money step or not: it does not turn this verdict red, it never counts as proven from this run, and on main Main trust opens one `flaky` issue for it. Failing on every try still fails, and starts its revert.',

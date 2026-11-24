@@ -1287,6 +1287,12 @@ jobs:
         run: node --test tooling/ci/journey-verdict.test.mjs
       # It also writes the set-aside list (set-aside.json) and, on main, the stored pass history (pass-history.json) the
       # next verdicts read instead of every run since the baseline; both are kept with the report below.
+      # The hosted beta's rule (tooling/ci/beta-hides.mjs) reads the route table, which imports these two packages' builds.
+      # Unbuilt, the verdict can't read the rule and counts no step of this run as proven (set-aside.json betaUnread).
+      - name: Build what the beta's rule reads
+        if: always() && env.NOTHING != 'true'
+        continue-on-error: true
+        run: pnpm turbo run build --filter=@intafaced/contracts --filter=@intafaced/i18n
       - name: Verdict against the list of steps not built yet
         if: always() && env.NOTHING != 'true'
         env:
