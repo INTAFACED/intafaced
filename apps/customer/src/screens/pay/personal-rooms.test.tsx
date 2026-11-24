@@ -49,14 +49,16 @@ beforeAll(() => {
   });
 });
 
-it('shows every bill step with the controls off and the reason on screen', () => {
+it('shows every bill step with the set-up controls off until a biller is found', () => {
   const out = renderToString(<BillsCard />);
-  expect(out).toContain('Bill pay isn’t connected');
+  // Nothing is claimed before the bank answers: the reason shows once a search says no biller directory is connected
+  // (J-bank-06 #5 drives that in the running app, then the partner's billers).
+  expect(out).not.toContain('Bill pay isn’t connected');
   for (const step of ['Choose a biller', 'Enter the bill reference', 'Enter the amount', 'Review and pay', 'Follow the status'])
     expect(out).toContain(step);
   expect(out).toMatch(/<fieldset[^>]*\sdisabled=""/);
   expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="bills-review"|<button[^>]*data-testid="bills-review"[^>]*disabled/);
-  expect(out).toContain('No bills paid yet.');
+  expect(out).not.toContain('No bills paid yet.');
   expect(out).not.toMatch(/coming soon/i);
 });
 

@@ -41,6 +41,7 @@ import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
 import { SqlCheckBook, VerificationChecks } from './verification-checks.js';
+import { createReadOwners, ReadGrants, SqlReadGrantBook } from './read-grants.js';
 import { SafetyCases, SqlSafetyBook } from './safety-cases.js';
 import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -273,8 +274,10 @@ const chat = new SupportChat(
 const loop = createTicketKbLoopObserver();
 // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay whose
 // a withdrawal or deposit is. An owner with no URL leaves its links refused as unverifiable.
+const linkBook = new SqlLinkBook(sql);
+const checkBook = new SqlCheckBook(sql);
 const links = new TicketLinks(
-  new SqlLinkBook(sql),
+  linkBook,
   support,
   env.TRADE_URL ? orders : null,
   env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
@@ -303,9 +306,9 @@ const appRouter = createSupportRouter(
   new KbAuthoring(store, new SqlKbReviewBook(sql)),
   guests,
   env.SUPPORT_KB_SEGMENT_CAP ?? null,
-  // Balance disclosure gate: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired:
-  // every check refuses naming its owner, and every read refuses support.verification_checks_required.
-  new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
+  // Checks the customer can confirm: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none
+  // is wired and every check refuses naming its owner. The reads open on the customer's own grant (`reads`, below).
+  new VerificationChecks(checkBook, support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
   officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
   new SafetyCases(
@@ -323,6 +326,16 @@ const appRouter = createSupportRouter(
   // Withdrawal freezes (J-support-public-20 #7): svc-identity records each one.
   new WithdrawalFreezes(support, createIdentityWithdrawalFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
   links,
+  // The customer's grant for support to read (J-support-public-20 #2): svc-trade answers the balance, svc-pay where each
+  // linked withdrawal goes. An owner with no URL leaves its read refused, naming it.
+  new ReadGrants({
+    book: new SqlReadGrantBook(sql),
+    support,
+    linkedWithdrawals: async (ticketId) =>
+      (await linkBook.list(ticketId)).filter((link) => link.kind === 'withdrawal').map((link) => link.recordId),
+    owners: createReadOwners({ tradeUrl: env.TRADE_URL, payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+    audit: (row) => checkBook.audit(row),
+  }),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

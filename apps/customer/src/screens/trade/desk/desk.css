@@ -929,7 +929,12 @@
     padding-right: var(--if-space-3-5);
     border-bottom: 1px solid var(--if-line);
   }
+  /* The order types share the strip; at a phone's width the list keeps the row's width and scrolls inside it, so every
+     type stays reachable and no tab lies over another (issue 10241). */
   .dk-order-head .dk-tabs {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 100%;
     padding-right: 0;
   }
   .dk-type-more {

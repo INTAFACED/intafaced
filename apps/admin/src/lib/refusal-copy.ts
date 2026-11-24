@@ -172,6 +172,84 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The ledger refused: the customer does not have that much available. Nothing was moved.',
     next: 'Read the customer’s balance and ask for less.',
   },
+  // Operator reversals of a posted ledger transaction (svc-ops `ledgerReversals`, OPS-ledger-desk-02, J-ops-console-05 #1-#3).
+  'ops.reversal_storage_unconfigured': {
+    title: 'Reversals have no storage',
+    body: 'svc-ops has no database configured for ledger reversals, so none can be asked for or read. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.reversal_ledger_unconfigured': {
+    title: 'svc-ops is not connected to the ledger',
+    body: 'svc-ops has no ledger address or credential, so no reversal can be asked for or run. Nothing was written and nothing posted.',
+    next: 'Ask whoever runs the svc-ops host to set its ledger address.',
+  },
+  'ops.reversal_already_reversed': {
+    title: 'This transaction is already reversed',
+    body: 'A transaction is reversed once, and this one already has its reversal. Nothing was written, no approval was spent and nothing posted.',
+    next: 'Open the first reversal shown here. To correct it further, reverse or adjust that one instead.',
+  },
+  'ops.reversal_not_found': {
+    title: 'No such reversal request',
+    body: 'svc-ops has no reversal request with that number. Nothing was changed.',
+    next: 'Look the transaction up again and read its reversal requests.',
+  },
+  'ops.reversal_state_illegal': {
+    title: 'This reversal request was already run',
+    body: 'The request was run with another approval, or it has already settled. Nothing new was sent to the ledger.',
+    next: 'Look the transaction up again to read where the request stands.',
+  },
+  'ops.reversal_requester_only': {
+    title: 'Only the founder who asked runs this reversal',
+    body: 'A reversal is run by the founder who asked for it, with the approval a different founder gave. Nothing was spent or posted.',
+    next: 'Ask the founder who asked for the reversal to run it.',
+  },
+  'ledger.tx_not_found': {
+    title: 'The ledger has no such transaction',
+    body: 'The ledger refused: it holds no transaction with that id. Nothing posted, and this reversal request is closed.',
+    next: 'Check the transaction id and ask for a new reversal.',
+  },
+  'ledger.reversal_already_reversed': {
+    title: 'The ledger already holds a reversal of this transaction',
+    body: 'The ledger refused: another reversal of this transaction is already booked, and it names it. Nothing posted under this request.',
+    next: 'Open the reversal the ledger named.',
+  },
+  'ledger.custody_layer_off': {
+    title: 'The ledger does not book customer money yet',
+    body: 'The ledger refused: this transaction touches a customer account, and the custodial layer is switched off. Nothing posted, and this reversal request is closed.',
+    next: 'Only INTAFACED’s own transactions can be reversed until the custodial layer is switched on.',
+  },
+  'ledger.invalid_entry': {
+    title: 'The ledger reverses only INTAFACED’s own records',
+    body: 'The ledger refused: this transaction moved a customer’s balance, and an operator reversal touches only INTAFACED’s own accounts. Nothing posted, and this reversal request is closed.',
+    next: 'Correct a customer’s money through the journey that moved it, not through a reversal.',
+  },
+  'ledger.caller_forbidden': {
+    title: 'svc-ops may not book reversals in this ledger',
+    body: 'The ledger refused svc-ops for this door. Nothing posted, and this reversal request is closed.',
+    next: 'Ask whoever runs the ledger to grant svc-ops its reversal door, then ask for the reversal again.',
+  },
+  'ledger.unauthenticated': {
+    title: 'The ledger did not recognise svc-ops',
+    body: 'The ledger refused svc-ops’ credential. Nothing posted, and this reversal request is closed.',
+    next: 'Ask whoever runs the hosts to check svc-ops’ ledger credential, then ask for the reversal again.',
+  },
+  'ledger.owner_identity_space': {
+    title: 'The ledger refused an account in this transaction',
+    body: 'The ledger refused: an account in this transaction is outside the owner space it books. Nothing posted, and this reversal request is closed.',
+    next: 'Read the transaction’s postings with the ledger’s owner before asking again.',
+  },
+  'ledger.reply_lost': {
+    title: 'The ledger has not answered yet',
+    body: 'svc-ops sent the reversal and the answer did not come back. Sending again uses the same key and the same request, so it can never book twice.',
+    next: 'Run it again, or wait: svc-ops sends it again by itself every 30 seconds.',
+    changed: 'unknown',
+  },
+  'ledger.reply_invalid': {
+    title: 'The ledger answered in a shape svc-ops does not read',
+    body: 'svc-ops did not take the answer as a booking. Sending again uses the same key and the same request, so it can never book twice.',
+    next: 'Run it again, or wait: svc-ops sends it again by itself every 30 seconds.',
+    changed: 'unknown',
+  },
   'ops.alert_not_found': {
     title: 'No such alert',
     body: 'svc-ops has no reconciliation alert with that id. Nothing was changed.',

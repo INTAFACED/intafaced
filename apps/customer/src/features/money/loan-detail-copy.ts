@@ -10,6 +10,8 @@ const en = {
   description: 'The payoff quote, a projection of interest and the monthly statement for one of your loans.',
   open: 'Payoff quote, projection and statement',
   noLoan: 'Choose a loan on the loans page to see its details.',
+  noLoanBody:
+    'Each of your loans opens here with what it would take to pay it off today, the interest still to come and its monthly statement.',
   back: 'Back to loans',
   retry: 'Try again',
   feeUnsupported: 'The published payoff fee cannot be collected on a repayment here, so no quote is given.',
@@ -235,6 +237,7 @@ const es: Record<keyof typeof en, string> = {
   ckp_entries: 'el libro mayor registró otros importes o cuentas',
   ckp_balance: 'el libro mayor retiene otro importe',
   ckp_other: 'no cuadra con el libro mayor',
+  noLoanBody: 'Cada uno de tus préstamos se abre aquí con lo que costaría liquidarlo hoy, los intereses que faltan y su extracto mensual.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -357,6 +360,8 @@ const fr: Record<keyof typeof en, string> = {
   ckp_entries: 'le grand livre a enregistré d’autres montants ou comptes',
   ckp_balance: 'le grand livre détient un autre montant',
   ckp_other: 'ne correspond pas au grand livre',
+  noLoanBody:
+    'Chacun de vos prêts s’ouvre ici avec ce qu’il faudrait pour le rembourser aujourd’hui, les intérêts à venir et son relevé mensuel.',
 };
 
 export const loanDetailCopy = defineCopy('customer.money.loan-detail', en, { es, fr });

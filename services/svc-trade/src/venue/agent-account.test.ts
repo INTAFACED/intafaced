@@ -628,6 +628,26 @@ describe('the agent account on the TEST venue', () => {
       });
     });
 
+    it("refuses a position move into or out of an agent account's sub-account, before anything is stored or signed (J-derivatives-05 #7)", async () => {
+      const v = await signAll(await create200());
+      const movePosition = (subAccount: string, direction: 'into_sub_account' | 'out_of_sub_account', moveKey: string) =>
+        door.prepare(principal, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: { kind: 'move_position', subAccount, direction, symbol: 'BTC-PERP', moveKey },
+        });
+      for (const direction of ['into_sub_account', 'out_of_sub_account'] as const) {
+        const moveKey = `position-move:${owner}:${id()}`;
+        await expect(movePosition(v.subAccount!, direction, moveKey)).rejects.toMatchObject({ code: 'trade.venue_sub_account_not_own' });
+        expect(await actions.find(USER, moveKey)).toBeNull();
+      }
+      // A sub-account opened as the person's own passes that check: the venue is then asked, and this one moves no position.
+      const own = await openOwn(`TEST own ${id()}`);
+      await expect(movePosition(own, 'into_sub_account', `position-move:${owner}:${id()}`)).rejects.toMatchObject({
+        refusal: { code: 'not_offered', detail: `${sim.venue.displayName} moves no open position between accounts` },
+      });
+    });
+
     it('a sub-account opened as your own but whose answer was lost is read back by its name, and a move into it goes on', async () => {
       const name = `TEST lost ${id()}`;
       const asked = await createOwn(name);

@@ -9,6 +9,10 @@
 //! the rail then refuses, back under `...:1`. A retry of the same key is that same instruction. A recurring bill
 //! refuses until the pay rail is live; each occurrence it fires is a payment under `bill-recur:<schedule>:<n>`.
 //!
+//! Where the TEST partner bank holds the person's money (the launch model), the partner is the bill's rail: its own
+//! billers answer the search while the person's bank rail is on, a recurring bill may be set up against one of them,
+//! and each payment is one partner payment under `bank.transfer.rail:<paymentId>:0`, the ledger posting nothing.
+//!
 //! If this crashes exactly here, whose funds are stranded? No one's: a crash after the post and before the row records
 //! it leaves the row `submitted`, and the retry finds the post by its key before posting; an answer the rail never gave
 //! leaves the row `submitted` with its post, and the retry submits the same payment id again.
@@ -25,6 +29,8 @@ use service_kit::trpc::TrpcError;
 use super::Deps;
 use crate::door::Ctx;
 use crate::errors::Refusal;
+use crate::partner::PaymentRequest;
+use crate::partner::custody::Held;
 use crate::spaces::ports::{LedgerAccount, LedgerTx, PostFailure};
 use crate::spaces::space::{self, Space, at, pg, with};
 use crate::transfers::calendar::{self, Cadence};
@@ -561,10 +567,27 @@ fn limit_of(input: &Value) -> Result<i64, Refusal> {
 // ---------------------------------------------------------------------------------------------------------------
 // The service (`BillPayService`).
 
-/// `search`.
-pub fn search(d: &Deps<'_>, query: &str, country: Option<&str>) -> Result<Json, Refusal> {
+/// `search`. With no directory of our own, the partner holding the person's money answers with its billers, or, with
+/// its rail off, the same unset refusal.
+pub fn search(
+    d: &Deps<'_>,
+    user_id: Option<&str>,
+    query: &str,
+    country: Option<&str>,
+) -> Result<Json, Refusal> {
     let Some(directory) = d.w.pay.directory.as_ref() else {
-        return Err(pp("bank.bills_directory_unset"));
+        let query = require_text(query, 64, "bank.personal_pay_request_invalid")?;
+        let Some((user, p)) = user_id.and_then(|u| d.t.custody.bank_for(u).map(|p| (u, p))) else {
+            return Err(pp("bank.bills_directory_unset"));
+        };
+        let rows = p
+            .billers(user, &query)
+            .map_err(|_| pp("bank.bills_directory_unset"))?;
+        return Ok(Json::Array(
+            rows.iter()
+                .map(|b| usable_biller(&partner_biller(*b)))
+                .collect::<Result<_, _>>()?,
+        ));
     };
     let query = require_text(query, 64, "bank.personal_pay_request_invalid")?;
     let country = country.map(|c| js_trim(c).to_uppercase());
@@ -595,6 +618,29 @@ pub fn lookup(d: &Deps<'_>, biller_id: &str, reference: &str) -> Result<Json, Re
         None => Err(pp("bank.bills_reference_unknown")),
         Some(found) => usable_lookup(&found),
     }
+}
+
+/// One of the partner's billers as a [`Biller`].
+fn partner_biller(b: (&str, &str, &str, &str)) -> Biller {
+    Biller {
+        id: b.0.to_owned(),
+        name: b.1.to_owned(),
+        country: b.2.to_owned(),
+        category: b.3.to_owned(),
+    }
+}
+
+/// The partner's own name for one of its billers, or the refusal: an id it does not list is no biller, and with its
+/// rail off it pays none.
+fn partner_biller_name(p: &Held<'_>, user_id: &str, biller_id: &str) -> Result<String, Refusal> {
+    let billers = p
+        .billers(user_id, "")
+        .map_err(|_| pp("bank.bills_psp_unset"))?;
+    billers
+        .iter()
+        .find(|b| b.0 == biller_id)
+        .map(|b| b.1.to_owned())
+        .ok_or_else(|| pp("bank.personal_pay_request_invalid"))
 }
 
 /// What a person asks to pay (`pay`'s input).
@@ -642,6 +688,9 @@ pub fn pay(d: &Deps<'_>, ask: &PayAsk<'_>, now: Instant) -> Result<Bill, Refusal
     let reference = require_text(ask.reference, 64, "bank.personal_pay_request_invalid")?;
     let (text, amount) = canonical(ask.amount)?;
     let space = owned_space(d, ask.user_id, ask.from_space_id, now)?;
+    if let Some(p) = d.t.custody.bank_for(ask.user_id) {
+        partner_biller_name(&p, ask.user_id, &biller_id)?;
+    }
     let row = instruction(d, ask.user_id, &key, &biller_id, &reference, &text, &space)?;
     drive(d, &row, &space, amount)
 }
@@ -725,6 +774,9 @@ fn drive(d: &Deps<'_>, row: &Bill, space: &Space, amount: Amount) -> Result<Bill
         }
         "accepted" | "paid" | "returned" => return Ok(row.clone()),
         _ => {}
+    }
+    if let Some(p) = d.t.custody.bank_for(&row.user_id) {
+        return drive_at_partner(d, row, space, amount, &p);
     }
     let Some(rail) = d.w.pay.rail.as_ref() else {
         if row.ledger_tx_id.is_some() {
@@ -818,6 +870,60 @@ fn drive(d: &Deps<'_>, row: &Bill, space: &Space, amount: Amount) -> Result<Bill
                     updated_at = now() \
               WHERE id = $1::text::uuid AND status = 'submitted'",
             &[&row.id, &status, &provider_ref, &tx_id],
+        )
+        .map_err(|e| pg(&e))
+    })?;
+    must(d, &row.id)
+}
+
+/// A bill paid by the partner that holds the person's money: one partner payment under the bill's forward key, the
+/// ledger posting nothing. A retry asks the partner under the same key, and it answers with the same payment, so a
+/// crash between its answer and the row's update pays nothing twice. Too little money and a rail switched off are the
+/// partner's refusals, recorded on the bill; anything else leaves it submitted for its retry.
+fn drive_at_partner(
+    d: &Deps<'_>,
+    row: &Bill,
+    space: &Space,
+    amount: Amount,
+    p: &Held<'_>,
+) -> Result<Bill, Refusal> {
+    let name = match partner_biller_name(p, &row.user_id, &row.biller_id) {
+        Ok(name) => name,
+        Err(e) => {
+            let code = code_of(&e).unwrap_or("bank.bills_psp_unset").to_owned();
+            fail(d, &row.id, &code)?;
+            return Err(e);
+        }
+    };
+    let made = p.pay(
+        &PaymentRequest {
+            key: forward_key(&row.id),
+            from: space.partner_account(),
+            method: "instant".to_owned(),
+            recipient: (name, row.biller_id.clone(), row.reference.clone()),
+            amount,
+        },
+        d.now(),
+    );
+    let payment = match made {
+        Ok(payment) => payment,
+        Err(Refusal::Bank(e)) if e.row.code == "bank.partner_insufficient_funds" => {
+            fail(d, &row.id, "bank.bills_insufficient_funds")?;
+            return Err(refusal("bank.bills_insufficient_funds", Some(&e.message)));
+        }
+        Err(Refusal::Bank(e)) if e.row.code == "rail.bank" => {
+            fail(d, &row.id, "bank.bills_psp_unset")?;
+            return Err(pp("bank.bills_psp_unset"));
+        }
+        Err(e) => return Err(e),
+    };
+    with(d.store(), |c| {
+        c.execute(
+            "UPDATE bank.bill_payments \
+                SET status = 'accepted', provider_ref = $2, failure_code = NULL, failure_blocker = NULL, \
+                    updated_at = now() \
+              WHERE id = $1::text::uuid AND status = 'submitted'",
+            &[&row.id, &payment.id],
         )
         .map_err(|e| pg(&e))
     })?;
@@ -965,7 +1071,8 @@ pub fn create_recurring(
     ask: &RecurringAsk<'_>,
     now: Instant,
 ) -> Result<Recurring, Refusal> {
-    if !d.w.pay.rail_live() {
+    let at_partner = d.t.custody.bank_for(ask.user_id);
+    if at_partner.is_none() && !d.w.pay.rail_live() {
         return Err(pp("bank.bills_psp_unset"));
     }
     let key = require_text(
@@ -978,6 +1085,9 @@ pub fn create_recurring(
     }
     let biller_id = require_text(ask.biller_id, 64, "bank.personal_pay_request_invalid")?;
     let reference = require_text(ask.reference, 64, "bank.personal_pay_request_invalid")?;
+    if let Some(p) = &at_partner {
+        partner_biller_name(p, ask.user_id, &biller_id)?;
+    }
     let (text, _) = canonical(ask.amount)?;
     let space = owned_space(d, ask.user_id, ask.from_space_id, now)?;
     if ask.ends_at.is_some_and(|e| e.0 <= ask.starts_at.0) {
@@ -1405,7 +1515,12 @@ fn call(d: &Deps<'_>, ctx: &Ctx<'_>, path: &str) -> Option<Result<Json, Refusal>
     let input = &ctx.input;
     let now = ctx.now;
     Some(match path {
-        "billers.search" => search(d, s(input, "query"), input.get("country").as_str()),
+        "billers.search" => search(
+            d,
+            ctx.principal.map(|p| p.user_id.as_str()),
+            s(input, "query"),
+            input.get("country").as_str(),
+        ),
         "lookup" => lookup(d, s(input, "billerId"), s(input, "reference")),
         "pay" => principal(ctx).and_then(|p| {
             let space = owned_space_plain(d, &p.user_id, s(input, "fromSpaceId"))?;

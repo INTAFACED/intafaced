@@ -93,6 +93,8 @@ import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_TO_USER,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures';
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
@@ -249,7 +251,7 @@ function ScheduleActions({
             onClick={() =>
               protectedOpen({
                 title: row.status === 'paused' ? copyText('rooms.resume.standing.order') : copyText('rooms.pause.standing.order'),
-                procedure: row.status === 'paused' ? 'transfers.resume' : 'transfers.pause',
+                record: row.status === 'paused' ? BANK_TRANSFERS_RESUME : BANK_TRANSFERS_PAUSE,
                 facts: [
                   [copyText('rooms.schedule'), row.id],
                   [copyText('rooms.amount'), amount(row.amount, row.assetId)],

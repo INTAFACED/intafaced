@@ -31,30 +31,30 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
               </header>
               {/* One market a row, each a link across its row; the kit's label-and-value rows carry the row's height and line. */}
               <div className="lt-kv" role="list">
-                {card.entries.map(({ market, ticker }) => (
-                  <div key={market.symbol} role="listitem">
-                    <a
-                      data-testid="mkt-card__row"
-                      className="lt-row-link"
-                      data-span="row"
-                      href={marketTarget(market, mode, isHiddenPath, signedIn)}
-                    >
-                      <AssetIcon asset={market.base} size="sm" />
-                      <span className="lt-lines">
-                        <span data-testid="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
-                          {market.base}
-                          <span className="lt-muted">/{market.quote}</span>
+                {card.entries.map(({ market, ticker }) => {
+                  const target = marketTarget(market, mode, isHiddenPath, signedIn);
+                  // Nowhere shown to go (the beta's build without the desk): the row is plain words, never a link the beta drops.
+                  const Row = target === null ? 'span' : 'a';
+                  return (
+                    <div key={market.symbol} role="listitem">
+                      <Row data-testid="mkt-card__row" className="lt-row-link" data-span="row" href={target ?? undefined}>
+                        <AssetIcon asset={market.base} size="sm" />
+                        <span className="lt-lines">
+                          <span data-testid="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
+                            {market.base}
+                            <span className="lt-muted">/{market.quote}</span>
+                          </span>
                         </span>
-                      </span>
-                      <span data-part="figures">
-                        <span className="lt-num" data-money dir="ltr">
-                          {priceText(market, ticker?.last)}
+                        <span data-part="figures">
+                          <span className="lt-num" data-money dir="ltr">
+                            {priceText(market, ticker?.last)}
+                          </span>
+                          <Pct value={ticker?.changePct24h} />
                         </span>
-                        <Pct value={ticker?.changePct24h} />
-                      </span>
-                    </a>
-                  </div>
-                ))}
+                      </Row>
+                    </div>
+                  );
+                })}
               </div>
             </article>
           </Surface>

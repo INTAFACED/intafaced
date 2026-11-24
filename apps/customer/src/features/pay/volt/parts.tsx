@@ -9,7 +9,8 @@ import { useOverflows } from '../../../shared/use-overflows';
 import { Button } from '@intafaced/ui/lit';
 import { Dialog, Skeleton, StatusChip } from '@intafaced/ui/lit/templates';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
-import type { ApiResult } from '../../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import type { Resource } from '../../../shared/resource';
 import { displayAmount } from '../../../shared/money';
 import { payCopy, PayCopy, payAuthoredMessage } from '../copy';
@@ -27,6 +28,7 @@ export function PayFailure({ result, retry }: { result: Failed; retry?: () => vo
   const { t, languageFor, requestedLocale: uiLocale } = uiCopy.useCopy();
   const authored = payAuthoredMessage(result);
   const shown = authored === undefined ? result : { ...result, message: authored };
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div lang={authored === undefined ? 'und' : requestedLocale}>
       <div

@@ -6,8 +6,7 @@
  * perk is ever defaulted here. Prices are decimal strings; this module never turns one into a number.
  */
 import { z } from 'zod';
-
-export const MEMBERSHIP_NOT_OFFERED = 'identity.membership_not_offered' as const;
+import { MEMBERSHIP_NOT_OFFERED } from '@intafaced/contracts/identity-membership-procedures';
 
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'price must be a decimal string');
 
@@ -52,3 +51,4 @@ export function membershipOffer(tiers: readonly MembershipTier[]): MembershipOff
   if (tiers.length === 0) return { offered: false, code: MEMBERSHIP_NOT_OFFERED };
   return { offered: true, tiers: [...tiers], current: null };
 }
+export { MEMBERSHIP_NOT_OFFERED };

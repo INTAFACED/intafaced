@@ -545,7 +545,7 @@ export function LoanDetailRoom({ loanId }: { loanId: string | null }) {
   const loan = loans.resource.status === 'ready' ? loans.resource.data.find((one) => one.id === loanId) : undefined;
   let state: RoomState = { kind: 'ready' };
   let retry: (() => void) | undefined;
-  if (loanId === null) state = { kind: 'empty', title: t('noLoan'), action: back };
+  if (loanId === null) state = { kind: 'empty', title: t('noLoan'), body: t('noLoanBody'), action: back };
   else if (loans.resource.status === 'loading') state = { kind: 'loading' };
   else if (loans.resource.status === 'failed') {
     const failure = loans.resource.failure;

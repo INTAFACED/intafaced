@@ -62,6 +62,8 @@ const stamp = z.object({
   simulated: z.literal(true),
 });
 type SandboxLanguage = (typeof QUANT_SANDBOX_LANGUAGES)[number];
+/** Each sandbox language by its own name, as its makers write it. */
+const LANGUAGE_NAME: Record<SandboxLanguage, string> = { javascript: 'JavaScript', typescript: 'TypeScript', python: 'Python' };
 const runSchema = stamp.extend({
   ok: z.literal(true),
   language: z.enum(['javascript', 'typescript', 'python']),
@@ -301,7 +303,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   content: () => (
                     <Details
                       items={[
-                        [copyText('quant.language'), <span lang="zxx">{language}</span>],
+                        [copyText('quant.language'), <span lang="zxx">{LANGUAGE_NAME[language]}</span>],
                         [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
                         [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
                       ]}
@@ -345,7 +347,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
                   if (picked) setLanguage(picked);
                 }}
-                options={QUANT_SANDBOX_LANGUAGES}
+                options={QUANT_SANDBOX_LANGUAGES.map((option) => ({ value: option, label: LANGUAGE_NAME[option] }))}
               />
               <Field
                 label={copyText('quant.simulated.starting.cash')}
@@ -499,7 +501,10 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       label={copyText('quant.block.side', { value1: i + 1 })}
                       value={b.side}
                       onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                      options={['buy', 'sell']}
+                      options={[
+                        { value: 'buy', label: copyText('quant.side.buy') },
+                        { value: 'sell', label: copyText('quant.side.sell') },
+                      ]}
                     />
                     <Field
                       label={copyText('quant.block.symbol', { value1: i + 1 })}

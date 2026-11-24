@@ -1,17 +1,17 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { accountClosureResultSchema, type AccountClosureResult } from '@intafaced/contracts';
+import { type AccountClosureResult } from '@intafaced/contracts';
 import {
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
-  parseWith,
+  founderRecordCall,
 } from '@/lib/desk';
 import { describeBlockers } from './closure-blockers';
+import { IDENTITY_ACCOUNT_CONTROLS_CLOSURE } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Run an approved staff close or reopen (J-ops-console-04 #7) against identity, as the signed-in founder.
@@ -50,15 +50,12 @@ export function closureExecute(ctx: FounderCallContext): ExecuteFn {
       expectedVersion: request.version,
       approvalId: ids.approvalId,
     };
-    const result = await founderCall(
+    const result = await founderRecordCall(
       ctx,
-      'identity',
-      'accountControls.closure',
-      'POST',
+      IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
       request.kind === 'identity.account.close'
         ? { ...common, action: 'close', reasonCode: request.reasonCode }
         : { ...common, action: 'reopen' },
-      parseWith(accountClosureResultSchema),
     );
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     return closureReply(request, result.data);

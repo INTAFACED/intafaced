@@ -1,4 +1,6 @@
+// volt-room: /pay/notifications
 // volt-room: /pay/settings/notifications
+// volt-room: portal:notifications
 // volt-room: portal:settings-notifications
 import { extensionCopy as c, portalCopy } from './copy';
 import { useUnsavedForm } from '../useUnsavedForm';
@@ -11,6 +13,7 @@ import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { actorName } from './account/actors';
 import { accountCopy } from './account/copy';
 import { SettingsRoom } from '../volt/SettingsRoom';
+import { RecordListRoom } from '../volt/RecordListRoom';
 import { isDecimalThreshold } from './model';
 import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
@@ -20,8 +23,13 @@ import { Button, Checkbox, Field, Segmented } from '@intafaced/ui/lit';
 
 type View = 'feed' | 'preferences';
 
+/** `/pay/notifications` on the record-list template: the feed and its filters, once the business is known. */
+export function NotificationsRoom({ portal }: { portal: PortalApi }) {
+  return <RecordListRoom>{() => ({ list: <Notifications portal={portal} /> })}</RecordListRoom>;
+}
+
 /** `/pay/notifications`: what needs your attention, and which kinds you want to see. In-app only: nothing is emailed or texted. */
-export function Notifications({ portal, preferencesOnly = false }: { portal: PortalApi; preferencesOnly?: boolean }) {
+function Notifications({ portal, preferencesOnly = false }: { portal: PortalApi; preferencesOnly?: boolean }) {
   const [view, setView] = useUrlParam('view', 'feed');
   const [kind, setKind] = useUrlParam('kind', '');
   const [unread, setUnread] = useUrlParam('unread', '');

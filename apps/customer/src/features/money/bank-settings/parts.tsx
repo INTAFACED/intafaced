@@ -1,7 +1,8 @@
 import { useId, type ReactNode } from 'react';
 import { Button, Switch } from '@intafaced/ui/lit';
 import { Skeleton, type Refusal as RoomRefusal } from '@intafaced/ui/lit/templates';
-import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
+import { isServiceNotConnected, isVerifyFirst, type ApiResult } from '../../../shared/api';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import type { Resource } from '../../../shared/resource';
 import { canTryAgain } from '../../../shared/try-again';
 import { uiCopy, uiMessage } from '../../../shared/ui-copy';
@@ -41,6 +42,14 @@ function failureWords(
 ): FailureWords {
   const { t } = ui;
   if (isServiceNotConnected(result.code)) return { title: t('not_mounted'), body: t('serviceNotConnected'), role: 'status', retry: false };
+  if (isVerifyFirst(result))
+    return {
+      title: t('verifyFirstTitle'),
+      body: t('verifyFirst'),
+      action: { label: t('verifyNow'), href: '/verification' },
+      role: 'status',
+      retry: false,
+    };
   const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     const words = refusalCopy(result.code ?? rawCode);
@@ -79,7 +88,7 @@ export function useRoomRefusal(): (result: Failed) => { refusal: RoomRefusal; re
         variant: UNREACHABLE.has(result.reason) ? 'unreachable' : 'refused',
         title: words.title,
         body: words.body,
-        reference: words.reference ?? result.code,
+        reference: isVerifyFirst(result) ? undefined : (words.reference ?? result.code),
         action: words.action,
       },
       retry: words.retry,
@@ -91,6 +100,7 @@ export function useRoomRefusal(): (result: Failed) => { refusal: RoomRefusal; re
 export function Failure({ result, retry }: { result: Failed; retry?: () => void }) {
   const ui = uiCopy.useCopy();
   const words = failureWords(result, ui);
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div className="lt-refusal" data-testid="failure" data-refusal="refused" role={words.role}>
       <h3 className="lt-refusal-title">{words.title}</h3>

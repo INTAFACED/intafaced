@@ -2,7 +2,7 @@
 import { ReadingTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { protocolCopy } from '../copy';
-import { WALLET_SECTIONS, type WalletSection } from '../routes';
+import { WALLET_SECTIONS, walletSections } from '../routes';
 import { walletCopy } from './copy';
 import { safetyCopy } from './safety-copy';
 
@@ -25,7 +25,7 @@ export const COMPROMISE_STEPS = [
 ] as const;
 
 /** The wallet's sections, in the order its other sections list them, each a link to its own path. */
-const SECTIONS = Object.keys(WALLET_SECTIONS) as WalletSection[];
+const SECTIONS = walletSections();
 
 /**
  * /wallet/safety (D-portfolio-wallet-02 (c) and (d), D-developer-compliance-02), on the reading template: the safety

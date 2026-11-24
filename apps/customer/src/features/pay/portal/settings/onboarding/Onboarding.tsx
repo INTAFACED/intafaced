@@ -327,7 +327,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           values={[
             [
               t('factMerchantId'),
-              <span data-testid="pp-mono" className="pp-mono">
+              <span data-testid="pp-mono" className="lt-mono">
                 {merchant.id}
               </span>,
             ],
@@ -646,7 +646,7 @@ function StepGoLive(props: OnboardingViewProps) {
                           [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
                           [
                             t('factDestination'),
-                            <span data-testid="pp-mono" className="pp-mono">
+                            <span data-testid="pp-mono" className="lt-mono">
                               {normaliseReference(ref)}
                             </span>,
                           ],

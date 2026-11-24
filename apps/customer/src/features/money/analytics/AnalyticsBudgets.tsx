@@ -3,7 +3,7 @@ import { Button, Field, Select } from '@intafaced/ui/lit';
 import { Meter } from '@intafaced/ui/lit/templates';
 import { defineCopy } from '../../../shared/i18n';
 import { useSession } from '../../session';
-import { useBankRead, useBankRecord } from '../components';
+import { useBankRecord } from '../components';
 import { Panel } from '../bank-settings/parts';
 import {
   BANK_ANALYTICS_BUDGETS,
@@ -12,6 +12,7 @@ import {
   BANK_ANALYTICS_BUDGET_ALERT_SHOWN,
   BANK_ANALYTICS_SET_BUDGET,
 } from '@intafaced/contracts/bank-analytics-procedures';
+import { BANK_ANALYTICS_COMPARE } from '@intafaced/contracts/bank-analytics-2-procedures';
 
 /** Words for budgets and month comparison in Analytics (BK-acct-08, J-bank-16 #4, #5). */
 const budgetsCopy = defineCopy('analytics-budgets', {
@@ -176,7 +177,7 @@ export function AnalyticsCompare({ assetId }: { assetId: string }) {
   const [first, setFirst] = useState(() => previousMonth(new Date()));
   const [second, setSecond] = useState(() => monthOf(new Date()));
   const valid = /^\d{4}-\d{2}$/.test(first) && /^\d{4}-\d{2}$/.test(second) && first !== second;
-  const compare = useBankRead('analytics.compare', { assetId, months: [first, second] }, Boolean(assetId) && valid);
+  const compare = useBankRecord(BANK_ANALYTICS_COMPARE, { assetId, months: [first, second] }, Boolean(assetId) && valid);
   return (
     <Panel level={3} title={t('compareTitle')} lead={t('compareLead')}>
       <div className="lt-stack" data-testid="analytics-compare">

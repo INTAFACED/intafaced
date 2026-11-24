@@ -637,6 +637,7 @@ pub fn hold(book: &Mutex<CardHoldBook>, terms: &PartnerTerms, h: &HoldMove<'_>, 
             released,
             refunded,
             expired: false,
+            drawn: false,
         },
     );
 }
