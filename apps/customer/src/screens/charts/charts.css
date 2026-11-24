@@ -138,7 +138,7 @@
   .cw-tools-summary {
     display: flex;
     align-items: center;
-    min-block-size: 32px;
+    min-block-size: 2rem;
     padding-inline: var(--if-space-3);
     border-block-start: 1px solid var(--if-line);
     color: var(--if-fg-2);
