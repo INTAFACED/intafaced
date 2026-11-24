@@ -11,7 +11,7 @@ function harness(reply: (call: Call) => { status?: number; body: unknown }) {
     calls.push(call);
     const { status = 200, body } = reply(call);
     return new Response(JSON.stringify(body), { status });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   const api = createApiClient({ fetch: fetcher });
   return { calls, portal: createPortalApi(api, 'user-1') };
 }
@@ -82,7 +82,7 @@ describe('portal api', () => {
 
   it('refuses without a session before any request leaves', async () => {
     const calls: unknown[] = [];
-    const api = createApiClient({ fetch: (async (...a: unknown[]) => (calls.push(a), new Response('{}'))) as unknown as typeof fetch });
+    const api = createApiClient({ fetch: (async (...a: unknown[]) => (calls.push(a), new Response('{}'))) as typeof fetch });
     const result = await createPortalApi(api, null).disputes(undefined, '');
     expect(result.ok).toBe(false);
     expect(calls).toEqual([]);

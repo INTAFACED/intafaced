@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
@@ -12,9 +12,12 @@ import { defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateB
 import { ChartGrid } from './ChartGrid';
 import type { WidgetProps } from './MarketChartWidget';
 import { DrawingsLayer } from './drawings/DrawingsLayer';
+import { drawingsKey, readDoc, writeDoc } from './drawings/store';
 import type { DrawingLimits } from './drawings/model';
-import { ownerValue, useChartOwnerValues } from './owner-values';
+import { ownerValue, useChartOwnerCounts, useChartOwnerValues } from './owner-values';
 import { useBookHalt, useMarketLifecycle } from './market-state';
+import { ChartSourceContext, ENGINE_CHART_SOURCE, useChartSource } from '../trade/chart/chart-source';
+import { useVenueChartMarkets, venueStatusInputs } from './venue-charts';
 import { refusalText } from './DataStatus';
 import { tradeRefusal } from './data-status';
 import {
@@ -32,6 +35,25 @@ import {
 import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
+import { TemplatesMenu } from './TemplatesMenu';
+import { NewsWidget } from '../../features/trade/news/NewsWidget';
+import { drawingsFrom, styleFrom, studiesFrom, type ChartTemplate } from './templates';
+import { templatesCopy } from './templates-copy';
+import { FEATURESETS, describeFeatureset, styleOnDesk } from './featureset';
+
+/** The workbench's chart parts (charts-desk-embed-feed-ops-018): the full chart. */
+const FEATURES = FEATURESETS.workbench;
+import { FRESH_STORE, isStudyStore, storeKey, type StudyStore } from './studies/model';
+
+/** The workbench's main-chart studies as kept on this device (the studies bar writes them on every change). */
+function readStudies(key: string): StudyStore {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return isStudyStore(stored) ? stored : FRESH_STORE;
+  } catch {
+    return FRESH_STORE;
+  }
+}
 
 function MarketSelect({
   label,
@@ -47,7 +69,7 @@ function MarketSelect({
   return (
     <label className="cw-select">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChoose(event.target.value)}>
+      <select data-testid="cw-market" value={value} onChange={(event) => onChoose(event.target.value)}>
         {markets.map((market) => (
           <option key={market.symbol} value={market.symbol}>
             {market.symbol}
@@ -64,10 +86,16 @@ function MarketSelect({
  */
 function TradeLink({ symbol }: { symbol: string }) {
   const { t } = chartsCopy.useCopy();
+  const source = useChartSource();
+  const venue = source.kind === 'venue' ? source : null;
   // The link is disabled until the state and the book are read, and while either is refused: one rule, the chart's own.
-  const lifecycle = useMarketLifecycle(symbol);
-  const bookHalt = useBookHalt(symbol);
-  const refusal = refusalText(tradeRefusal(lifecycle, bookHalt, Date.now()), t);
+  const engineLifecycle = useMarketLifecycle(symbol, venue === null);
+  const engineBookHalt = useBookHalt(symbol, venue === null);
+  const now = Date.now();
+  const venueState = venue ? venueStatusInputs(venue, symbol, { status: 'empty' }, now) : null;
+  const lifecycle = venueState ? venueState.lifecycle : engineLifecycle;
+  const bookHalt = venueState ? venueState.bookHalt : engineBookHalt;
+  const refusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
   if (refusal !== null)
     return (
       <span className="cw-link-refused">
@@ -86,8 +114,10 @@ function TradeLink({ symbol }: { symbol: string }) {
         </span>
       </span>
     );
+  const venueMarket = venue?.markets.find((m) => m.symbol === symbol);
+  const href = venueMarket?.kind === 'perpetual' ? `/trade/futures/${pairOf(symbol)}` : `/trade/spot/${pairOf(symbol)}`;
   return (
-    <a data-testid="cw-link" className="cw-link" href={`/trade/spot/${pairOf(symbol)}`}>
+    <a data-testid="cw-link" className="cw-link" href={href}>
       {t('Trade this market')}
     </a>
   );
@@ -106,11 +136,13 @@ function Page({
 }) {
   const { t } = chartsCopy.useCopy();
   const { userId } = useSession();
+  const source = useChartSource();
+  const offeredIntervals = source.kind === 'venue' ? source.intervals : undefined;
   const id = workbenchId(search);
   const [setting, setSetting] = useDeviceSetting<WorkbenchSetting>(settingKey(userId, id), DEFAULT_SETTING, isWorkbenchSetting);
   // An interval in the address opens the workbench at that interval, once; after that the person's choice stands.
   // A shared link also names the style (`?style=line`), applied the same way.
-  const fromAddress = useRef(intervalFromSearch(search));
+  const fromAddress = useRef(intervalFromSearch(search, offeredIntervals));
   const styleFromAddress = useRef(new URLSearchParams(search).get('style'));
   useEffect(() => {
     const wanted = fromAddress.current;
@@ -126,10 +158,12 @@ function Page({
   const setInterval = useCallback((interval: ChartInterval) => setSetting((now) => ({ ...now, interval })), [setSetting]);
   const setMode = useCallback((mode: ChartMode) => setSetting((now) => ({ ...now, mode })), [setSetting]);
   const setScheme = useCallback((scheme: ColourScheme) => setSetting((now) => ({ ...now, scheme })), [setSetting]);
-  const unoffered = useMemo(() => unofferedInterval(search), [search]);
+  const unoffered = useMemo(() => unofferedInterval(search, offeredIntervals), [search, offeredIntervals]);
   const chooseMarket = useCallback((symbol: string) => navigate(chartsHref(pairOf(symbol), { workbench: id })), [id]);
   // The owner's drawing caps. A blank, loading or failed read is null, and the drawing tools refuse with the typed reason.
-  const owner = useChartOwnerValues(market.symbol);
+  const engineOwner = useChartOwnerValues(market.symbol, source.kind === 'engine');
+  const venueOwner = useChartOwnerCounts(source.kind === 'venue');
+  const owner = source.kind === 'venue' ? venueOwner : engineOwner;
   const drawingCap = ownerValue(owner, 'drawingCap');
   const brushCap = ownerValue(owner, 'brushPointCap');
   const limits: DrawingLimits = {
@@ -138,8 +172,57 @@ function Page({
     brushPointCap: brushCap.ok ? brushCap.value : null,
     brushWhy: brushCap.ok ? undefined : brushCap.why,
   };
+  // Chart templates (C-embed-feed-ops-03): applying one replaces this workbench's study set and style and adds its drawings
+  // on the market they were drawn on, then draws the grid again so every chart reads them; the interval and symbol stay.
+  const { t: tt } = templatesCopy.useCopy();
+  type Applied =
+    | { name: string; count: number; placed: number; keptFor: string | null; kept: number; nonce: number }
+    | { refused: 'Not drawable' | 'Drawings over cap' | 'Drawing cap unset'; nonce: number };
+  const [applied, setApplied] = useState<Applied | null>(null);
+  const studiesKey = storeKey(userId, id);
+  const drawingKey = drawingsKey(userId, id, market.symbol);
+  const currentChart = useCallback(
+    () => ({
+      studies: readStudies(studiesKey),
+      style: setting.mode,
+      scheme: setting.scheme ?? 'standard',
+      drawings: FEATURES.drawings ? { symbol: market.symbol, doc: readDoc(localStorage, drawingKey) } : undefined,
+    }),
+    [studiesKey, setting.mode, setting.scheme, market.symbol, drawingKey],
+  );
+  const applyTemplate = useCallback(
+    (template: ChartTemplate) => {
+      const studies = studiesFrom(template, readStudies(studiesKey));
+      const style = styleFrom(template);
+      const drawings = FEATURES.drawings ? drawingsFrom(template, market.symbol, readDoc(localStorage, drawingKey)) : null;
+      const nonce = (applied?.nonce ?? 0) + 1;
+      if (!studies || !style || (FEATURES.drawings && !drawings)) return setApplied({ refused: 'Not drawable', nonce });
+      // The owner's drawing cap holds for a template's drawings as for drawn ones; a blank cap places none.
+      const placing = drawings && 'doc' in drawings && drawings.placed > 0 ? drawings : null;
+      if (placing && limits.drawingCap === null) return setApplied({ refused: 'Drawing cap unset', nonce });
+      if (placing && limits.drawingCap !== null && placing.doc.drawings.length > limits.drawingCap)
+        return setApplied({ refused: 'Drawings over cap', nonce });
+      // Only the parts this desk turns on: studies where it draws them, a style it draws (else it keeps its own).
+      try {
+        if (FEATURES.studies) localStorage.setItem(studiesKey, JSON.stringify(studies));
+        if (placing && !writeDoc(localStorage, drawingKey, placing.doc)) return setApplied({ refused: 'Not drawable', nonce });
+      } catch {
+        return setApplied({ refused: 'Not drawable', nonce });
+      }
+      setSetting((now) => ({ ...now, mode: styleOnDesk(FEATURES, style.mode, now.mode), scheme: style.scheme }));
+      setApplied({
+        name: template.name,
+        count: FEATURES.studies ? studies.studies.length : 0,
+        placed: placing?.placed ?? 0,
+        keptFor: drawings && 'keptFor' in drawings ? drawings.keptFor : null,
+        kept: drawings && 'keptFor' in drawings ? drawings.count : 0,
+        nonce,
+      });
+    },
+    [studiesKey, drawingKey, market.symbol, limits.drawingCap, setSetting, applied?.nonce],
+  );
   return (
-    <div className="cw-page" data-market={market.symbol} data-workbench={id}>
+    <div className="cw-page" data-market={market.symbol} data-workbench={id} data-featureset={describeFeatureset(FEATURES)}>
       <header className="cw-head">
         <div>
           <h1>{t('Charts')}</h1>
@@ -148,8 +231,30 @@ function Page({
         <div className="cw-head-actions">
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
           <TradeLink symbol={market.symbol} />
+          {FEATURES.templates ? <TemplatesMenu current={currentChart} onApply={applyTemplate} /> : null}
+          <NewsWidget key={market.symbol} symbol={market.symbol} />
         </div>
       </header>
+      {applied && 'refused' in applied ? (
+        <p role="status" className="cw-note" data-testid="cw-template-refused" data-why={applied.refused}>
+          {applied.refused === 'Drawings over cap'
+            ? tt('Drawings over cap', { cap: String(limits.drawingCap ?? '') })
+            : tt(applied.refused)}
+        </p>
+      ) : applied ? (
+        <p
+          role="status"
+          className="cw-note"
+          data-testid="cw-template"
+          data-template={applied.name}
+          data-drawings-placed={applied.placed}
+          data-drawings-kept-for={applied.keptFor ?? undefined}
+        >
+          {tt('Applied', { name: applied.name, count: applied.count })}
+          {applied.placed > 0 ? ` ${tt('Drawings placed', { count: applied.placed })}` : ''}
+          {applied.keptFor ? ` ${tt('Drawings kept for', { count: applied.kept, symbol: applied.keptFor })}` : ''}
+        </p>
+      ) : null}
       {unoffered && (
         <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
           <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
@@ -172,6 +277,7 @@ function Page({
           }}
         >
           <ChartGrid
+            key={applied && !('refused' in applied) ? `template-${applied.nonce}` : 'grid'}
             market={market}
             markets={markets}
             workbench={id}
@@ -203,30 +309,65 @@ function Page({
 /** The workbench, `/charts/:symbol`: a chart for the market in the address, with the interval and style shared by every chart on the page. */
 export default function ChartsScreen({ params, search, openSocket }: ScreenProps & { openSocket?: WidgetProps['openSocket'] }) {
   const { t } = chartsCopy.useCopy();
-  const markets = useDeskMarkets();
-  const pair = normalizePair(params.symbol ?? defaultDeskPair);
-  if (markets.status === 'loading')
+  const venueMarkets = useVenueChartMarkets();
+  const engineMarkets = useDeskMarkets(venueMarkets.status === 'off');
+  if (venueMarkets.status === 'loading')
     return (
       <div className="cw-page" role="status" aria-busy="true">
         <Skeleton height={440} className="bg-field" />
       </div>
     );
-  if (markets.status === 'error')
+  if (venueMarkets.status === 'error')
     return (
       <div className="cw-page cw-page--state">
-        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={markets.retry} retryLabel={t('Try again')} />
+        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={venueMarkets.retry} retryLabel={t('Try again')} />
       </div>
     );
-  if (markets.status === 'refused') {
-    const words = refusalCopy(markets.code, { pair });
+  if (venueMarkets.status === 'ready') {
+    const list = venueMarkets.data.deskMarkets;
+    const defaultPair = list.find((m) => m.symbol === 'BTC-USDC')?.symbol ?? list[0]?.symbol ?? 'BTC-USDC';
+    const pair = normalizePair(params.symbol ?? defaultPair);
+    const market = findMarket(list, pair);
+    if (!market)
+      return (
+        <div className="cw-page cw-page--state">
+          <StateBlock
+            kind="empty"
+            title={t('Market not found title')}
+            body={t('Market not found body')}
+            action={{ label: t('See all markets'), href: '/trade' }}
+          />
+        </div>
+      );
+    return (
+      <ChartSourceContext.Provider value={venueMarkets.data}>
+        <Page key={market.symbol} market={market} markets={list} search={search} openSocket={openSocket} />
+      </ChartSourceContext.Provider>
+    );
+  }
+  const pair = normalizePair(params.symbol ?? defaultDeskPair);
+  if (engineMarkets.status === 'loading')
+    return (
+      <div className="cw-page" role="status" aria-busy="true">
+        <Skeleton height={440} className="bg-field" />
+      </div>
+    );
+  if (engineMarkets.status === 'error')
+    return (
+      <div className="cw-page cw-page--state">
+        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={engineMarkets.retry} retryLabel={t('Try again')} />
+      </div>
+    );
+  if (engineMarkets.status === 'refused') {
+    const words = refusalCopy(engineMarkets.code, { pair });
     return (
       <div className="cw-page cw-page--state">
         <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />
       </div>
     );
   }
-  const market = markets.status === 'ready' ? findMarket(markets.data, pair) : undefined;
-  if (!market || markets.status !== 'ready')
+  const market = engineMarkets.status === 'ready' ? findMarket(engineMarkets.data, pair) : undefined;
+  if (!market || engineMarkets.status !== 'ready')
     return (
       <div className="cw-page cw-page--state">
         <StateBlock
@@ -237,5 +378,9 @@ export default function ChartsScreen({ params, search, openSocket }: ScreenProps
         />
       </div>
     );
-  return <Page key={market.symbol} market={market} markets={markets.data} search={search} openSocket={openSocket} />;
+  return (
+    <ChartSourceContext.Provider value={ENGINE_CHART_SOURCE}>
+      <Page key={market.symbol} market={market} markets={engineMarkets.data} search={search} openSocket={openSocket} />
+    </ChartSourceContext.Provider>
+  );
 }

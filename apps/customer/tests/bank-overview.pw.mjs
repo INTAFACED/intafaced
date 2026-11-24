@@ -46,7 +46,7 @@ const space = (id, kind, name, balance) => ({
 const row = (page, asset) => page.locator(`main a.money-holding[href="/portfolio/${encodeURIComponent(asset)}"]`);
 const quantity = (page, asset) =>
   row(page, asset).locator('.money-quantity-value, .money-holding-values > strong:not(:has(.money-quantity-value))').first();
-const bankNav = (page) => page.locator('main .money-bank-nav');
+const bankNav = (page) => page.locator('main [data-testid="money-bank-nav"]');
 const main = (page) => page.locator('main');
 const currentURL = (page) => page.evaluate(() => location.pathname + location.search + location.hash);
 const pause = () => {
@@ -219,7 +219,7 @@ test('four widths promote supported quantities and useful tasks while keeping al
       const geometry = await row(page, 'USDT').evaluate((element) => {
         const q = element.querySelector('.money-holding-values > strong');
         const missing = document.querySelector('main .money-total');
-        const tasks = [...document.querySelectorAll('main a.button')].filter((node) =>
+        const tasks = [...document.querySelectorAll('main :is(a.button, a.lt-button)')].filter((node) =>
           ['/bank/spaces', '/bank/transfers', '/uc/withdraw'].includes(node.getAttribute('href')),
         );
         const nav = document.querySelector('.mobile-doors');
@@ -274,7 +274,10 @@ test('four widths promote supported quantities and useful tasks while keeping al
           await page.keyboard.press('Tab');
           const focused = await page.evaluate(() => {
             const node = document.activeElement;
-            if (!node?.matches('main a.button') || !['/bank/spaces', '/bank/transfers', '/uc/withdraw'].includes(node.getAttribute('href')))
+            if (
+              !node?.matches('main :is(a.button, a.lt-button)') ||
+              !['/bank/spaces', '/bank/transfers', '/uc/withdraw'].includes(node.getAttribute('href'))
+            )
               return null;
             const box = node.getBoundingClientRect(),
               nav = document.querySelector('.mobile-doors');
@@ -326,7 +329,7 @@ test('Money to Bank to Spaces Create uses the same document and preserves actual
       await page.keyboard.press('Enter');
       await expect.poll(() => currentURL(page)).toBe('/bank');
       await exactAmounts(page);
-      const create = main(page).locator('a.button[href="/bank/spaces"]').first();
+      const create = main(page).locator(':is(a.button, a.lt-button)[href="/bank/spaces"]').first();
       await expect(create).toBeVisible();
       await create.click();
       await expect.poll(() => currentURL(page)).toBe('/bank/spaces');
@@ -347,7 +350,7 @@ test('Money to Bank to Spaces Create uses the same document and preserves actual
       expect(await page.evaluate(() => window.__bankDocumentCanary)).toBe(sentinel);
       await page.goBack();
       await exactAmounts(page);
-      const transfers = main(page).locator('a.button[href="/bank/transfers"]').first();
+      const transfers = main(page).locator(':is(a.button, a.lt-button)[href="/bank/transfers"]').first();
       await transfers.focus();
       await page.keyboard.press('Enter');
       await expect.poll(() => currentURL(page)).toBe('/bank/transfers');
@@ -388,7 +391,8 @@ test('privacy masks all amounts including zero; long exact units fit English Spa
           await expect(quantity(page, current)).toHaveText('••••');
           await expect(row(page, current).locator('dd')).toHaveText(['••••', '••••']);
         }
-        for (const saved of await main(page).locator('.money-space-row .numeric').all()) await expect(saved).toHaveText('••••');
+        for (const saved of await main(page).locator('.money-space-row :is(.numeric, .lt-num)').all())
+          await expect(saved).toHaveText('••••');
         await capture(page, `${language}-hidden`, state);
         await main(page).getByRole('button', { name: show, exact: true }).click();
         await expect(row(page, 'BTC').locator('dd').last()).toHaveText('0 BTC');
@@ -530,7 +534,7 @@ test('unknown and unreadable originals stay before content byte-exact through re
         expect(await page.evaluate((key) => localStorage.getItem(key), bankKey)).toBe(raw);
         await page.goBack();
         await page.reload();
-        const signIn = main(page).locator('a.button[href="/login?redirect=%2Fbank"]');
+        const signIn = main(page).locator(':is(a.button, a.lt-button)[href="/login?redirect=%2Fbank"]');
         await expect(signIn).toBeVisible();
         expect(await page.evaluate((key) => localStorage.getItem(key), bankKey)).toBe(raw);
         await signIn.click();

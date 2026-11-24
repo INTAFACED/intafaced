@@ -1,0 +1,3616 @@
+{
+  "nodes": [
+    { "t": "object", "shape": [["agentId", 1]] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 3],
+        ["to", 5],
+        ["includeTest", 7]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 4 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 6 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 8 },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["question", 10],
+        ["lessonSlug", 11],
+        ["requestId", 13]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 2000 }] },
+    { "t": "optional", "in": 12 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z0-9-]{1,128}$/" }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9:_-]{8,200}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ask", 15],
+        ["requestedSlug", 17],
+        ["includePositions", 19],
+        ["asAdvice", 21]
+      ]
+    },
+    { "t": "optional", "in": 16 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
+    { "t": "optional", "in": 18 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 20 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 22 },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["fixtures", 24],
+        ["copyPlane", 36],
+        ["leaderAllowlist", 38],
+        ["now", 41]
+      ]
+    },
+    { "t": "array", "el": 25, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["leaderId", 26],
+        ["realisedPnl", 27],
+        ["closedTrades", 29],
+        ["winningTrades", 31],
+        ["windowStart", 33],
+        ["windowEnd", 34],
+        ["source", 35]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 28 },
+    { "t": "string" },
+    { "t": "nullable", "in": 30 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "nullable", "in": 32 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 37 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 39 },
+    { "t": "array", "el": 40, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 42 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["stats", 44],
+        ["mode", 52],
+        ["sortBy", 54],
+        ["leaderFilter", 56]
+      ]
+    },
+    { "t": "array", "el": 45, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["leaderId", 46],
+        ["realisedPnl", 47],
+        ["closedTrades", 48],
+        ["winRate", 49],
+        ["windowStart", 50],
+        ["windowEnd", 51]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string" },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string" },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 53 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 55 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 57 },
+    { "t": "array", "el": 58, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 60],
+        ["fixtures", 61],
+        ["leaderAllowlist", 73],
+        ["now", 76]
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "array", "el": 62, "checks": [{ "k": "max_length", "n": 50 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["leaderId", 63],
+        ["realisedPnl", 64],
+        ["closedTrades", 66],
+        ["winningTrades", 68],
+        ["windowStart", 70],
+        ["windowEnd", 71],
+        ["source", 72]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 65 },
+    { "t": "string" },
+    { "t": "nullable", "in": 67 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "nullable", "in": 69 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 74 },
+    { "t": "array", "el": 75, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 77 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["riskSignal", 79],
+        ["status", 81],
+        ["kind", 83],
+        ["ownerless", 85],
+        ["requestId", 87]
+      ]
+    },
+    { "t": "optional", "in": 80 },
+    { "t": "enum", "values": ["no_owner", "write_tool", "no_spend_cap", "never_run"] },
+    { "t": "optional", "in": 82 },
+    { "t": "enum", "values": ["active", "quarantined", "disabled_by_kind", "disabled"] },
+    { "t": "optional", "in": 84 },
+    { "t": "enum", "values": ["customer_built", "product"] },
+    { "t": "optional", "in": 86 },
+    { "t": "boolean" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 89],
+        ["reason", 90],
+        ["requestId", 87]
+      ]
+    },
+    { "t": "enum", "values": ["customer_built", "product"] },
+    { "t": "optional", "in": 91 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ref", 93],
+        ["reason", 94],
+        ["requestId", 87]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 95 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ref", 93],
+        ["ownerId", 97],
+        ["requestId", 87]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 99 },
+    {
+      "t": "object",
+      "shape": [
+        ["riskSignal", 79],
+        ["status", 81],
+        ["kind", 83],
+        ["ownerless", 85]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ref", 93],
+        ["requestId", 87]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 102],
+        ["requestId", 87]
+      ]
+    },
+    { "t": "enum", "values": ["customer_built", "product"] },
+    {
+      "t": "object",
+      "shape": [
+        ["headline", 104],
+        ["copy", 106],
+        ["publish", 108],
+        ["incentiveBudget", 110],
+        ["spendAmount", 112]
+      ]
+    },
+    { "t": "optional", "in": 105 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "optional", "in": 107 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
+    { "t": "optional", "in": 109 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 111 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 113 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["deployer", 115],
+        ["asBadge", 117],
+        ["asBlockDecision", 119]
+      ]
+    },
+    { "t": "optional", "in": 116 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 118 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 120 },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["outcome", 122]], "catchall": "strict" },
+    { "t": "optional", "in": 123 },
+    { "t": "enum", "values": ["executed", "refused", "failed"] },
+    {
+      "t": "object",
+      "shape": [
+        ["outcome", 125],
+        ["cursor", 126],
+        ["limit", 128],
+        ["requestId", 130],
+        ["format", 132]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 123 },
+    { "t": "optional", "in": 127 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "optional", "in": 129 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "optional", "in": 131 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "optional", "in": 133 },
+    { "t": "enum", "values": ["csv", "json"] },
+    { "t": "optional", "in": 135 },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 136],
+        ["outcome", 138]
+      ]
+    },
+    { "t": "optional", "in": 137 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "optional", "in": 139 },
+    { "t": "enum", "values": ["executed", "refused", "failed"] },
+    {
+      "t": "object",
+      "shape": [
+        ["packageId", 141],
+        ["version", 142],
+        ["publisher", 143],
+        ["claimedTools", 144],
+        ["claimedScopes", 147],
+        ["claimedCapacityMode", 150]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 145 },
+    { "t": "array", "el": 146, "checks": [{ "k": "max_length", "n": 50 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 148 },
+    { "t": "array", "el": 149, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 151 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 153],
+        ["points", 154],
+        ["threshold", 163],
+        ["railAllowlist", 165],
+        ["minAttempts", 168],
+        ["now", 170]
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "array", "el": 155, "checks": [{ "k": "max_length", "n": 50 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["railId", 156],
+        ["approvalRate", 157],
+        ["attempts", 159],
+        ["asOf", 161],
+        ["maxAgeMs", 162]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 158 },
+    { "t": "string" },
+    { "t": "nullable", "in": 160 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 164 },
+    { "t": "string" },
+    { "t": "optional", "in": 166 },
+    { "t": "array", "el": 167, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 169 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000000, "incl": true }] },
+    { "t": "optional", "in": 171 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["points", 173],
+        ["threshold", 182],
+        ["payPlane", 184],
+        ["railAllowlist", 186],
+        ["minAttempts", 189],
+        ["now", 191]
+      ]
+    },
+    { "t": "array", "el": 174, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["railId", 175],
+        ["approvalRate", 176],
+        ["attempts", 178],
+        ["asOf", 180],
+        ["maxAgeMs", 181]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 177 },
+    { "t": "string" },
+    { "t": "nullable", "in": 179 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 183 },
+    { "t": "string" },
+    { "t": "optional", "in": 185 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 187 },
+    { "t": "array", "el": 188, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 190 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000000, "incl": true }] },
+    { "t": "optional", "in": 192 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 194],
+        ["requestId", 195],
+        ["text", 196]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200000 }] },
+    { "t": "object", "shape": [["plane", 198]] },
+    { "t": "enum", "values": ["live", "dark"] },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 200],
+        ["plane", 201],
+        ["now", 202],
+        ["quote", 204],
+        ["markets", 212],
+        ["session", 219],
+        ["occurredAt", 225],
+        ["marketsLimit", 227]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 203 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 205 },
+    { "t": "nullable", "in": 206 },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 207],
+        ["last", 208],
+        ["asOf", 210],
+        ["maxAgeMs", 211]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 209 },
+    { "t": "string" },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 213 },
+    { "t": "nullable", "in": 214 },
+    { "t": "array", "el": 215, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 216],
+        ["symbol", 217],
+        ["status", 218]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["open", "halted", "closed"] },
+    { "t": "optional", "in": 220 },
+    { "t": "nullable", "in": 221 },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 222],
+        ["userId", 223],
+        ["status", 224]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["open", "closed"] },
+    { "t": "optional", "in": 226 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 228 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["chainId", 230],
+        ["account", 231],
+        ["specHash", 232],
+        ["spendLimitWei", 233],
+        ["validUntil", 236],
+        ["targets", 239],
+        ["selectors", 240]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{40}$/" }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{64}$/" }] },
+    { "t": "optional", "in": 234 },
+    { "t": "nullable", "in": 235 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 80 }] },
+    { "t": "optional", "in": 237 },
+    { "t": "nullable", "in": 238 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "array",
+      "el": 231,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 241,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 32 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{8}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["chainId", 230],
+        ["account", 231]
+      ]
+    },
+    { "t": "object", "shape": [["chainId", 230]] },
+    { "t": "object", "shape": [["sessionId", 245]] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 247],
+        ["asks", 248],
+        ["now", 272],
+        ["marketsLimit", 274]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "array", "el": 249, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 250],
+        ["quote", 251],
+        ["markets", 259],
+        ["session", 266]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 252 },
+    { "t": "nullable", "in": 253 },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 254],
+        ["last", 255],
+        ["asOf", 257],
+        ["maxAgeMs", 258]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 256 },
+    { "t": "string" },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 260 },
+    { "t": "nullable", "in": 261 },
+    { "t": "array", "el": 262, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 263],
+        ["symbol", 264],
+        ["status", 265]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["open", "halted", "closed"] },
+    { "t": "optional", "in": 267 },
+    { "t": "nullable", "in": 268 },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 269],
+        ["userId", 270],
+        ["status", 271]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["open", "closed"] },
+    { "t": "optional", "in": 273 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 275 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 277],
+        ["candidates", 278],
+        ["tools", 280]
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "array", "el": 279, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "array", "el": 281, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 282],
+        ["module", 283],
+        ["mode", 284],
+        ["requiresApproval", 285]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["read", "write"] },
+    { "t": "optional", "in": 286 },
+    { "t": "boolean" },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 289],
+        ["to", 291],
+        ["agentId", 293],
+        ["userId", 295],
+        ["status", 297],
+        ["limit", 299],
+        ["cursor", 301]
+      ]
+    },
+    { "t": "optional", "in": 290 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 292 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 294 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 296 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 298 },
+    { "t": "enum", "values": ["open", "closed"] },
+    { "t": "optional", "in": 300 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "optional", "in": 302 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["dataClass", 304],
+        ["choice", 305]
+      ]
+    },
+    { "t": "enum", "values": ["own_data", "market_data", "draft_write", "live_write"] },
+    { "t": "enum", "values": ["hand_off", "ask_before", "act_on_request", "act_without_asking"] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 307],
+        ["measure", 308],
+        ["threshold", 309],
+        ["windowMinutes", 311],
+        ["agentId", 312]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 80 }] },
+    { "t": "enum", "values": ["refusal_rate", "failure_rate", "cost"] },
+    { "t": "optional", "in": 310 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 60 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1440, "incl": true }] },
+    { "t": "optional", "in": 313 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "object", "shape": [["state", 315]] },
+    { "t": "enum", "values": ["on", "down"] },
+    {
+      "t": "object",
+      "shape": [
+        ["dataClass", 317],
+        ["choice", 318]
+      ]
+    },
+    { "t": "enum", "values": ["own_data", "market_data", "draft_write", "live_write"] },
+    { "t": "enum", "values": ["hand_off", "ask_before", "act_on_request", "act_without_asking"] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 320],
+        ["reason", 321],
+        ["outcome", 323],
+        ["tool", 325],
+        ["requestId", 327]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 322 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "optional", "in": 324 },
+    { "t": "enum", "values": ["executed", "refused", "failed"] },
+    { "t": "optional", "in": 326 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["actionId", 329],
+        ["reason", 330],
+        ["requestId", 332]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 331 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["id", 334]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["grantKey", 336],
+        ["venueId", 337],
+        ["owner", 338],
+        ["subAccounts", 339],
+        ["endsInDays", 343]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "array", "el": 340, "checks": [{ "k": "max_length", "n": 32 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["subAccount", 341],
+        ["name", 342]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "nullable", "in": 344 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["includeTest", 346]
+      ]
+    },
+    { "t": "optional", "in": 347 },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["requestId", 349]] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["requestId", 351],
+        ["input", 352]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "record", "key": 353, "value": 354, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    { "t": "object", "shape": [["requestId", 356]] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 358]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 360],
+        ["instructions", 361],
+        ["tools", 362],
+        ["acceptKey", 364]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    { "t": "array", "el": 363, "checks": [{ "k": "max_length", "n": 50 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "object", "shape": [["description", 366]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 4000 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 368],
+        ["requestId", 369],
+        ["ask", 370]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 372]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["dataClass", 374]
+      ]
+    },
+    { "t": "enum", "values": ["own_data", "market_data", "draft_write", "live_write"] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["dataClass", 376]
+      ]
+    },
+    { "t": "enum", "values": ["own_data", "market_data", "draft_write", "live_write"] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["coOwner", 378]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["coOwner", 380]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["template", 382],
+        ["createKey", 383]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 385],
+        ["confirm", 386]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 388],
+        ["requestId", 389],
+        ["tool", 390],
+        ["input", 391]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "record", "key": 392, "value": 393, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 395]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 50, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 397],
+        ["requestId", 398],
+        ["cases", 399],
+        ["repeats", 403],
+        ["threshold", 404]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "array", "el": 400, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["input", 401],
+        ["expected", 402]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "object", "shape": [["id", 406]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "object", "shape": [["token", 408]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["limit", 410]] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["perCall", 412],
+        ["perSession", 414],
+        ["perPeriod", 416]
+      ]
+    },
+    { "t": "nullable", "in": 413 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "nullable", "in": 415 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "nullable", "in": 417 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "object", "shape": [["limit", 419]] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 421],
+        ["itemId", 422]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 424]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 426],
+        ["enabled", 427]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 429],
+        ["address", 430]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 431 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["effect", 433],
+        ["action", 434],
+        ["scope", 435]
+      ]
+    },
+    { "t": "enum", "values": ["allow", "deny"] },
+    { "t": "enum", "values": ["place_order", "cancel_order", "amend_order"] },
+    { "t": "enum", "values": ["all", "main"] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["action", 437],
+        ["account", 438]
+      ]
+    },
+    { "t": "enum", "values": ["place_order", "cancel_order", "amend_order"] },
+    { "t": "union", "options": [439, 440] },
+    { "t": "literal", "values": ["main"] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^sub:0x[0-9a-f]{40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 442],
+        ["id", 443],
+        ["action", 444],
+        ["account", 438]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["place_order", "cancel_order", "amend_order"] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["ruleId", 446]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["rulesRequired", 448]
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 450],
+        ["keep", 451]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 453],
+        ["surfaces", 454]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 455,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 3 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["tool", 457],
+        ["input", 458]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "record", "key": 459, "value": 460, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 462]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["on", 464]
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["tool", 466],
+        ["choice", 467]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["hand_off", "ask_before", "act_on_request", "act_without_asking"] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["sessionId", 469],
+        ["requestId", 470],
+        ["ask", 471]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 4000 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 473]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 475],
+        ["name", 476],
+        ["instructions", 477],
+        ["tools", 478],
+        ["perSessionCap", 480]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    { "t": "array", "el": 479, "checks": [{ "k": "max_length", "n": 50 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "nullable", "in": 481 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 483],
+        ["scheduleId", 484]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 486],
+        ["createKey", 487],
+        ["repeat", 488],
+        ["intervalMinutes", 489],
+        ["perRunCap", 490],
+        ["ask", 491]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "enum", "values": ["once", "repeat"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
+    { "t": "object", "shape": [["id", 483]] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["sessionId", 494]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 496],
+        ["includeTranscripts", 497],
+        ["includeMemory", 498]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 496],
+        ["includeTranscripts", 497],
+        ["includeMemory", 498],
+        ["confirmed", 500]
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["limit", 502]] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 504],
+        ["runId", 505],
+        ["payload", 506]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["amount", 507],
+        ["assetId", 508],
+        ["destination", 509]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[0-9]+(\\.[0-9]+)?$/" }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 12 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 511],
+        ["requestId", 512],
+        ["ask", 513],
+        ["content", 514],
+        ["outputSchema", 516]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    { "t": "optional", "in": 515 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 8000 }] },
+    { "t": "optional", "in": 517 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 519]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["sessionId", 521],
+        ["requestId", 522],
+        ["tool", 523],
+        ["input", 524]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "record", "key": 525, "value": 526, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 4000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 528],
+        ["requestId", 529],
+        ["tool", 530]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["ask", 532]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 534],
+        ["createKey", 535],
+        ["subject", 536],
+        ["perRunCap", 537],
+        ["ask", 538]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 334],
+        ["limit", 540]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "object", "shape": [["id", 542]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 544],
+        ["alertAt", 545],
+        ["hardLimit", 547],
+        ["email", 549]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 546 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "nullable", "in": 548 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["targets", 551]] },
+    { "t": "optional", "in": 552 },
+    { "t": "array", "el": 553 },
+    {
+      "t": "object",
+      "shape": [
+        ["asset", 554],
+        ["plane", 555],
+        ["weight", 556]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 32 }
+      ]
+    },
+    { "t": "enum", "values": ["custodial", "sovereign"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["subjectId", 558],
+        ["region", 560],
+        ["asDecision", 562],
+        ["writeReviewedBy", 564]
+      ]
+    },
+    { "t": "optional", "in": 559 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 561 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 8 }
+      ]
+    },
+    { "t": "optional", "in": 563 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 565 },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["recordId", 567],
+        ["reviewerId", 569],
+        ["decision", 571]
+      ]
+    },
+    { "t": "optional", "in": 568 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 570 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 572 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "object", "shape": [["changeId", 574]] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["task", 576],
+        ["maxOutputTokens", 577],
+        ["inputPerMillion", 578],
+        ["outputPerMillion", 580],
+        ["requestId", 582]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "nullable", "in": 579 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 40 }] },
+    { "t": "nullable", "in": 581 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 40 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["changeId", 574]] },
+    {
+      "t": "object",
+      "shape": [
+        ["runId", 585],
+        ["text", 586]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 20000 }] },
+    { "t": "object", "shape": [["runId", 588]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 590],
+        ["requestId", 591],
+        ["task", 592],
+        ["ask", 593],
+        ["steps", 594],
+        ["notice", 595]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 20000 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    { "t": "enum", "values": ["inapp", "email", "sms", "push"] },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 597],
+        ["requestId", 598],
+        ["task", 599],
+        ["system", 600],
+        ["messages", 602],
+        ["maxOutputTokens", 606]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 601 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    {
+      "t": "array",
+      "el": 603,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["role", 604],
+        ["content", 605]
+      ]
+    },
+    { "t": "enum", "values": ["user", "assistant"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200000 }
+      ]
+    },
+    { "t": "optional", "in": 607 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["runId", 609],
+        ["cursor", 610],
+        ["limit", 612]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 611 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [["runId", 614]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 616],
+        ["limit", 617]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 619],
+        ["requestId", 620]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 622],
+        ["plane", 623],
+        ["now", 624],
+        ["ticker", 626],
+        ["markets", 638],
+        ["bookTop", 645]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 625 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 627 },
+    { "t": "nullable", "in": 628 },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 629],
+        ["last", 630],
+        ["volume24h", 632],
+        ["change24hBps", 634],
+        ["asOf", 636],
+        ["maxAgeMs", 637]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 631 },
+    { "t": "string" },
+    { "t": "nullable", "in": 633 },
+    { "t": "string" },
+    { "t": "nullable", "in": 635 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 639 },
+    { "t": "nullable", "in": 640 },
+    { "t": "array", "el": 641, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 642],
+        ["symbol", 643],
+        ["status", 644]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["open", "halted", "closed"] },
+    { "t": "optional", "in": 646 },
+    { "t": "nullable", "in": 647 },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 648],
+        ["bid", 649],
+        ["ask", 651],
+        ["asOf", 653],
+        ["maxAgeMs", 654]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 650 },
+    { "t": "string" },
+    { "t": "nullable", "in": 652 },
+    { "t": "string" },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["fixtures", 656],
+        ["limit", 667],
+        ["marketPlane", 669],
+        ["marketAllowlist", 671],
+        ["now", 674],
+        ["signalInputsLaw", 676]
+      ]
+    },
+    { "t": "array", "el": 657, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 658],
+        ["last", 659],
+        ["volume24h", 661],
+        ["change24hBps", 663],
+        ["asOf", 665],
+        ["maxAgeMs", 666]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 660 },
+    { "t": "string" },
+    { "t": "nullable", "in": 662 },
+    { "t": "string" },
+    { "t": "nullable", "in": 664 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 668 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
+    { "t": "optional", "in": 670 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 672 },
+    { "t": "array", "el": 673, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 675 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 677 },
+    { "t": "nullable", "in": 678 },
+    { "t": "union", "options": [679, 681] },
+    { "t": "object", "shape": [["published", 680]] },
+    { "t": "literal", "values": [false] },
+    {
+      "t": "object",
+      "shape": [
+        ["published", 682],
+        ["p0_11", 683],
+        ["allowedInputs", 684],
+        ["rankingRecipeId", 686]
+      ]
+    },
+    { "t": "literal", "values": [true] },
+    { "t": "literal", "values": ["sealed"] },
+    { "t": "array", "el": 685, "checks": [{ "k": "max_length", "n": 20 }] },
+    { "t": "enum", "values": ["last", "volume24h", "change24hBps", "spread", "funding"] },
+    { "t": "literal", "values": ["abs_change_x_log_volume"] },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 688],
+        ["signalInputsLaw", 689],
+        ["tickers", 700],
+        ["marketAllowlist", 711],
+        ["now", 714]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 690 },
+    { "t": "nullable", "in": 691 },
+    { "t": "union", "options": [692, 694] },
+    { "t": "object", "shape": [["published", 693]] },
+    { "t": "literal", "values": [false] },
+    {
+      "t": "object",
+      "shape": [
+        ["published", 695],
+        ["p0_11", 696],
+        ["allowedInputs", 697],
+        ["rankingRecipeId", 699]
+      ]
+    },
+    { "t": "literal", "values": [true] },
+    { "t": "literal", "values": ["sealed"] },
+    { "t": "array", "el": 698, "checks": [{ "k": "max_length", "n": 20 }] },
+    { "t": "enum", "values": ["last", "volume24h", "change24hBps", "spread", "funding"] },
+    { "t": "literal", "values": ["abs_change_x_log_volume"] },
+    { "t": "array", "el": 701, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 702],
+        ["last", 703],
+        ["volume24h", 705],
+        ["change24hBps", 707],
+        ["asOf", 709],
+        ["maxAgeMs", 710]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 704 },
+    { "t": "string" },
+    { "t": "nullable", "in": 706 },
+    { "t": "string" },
+    { "t": "nullable", "in": 708 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 712 },
+    { "t": "array", "el": 713, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 715 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 717],
+        ["signalInputsLaw", 718],
+        ["tickers", 729],
+        ["marketAllowlist", 740],
+        ["now", 743],
+        ["tickersLimit", 745]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 719 },
+    { "t": "nullable", "in": 720 },
+    { "t": "union", "options": [721, 723] },
+    { "t": "object", "shape": [["published", 722]] },
+    { "t": "literal", "values": [false] },
+    {
+      "t": "object",
+      "shape": [
+        ["published", 724],
+        ["p0_11", 725],
+        ["allowedInputs", 726],
+        ["rankingRecipeId", 728]
+      ]
+    },
+    { "t": "literal", "values": [true] },
+    { "t": "literal", "values": ["sealed"] },
+    { "t": "array", "el": 727, "checks": [{ "k": "max_length", "n": 20 }] },
+    { "t": "enum", "values": ["last", "volume24h", "change24hBps", "spread", "funding"] },
+    { "t": "literal", "values": ["abs_change_x_log_volume"] },
+    { "t": "array", "el": 730, "checks": [{ "k": "max_length", "n": 50 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 731],
+        ["last", 732],
+        ["volume24h", 734],
+        ["change24hBps", 736],
+        ["asOf", 738],
+        ["maxAgeMs", 739]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 733 },
+    { "t": "string" },
+    { "t": "nullable", "in": 735 },
+    { "t": "string" },
+    { "t": "nullable", "in": 737 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 86400000, "incl": true }] },
+    { "t": "optional", "in": 741 },
+    { "t": "array", "el": 742, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 744 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 746 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    { "t": "object", "shape": [["sessionId", 749]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["sessionId", 751]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 753],
+        ["cursor", 754],
+        ["limit", 756]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 755 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 16 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 758],
+        ["limit", 759]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 760 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 762],
+        ["cursor", 764]
+      ]
+    },
+    { "t": "optional", "in": 763 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "optional", "in": 765 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "object", "shape": [["agentId", 767]] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "object", "shape": [["sessionId", 769]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["idempotencyKey", 771],
+        ["assetId", 771],
+        ["perCall", 771],
+        ["perSession", 771],
+        ["perPeriod", 771],
+        ["period", 771]
+      ]
+    },
+    { "t": "optional", "in": 772 },
+    { "t": "nullable", "in": 773 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 775],
+        ["plane", 776],
+        ["articles", 777],
+        ["moneyRequest", 784],
+        ["kbPlane", 786],
+        ["limit", 788]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 778 },
+    { "t": "nullable", "in": 779 },
+    { "t": "array", "el": 780, "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["articleKey", 781],
+        ["titleKey", 782],
+        ["bodyKey", 783]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    { "t": "optional", "in": 785 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 787 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 789 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ticketId", 791],
+        ["body", 794]
+      ]
+    },
+    { "t": "optional", "in": 792 },
+    { "t": "nullable", "in": 793 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "optional", "in": 795 },
+    { "t": "nullable", "in": 796 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 5000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 798],
+        ["kbPlane", 799],
+        ["kbHitCount", 801],
+        ["requireKb", 803]
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 800 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 802 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    { "t": "optional", "in": 804 },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 806],
+        ["plane", 807],
+        ["articles", 808],
+        ["ticket", 815],
+        ["account", 822],
+        ["occurredAt", 828],
+        ["kbPlane", 830],
+        ["limit", 832]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 809 },
+    { "t": "nullable", "in": 810 },
+    { "t": "array", "el": 811, "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["articleKey", 812],
+        ["titleKey", 813],
+        ["bodyKey", 814]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    { "t": "optional", "in": 816 },
+    { "t": "nullable", "in": 817 },
+    {
+      "t": "object",
+      "shape": [
+        ["ticketId", 818],
+        ["ownerUserId", 819],
+        ["status", 820],
+        ["category", 821]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "enum", "values": ["open", "pending", "on_hold", "resolved", "closed"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 823 },
+    { "t": "nullable", "in": 824 },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 825],
+        ["status", 826],
+        ["kycTier", 827]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "enum", "values": ["active", "frozen", "closed"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 829 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 831 },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 833 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["plane", 835],
+        ["moneyRequest", 836],
+        ["kbCatalog", 838],
+        ["asks", 845]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["live", "dark"] },
+    { "t": "optional", "in": 837 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 839 },
+    { "t": "nullable", "in": 840 },
+    { "t": "array", "el": 841, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 842],
+        ["titleKey", 843],
+        ["bodyKey", 844]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "array", "el": 846, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["tool", 847],
+        ["articles", 848],
+        ["kbQuery", 855],
+        ["limit", 858],
+        ["ticket", 860],
+        ["account", 867],
+        ["accountGrounding", 873]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 849 },
+    { "t": "nullable", "in": 850 },
+    { "t": "array", "el": 851, "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["articleKey", 852],
+        ["titleKey", 853],
+        ["bodyKey", 854]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    { "t": "optional", "in": 856 },
+    { "t": "nullable", "in": 857 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "optional", "in": 859 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "optional", "in": 861 },
+    { "t": "nullable", "in": 862 },
+    {
+      "t": "object",
+      "shape": [
+        ["ticketId", 863],
+        ["ownerUserId", 864],
+        ["status", 865],
+        ["category", 866]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "enum", "values": ["open", "pending", "on_hold", "resolved", "closed"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 868 },
+    { "t": "nullable", "in": 869 },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 870],
+        ["status", 871],
+        ["kycTier", 872]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "enum", "values": ["active", "frozen", "closed"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 874 },
+    { "t": "nullable", "in": 875 },
+    { "t": "dunion", "disc": "status", "options": [876, 883] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 877],
+        ["state", 878],
+        ["readAt", 882]
+      ]
+    },
+    { "t": "literal", "values": ["read"] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 879],
+        ["status", 880],
+        ["kycTier", 881]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["active", "frozen", "closed"] },
+    { "t": "enum", "values": ["none", "basic", "full", "institutional"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 884],
+        ["reason", 885]
+      ]
+    },
+    { "t": "literal", "values": ["unread"] },
+    { "t": "enum", "values": ["plane_dark", "not_attempted"] },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["actionId", 889]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["agentId", 891],
+        ["tool", 892],
+        ["seq", 893]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 1000000, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["limit", 895]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["memberUserId", 897],
+        ["role", 898],
+        ["allow", 899],
+        ["deny", 900],
+        ["revision", 893]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "boolean" },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["limit", 902],
+        ["allocations", 905],
+        ["revision", 893]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 903 },
+    { "t": "nullable", "in": 904 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "array", "el": 906, "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["memberUserId", 897],
+        ["amount", 902]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["name", 908],
+        ["limit", 902],
+        ["memberUserIds", 911],
+        ["seq", 893]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 909 },
+    { "t": "nullable", "in": 910 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 80 }] },
+    { "t": "array", "el": 897, "checks": [{ "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["sessionId", 913]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["agentId", 915]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["businessId", 888],
+        ["sessionId", 917],
+        ["requestId", 918],
+        ["ask", 919]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 190 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 4000 }
+      ]
+    },
+    { "t": "object", "shape": [["businessId", 888]], "catchall": "strict" },
+    { "t": "object", "shape": [["businessId", 888]], "catchall": "strict" },
+    { "t": "object", "shape": [["sessionId", 923]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 925],
+        ["windowId", 926]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "object", "shape": [["sessionId", 928]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["limit", 930]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["endpointId", 932],
+        ["runId", 934],
+        ["limit", 936]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 933 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 935 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [["limit", 938]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["endpointId", 940],
+        ["url", 941]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 2048 }
+      ]
+    }
+  ],
+  "inputs": {
+    "agent.get": 0,
+    "analytics.summary": 2,
+    "coach.runSession": 9,
+    "coach.session": 14,
+    "copyIntel.buildStats": 23,
+    "copyIntel.presentDirectory": 43,
+    "copyIntel.runSession": 59,
+    "fleet.export": 78,
+    "fleet.killKind": 88,
+    "fleet.quarantine": 92,
+    "fleet.reassign": 96,
+    "fleet.registry": 98,
+    "fleet.restore": 100,
+    "fleet.restoreKind": 101,
+    "growth.propose": 103,
+    "launch.assess": 114,
+    "log.count": 121,
+    "log.export": 124,
+    "log.mine": 134,
+    "marketplace.install": 140,
+    "merchant.runSession": 152,
+    "merchant.watch": 172,
+    "navigator.ask": 193,
+    "navigator.grounded": 197,
+    "navigator.invokeDataTool": 199,
+    "navigator.onchain.bind": 229,
+    "navigator.onchain.binding": 242,
+    "navigator.onchain.revoke": 242,
+    "navigator.onchain.signer": 243,
+    "navigator.orders": 244,
+    "navigator.runSession": 246,
+    "navigator.selectTools": 276,
+    "navigator.tierGate": 287,
+    "ops.sessions": 288,
+    "opsAlerts.checkRule": 303,
+    "opsAlerts.createRule": 306,
+    "opsAlerts.setNotifications": 314,
+    "opsAlerts.setOverride": 316,
+    "opsLog.actions": 319,
+    "opsLog.export": 319,
+    "opsLog.transcript": 328,
+    "own.access.get": 333,
+    "own.access.grant": 335,
+    "own.analytics": 345,
+    "own.approval.approve": 348,
+    "own.approval.edit": 350,
+    "own.approval.reject": 355,
+    "own.approvals": 357,
+    "own.assistant.accept": 359,
+    "own.assistant.draft": 365,
+    "own.backgroundRun": 367,
+    "own.backgroundRuns": 371,
+    "own.consents.grant": 373,
+    "own.consents.list": 333,
+    "own.consents.revoke": 375,
+    "own.coOwners.add": 377,
+    "own.coOwners.list": 333,
+    "own.coOwners.remove": 379,
+    "own.create": 381,
+    "own.delete": 384,
+    "own.dryRun": 387,
+    "own.evals.get": 394,
+    "own.evals.start": 396,
+    "own.get": 405,
+    "own.holds": 333,
+    "own.identity.agentCall": 407,
+    "own.identity.get": 333,
+    "own.identity.issue": 333,
+    "own.identity.revoke": 333,
+    "own.inbox": 409,
+    "own.limits.get": 333,
+    "own.limits.set": 411,
+    "own.list": 418,
+    "own.memory.clear": 420,
+    "own.memory.get": 423,
+    "own.memory.setEnabled": 425,
+    "own.paymentMethod.get": 333,
+    "own.paymentMethod.set": 428,
+    "own.policy.add": 432,
+    "own.policy.check": 436,
+    "own.policy.forService": 441,
+    "own.policy.get": 333,
+    "own.policy.remove": 445,
+    "own.policy.require": 447,
+    "own.privacy.get": 333,
+    "own.privacy.keepTranscripts": 449,
+    "own.publication": 333,
+    "own.publish": 452,
+    "own.review.check": 456,
+    "own.review.list": 461,
+    "own.reviewer.get": 333,
+    "own.reviewer.set": 463,
+    "own.rules.list": 333,
+    "own.rules.save": 465,
+    "own.run": 468,
+    "own.runs": 472,
+    "own.save": 474,
+    "own.schedules.cancel": 482,
+    "own.schedules.create": 485,
+    "own.schedules.list": 492,
+    "own.session.close": 493,
+    "own.session.open": 333,
+    "own.share.check": 495,
+    "own.share.get": 333,
+    "own.share.set": 499,
+    "own.sharedWithMe": 501,
+    "own.status": 333,
+    "own.testApprove": 503,
+    "own.testRun": 510,
+    "own.testRuns": 518,
+    "own.tool.try": 520,
+    "own.toolTest": 527,
+    "own.trade.draft": 531,
+    "own.triggers.create": 533,
+    "own.triggers.list": 492,
+    "own.usage": 539,
+    "own.usageLimits.get": 541,
+    "own.usageLimits.set": 543,
+    "portfolio.plan": 550,
+    "riskCompliance.draftScreening": 557,
+    "riskCompliance.refuseKycReview": 566,
+    "routes.confirm": 573,
+    "routes.propose": 575,
+    "routes.withdraw": 583,
+    "run.background.askMore": 584,
+    "run.background.get": 587,
+    "run.background.pause": 587,
+    "run.background.resume": 587,
+    "run.background.start": 589,
+    "run.background.stop": 587,
+    "run.complete": 596,
+    "run.events": 608,
+    "run.get": 613,
+    "run.list": 615,
+    "run.trace": 618,
+    "scanner.invokeDataTool": 621,
+    "scanner.rankFixtures": 655,
+    "scanner.rankLive": 687,
+    "scanner.runSession": 716,
+    "scanner.tierGate": 747,
+    "session.close": 748,
+    "session.detail": 750,
+    "session.events": 752,
+    "session.log": 757,
+    "session.mine": 761,
+    "session.open": 766,
+    "session.select": 768,
+    "spend.limits.set": 770,
+    "support.answerOrEscalate": 774,
+    "support.draftComment": 790,
+    "support.grounded": 797,
+    "support.invokeDataTool": 805,
+    "support.runSession": 834,
+    "support.tierGate": 886,
+    "team.actions.approve": 887,
+    "team.actions.hold": 890,
+    "team.actions.list": 894,
+    "team.grants.set": 896,
+    "team.pool.set": 901,
+    "team.projects.create": 907,
+    "team.runs.close": 912,
+    "team.runs.open": 914,
+    "team.runs.run": 916,
+    "team.usage": 920,
+    "team.view": 921,
+    "usage.current": 922,
+    "usage.settle": 924,
+    "usage.settleSession": 927,
+    "usage.summary": 929,
+    "webhook.deliveries": 931,
+    "webhook.list": 937,
+    "webhook.register": 939
+  }
+}

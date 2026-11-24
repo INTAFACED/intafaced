@@ -18,7 +18,7 @@ const MINE = '33333333-3333-4333-8333-333333333333';
 const FIRST = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const THIRD = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MARKET = 'BTC-USDT';
-const principal = { sub: ME, userId: ME, scopes: ['trade:read'] } as unknown as Principal;
+const principal = { sub: ME, userId: ME, scopes: ['trade:read'] } as Principal;
 
 /** Three resting bids at 100 (sequences 1, 2, 3); mine is sequence 2. A bid at 99 and an ask at 100 are not my queue. */
 const QUEUE: EngineL3Queue = {
@@ -211,7 +211,7 @@ describe('GET /api/v1/orders/:id/queue', () => {
   }
   async function get(d: Partial<PrivateRestDeps>, id = MINE) {
     const app = Fastify({ logger: false });
-    registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...d } as unknown as PrivateRestDeps);
+    registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...d } as PrivateRestDeps);
     await app.ready();
     const res = await app.inject({ method: 'GET', url: `/api/v1/orders/${id}/queue`, headers: headers() });
     await app.close();

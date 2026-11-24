@@ -6,6 +6,7 @@
  * exist is the owner value `IDENTITY_DEVELOPER_ROLES`; blank is `roles not set`, and then no member has key authority
  * and no role can be given (`identity.developer_roles_unset`). A member's key authority never exceeds their role.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   DEVELOPER_ROLES,
@@ -55,7 +56,7 @@ export function parseDeveloperRoles(raw: string | undefined): readonly Developer
 export type DeveloperSeat = { orgRole: string; developerRole: DeveloperRole | null; orgName: string };
 
 /** The caller's seat in the organisation; not a member refuses as if the organisation did not exist. */
-export async function seatOf(sql: Sql, orgId: string, userId: string): Promise<DeveloperSeat> {
+export async function seatOf(sql: Queryable, orgId: string, userId: string): Promise<DeveloperSeat> {
   const rows = await sql<Array<{ org_role: string; developer_role: string | null; org_name: string }>>`
     SELECT m.role AS org_role, d.role AS developer_role, o.name AS org_name
     FROM organization_members m

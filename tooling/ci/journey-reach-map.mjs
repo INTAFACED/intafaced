@@ -11,33 +11,46 @@
  *   { v, mode: 'reach' | 'full', why?, runs: [{ id, head, created }], journeys: [file], full: { [file]: reason },
  *     services: { 'services/svc-x': [journey index] }, packages: { 'packages/x': [journey index] },
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
- *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir] }
+ *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir],
+ *     importers?: { 'apps/customer/src/…': [path] } (only the customer files no run recorded), built?: [path],
+ *     computed?: [path], busLogged?: true (every record it is built from ran with a bus that logs each delivery) }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
  * A journey's reach comes only from the runs where every one of its tests passed, or where each test that didn't pass is
- * a step main's journey baseline calls unbuilt (or a test skipped after one), red in every run the map is built from,
- * all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
+ * a step main's journey baseline calls unbuilt (or a test skipped after one) or a test with no step title, red in every
+ * run the map is built from, all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
  * copy, so `verify` on main rebuilds it from the same baseline. Open edge, not covered: a service that publishes an
  * event from background work without logging while a journey runs is not tied to the journey that sees the
  * subscriber's effect (review 7561-R1 #3;
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
- * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
- * read-only token and keeps it as an artifact; nothing pushes it to main.
+ * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml, started by Main trust after each green journeys
+ * run on main) builds it in CI with the workflow's own read-only token and keeps it as an artifact; nothing pushes it to
+ * main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
- *     reached it, when svc-x subscribes to bus events (a handler that logs nothing is recorded nowhere), or when the
- *     changed file itself subscribes;
+ *     reached it, when svc-x subscribes to bus events and the map isn't `busLogged` (a handler that logs nothing is
+ *     recorded nowhere; since the bus writes a line for each delivery, intafaced #8657, a handler's run is in the log),
+ *     or when the changed file subscribes, itself or through a file of its service it imports (subscribesVia: a new
+ *     subscription runs a handler in journeys no record ties to the service);
  *   - apps/customer/src/…: the journeys whose pages ran a function of that file or loaded a built script holding it.
- *     Full when no journey reached it (a new file, a style sheet, a file the build doesn't map);
+ *     A file no journey reached (a new file, a style sheet, one the build doesn't map) runs only where a file loading it
+ *     runs, so it takes the journeys of the files that load it at the head (`importers`, read at the map's newest run's
+ *     head; the files main changed since, up to the pull request's merge base; and the pull request's own changed files
+ *     that name it), followed up through files no journey reached either. Full when the map holds no `importers`, the
+ *     head or main's changes since the map can't be read whole, a file the map doesn't know is on the pull request's
+ *     merge base (main added it after the map was built) or shares its import name with another at the head (`x.ts` beside `x.tsx`: an
+ *     unchanged import may now load it), the app's Node code runs it (`built`), something outside the customer source
+ *     or a page loads it, or the chain ends at a file nothing but tests loads;
  *   - packages/x/…: the journeys whose pages ran its built code (the customer bundles `packages/x/dist`, read back to
  *     the package) and the journeys that reached a service depending on it. Full when the package is not in the map,
  *     when an app no record covers depends on it (apps/admin, apps/mobile, apps/invitation), when the journey harness
- *     imports it (tooling/scripts, the real-app helpers: every journey runs it), or when it reaches no journey;
+ *     imports it (tooling/scripts, the real-app helpers: every journey runs it), when a service that subscribes to bus
+ *     events depends on it and the map isn't `busLogged`, or when it reaches no journey;
  *   - any other product path (apps/admin, other apps, apps/customer outside src): full.
  * Every journey the map can't speak for runs too: the map's `full` journeys and a journey file at the head the map
  * doesn't know. A selection holding every journey is the full run. The whole map is off, and every product change
@@ -57,6 +70,7 @@ import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
@@ -210,12 +224,20 @@ export function unbuiltSteps(baseline) {
  * Whether each whole run can speak for a journey file: an array of booleans, one per run in `whole` (false where the run
  * doesn't hold the file). `unbuilt`: unbuiltSteps of the baseline. A run counts when the file is not broken in it and
  * every test of it passed there, or when each test that didn't pass is excused:
- *   - it is a numbered step of this file the baseline calls unbuilt, or a test skipped after such a step in the same
- *     file and project; and
+ *   - it is a numbered step of this file the baseline calls unbuilt, a test with no step title (`starts:`, `ends:`,
+ *     `outside:`, `part of #n`) that ran and failed, or a test skipped after such an unbuilt step in the same file and
+ *     project; and
  *   - it didn't pass in any whole run, and every whole run the map is built from (at least MIN_RUNS) holds the file.
- * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a setup or end
- * test, a `regression` step, a step the baseline doesn't list, a test skipped with no excused step before it, a test
- * that passed in another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
+ * A test with no step title that never passed is, to the journey verdict, work not built yet that stays out until it
+ * first passes (journey-verdict.mjs), as an unbuilt step is; and the tests that did pass ran whole and are recorded.
+ * Its excuse does not reach the tests skipped after it: a red setup test whose steps were skipped leaves the run unable
+ * to speak, so the file is full, not the setup's own small reach. (Failure it prevents: J-dex-protocol-11, -13 and -20,
+ * J-more-catalogue-15, J-agents-12 and J-pay-03, each with a `starts:`, `ends:`, `outside:` or `part of #1` test red in
+ * all three main runs the map was built from on 22 Nov 2026 and every other test green or unbuilt, read as reaching
+ * everything, so every pull request ran them.)
+ * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a `regression`
+ * step, a step the baseline doesn't list, a test skipped with no excused unbuilt step before it, a test that passed in
+ * another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
  *
  * Why an excused red test leaves the run's reach sound (project-state#1574): the reach taken is still every record of
  * the file in that run (runReach), never only the passing tests' records, since each record holds only what its worker
@@ -240,7 +262,7 @@ export function speaksFor(whole, f, unbuilt = new Map()) {
     for (const [key, t] of o.tests) {
       if (t.passed) continue;
       const isUnbuilt = !!t.step && unbuilt.get(t.step) === f;
-      if (!persistent(key) || !(isUnbuilt || (t.skipped && after.has(t.project)))) return false;
+      if (!persistent(key) || !(isUnbuilt || (!t.step && !t.skipped) || (t.skipped && after.has(t.project)))) return false;
       if (isUnbuilt) after.add(t.project);
     }
     return true;
@@ -400,6 +422,320 @@ function resolveImport(root, p) {
   return null;
 }
 
+const CUSTOMER_DIR = 'apps/customer/src/';
+/** A test no journeys run runs, so it loads nothing into a journey: a unit test (vitest, node:test), and a Playwright file
+ *  or config inside the customer source (each run by its own config; the journeys' config runs tests/real-app). */
+const isTest = (f) =>
+  /\.(test|spec)\.[cm]?[jt]sx?$/.test(f) || (f.startsWith(CUSTOMER_DIR) && /(\.pw\.mjs|playwright\.config\.[cm]?[jt]s)$/.test(f));
+/** The files whose text can name another file to load: scripts, style sheets and pages. */
+const GRAPH_FILE = /\.(?:[cm]?[jt]sx?|mts|cts|css|html?)$/;
+/**
+ * What loadersReach needs read at the head for these changed paths, or null when nothing is (every customer path has a
+ * record, or the map holds no `importers`): `texts`, the changed scripts, style sheets and pages to read; `unknown`, the
+ * changed customer files the map doesn't know, each to be looked up on the pull request's merge base; `dirs`, the folders
+ * whose entries at the head say whether such a file shares its import name with another.
+ */
+export function headWanted(map, paths) {
+  const ps = [...new Set([...paths].map(String))];
+  if (!map?.importers || !ps.some((p) => p.startsWith(CUSTOMER_DIR) && !map.customer?.[p]?.length)) return null;
+  const unknown = ps.filter(
+    (p) => p.startsWith(CUSTOMER_DIR) && !isTest(p) && !Object.hasOwn(map.customer ?? {}, p) && !Object.hasOwn(map.importers, p),
+  );
+  const dirs = new Set();
+  for (const u of unknown) {
+    dirs.add(posix.dirname(u));
+    if (posix.basename(u).startsWith('index.')) dirs.add(posix.dirname(posix.dirname(u)));
+  }
+  return { texts: ps.filter((p) => GRAPH_FILE.test(p)), unknown, dirs: [...dirs].sort() };
+}
+
+/**
+ * The text a file holds on one side of GitHub's patch of it (`side`: '+' the new, '-' the old): each hunk's context and
+ * that side's lines, the hunks kept apart by `;` so no load runs from one into the next, then each quoted string of the
+ * patch as an import of its own (a hunk may cut a load off from its keyword): more loads, never fewer.
+ */
+export function patchText(patch, side) {
+  const hunks = String(patch)
+    .split(/^@@.*$/m)
+    .slice(1)
+    .map((h) =>
+      h
+        .split('\n')
+        .filter((l) => l.startsWith(' ') || l.startsWith(side))
+        .map((l) => l.slice(1))
+        .join('\n'),
+    );
+  const quoted = [...String(patch).matchAll(/(['"`])([^'"`\n]+)\1/g)].map((m) => `import ${m[1]}${m[2]}${m[1]}`);
+  return `${[...hunks, ...quoted].join('\n;\n')}\n;\n`;
+}
+
+/**
+ * What main changed between the commit the map's file graph was read at (its newest run's head) and the pull request's
+ * merge base, either way round: each script, style sheet and page under apps, packages, services and tooling
+ * (GRAPH_FILE, not a test), mapped to what the merge base holds of it, where it may load a file `importers` doesn't
+ * name: patchText of its patch, null when the merge base doesn't hold it, undefined when the patch doesn't say (none
+ * given, or a rename or copy, whose unchanged lines are new to the graph): read the file. `compare(a, b)`: GitHub's
+ * compare of a...b. Throws when it can't be told whole (GitHub lists at most 300 files).
+ */
+export async function sinceMap(map, mergeBase, compare) {
+  const from = map?.runs?.[0]?.head;
+  const SHA = /^[0-9a-f]{40}$/;
+  if (!SHA.test(String(from)) || !SHA.test(String(mergeBase))) throw new Error('no commits to compare');
+  const out = new Map();
+  if (from === mergeBase) return out;
+  let c = await compare(from, mergeBase);
+  // A merge base older than the map: its side is the old one of the map's head compared from it.
+  const ahead = c?.status !== 'behind';
+  if (!ahead) c = await compare(mergeBase, from);
+  if (!['ahead', 'identical'].includes(c?.status) || !Array.isArray(c.files) || c.files.length >= 300)
+    throw new Error("main's changes since the map couldn't be listed whole");
+  const graph = (p) => typeof p === 'string' && /^(apps|packages|services|tooling)\//.test(p) && GRAPH_FILE.test(p) && !isTest(p);
+  const put = (p, t) => {
+    if (graph(p) && !out.has(p)) out.set(p, t);
+  };
+  for (const f of c.files) {
+    const told = typeof f?.patch === 'string' && f.patch !== '' && !['renamed', 'copied'].includes(f?.status);
+    if (ahead) {
+      put(f?.filename, f?.status === 'removed' ? null : told ? patchText(f.patch, '+') : undefined);
+      if (f?.status === 'renamed') put(f?.previous_filename, null);
+    } else {
+      if (f?.status === 'renamed') put(f?.filename, null);
+      put(f?.previous_filename ?? f?.filename, f?.status === 'added' ? null : told ? patchText(f.patch, '-') : undefined);
+    }
+  }
+  return out;
+}
+
+/**
+ * loadersReach's `head` for what headWanted names (`want`), with main's changes since the map (sinceMap): `read(path)`
+ * a file's text at the head (null when it has none), `list(dir)` a folder's entry names there, `mergeBase` the pull
+ * request's merge base, `atBase(path)` whether it holds a path, `compare` sinceMap's. Throws when anything can't be read.
+ */
+export async function readHead(map, want, { read, list, mergeBase, atBase, compare }) {
+  const since = await sinceMap(map, mergeBase, compare);
+  const texts = new Map();
+  for (const p of want.texts) texts.set(p, await read(p));
+  for (const [p, t] of since) if (!texts.has(p)) texts.set(p, t === undefined ? await read(p) : t);
+  const dirs = new Map();
+  for (const d of want.dirs) dirs.set(d, new Set(await list(d)));
+  // Every file main changed since the map counts as newer than it.
+  const based = new Set(since.keys());
+  for (const u of want.unknown) if (await atBase(u)) based.add(u);
+  return { texts, dirs, based };
+}
+
+/** What a spec without an extension may resolve to (Vite's and TypeScript's lookup). */
+const RESOLVED = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '.cjs', '.json'];
+/** A load whose target the text doesn't spell: a glob, a computed dynamic import, require.context. In the customer
+ *  source it may load any customer file (a template import can climb folders, a glob can name `/src/**`). */
+const COMPUTED_LOAD = /import\.meta\.glob|\bimport\s*\(\s*(?!['"\s])|\brequire\.context\s*\(/;
+
+/**
+ * The repository paths a file's text names to load: import and export specifiers, dynamic imports, require, `new URL()`,
+ * a style sheet's @import and url(), a page's src and href. Each resolved against the file (`/x` from the customer
+ * app's root), without its query or hash; a package name is left out. A path named in a comment counts too: more
+ * importers, never fewer.
+ */
+export function importTargets(text, file) {
+  const specs = [];
+  for (const m of String(text).matchAll(
+    /(?:\bfrom\s*|\bimport\s*\(\s*(?:\/\*[^*]*\*\/\s*)?|\bimport\s+|\brequire\s*\(\s*|\bnew\s+URL\s*\(\s*|@import\s+(?:url\(\s*)?|\burl\(\s*|\b(?:src|href)\s*=\s*)(['"`])([^'"`\n]+)\1/g,
+  ))
+    specs.push(m[2]);
+  for (const m of String(text).matchAll(/\burl\(\s*([^'"`)\s]+)\s*\)/g)) specs.push(m[1]);
+  const out = new Set();
+  for (const raw of specs) {
+    const s = raw.split(/[?#]/)[0];
+    let p = null;
+    if (/^\.\.?(\/|$)/.test(s)) p = posix.normalize(posix.join(posix.dirname(file), s));
+    else if (s.startsWith('/') && file.startsWith('apps/customer/')) p = posix.normalize(`apps/customer${s}`);
+    if (p && !p.startsWith('..')) out.add(p.replace(/\/$/, ''));
+  }
+  return [...out];
+}
+
+/** The paths an import spec may name a file by: itself, and for a script without its extension, as its folder when it
+ *  is an index file, and as `.js` for a `.ts` (TypeScript's spelling). */
+export function moduleKeys(f) {
+  const keys = [f];
+  const ext = posix.extname(f);
+  if (RESOLVED.includes(ext)) {
+    const base = f.slice(0, -ext.length);
+    keys.push(base);
+    if (posix.basename(base) === 'index') keys.push(posix.dirname(base));
+    if (ext === '.ts' || ext === '.tsx') keys.push(`${base}.js`, `${base}.jsx`);
+    if (ext === '.mts') keys.push(`${base}.mjs`);
+  }
+  return keys;
+}
+
+/** Code that runs in Node: the journey harness (tooling/scripts, the real-app files) and the customer app's own
+ *  (its build config, deployment scripts and scaffolds: apps/customer outside src and tests, pages aside). */
+const nodeRoot = (f) =>
+  f.startsWith('tooling/scripts/') ||
+  f.startsWith(`${REAL_APP}/`) ||
+  (f.startsWith('apps/customer/') && !f.startsWith(CUSTOMER_DIR) && !f.startsWith('apps/customer/tests/') && !/\.html?$/.test(f));
+/** A load Node code may build its path for: a dynamic import or require of a non-literal, or Vite's own loaders. */
+const NODE_LOAD = /\b(?:import|require)\s*\(\s*(?!['"\s])|\brunnerImport\b|\bssrLoadModule\b|\bcreateRequire\b/;
+
+/**
+ * What a Node file's text loads: importTargets, and when it builds a load's path (NODE_LOAD), every quoted string that
+ * names a path, from the file (`./`, `../`), the repository root (`apps/customer/src/…`, also inside a longer string)
+ * or the customer app (`src/…`). `any`: such a file also quotes a customer path in pieces (`'customer', 'src'`) or
+ * a path with a `src` folder it doesn't spell whole (`${HERE}/../src/x.ts`), so it may load any customer file.
+ */
+export function nodeTargets(text, file) {
+  const out = new Set(importTargets(text, file));
+  let any = false;
+  if (NODE_LOAD.test(String(text))) {
+    const quoted = [...String(text).matchAll(/(['"`])([^'"`\n]*)\1/g)].map((m) => m[2].split(/[?#]/)[0]);
+    any = /customer['"`]\s*,\s*['"`]src['"`]/.test(String(text));
+    for (const s of quoted) {
+      const at = s.indexOf(CUSTOMER_DIR);
+      if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
+      else if (at >= 0) out.add(posix.normalize(s.slice(at)));
+      else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling|crates)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+    }
+  }
+  return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
+}
+
+/** The texts of `files` at commit `at`, read in one `git cat-file --batch`: a lookup, undefined for a path that is no blob. */
+function blobs(git, at, files) {
+  const out = git(['cat-file', '--batch'], Buffer.from(files.map((f) => `${at}:${f}\n`).join('')));
+  const texts = new Map();
+  let i = 0;
+  for (const f of files) {
+    const nl = out.indexOf(10, i);
+    const head = /^[0-9a-f]{40} (\w+) (\d+)$/.exec(out.toString('utf8', i, nl));
+    i = nl + 1;
+    if (!head) continue; // "<spec> missing": nothing follows
+    if (head[1] === 'blob') texts.set(f, out.toString('utf8', i, i + Number(head[2])));
+    i += Number(head[2]) + 1;
+  }
+  return (f) => texts.get(f);
+}
+
+/**
+ * Who loads each customer source file (every file under apps/customer/src but a unit test), from the text of every
+ * script, style sheet and page under apps, packages, services and tooling (importTargets): { importers: { file: [path] },
+ * built, computed }. A test (isTest) loads nothing here. A customer file that loads something it doesn't spell
+ * (COMPUTED_LOAD) is taken to load every customer file; `computed` lists them, since they load a new file too. `built`:
+ * the customer files Node code runs (nodeRoot: the journey harness and the app's build; nodeTargets), followed down
+ * through their imports; a change there reaches every journey, or what the build emits, which no record ties to a
+ * journey. `at`: the
+ * commit to read (the map reads its newest run's head, so what main changed since is known: sinceMap), else the checkout.
+ */
+export function customerImporters(root = ROOT, at = null) {
+  const git = (args, input) =>
+    execFileSync('git', args, { cwd: root, input, encoding: input ? 'buffer' : 'utf8', maxBuffer: 1024 * 2 ** 20 });
+  const all = (
+    at
+      ? git(['ls-tree', '-r', '--name-only', at, '--', 'apps', 'packages', 'services', 'tooling'])
+      : git(['ls-files', 'apps', 'packages', 'services', 'tooling'])
+  )
+    .split('\n')
+    .filter(Boolean);
+  const read = at
+    ? blobs(
+        git,
+        at,
+        all.filter((f) => GRAPH_FILE.test(f) && !isTest(f)),
+      )
+    : (f) => readFileSync(join(root, f), 'utf8');
+  const targets = all.filter((f) => f.startsWith(CUSTOMER_DIR) && !isTest(f));
+  const byKey = new Map();
+  for (const t of targets) for (const k of moduleKeys(t)) byKey.set(k, [...(byKey.get(k) ?? []), t]);
+  const importers = new Map(targets.map((t) => [t, new Set()]));
+  const loads = new Map();
+  const computed = [];
+  for (const f of all) {
+    if (!GRAPH_FILE.test(f) || isTest(f)) continue;
+    let text;
+    try {
+      text = read(f);
+    } catch {
+      continue;
+    }
+    if (typeof text !== 'string') continue;
+    const node = nodeRoot(f) ? nodeTargets(text, f) : { targets: importTargets(text, f), any: false };
+    const to = new Set(node.targets.flatMap((p) => byKey.get(p) ?? []));
+    // A Node load of a customer path that names no file (a folder, a template) may load any customer file.
+    if (node.any || (nodeRoot(f) && node.targets.some((p) => `${p}/`.startsWith(CUSTOMER_DIR) && !byKey.has(p))))
+      for (const t of targets) to.add(t);
+    if (f.startsWith(CUSTOMER_DIR) && COMPUTED_LOAD.test(text)) {
+      computed.push(f);
+      for (const t of targets) to.add(t);
+    }
+    to.delete(f);
+    loads.set(f, to);
+    for (const t of to) importers.get(t).add(f);
+  }
+  const queue = [...loads.keys()].filter(nodeRoot);
+  const built = new Set();
+  while (queue.length)
+    for (const t of loads.get(queue.shift()) ?? []) {
+      if (built.has(t)) continue;
+      built.add(t);
+      queue.push(t);
+    }
+  return {
+    importers: Object.fromEntries([...importers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, s]) => [t, [...s].sort()])),
+    built: [...built].sort(),
+    computed: computed.sort(),
+  };
+}
+
+/**
+ * Whether a changed service file can add a bus subscription: it calls the bus's subscribe itself, or a file of its own
+ * service it imports does, followed through relative imports (svc-notify's `attach(bus, event, …)` takes its event from
+ * its caller, so a caller in another file adds a subscription with no subscribe text of its own). `read(path)` gives a
+ * file's text at the head, or null when there is none (sync or async). A read that throws, or more than `cap` files
+ * read, answers true: unknown is full. Imports that leave the service, or name no file at the head, are not followed.
+ */
+export async function subscribesVia(path, read, cap = 400) {
+  const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(String(path))?.[1];
+  const texts = new Map();
+  const get = async (p) => {
+    if (!texts.has(p)) {
+      if (texts.size >= cap) throw new Error('too many files');
+      const t = await read(p);
+      texts.set(p, typeof t === 'string' ? t : null);
+    }
+    return texts.get(p);
+  };
+  const done = new Set();
+  const queue = [String(path)];
+  try {
+    while (queue.length) {
+      const p = queue.shift();
+      if (done.has(p)) continue;
+      done.add(p);
+      const t = await get(p);
+      if (t === null) continue;
+      if (SUBSCRIBES.test(t)) return true;
+      if (!svc) continue;
+      for (const m of t.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+        const to = posix.normalize(posix.join(posix.dirname(p), m[1]));
+        if (!to.startsWith(`${svc}/`)) continue;
+        const stem = to.replace(/\.[cm]?jsx?$/, '');
+        const tries = /\.[cm]?[jt]sx?$/.test(to)
+          ? [`${stem}.ts`, `${stem}.tsx`, `${stem}.mts`, to]
+          : [`${to}.ts`, `${to}.tsx`, `${to}/index.ts`, `${to}.js`];
+        for (const c of tries)
+          if ((await get(c)) !== null) {
+            queue.push(c);
+            break;
+          }
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 /** The services that subscribe to bus events, from their own non-test sources. */
 export function subscribers(root = ROOT) {
   const files = execFileSync('git', ['ls-files', 'services'], { cwd: root, encoding: 'utf8' })
@@ -424,6 +760,10 @@ export function buildMap({
   harness,
   subscribers: subs,
   money,
+  importers = null,
+  built = [],
+  computed = [],
+  graph = null,
   baseline = null,
   minRuns = MIN_RUNS,
 }) {
@@ -440,12 +780,16 @@ export function buildMap({
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
+  // A subscriber's handler is in its service's log only on a stack whose bus logs each delivery: every record says so.
+  const busLogged = whole.length > 0 && whole.every((r) => r.records.every((x) => x.bus === true));
   if (whole.length < Math.max(minRuns, 1))
     return {
       ...base,
       mode: 'full',
       why: `built from ${whole.length} whole main run(s) holding records; it needs ${minRuns}, so every product change runs the full suite`,
     };
+  // The file graph read at the newest run's head (customerImporters), so what main changed since is known (sinceMap).
+  if (graph) ({ importers, built, computed } = graph(whole[0].head));
   const journeys = [...whole[0].files].sort();
   const reach = whole.map((r) => runReach(r.records, services));
   const full = {};
@@ -474,7 +818,7 @@ export function buildMap({
     });
     if (!why && !clean)
       why =
-        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) red in every run, all of which hold the file";
+        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) or a test with no step title, red in every run, all of which hold the file";
     if (why) {
       full[f] = why;
       continue;
@@ -503,6 +847,15 @@ export function buildMap({
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
     money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
+    ...(busLogged ? { busLogged: true } : {}),
+    // Who loads each customer file no run recorded (customerImporters), for pathReach; recorded files need none.
+    ...(importers
+      ? {
+          importers: sorted(Object.fromEntries(Object.entries(importers).filter(([f]) => !Object.hasOwn(customer, f)))),
+          built: [...built].sort(),
+          computed: [...computed].sort(),
+        }
+      : {}),
   };
 }
 
@@ -538,31 +891,45 @@ export function runsBehind(map, runs, repo = REPO) {
 /** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
 export const MAP_WORKFLOW = 'journey-reach-map.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
+/** Who starts a counted dispatch: the workflow token of Main trust's `map` job. A person's or an agent's dispatch never
+ *  counts. Read from the run's `actor`, its first dispatcher, never `triggering_actor`, which a re-run changes. */
+export const MAP_STARTER = 'github-actions[bot]';
 
 /**
- * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs: the newest one that succeeded (so its
- * verify step passed) and was started by main's own journeys run (`workflow_run`, which always runs the default
- * branch's workflow and skips its build for any other branch's run; a dispatch runs whatever ref it names, so it never
- * counts), in this repository, and was created no later than `before` (ms; the journeys run's own creation,
- * so its touch job and the seal pick the same build), or null. (Failure it prevents: on 9 Nov 2026 the committed map
- * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
- * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
+ * The builds of the map that may speak for main, newest first, from a list of MAP_WORKFLOW's runs: each succeeded (so
+ * its verify step passed), ran on main in this repository, was created no later than `before` (ms; the journeys run's
+ * own creation, so its touch job and the seal pick the same build), and was started either by main's own journeys run
+ * (`workflow_run`, which always runs the default branch's workflow; its builds until 24 Nov 2026) or by a dispatch on
+ * main by MAP_STARTER (Main trust's `map` job starts one after each green journeys run on main, project-state#4001 step
+ * 4a). A dispatch runs whatever ref it names, and a tag called main reads as branch main, so builtMap takes a dispatched
+ * build only when its commit is in main's history (onMain). (Failure it prevents: on 9 Nov 2026 the committed map was built from runs up
+ * to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's journeys ran all 33
+ * shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
  */
-export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
-  return (
-    (runs ?? [])
-      .filter(
-        (r) =>
-          r?.status === 'completed' &&
-          r?.conclusion === 'success' &&
-          r?.head_branch === 'main' &&
-          r?.head_repository?.full_name === repo &&
-          r?.event === 'workflow_run' &&
-          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
-          Date.parse(r?.created_at) <= before,
-      )
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
-  );
+export function mapBuilds(runs, { before = Infinity, repo = REPO } = {}) {
+  return (runs ?? [])
+    .filter(
+      (r) =>
+        r?.status === 'completed' &&
+        r?.conclusion === 'success' &&
+        r?.head_branch === 'main' &&
+        r?.head_repository?.full_name === repo &&
+        (r?.event === 'workflow_run' || (r?.event === 'workflow_dispatch' && r?.actor?.login === MAP_STARTER)) &&
+        String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
+        Date.parse(r?.created_at) <= before,
+    )
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** The newest of mapBuilds, or null. Pure. */
+export const mapBuild = (runs, opts) => mapBuilds(runs, opts)[0] ?? null;
+
+/** Whether commit `sha` is in main's history: branch main (refs/heads/main, never a tag of that name) is identical to it
+ *  or ahead of it (`get` returns the API's JSON; a read that fails throws, and builtMap then reads null). */
+export async function onMain(sha, { get, repo = REPO }) {
+  if (!/^[0-9a-f]{40}$/i.test(String(sha ?? ''))) return false;
+  const status = (await get(`/repos/${repo}/compare/${sha}...refs/heads/main?per_page=1`))?.status;
+  return status === 'identical' || status === 'ahead';
 }
 
 /** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
@@ -591,7 +958,14 @@ export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
   try {
     const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
       ?.workflow_runs;
-    const run = mapBuild(runs, { before, repo });
+    // The newest build, a dispatched one only when its commit is main's: one that isn't counts for nothing, never a stop.
+    let run = null;
+    for (const r of mapBuilds(runs, { before, repo })) {
+      if (r.event === 'workflow_run' || (await onMain(r.head_sha, { get, repo }))) {
+        run = r;
+        break;
+      }
+    }
     if (!run) return null;
     const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
       (a) => a?.name === MAP_ARTIFACT && !a?.expired,
@@ -626,10 +1000,83 @@ export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
 }
 
 /**
- * The journeys a product path's recorded reach touches: { journeys: [index] } or { full: why }. `subscribesHere`:
- * whether the changed file itself, at the head, calls the bus's subscribe.
+ * The journeys a customer source file no run recorded can reach: the recorded journeys of the files that load it, at the
+ * head (see the header, apps/customer/src). `head` (what headWanted names, read at the head): { texts: Map(path -> text,
+ * null when removed), based: Set of the unknown paths the pull request's merge base holds, dirs: Map(folder -> Set of
+ * entry names) }, or null when it couldn't be read.
  */
-export function pathReach(map, path, subscribesHere = false) {
+function loadersReach(map, path, head) {
+  const why = 'no journey was recorded running this customer source file';
+  if (!map.importers || typeof map.importers !== 'object') return { full: why };
+  const { texts, based, dirs } = head ?? {};
+  if (!(texts instanceof Map) || !(based instanceof Set) || !(dirs instanceof Map))
+    return { full: `${why}, and the files that load it at the head couldn't be read` };
+  const known = (f) => Object.hasOwn(map.customer ?? {}, f) || Object.hasOwn(map.importers, f);
+  // What runs in Node (the harness, the app's build) may have grown since the map: a file read at the head that runs
+  // there and loads a customer file the map doesn't hold as run there may now run it in every journey.
+  const inNode = new Set([...(map.harness ?? []), ...(map.built ?? [])].flatMap((h) => moduleKeys(h)));
+  const nodeRuns = (g) => inNode.has(g) || (map.harness ?? []).some((h) => g.startsWith(`${h}/`)) || nodeRoot(g);
+  for (const [g, t] of texts) {
+    if (typeof t !== 'string' || !nodeRuns(g)) continue;
+    const node = nodeTargets(t, g);
+    if (node.any) return { full: `${why}, and ${g}, which runs in Node, builds a path it may load a customer file by` };
+    const to = node.targets.find((x) => x.startsWith(CUSTOMER_DIR) && !inNode.has(x));
+    if (to) return { full: `${why}, and ${g}, which runs in Node, loads ${to}, which the map doesn't hold as run there` };
+  }
+  const stem = (n) => (RESOLVED.includes(posix.extname(n)) ? n.slice(0, -posix.extname(n).length) : null);
+  const out = new Set();
+  const seen = new Set();
+  const queue = [path];
+  while (queue.length) {
+    const f = queue.shift();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    if (map.built?.includes(f)) return { full: `${why}, and Node code (the journey harness or the app's build) runs ${f}` };
+    if (map.harness?.includes(f)) return { full: `${why}, and the journey harness imports ${f}` };
+    const keys = new Set(moduleKeys(f));
+    if (!known(f)) {
+      // Unknown to the map: new in this pull request, or added on main after the map was built, when files the map
+      // never read may load it.
+      if (!texts.has(f) || based.has(f)) return { full: `${f} is newer than the map, so the files on main that load it are unknown` };
+      const s = stem(posix.basename(f));
+      const dir = dirs.get(posix.dirname(f));
+      if (s !== null) {
+        if (!(dir instanceof Set)) return { full: `${why}, and ${posix.dirname(f)} couldn't be listed at the head` };
+        const twin = [...dir].find((n) => n !== posix.basename(f) && (n === s || stem(n) === s));
+        const up = s === 'index' ? dirs.get(posix.dirname(posix.dirname(f))) : null;
+        if (s === 'index' && !(up instanceof Set)) return { full: `${why}, and the folder above ${f} couldn't be listed at the head` };
+        const upTwin = up ? [...up].find((n) => stem(n) === posix.basename(posix.dirname(f))) : null;
+        if (twin || upTwin)
+          return { full: `${f} is new and shares its import name with ${twin ?? upTwin}, so an unchanged import may now load it` };
+      }
+    }
+    const from = new Set(map.importers[f] ?? []);
+    // A customer file that loads what it doesn't spell may load any customer file, a new one too.
+    for (const g of map.computed ?? []) if (g !== f) from.add(g);
+    for (const [g, t] of texts) {
+      if (typeof t !== 'string' || g === f) continue;
+      if (importTargets(t, g).some((p) => keys.has(p)) || (g.startsWith(CUSTOMER_DIR) && COMPUTED_LOAD.test(t))) from.add(g);
+    }
+    const loaders = [...from].filter((g) => !isTest(g));
+    if (!loaders.length) return { full: `${why}, and nothing but tests loads ${f} (an entry, or a file outside the app)` };
+    for (const g of loaders) {
+      if (!g.startsWith(CUSTOMER_DIR) || /\.html?$/.test(g)) return { full: `${why}, and ${g} loads ${f}, which no record covers` };
+      if (map.built?.includes(g))
+        return { full: `${why}, and Node code (the journey harness or the app's build) runs ${g}, which loads it` };
+      if (map.harness?.includes(g)) return { full: `${why}, and the journey harness runs ${g}, which loads it` };
+      const js = map.customer?.[g];
+      if (js?.length) for (const j of js) out.add(j);
+      else queue.push(g);
+    }
+  }
+  return out.size ? { journeys: [...out].sort((a, b) => a - b) } : { full: why };
+}
+
+/**
+ * The journeys a product path's recorded reach touches: { journeys: [index] } or { full: why }. `subscribesHere`:
+ * whether the changed file, at the head, can add a bus subscription (subscribesVia). `head`: loadersReach's.
+ */
+export function pathReach(map, path, subscribesHere = false, head = null) {
   const p = String(path);
   const pkgOf = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
@@ -638,15 +1085,18 @@ export function pathReach(map, path, subscribesHere = false) {
   // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record. Since
   // OWNER 297 (until launch hardening) the seal holds money code to no rule of its own either.
   if (svc) {
-    if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
-    if (map.subscribers?.includes(svc))
+    if (subscribesHere)
+      return {
+        full: 'it subscribes to bus events, itself or through a file it imports, and a new subscription runs where no record shows',
+      };
+    if (map.subscribers?.includes(svc) && map.busLogged !== true)
       return { full: `${svc} subscribes to bus events, and a handler that logs nothing is recorded nowhere` };
     const js = map.services?.[svc];
     return js?.length ? { journeys: js } : { full: `no journey was recorded reaching ${svc}` };
   }
   if (p.startsWith('apps/customer/src/')) {
     const js = map.customer?.[p];
-    return js?.length ? { journeys: js } : { full: 'no journey was recorded running this customer source file' };
+    return js?.length ? { journeys: js } : loadersReach(map, p, head);
   }
   const pkg = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (pkg) {
@@ -658,7 +1108,7 @@ export function pathReach(map, path, subscribesHere = false) {
     if (cons.includes('apps/customer') && !map.packages?.[pkg])
       return { full: `the customer app depends on ${pkg}, and no record shows where its built code runs` };
     for (const d of cons) {
-      if (map.subscribers?.includes(d)) return { full: `${d} depends on ${pkg} and subscribes to bus events` };
+      if (map.subscribers?.includes(d) && map.busLogged !== true) return { full: `${d} depends on ${pkg} and subscribes to bus events` };
       for (const j of map.services?.[d] ?? []) out.add(j);
     }
     return out.size ? { journeys: [...out] } : { full: `no journey was recorded reaching ${pkg}` };
@@ -668,12 +1118,22 @@ export function pathReach(map, path, subscribesHere = false) {
 }
 
 /**
+ * The journey files the map can't speak for, which run with every change: its `full` journeys and every journey file at
+ * the head (`atHead`, a Set of names) it doesn't know. Read only from a map mapProblem passes.
+ */
+export function alwaysRun(map, atHead) {
+  const known = new Set(map?.journeys ?? []);
+  return [...Object.keys(map?.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+}
+
+/**
  * The journeys a set of product paths reaches: { mode: 'files', files, because } or { mode: 'full', why }. `atHead`:
  * the journey files at the head (a Set of names), or null when they can't be listed. `subscribes(path)`: pathReach's
- * `subscribesHere`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
- * doesn't know) is selected too; a selection holding every journey at the head is the full run.
+ * `subscribesHere`; `head`: its `head`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
+ * doesn't know) is selected too, for a named pull request as for any other: no record says such a journey misses what
+ * changed (intafaced #8851); a selection holding every journey at the head is the full run.
  */
-export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, mode = REACH_MAP_MODE }) {
+export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, head = null, mode = REACH_MAP_MODE }) {
   const problem = mapProblem(map, behind, mode);
   if (problem) return { mode: 'full', why: problem };
   if (!(atHead instanceof Set)) return { mode: 'full', why: "the journey files at the head couldn't be listed" };
@@ -682,7 +1142,7 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
   for (const p of paths) {
     let r;
     try {
-      r = pathReach(map, p, subscribes(p));
+      r = pathReach(map, p, subscribes(p), head);
     } catch (e) {
       r = { full: `its reach couldn't be worked out (${e.message})` };
     }
@@ -690,8 +1150,7 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
     for (const i of r.journeys) picked.add(map.journeys[i]);
     because.push(`${p}: ${r.journeys.length} journey file(s) reach it`);
   }
-  const known = new Set(map.journeys);
-  const always = [...Object.keys(map.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+  const always = alwaysRun(map, atHead);
   for (const f of always) picked.add(f);
   const files = [...picked].filter((f) => atHead.has(f)).sort();
   if (files.length >= atHead.size) return { mode: 'full', why: 'the recorded reach of what it changes holds every journey' };
@@ -701,7 +1160,10 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
 
 // ---- The builder's I/O ----
 
-const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+const gh = (args) => {
+  countCall();
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+};
 
 /** The journey files at a commit, from git (the commit must be fetched). */
 export const filesAt = (sha, root = ROOT) =>
@@ -809,6 +1271,8 @@ function buildFromMain({ ids, until, root = ROOT } = {}) {
   return buildMap({
     runs,
     ...inputs,
+    // The file graph is main's at the newest whole run's head (fetched here, as filesAt above needs), whatever the checkout.
+    graph: (sha) => customerImporters(ROOT, sha),
     // main's baseline, never the pull request's: `verify` runs main's builder from a worktree of main (ROOT), and the code
     // keys alone follow `--workspace`, so a pull request can't edit the baseline to narrow what its map selects.
     baseline: rootInputs(ROOT).baseline,

@@ -1,41 +1,11 @@
-// The only file in the Pay screen that knows where the shared pieces come from: the kit in @intafaced/ui, the data
-// layer in ../../data, and the existing personal-pay client (its mutation guard is the safety layer; UI-SPEC principle 6).
-export {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-  CoinIcon,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StateBlock,
-  Switch,
-  Tabs,
-  TabsList,
-  TabsTab,
-  useToast,
-  useHideBalances,
-  HIDDEN_MASK,
-} from '@intafaced/ui';
+// The only file in the Pay screen that knows where the shared pieces come from: the data layer in ../../data, and the
+// existing personal-pay client (its mutation guard is the safety layer; UI-SPEC principle 6). The screen draws only from
+// the Volt kit (@intafaced/ui/lit), imported where it is drawn.
 
 export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
 export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
+export { classifyFailure } from '../../data/poll';
 export { formatAmount, parseAmount } from '../../shared/money';
 export { fractionDigits } from '../../data/decimal';
 export {
@@ -84,7 +54,7 @@ export {
 
 export { useSession } from '../../features/session/session';
 export { createPersonalPayApi, type PersonalPayApi } from '../../features/pay/pay-api';
-export { sendInput, spaceSchema } from '../../features/pay/schemas';
+export { sendInput } from '../../features/pay/schemas';
 export { pendingKey as bankPendingKey, pendingOutcomes } from '../../features/money/pending-outcomes';
 export { AccountDetailsByCurrency } from '../../features/money/AccountDetails';
 export type { ApiClient, ApiResult } from '../../shared/api';
@@ -112,7 +82,6 @@ export {
   type RequestEntry,
   type SentEntry,
 } from '../../features/pay/personal/personal-model';
-export { encodeQr, qrPath } from '../../features/pay/personal/qr';
 
 export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';

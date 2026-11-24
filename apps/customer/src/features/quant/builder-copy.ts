@@ -21,6 +21,8 @@ const en = {
   sizingValue: 'Size',
   stopLoss: 'Stop loss (percent, optional)',
   takeProfit: 'Take profit (percent, optional)',
+  pyramiding: 'Pyramiding (entries at most)',
+  pyramidingHint: 'Optional. Blank keeps one entry per position; a paper run refuses an entry past it with "limit hit".',
   build: 'Build source',
   building: 'Building the source',
   sourceTitle: 'Generated source',

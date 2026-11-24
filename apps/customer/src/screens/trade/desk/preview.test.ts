@@ -52,6 +52,8 @@ describe('previewFailure', () => {
     const band = { code: 'trade.price_band', field: 'price', message: 'm', data: { low: '58500', high: '71500', collar: '0.1' } };
     const failure = previewFailure(preview({ orderable: false, refusals: [band] }), {}, '0.01');
     expect(failure.kind === 'refusal' && failure.copy.body).toContain('buy prices up to 71,500.00 and sell prices down to 58,500.00');
+    // The edges themselves, as the service sent them, for the ticket's move-to-the-edge choice (J-cex-spot-04 #4).
+    expect(failure.kind === 'refusal' && failure.band).toEqual({ low: '58500', high: '71500' });
     const cap = { code: 'trade.operator_throttle', field: 'symbol', message: 'm', data: { cap: '20', open: '20' } };
     const full = previewFailure(preview({ orderable: false, refusals: [cap] }), {});
     expect(full.kind === 'refusal' && full.copy.body).toBe(
@@ -105,6 +107,13 @@ describe('refusal words', () => {
     const failure = refusalFailure('tier.insufficient', {});
     expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Verify your identity first', action: { href: '/verification' } } });
     expect(JSON.stringify(failure)).not.toContain('tier.insufficient');
+  });
+
+  it('a trading hold is marked so the note adds its stored reason (J-identity-14 #2), and carries no raw code', () => {
+    const held = refusalFailure('trade.account_restricted', {});
+    expect(held).toMatchObject({ kind: 'refusal', tradingHold: true, copy: { title: 'Trading is on hold on your account' } });
+    expect(JSON.stringify(held)).not.toContain('trade.account_restricted');
+    expect(refusalFailure('tier.insufficient', {})).not.toHaveProperty('tradingHold');
   });
 
   it('not enough funds names the asset and what is available', () => {

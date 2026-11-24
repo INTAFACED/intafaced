@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+// volt-room: /support/chat
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { SupportChatAvailability, SupportChatMessage, SupportChatSession } from '@intafaced/contracts/support-chat';
 import { useDataEnv } from '../../data/hooks';
 import { readContract, writeContract } from '../../shared/contract-call';
 import type { ApiResult } from '../../shared/api';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { Button } from '@intafaced/ui/lit';
+import { ReadingTemplate, TextField } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
 import { chatCopy } from './support-chat-copy';
 import {
   chatAvailability,
@@ -21,7 +23,6 @@ import {
   readKeptChat,
   type KeptChat,
 } from './support-chat';
-import './support-desk.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type ChatT = ReturnType<typeof chatCopy.useCopy>['t'];
@@ -39,17 +40,19 @@ function ChatRefusal({ refusal, t }: { refusal: Refusal; t: ChatT }) {
           ? t('closed')
           : code === 'support.chat_not_found'
             ? t('notFound')
-            : code === 'support.chat_message_conflict'
-              ? t('conflict')
-              : code === 'support.chat_prechat_invalid'
-                ? t('prechatInvalid')
-                : code === 'support.chat_agent_unavailable'
-                  ? t('agentUnavailable')
-                  : code === 'support.comment_secret_refused'
-                    ? t('secretRefused')
-                    : t('failed');
+            : code === 'support.chat_email_unproved'
+              ? t('emailUnproved')
+              : code === 'support.chat_message_conflict'
+                ? t('conflict')
+                : code === 'support.chat_prechat_invalid'
+                  ? t('prechatInvalid')
+                  : code === 'support.chat_agent_unavailable'
+                    ? t('agentUnavailable')
+                    : code === 'support.comment_secret_refused'
+                      ? t('secretRefused')
+                      : t('failed');
   return (
-    <p role="alert" className="support-warning" data-testid="support-chat-refusal" data-code={code ?? undefined}>
+    <p role="alert" className="lt-refusal" data-testid="support-chat-refusal" data-code={code ?? undefined}>
       {sentence} {code ? <small lang="zxx">{code}</small> : null}
     </p>
   );
@@ -57,11 +60,11 @@ function ChatRefusal({ refusal, t }: { refusal: Refusal; t: ChatT }) {
 
 function Hours({ hours, t }: { hours: string | null; t: ChatT }) {
   return hours ? (
-    <p className="muted" data-testid="support-chat-hours">
+    <p className="lt-muted" data-testid="support-chat-hours">
       {t('hoursLabel')} <span lang="und">{hours}</span>
     </p>
   ) : (
-    <p className="muted" data-testid="support-chat-hours-unset">
+    <p className="lt-muted" data-testid="support-chat-hours-unset">
       {t('hoursNotSet')}
     </p>
   );
@@ -81,7 +84,7 @@ export function SupportChatRoom() {
   const [chat, setChat] = useState<SupportChatSession | null>(null);
   const [messages, setMessages] = useState<SupportChatMessage[]>([]);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  const [emailNotice, setEmailNotice] = useState(false);
+  const [emailNotice, setEmailNotice] = useState<'emailed' | 'not_connected' | null>(null);
   const [busy, setBusy] = useState<'start' | 'send' | 'end' | 'email' | null>(null);
   const [form, setForm] = useState({ name: '', email: '', message: '' });
   const [draft, setDraft] = useState('');
@@ -209,7 +212,7 @@ export function SupportChatRoom() {
     setBusy(null);
     if (!answer.ok) return setRefusal(answer);
     setChat(answer.data.session);
-    setEmailNotice(true);
+    setEmailNotice(answer.data.status);
   };
 
   const restart = () => {
@@ -217,7 +220,7 @@ export function SupportChatRoom() {
     setKept(null);
     setChat(null);
     setMessages([]);
-    setEmailNotice(false);
+    setEmailNotice(null);
     setRefusal(null);
     setForm({ name: '', email: '', message: '' });
     void loadAvailability();
@@ -225,23 +228,27 @@ export function SupportChatRoom() {
 
   const header = (
     <>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {pollMs !== null && (
-        <p className="muted" data-testid="support-chat-poll">
+        <p className="lt-muted" data-testid="support-chat-poll">
           {t('pollNote', { seconds: Math.round(pollMs / 1000) })}
         </p>
       )}
     </>
   );
 
+  // The room on its reading template: the title and the line under it, and the chat as the article.
+  const frame = (body: ReactNode) => (
+    <ReadingTemplate title={t('pageTitle')} description={t('pageDescription')} state={{ kind: 'ready' }} body={body} />
+  );
+
   if (kept && chat) {
     const closed = chat.status === 'closed';
-    return (
-      <section className="support-chat" data-testid="support-chat" data-chat-status={chat.status} aria-labelledby="support-chat-title">
-        <h2 id="support-chat-title">{t('pageTitle')}</h2>
+    return frame(
+      <section className="lt-stack" data-testid="support-chat" data-chat-status={chat.status}>
         {header}
         {chat.claim === 'refused' && (
-          <p role="status" className="support-warning" data-testid="support-chat-claim-refused">
+          <p role="status" className="lt-refusal" data-testid="support-chat-claim-refused">
             {t('claimRefused')}
           </p>
         )}
@@ -250,7 +257,7 @@ export function SupportChatRoom() {
             {chat.waitingForAgent ? t('waiting') : t('joined')}
           </p>
         )}
-        <ol className="support-chat__messages" data-testid="support-chat-messages" aria-live="polite">
+        <ol className="lt-list" data-testid="support-chat-messages" aria-live="polite">
           {messages.map((m) => (
             <li key={m.seq} data-author={m.author} data-testid="support-chat-message">
               <strong>{m.author === 'agent' ? t('support') : t('you')}</strong> <span>{m.body}</span>
@@ -259,100 +266,106 @@ export function SupportChatRoom() {
         </ol>
         {refusal && <ChatRefusal refusal={refusal} t={t} />}
         {emailNotice && !closed && (
-          <div role="status" data-testid="support-chat-email-notice">
-            <ServiceOffNotice code="vendor.email" action={t('continueEmailAction')} />
-            <p className="muted">{t('continueEmailNote')}</p>
+          <div role="status" data-testid="support-chat-email-notice" data-email-status={emailNotice}>
+            {emailNotice === 'emailed' ? (
+              <>
+                <h2>{t('emailedTitle')}</h2>
+                <p className="lt-muted">{t('emailedBody')}</p>
+              </>
+            ) : (
+              <ServiceOffNotice code="vendor.email" action={t('continueEmailAction')} />
+            )}
+            <p className="lt-muted">{t('continueEmailNote')}</p>
           </div>
         )}
         {closed ? (
           <div role="status" data-testid="support-chat-closed">
-            <h3>{t('closedTitle')}</h3>
-            <p className="muted">{t('closedBody')}</p>
+            <h2>{t('closedTitle')}</h2>
+            <p className="lt-muted">{t('closedBody')}</p>
             {chat.ticketId && signedIn && chat.identity === 'account' && (
-              <a className="button button--primary" href={`/support/tickets/${chat.ticketId}`}>
+              <a className="lt-button lt-button-primary" href={`/support/tickets/${chat.ticketId}`}>
                 {t('openRequest')}
               </a>
             )}
-            <Button variant="secondary" onClick={restart}>
+            <Button tone="secondary" onClick={restart}>
               {t('newChat')}
             </Button>
           </div>
         ) : (
           <>
-            <form className="support-chat__compose" onSubmit={(e) => void send(e)}>
-              <Field
+            <form className="lt-stack" onSubmit={(e) => void send(e)}>
+              <TextField
                 label={t('composeLabel')}
                 name="chat-message"
                 value={draft}
                 maxLength={2000}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(value) => setDraft(value)}
               />
-              <Button type="submit" disabled={busy !== null || !draft.trim()}>
+              <Button tone="primary" type="submit" disabled={busy !== null || !draft.trim()}>
                 {busy === 'send' ? t('sending') : t('send')}
               </Button>
             </form>
-            <div className="support-chat__actions">
-              <Button variant="secondary" onClick={() => void continueByEmail()} disabled={busy !== null}>
+            <div className="lt-actions">
+              <Button tone="secondary" onClick={() => void continueByEmail()} disabled={busy !== null}>
                 {t('continueEmail')}
               </Button>
-              <Button variant="secondary" onClick={() => void end()} disabled={busy !== null}>
+              <Button tone="secondary" onClick={() => void end()} disabled={busy !== null}>
                 {busy === 'end' ? t('ending') : t('end')}
               </Button>
             </div>
           </>
         )}
-      </section>
+      </section>,
     );
   }
 
-  return (
-    <section className="support-chat" data-testid="support-chat" data-chat-status="none" aria-labelledby="support-chat-title">
-      <h2 id="support-chat-title">{t('pageTitle')}</h2>
+  return frame(
+    <section className="lt-stack" data-testid="support-chat" data-chat-status="none">
       {header}
       {availability === 'loading' ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('loading')}
         </p>
       ) : availability === 'unread' ? (
         <div role="alert" data-testid="support-chat-unread">
           <p>{t('unread')}</p>
-          <Button variant="secondary" onClick={() => void loadAvailability()}>
+          <Button tone="secondary" onClick={() => void loadAvailability()}>
             {t('retry')}
           </Button>
-          <a className="text-link" href="/support/new">
+          <a className="lt-link" href="/support/new">
             {t('sendRequest')}
           </a>
         </div>
       ) : availability.agents === 'offline' ? (
         <div data-testid="support-chat-offline">
-          <h3>{t('offlineTitle')}</h3>
-          <p className="muted">{t('offlineBody')}</p>
+          <h2>{t('offlineTitle')}</h2>
+          <p className="lt-muted">{t('offlineBody')}</p>
           <Hours hours={availability.hours} t={t} />
-          <a className="button button--primary" href="/support/new" data-testid="support-chat-request-form">
+          <a className="lt-button lt-button-primary" href="/support/new" data-testid="support-chat-request-form">
             {t('sendRequest')}
           </a>
         </div>
       ) : (
-        <form className="support-chat__start" data-testid="support-chat-start" onSubmit={(e) => void start(e)}>
-          <h3>{t('startTitle')}</h3>
+        <form className="lt-stack" data-testid="support-chat-start" onSubmit={(e) => void start(e)}>
+          <h2>{t('startTitle')}</h2>
           {availability.agents === 'busy' && (
-            <p className="muted" role="status" data-testid="support-chat-busy">
+            <p className="lt-muted" role="status" data-testid="support-chat-busy">
               {t('busyNote')}
             </p>
           )}
           <Hours hours={availability.hours} t={t} />
           {!signedIn && availability.prechatFields.includes('name') && (
-            <Field
+            <TextField
               label={t('nameLabel')}
               name="chat-name"
               required
               maxLength={120}
               value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onChange={(value) => setForm({ ...form, name: value })}
             />
           )}
           {!signedIn && availability.prechatFields.includes('email') && (
-            <Field
+            <TextField
               label={t('emailLabel')}
               hint={t('emailHint')}
               name="chat-email"
@@ -360,24 +373,24 @@ export function SupportChatRoom() {
               required
               maxLength={254}
               value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onChange={(value) => setForm({ ...form, email: value })}
             />
           )}
-          <Field
+          <TextField
             label={t('messageLabel')}
             hint={t('messageHint')}
             name="chat-first-message"
             required
             maxLength={2000}
             value={form.message}
-            onChange={(e) => setForm({ ...form, message: e.target.value })}
+            onChange={(value) => setForm({ ...form, message: value })}
           />
           {refusal && <ChatRefusal refusal={refusal} t={t} />}
-          <Button type="submit" disabled={busy !== null || !form.message.trim()}>
+          <Button tone="primary" type="submit" disabled={busy !== null || !form.message.trim()}>
             {busy === 'start' ? t('starting') : t('start')}
           </Button>
         </form>
       )}
-    </section>
+    </section>,
   );
 }

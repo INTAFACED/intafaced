@@ -6,8 +6,9 @@
   font-display: swap;
 }
 :root {
-  --color-positive: #c8f64a;
-  --color-negative: #f05a68;
+  /* gain and loss in Volt's own colours (lit.css); the chart's red-for-up swap is account.css's */
+  --color-positive: var(--lit-up);
+  --color-negative: var(--lit-down);
   --chart-up: var(--color-positive);
   --chart-down: var(--color-negative);
   --color-warning: #e4bf72;
@@ -380,7 +381,9 @@ html[data-theme='light'] .button--danger {
   overflow-x: auto;
   min-width: 0;
 }
+/* A tab keeps its width: the row scrolls rather than squeezing labels over each other at a phone's width (issue 10303). */
 .tabs button {
+  flex-shrink: 0;
   min-height: 44px;
   background: transparent;
   border: none;
@@ -432,8 +435,11 @@ html[data-theme='light'] .button--danger {
   max-height: calc(100dvh - 40px);
   overflow: auto;
   padding: var(--if-space-6);
+  /* a line brought into view inside the dialog (shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--if-space-6);
   border: 1px solid var(--color-border);
-  border-radius: var(--if-r-md);
+  /* a dialog is a panel: Volt's medium radius is the control's pill, which clips a tall dialog into an ellipse */
+  border-radius: var(--if-r-lg);
   background: var(--color-shell);
   color: var(--color-text);
 }
@@ -575,4 +581,32 @@ html[data-theme='light'] .button--danger {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/*
+ * The ask to verify is made once per room (shared/verify-first.tsx). Every note after the first one a person can see, in
+ * document order, keeps only its sentence: it follows a sibling that is or holds a shown note, itself or through an
+ * ancestor. A note inside a closed disclosure is not shown, so it never stands as the first.
+ */
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify'],
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify'] {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link),
+main
+  :is([data-refusal='verify']:not(details:not([open]) *), :has([data-refusal='verify']:not(details:not([open]) *)))
+  ~ *
+  [data-refusal='verify']
+  :is(.lt-refusal-title, .lt-link) {
+  display: none;
 }

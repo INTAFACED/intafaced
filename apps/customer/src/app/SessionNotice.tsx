@@ -60,7 +60,7 @@ function SubaccountBar() {
           {t('Confirming the sub-account again. Actions are refused until it answers; nothing runs as your main account.')}
         </p>
       )}
-      <button type="button" className="text-link" disabled={state === 'busy'} onClick={() => void leave()}>
+      <button type="button" className="lt-link" disabled={state === 'busy'} onClick={() => void leave()}>
         {t('Switch back to the main account')}
       </button>
       {state === 'failed' && <p role="alert">{t('The main account could not be reached. Try again.')}</p>}

@@ -37,7 +37,10 @@ const entry = {
 let viewer: string | null = owner;
 let resources: Resource<unknown>[] = [];
 let call = 0;
-vi.mock('../session/session', () => ({ useSession: () => ({ api: {}, userId: viewer }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ api: {}, userId: viewer }),
+}));
 vi.mock('../../shared/resource', async (original) => ({
   ...(await original<typeof import('../../shared/resource')>()),
   // Overview order is mode, entries, policy, changes; a detail renders one resource.
@@ -68,7 +71,9 @@ beforeEach(() => {
 describe('the withdrawal address list room', () => {
   it('shows the mode, listed addresses, the one-time setting and the changes', () => {
     const html = page();
-    expect(html).toContain('Withdrawal address list');
+    expect(html).toContain('Approved address list');
+    expect(html).toContain('The addresses you save for quick sends are under Withdrawal addresses.');
+    expect(html).not.toContain('shown · up to');
     expect(html).toContain('On: withdrawals to an address that is not on your list are refused.');
     expect(html).toContain('Cold');
     expect(html).toContain('Off: nothing can be sent to an unlisted address.');

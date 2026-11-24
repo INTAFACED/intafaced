@@ -1,6 +1,6 @@
 /**
  * An agent key cannot move money (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no approval row is
- * made").
+ * made"), and has no bank or card authority (J-agents-21 #9).
  *
  * A request a key makes on one of the routes below is not forwarded until identity says the key is not an agent key.
  * An agent key's request is refused 403 `auth.scope_denied`: nothing reached the service and nothing was written, so
@@ -10,8 +10,9 @@
  * (`AGENT_HELD_ACTIONS`).
  */
 import { createHash } from 'node:crypto';
-import { AGENT_KEY_ACTION_REFUSAL, agentKeyHoldOutputSchema, type AgentHeldAction } from '@intafaced/contracts/api-keys';
-import { unwrapTrpcData } from '@intafaced/contracts';
+import { AGENT_KEY_ACTION_REFUSAL, type AgentHeldAction } from '@intafaced/contracts/api-keys';
+import { IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION } from '@intafaced/contracts/identity-developer-keys-procedures';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
 const HELD_PROCEDURES: ReadonlyArray<{ readonly prefix: string; readonly procedure: string; readonly action: AgentHeldAction }> = [
@@ -19,11 +20,18 @@ const HELD_PROCEDURES: ReadonlyArray<{ readonly prefix: string; readonly procedu
   { prefix: '/api/pay/trpc/', procedure: 'payment.refund', action: 'pay.refund' },
 ];
 
+/** The bank and card door: every call an agent key makes there is held, whatever its method (J-agents-21 #9). */
+const HELD_PREFIXES: ReadonlyArray<{ readonly prefix: string; readonly action: AgentHeldAction }> = [
+  { prefix: '/api/bank/', action: 'bank.call' },
+];
+
 /**
- * The held action this request asks for, if any. A tRPC batch (`a,b?batch=1`) is held when any of its procedures is.
- * Only POST runs a tRPC mutation, so other methods are never held.
+ * The held action this request asks for, if any. Any method on a held prefix is held. On the procedures, a tRPC batch
+ * (`a,b?batch=1`) is held when any of its procedures is, and only POST runs a tRPC mutation, so other methods are not.
  */
 export function agentHeldAction(method: string, pathname: string): AgentHeldAction | undefined {
+  const path = pathname.toLowerCase().replace(/\/{2,}/g, '/');
+  for (const held of HELD_PREFIXES) if (path === held.prefix.slice(0, -1) || path.startsWith(held.prefix)) return held.action;
   if (method.toUpperCase() !== 'POST') return undefined;
   for (const held of HELD_PROCEDURES) {
     if (!pathname.startsWith(held.prefix)) continue;
@@ -66,15 +74,23 @@ export async function holdAgentKeyAttempt(options: {
   readonly path: string;
   readonly body: Buffer | Uint8Array | undefined;
 }): Promise<AgentHoldOutcome> {
-  const target = `${options.identityUrl.replace(/\/+$/, '')}/trpc/developerKeys.holdAgentAction`;
-  const body = JSON.stringify({
-    userId: options.userId,
-    keyId: options.keyId,
-    action: options.action,
-    method: options.method.toUpperCase(),
-    path: options.path.split('?')[0]!.slice(0, 512),
-    bodyHash: requestBodyHash(options.body),
-  });
+  let target: string;
+  let body: string;
+  try {
+    const sent = trpcRecordRequest(IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION, options.identityUrl.replace(/\/+$/, ''), {
+      userId: options.userId,
+      keyId: options.keyId,
+      action: options.action,
+      method: options.method.toUpperCase(),
+      path: options.path.split('?')[0]!.slice(0, 512),
+      bodyHash: requestBodyHash(options.body),
+    });
+    target = sent.url;
+    body = sent.body ?? '';
+  } catch {
+    // An attempt the record refuses is what identity would answer 400 to: refused, and nothing is forwarded.
+    return { kind: 'refused' };
+  }
   let response: Response;
   try {
     response = await (options.fetch ?? globalThis.fetch)(target, {
@@ -103,7 +119,7 @@ export async function holdAgentKeyAttempt(options: {
   } catch {
     return { kind: 'unavailable' };
   }
-  const parsed = agentKeyHoldOutputSchema.safeParse(unwrapTrpcData(envelope));
-  if (!parsed.success) return { kind: 'unavailable' };
-  return parsed.data.held ? { kind: 'agent_refused', code: parsed.data.refusal } : { kind: 'not_held' };
+  const held = trpcRecordReply(IDENTITY_DEVELOPER_KEYS_HOLD_AGENT_ACTION, envelope);
+  if (held === null) return { kind: 'unavailable' };
+  return held.held ? { kind: 'agent_refused', code: held.refusal } : { kind: 'not_held' };
 }

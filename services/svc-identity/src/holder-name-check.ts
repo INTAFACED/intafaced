@@ -9,12 +9,8 @@
  * refused, since no other service checks a name under this rule. Unknown account: 404.
  */
 import type { FastifyInstance } from 'fastify';
-import {
-  IDENTITY_HOLDER_NAME_CHECK_PATH,
-  holderNameCheckInputSchema,
-  type HolderNameCheck,
-  type HolderNameCheckInput,
-} from '@intafaced/contracts';
+import type { HolderNameCheck, HolderNameCheckInput } from '@intafaced/contracts';
+import { IDENTITY_HOLDER_NAME_CHECK_PATH, holderNameCheckInputSchema } from '@intafaced/contracts/identity';
 import { FounderControlError } from './controls/founder-controls.js';
 import { serviceOfRequest, type IdentityS2s } from './s2s-door.js';
 

@@ -64,6 +64,8 @@ describe('venue.ownActivity against the TEST simulator', () => {
       store,
       stepUp: approve,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: these orders are limits, which the owner's market price protection never bounds.
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -153,6 +155,18 @@ describe('venue.ownActivity against the TEST simulator', () => {
     const times = account.fills.map((f) => Date.parse(f.filledAt));
     expect([...times].sort((x, y) => x - y)).toEqual(times);
     expect(Number.isNaN(Date.parse(account.asOf))).toBe(false);
+    // J-portfolio-02 #6: the coins credited from outside, as the venue recorded them (here its one TEST deposit).
+    const arrivals = (await venue.arrivals!(own)).value;
+    expect(arrivals).toHaveLength(1);
+    expect(account.arrivals).toEqual([
+      {
+        arrivalId: 'deposit:own-activity:1',
+        kind: 'deposit',
+        asset: 'USDC',
+        amount: '20000',
+        arrivedAt: arrivals[0]!.arrivedAt.toISOString(),
+      },
+    ]);
   });
 
   it("another person never sees this person's venue account", async () => {
@@ -262,5 +276,44 @@ describe('venue.ownActivity against the TEST simulator', () => {
     const reached = answer.accounts.find((x) => x.subAccount === sub)!;
     expect(reached).toMatchObject({ owner, subAccount: sub, fills: [], balances: [{ asset: 'BTC', total: '0.02' }] });
     expect(reached.transfers).toBeUndefined();
+  });
+
+  it('J-portfolio-04 #3: staking rewards credited on the main account are listed in arrivals as kind reward', async () => {
+    const main = { venueId: sim.venue.id, owner, subAccount: null };
+    sim.deposit(main, 'HYPE', a('50'), 'deposit:own-activity:hype');
+    const stake = await door.prepare(principal(USER), {
+      owner,
+      signer,
+      intent: {
+        kind: 'staking_transfer',
+        direction: 'to_staking',
+        asset: 'HYPE',
+        amount: a('20'),
+        moveKey: `stake-move:${owner}:to-staking:1`,
+      },
+    });
+    await door.submit(principal(USER), stake.actionKey, await sign(stake.prepared));
+    const v = (await sim.staking()).value.validators[0]!;
+    const del = await door.prepare(principal(USER), {
+      owner,
+      signer,
+      intent: {
+        kind: 'staking_delegate',
+        validator: v.address,
+        direction: 'delegate',
+        asset: 'HYPE',
+        amount: a('20'),
+        moveKey: `delegation:${owner}:${v.address}:delegate:1`,
+      },
+    });
+    await door.submit(principal(USER), del.actionKey, await sign(del.prepared));
+    sim.testStaking(main, { reward: { validator: v.address, amount: a('0.5'), rewardRef: 'own:reward:1' } });
+
+    const answer = await read(USER);
+    if (answer.state !== 'read') throw new Error(answer.state);
+    const account = answer.accounts.find((x) => x.subAccount === null)!;
+    const reward = account.arrivals?.find((x) => x.kind === 'reward');
+    expect(reward).toMatchObject({ kind: 'reward', asset: 'HYPE', amount: '0.5' });
+    expect(account.balances.find((b) => b.asset === 'HYPE')?.total).toBe('50.5');
   });
 });

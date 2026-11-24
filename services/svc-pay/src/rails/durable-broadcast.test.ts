@@ -9,6 +9,7 @@ function trackingStore(inner: MemoryBroadcastStore): { store: BroadcastStore; or
     store: {
       get: (k) => inner.get(k),
       hasSigned: (k) => inner.hasSigned(k),
+      close: (k) => inner.close(k),
       claim: (k) => inner.claim(k),
       putSigned: async (k, raw) => {
         order.push('putSigned');
@@ -94,6 +95,7 @@ describe('runDurableBroadcast — signed persist before send (D26-P1-P9)', () =>
     const store: BroadcastStore = {
       get: (k) => inner.get(k),
       hasSigned: async () => false,
+      close: (k) => inner.close(k),
       claim: (k) => inner.claim(k),
       putSigned: async (k, raw) => inner.putSigned(k, raw),
       put: (k, h) => inner.put(k, h),

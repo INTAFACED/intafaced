@@ -1,0 +1,179 @@
+{
+  "services": {
+    "svc-academy": { "calls": ["svc-identity", "svc-ledger", "svc-token", "svc-trade"], "calledBy": ["svc-agents", "svc-edge"] },
+    "svc-agents": {
+      "calls": ["svc-academy", "svc-bank", "svc-identity", "svc-ledger", "svc-pay", "svc-support", "svc-trade"],
+      "calledBy": ["svc-edge", "svc-trade"]
+    },
+    "svc-bank": {
+      "calls": ["svc-identity", "svc-ledger", "svc-pay", "svc-trade"],
+      "calledBy": ["svc-agents", "svc-edge", "svc-identity", "svc-ops", "svc-pay", "svc-support", "svc-tax", "svc-trade"]
+    },
+    "svc-blueprint": { "calls": [], "calledBy": ["svc-edge"] },
+    "svc-campaigns": { "calls": ["svc-identity", "svc-ledger", "svc-protocol", "svc-trade"], "calledBy": ["svc-edge", "svc-trade"] },
+    "svc-dex": { "calls": ["svc-indexer", "svc-matching", "svc-ops"], "calledBy": ["svc-edge", "svc-protocol"] },
+    "svc-edge": {
+      "calls": [
+        "svc-academy",
+        "svc-agents",
+        "svc-bank",
+        "svc-blueprint",
+        "svc-campaigns",
+        "svc-dex",
+        "svc-execution",
+        "svc-fix",
+        "svc-identity",
+        "svc-indexer",
+        "svc-ledger",
+        "svc-market",
+        "svc-matching",
+        "svc-mining-pool",
+        "svc-notify",
+        "svc-ops",
+        "svc-p2p",
+        "svc-pay",
+        "svc-protocol",
+        "svc-quant",
+        "svc-support",
+        "svc-tax",
+        "svc-token",
+        "svc-trade",
+        "svc-ws"
+      ],
+      "calledBy": []
+    },
+    "svc-execution": { "calls": ["svc-identity", "svc-matching", "svc-trade"], "calledBy": ["svc-edge"] },
+    "svc-fix": { "calls": ["svc-matching"], "calledBy": ["svc-edge"] },
+    "svc-identity": {
+      "calls": ["svc-bank", "svc-ledger", "svc-p2p", "svc-pay", "svc-trade"],
+      "calledBy": [
+        "svc-academy",
+        "svc-agents",
+        "svc-bank",
+        "svc-campaigns",
+        "svc-edge",
+        "svc-execution",
+        "svc-ledger",
+        "svc-market",
+        "svc-matching",
+        "svc-notify",
+        "svc-ops",
+        "svc-p2p",
+        "svc-pay",
+        "svc-protocol",
+        "svc-support",
+        "svc-token",
+        "svc-trade",
+        "svc-ws"
+      ]
+    },
+    "svc-indexer": { "calls": [], "calledBy": ["svc-dex", "svc-edge", "svc-ledger", "svc-protocol"] },
+    "svc-ledger": {
+      "calls": ["svc-identity", "svc-indexer"],
+      "calledBy": [
+        "svc-academy",
+        "svc-agents",
+        "svc-bank",
+        "svc-campaigns",
+        "svc-edge",
+        "svc-identity",
+        "svc-market",
+        "svc-matching",
+        "svc-mining-pool",
+        "svc-ops",
+        "svc-p2p",
+        "svc-pay",
+        "svc-tax",
+        "svc-token",
+        "svc-trade"
+      ]
+    },
+    "svc-market": { "calls": ["svc-identity", "svc-ledger", "svc-token", "svc-trade"], "calledBy": ["svc-edge"] },
+    "svc-matching": {
+      "calls": ["svc-identity", "svc-ledger"],
+      "calledBy": ["svc-dex", "svc-edge", "svc-execution", "svc-fix", "svc-notify", "svc-trade", "svc-ws"]
+    },
+    "svc-mining-pool": { "calls": ["svc-ledger"], "calledBy": ["svc-edge"] },
+    "svc-notify": {
+      "calls": ["svc-identity", "svc-matching", "svc-p2p", "svc-trade"],
+      "calledBy": ["svc-edge", "svc-ops", "svc-support", "svc-trade"]
+    },
+    "svc-ops": {
+      "calls": ["svc-bank", "svc-identity", "svc-ledger", "svc-notify", "svc-pay", "svc-support"],
+      "calledBy": ["svc-dex", "svc-edge"]
+    },
+    "svc-p2p": { "calls": ["svc-identity", "svc-ledger", "svc-protocol"], "calledBy": ["svc-edge", "svc-identity", "svc-notify"] },
+    "svc-pay": {
+      "calls": ["svc-bank", "svc-identity", "svc-ledger"],
+      "calledBy": ["svc-agents", "svc-bank", "svc-edge", "svc-identity", "svc-ops", "svc-support"]
+    },
+    "svc-protocol": { "calls": ["svc-dex", "svc-identity", "svc-indexer"], "calledBy": ["svc-campaigns", "svc-edge", "svc-p2p"] },
+    "svc-quant": { "calls": ["svc-trade"], "calledBy": ["svc-edge", "svc-trade"] },
+    "svc-support": {
+      "calls": ["svc-bank", "svc-identity", "svc-notify", "svc-pay", "svc-trade"],
+      "calledBy": ["svc-agents", "svc-edge", "svc-ops"]
+    },
+    "svc-tax": { "calls": ["svc-bank", "svc-ledger", "svc-trade"], "calledBy": ["svc-edge"] },
+    "svc-token": {
+      "calls": ["svc-identity", "svc-ledger", "svc-trade"],
+      "calledBy": ["svc-academy", "svc-edge", "svc-market", "svc-trade"]
+    },
+    "svc-trade": {
+      "calls": [
+        "svc-agents",
+        "svc-bank",
+        "svc-campaigns",
+        "svc-identity",
+        "svc-ledger",
+        "svc-matching",
+        "svc-notify",
+        "svc-quant",
+        "svc-token"
+      ],
+      "calledBy": [
+        "svc-academy",
+        "svc-agents",
+        "svc-bank",
+        "svc-campaigns",
+        "svc-edge",
+        "svc-execution",
+        "svc-identity",
+        "svc-market",
+        "svc-notify",
+        "svc-quant",
+        "svc-support",
+        "svc-tax",
+        "svc-token",
+        "svc-ws"
+      ]
+    },
+    "svc-ws": { "calls": ["svc-identity", "svc-matching", "svc-trade"], "calledBy": ["svc-edge"] }
+  },
+  "cycles": [
+    [
+      "svc-academy",
+      "svc-agents",
+      "svc-bank",
+      "svc-campaigns",
+      "svc-dex",
+      "svc-identity",
+      "svc-ledger",
+      "svc-matching",
+      "svc-notify",
+      "svc-ops",
+      "svc-p2p",
+      "svc-pay",
+      "svc-protocol",
+      "svc-quant",
+      "svc-support",
+      "svc-token",
+      "svc-trade"
+    ]
+  ],
+  "longestChain": [
+    "svc-edge",
+    "svc-execution",
+    "svc-academy + svc-agents + svc-bank + svc-campaigns + svc-dex + svc-identity + svc-ledger + svc-matching + svc-notify + svc-ops + svc-p2p + svc-pay + svc-protocol + svc-quant + svc-support + svc-token + svc-trade",
+    "svc-indexer"
+  ]
+}

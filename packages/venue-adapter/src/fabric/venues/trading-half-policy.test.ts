@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { VenueCredentialsMissingError } from '@intafaced/venue-contracts';
@@ -10,6 +7,7 @@ import {
   shouldRefuseTradeAdapterConstruction,
   tradeAdapterRegisteredForAllPublicVenues,
 } from './trading-half-policy.js';
+import * as fabric from '../index.js';
 import type { HttpPort, HttpResponse } from '../transport.js';
 
 function snapshotBody(url: string): unknown {
@@ -120,9 +118,10 @@ describe('trading-half policy enforcement', () => {
 });
 
 describe('trading-half-policy public door — fabric export seal', () => {
-  it('fabric/index re-exports trading-half-policy', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const fabricIndex = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(fabricIndex).toMatch(/trading-half-policy/);
+  it('fabric/index exports the trading-half policy door itself', () => {
+    expect(fabric.describeTradingHalfPolicy).toBe(describeTradingHalfPolicy);
+    expect(fabric.shouldRefuseTradeAdapterConstruction).toBe(shouldRefuseTradeAdapterConstruction);
+    expect(fabric.tradeAdapterRegisteredForAllPublicVenues).toBe(tradeAdapterRegisteredForAllPublicVenues);
+    expect(fabric.tradeAdapterRegisteredForAllPublicVenues()).toBe(true);
   });
 });

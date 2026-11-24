@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
 import { formatWhen } from '@/lib/as-of';
 import { CapitalMonitor, ScenarioResult } from './monitor';
@@ -12,10 +13,10 @@ const base: OpsCapitalSnapshot = {
   ownFunds: {
     status: 'read',
     asOf: AT,
-    assets: [{ assetId: 'USDT', amount: '100.5', accounts: 2 }],
+    assets: [{ assetId: asAssetId('USDT'), amount: '100.5', accounts: 2 }],
     accounts: [
-      { ownerType: 'house', ownerId: 'market-maker', assetId: 'USDT', kind: 'available', purpose: '', balance: '100' },
-      { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available', purpose: '', balance: '0.5' },
+      { ownerType: 'house', ownerId: 'market-maker', assetId: asAssetId('USDT'), kind: 'available', purpose: '', balance: '100' },
+      { ownerType: 'house', ownerId: 'fees:trade', assetId: asAssetId('USDT'), kind: 'available', purpose: '', balance: '0.5' },
     ],
   },
   places: {
@@ -25,14 +26,14 @@ const base: OpsCapitalSnapshot = {
       {
         kind: 'partner_reserve',
         placeId: 'card',
-        assetId: 'USDC',
+        assetId: asAssetId('USDC'),
         held: '24999.5',
         outside: { status: 'read', source: 'TEST partner card (TEST)', amount: '25000', asOf: AT },
       },
       {
         kind: 'treasury_wallet',
         placeId: 'base:ops',
-        assetId: 'USDC',
+        assetId: asAssetId('USDC'),
         held: '9',
         outside: { status: 'not_connected', message: 'No chain reader reports INTAFACED’s treasury wallets to this console yet.' },
       },
@@ -48,12 +49,17 @@ const base: OpsCapitalSnapshot = {
         partner: 'card',
         label: 'TEST partner card',
         test: true,
-        reserve: { status: 'reported', assetId: 'USDC', amount: '25000', asOf: AT },
+        reserve: { status: 'reported', assetId: asAssetId('USDC'), amount: '25000', asOf: AT },
       },
     ],
   },
   buffers: [
-    { assetId: 'USDT', buffer: '100.5', threshold: { status: 'unset', code: 'ops.capital.threshold_unset' }, state: 'not_monitored' },
+    {
+      assetId: asAssetId('USDT'),
+      buffer: '100.5',
+      threshold: { status: 'unset', code: 'ops.capital.threshold_unset' },
+      state: 'not_monitored',
+    },
   ],
   alerts: [],
 };
@@ -104,7 +110,7 @@ describe('CapitalMonitor (J-ops-console-24 #1)', () => {
                 displayName: 'TEST venue',
                 test: true,
                 builderAccount: '0xb0',
-                balance: { status: 'read', assetId: 'USDC', amount: '120', asOf: AT },
+                balance: { status: 'read', assetId: asAssetId('USDC'), amount: '120', asOf: AT },
                 minimum: { status: 'not_published' },
               },
             ],
@@ -144,7 +150,7 @@ describe('CapitalMonitor (J-ops-console-24 #1)', () => {
           ownFunds: { status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: did not answer.' },
           buffers: [
             {
-              assetId: 'USDT',
+              assetId: asAssetId('USDT'),
               buffer: null,
               threshold: {
                 status: 'set',

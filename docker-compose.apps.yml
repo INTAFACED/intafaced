@@ -63,6 +63,14 @@ x-service-env: &service-env
   # which sets APP_ENV=dev); the shell environment still wins over `.env`.
   NODE_ENV: production
   APP_ENV: ${APP_ENV:?APP_ENV must be set to dev, test, staging or prod}
+  # The beta posture's switch (packages/config/src/beta-posture.ts): empty is off. The staging deploy sets it
+  # to test-networks for a beta; every service then refuses to boot with a mainnet, real bank or card route.
+  INTAFACED_BETA_POSTURE: ${INTAFACED_BETA_POSTURE:-}
+  # The owner's screening list (packages/config/src/jurisdiction.ts checkAccess). Every service that screens reads it
+  # from its own environment (identity, bank, trade, pay, p2p, protocol, indexer), so it is passed to all, not only the
+  # edge: blank, each refuses with its screening code, as it should.
+  INTAFACED_SANCTIONS_REGIONS: ${INTAFACED_SANCTIONS_REGIONS:-}
+  INTAFACED_SANCTIONS_LIST_SOURCE: ${INTAFACED_SANCTIONS_LIST_SOURCE:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the
@@ -148,6 +156,23 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: '5432'
       POSTGRES_DB: intafaced
+      # Each role's rotated password, when a deployment set one (blank: the published dev password).
+      SVC_IDENTITY_DB_PASSWORD: ${SVC_IDENTITY_DB_PASSWORD:-}
+      SVC_TOKEN_DB_PASSWORD: ${SVC_TOKEN_DB_PASSWORD:-}
+      SVC_TRADE_DB_PASSWORD: ${SVC_TRADE_DB_PASSWORD:-}
+      SVC_PAY_DB_PASSWORD: ${SVC_PAY_DB_PASSWORD:-}
+      SVC_P2P_DB_PASSWORD: ${SVC_P2P_DB_PASSWORD:-}
+      SVC_BLUEPRINT_DB_PASSWORD: ${SVC_BLUEPRINT_DB_PASSWORD:-}
+      SVC_BANK_DB_PASSWORD: ${SVC_BANK_DB_PASSWORD:-}
+      SVC_PROTOCOL_DB_PASSWORD: ${SVC_PROTOCOL_DB_PASSWORD:-}
+      SVC_INDEXER_DB_PASSWORD: ${SVC_INDEXER_DB_PASSWORD:-}
+      SVC_NOTIFY_DB_PASSWORD: ${SVC_NOTIFY_DB_PASSWORD:-}
+      SVC_SUPPORT_DB_PASSWORD: ${SVC_SUPPORT_DB_PASSWORD:-}
+      SVC_MARKET_DB_PASSWORD: ${SVC_MARKET_DB_PASSWORD:-}
+      SVC_MINING_POOL_DB_PASSWORD: ${SVC_MINING_POOL_DB_PASSWORD:-}
+      SVC_OPS_DB_PASSWORD: ${SVC_OPS_DB_PASSWORD:-}
+      SVC_QUANT_DB_PASSWORD: ${SVC_QUANT_DB_PASSWORD:-}
+      SVC_CAMPAIGNS_DB_PASSWORD: ${SVC_CAMPAIGNS_DB_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,24 +182,45 @@ services:
   # svc-ledger is the root of the money plane: six services call it and none of
   # them can move value without it. It owns the `ledger` JetStream stream and
   # asserts `chain_tip` exists at boot.
+  # svc-ledger's own `ledger` schema migrations, applied once by its Rust binary as its own role (svc_ledger), the way
+  # `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-ledger-migrate:
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    container_name: intafaced-svc-ledger-migrate
+    restart: 'no'
+    command: ['/app/svc-ledger', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-ledger), its own image, like svc-tax's and svc-academy's.
   svc-ledger:
-    <<: *app
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-ledger
-    command: ['node', 'services/svc-ledger/dist/index.js']
+    command: ['/app/svc-ledger']
     environment:
       <<: [*service-env, *internal-secret]
       SERVICE_NAME: svc-ledger
       HTTP_PORT: '4001'
       DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
       # svc-ledger merges `authEnvSchema` for its OPERATOR surface
-      # (operator-http.ts), so this is required at boot with no default — and it
+      # (the operator doors, src/env.rs), so this is required at boot with no default — and it
       # was never set here. The service crash-looped on `JWT_ACCESS_SECRET:
       # Required` the first time its container was recreated.
       #
       # It hid for so long because a running container keeps the environment it
       # started with: the fleet looked healthy until an unrelated
       # `--force-recreate` of another service pulled the dependency chain with
-      # it. workspace-sync check 3b now fails on this shape.
+      # it.
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
       # Operator JWT lifetime + iss/aud. authEnvSchema already defaults these
       # (900 / intafaced / intafaced.api). Without compose pass-through a host
@@ -184,7 +230,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
-      # Posting freeze. env.ts already names this (default true). Without compose
+      # Posting freeze. env.rs already names this (default true). Without compose
       # pass-through a host `.env` freeze after a reconcile mismatch never
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
@@ -201,9 +247,15 @@ services:
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4001/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-ledger-migrate:
+        condition: service_completed_successfully
 
   # ── THE FRONT DOOR ─────────────────────────────────────────
   #
@@ -334,7 +386,12 @@ services:
       # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
       CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
-    ports: ['4000:4000']
+    ports: ['127.0.0.1:4000:4000']
+    # The kill-switch state file (EDGE_KILL_STATE_PATH, relative to /app) outlives a recreated container, so an
+    # incident halt is not lost on a redeploy. A new volume holds no file: the edge halts every module until an operator
+    # records `{ "killed": [] }` (docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md).
+    volumes:
+      - edgestate:/app/.data
     healthcheck: *healthcheck
     # Started last on purpose: the door should open onto services that are
     # already answering, so a user's first request is not a 502.
@@ -367,6 +424,8 @@ services:
       # Registration open? §11 drop sequence. Empty pass-through — blank refuses
       # identity.registration_open_unset. Owner-explicit true is allowed. Never invent true.
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-}
+      # Invited addresses that may sign up while REGISTRATION_OPEN=false (comma-separated). Empty: no list.
+      REGISTRATION_EMAIL_ALLOWLIST: ${REGISTRATION_EMAIL_ALLOWLIST:-}
       # Waitlist / referral queue pins (env.ts optional). Empty default so
       # unset follows the drop clock — do not default these on. `off` in
       # `.env` refuse-closes capture.
@@ -407,6 +466,15 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Mail (#9165). Pass-through only, no compose default. Blank: a dev stack runs without mail; APP_ENV staging or
+      # prod refuses to boot until the host sets IDENTITY_MAIL_TRANSPORT=http-gateway and the gateway's settings.
+      # The gateway key is a secret: host `.env` only.
+      IDENTITY_MAIL_TRANSPORT: ${IDENTITY_MAIL_TRANSPORT:-}
+      IDENTITY_MAIL_GATEWAY_URL: ${IDENTITY_MAIL_GATEWAY_URL:-}
+      IDENTITY_MAIL_GATEWAY_KEY: ${IDENTITY_MAIL_GATEWAY_KEY:-}
+      IDENTITY_MAIL_FROM: ${IDENTITY_MAIL_FROM:-}
+      IDENTITY_MAIL_LINK_BASE: ${IDENTITY_MAIL_LINK_BASE:-}
+      IDENTITY_MAIL_CONSOLE_LINK_BASE: ${IDENTITY_MAIL_CONSOLE_LINK_BASE:-}
       # Access-token signing keys for rotation (id:secret list). Pass-through only — no compose default, no invented key.
       IDENTITY_AUTH_KEYS: ${IDENTITY_AUTH_KEYS:-}
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
@@ -499,10 +567,15 @@ services:
   # No DATABASE_URL, deliberately: §5.1 gives this service in-memory books and
   # the file journal below, and nothing else. It is therefore not gated on
   # `migrate` — there is no schema to migrate.
+  # The Rust binary (crates/svc-matching), its own image, like svc-ledger's.
   svc-matching:
-    <<: *app
+    image: intafaced/svc-matching:dev
+    build:
+      context: .
+      dockerfile: crates/svc-matching/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-matching
-    command: ['node', 'services/svc-matching/dist/index.js']
+    command: ['/app/svc-matching']
     environment:
       <<: [*service-env, *internal-secret, *edge-secret]
       SERVICE_NAME: svc-matching
@@ -516,7 +589,7 @@ services:
       # Engine kill-switch. Host `.env` can halt submissions before the journal.
       # Off unless the host says on: our own book settles fills as customer
       # money in our ledger, which this file (staging's unit) does not hold with
-      # custody off; env.ts refuses boot on "engine on, custody off" (OWNER 288).
+      # custody off; env.rs refuses boot on "engine on, custody off" (OWNER 288).
       # A host that sets LEDGER_CUSTODY_LAYER=on sets this on too.
       MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false}
       # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
@@ -529,12 +602,12 @@ services:
       # Operators who may propose and approve venue actions (open, halt, ...).
       # Comma-separated identity user ids, at least two distinct; whitespace is
       # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
-      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # BOOT with a FATAL message (crates/svc-matching/src/env.rs), so a lost
       # host `.env` entry stops the container instead of leaving markets with no
       # reachable halt. Host `.env` publishes it. `docker compose config` stays
       # valid because the variable has an empty default.
       MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
-      # Replay hold check. Read-only balances on svc-ledger. No default in env.ts:
+      # Replay hold check. Read-only balances on svc-ledger. No default in env.rs:
       # a blank URL leaves a book that replayed resting orders closed. Compose
       # points at the ledger the same way svc-trade does.
       LEDGER_URL: http://svc-ledger:4001
@@ -546,7 +619,9 @@ services:
       # before it will accept an order. On an anonymous volume a container
       # replacement would silently start with empty books.
       - matchingjournal:/data/matching
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4005/health']
     depends_on:
       <<: *needs-bus
       svc-ledger:
@@ -576,10 +651,27 @@ services:
     container_name: intafaced-svc-fix
     profiles: ['fix']
     restart: unless-stopped
-    command: ['java', '-cp', '/app/svc-fix.jar', 'io.intafaced.fix.FixAcceptorMain']
+    command:
+      [
+        'java',
+        '-javaagent:/app/opentelemetry-javaagent.jar',
+        '-cp',
+        '/app/svc-fix.jar',
+        'io.intafaced.fix.FixAcceptorMain',
+      ]
     environment:
       <<: *internal-secret
       SERVICE_NAME: svc-fix
+      # Tracing, through the OpenTelemetry Java agent in the image: the fleet's one OTEL_ENABLED switch, the same
+      # collector, traces only (the Node services export no metrics or logs either).
+      OTEL_JAVAAGENT_ENABLED: ${OTEL_ENABLED:-true}
+      OTEL_SERVICE_NAME: svc-fix
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      # The operator's off switch for FIX order entry (flag fix.gateway). Unset is on; off turns new orders away.
+      FIX_GATEWAY_ENABLED: ${FIX_GATEWAY_ENABLED:-}
       MATCHING_BASE_URL: http://svc-matching:4005
       FIX_COMPID_ACCOUNT_JSON: ${FIX_COMPID_ACCOUNT_JSON:-}
       FIX_BEGIN_STRING: ${FIX_BEGIN_STRING:-}
@@ -645,6 +737,9 @@ services:
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
+      # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
+      TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.
@@ -755,6 +850,17 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_COPY_LEAD_MIN_VENUE_USDC: ${TRADE_COPY_LEAD_MIN_VENUE_USDC:-}
+      # CB-copy-12 the new-trader mission minimum on the applicant's own venue account. Empty = "Not set by the platform".
+      TRADE_COPY_LEAD_MISSION_MIN_USDC: ${TRADE_COPY_LEAD_MISSION_MIN_USDC:-}
+      # CB-copy-16 the lead daily buy cap. Empty = every lead buy refuses.
+      TRADE_COPY_LEAD_DAILY_BUY_CAP: ${TRADE_COPY_LEAD_DAILY_BUY_CAP:-}
+      # CB-copy-16 the lead per-pair holding limits, JSON of pair to decimal. Empty = every lead trade refuses.
+      TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: ${TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS:-}
+      # CB-copy-06 the owner's minimum investment per follow. Empty = every Start copying refuses.
+      TRADE_COPY_MIN_INVESTMENT: ${TRADE_COPY_MIN_INVESTMENT:-}
+      # CB-copy-06 when a copy day starts, minutes east of UTC. Empty = a follow with a daily cap refuses.
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: ${TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
@@ -795,6 +901,9 @@ services:
       TRADE_OTC_DESK_LAW: ${TRADE_OTC_DESK_LAW:-}
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
+      # Owner-published stream hosts (public, private, business; primary and
+      # failover). Blank refuses trade.developer_stream_hosts_unset.
+      TRADE_DEVELOPER_STREAM_HOSTS: ${TRADE_DEVELOPER_STREAM_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
       TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
@@ -896,6 +1005,12 @@ services:
       # invent a timeout: this service has no connection idle setting, so the
       # multiplexed door stays unmounted. Never invent a duration.
       WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
+      # Owner-published per-IP cap and storm ban on the public doors. Blank cap
+      # refuses every public socket (ws.per_ip_cap_unset); a blank storm count
+      # or ban time leaves the ban off, said on GET /policy. Never invented.
+      WS_PER_IP_MAX_CONNECTIONS: ${WS_PER_IP_MAX_CONNECTIONS:-}
+      WS_PER_IP_STORMS_BEFORE_BAN: ${WS_PER_IP_STORMS_BEFORE_BAN:-}
+      WS_PER_IP_BAN_SECONDS: ${WS_PER_IP_BAN_SECONDS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
@@ -935,7 +1050,7 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
-    ports: ['4014:4014']
+    ports: ['127.0.0.1:4014:4014']
     healthcheck: *healthcheck
     depends_on:
       # The market list is read at boot so a subscription can be validated
@@ -954,6 +1069,9 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-pay
       HTTP_PORT: '4006'
+      # The custody switch (OWNER 226), the same value as svc-ledger's. Off: hosted checkout pays the business's own wallet
+      # or the partner, and svc-pay books only our fee.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       DATABASE_URL: postgres://svc_pay:${SVC_PAY_DB_PASSWORD:-svc_pay}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
@@ -995,6 +1113,8 @@ services:
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
+      # Our fee rate with each payment partner, `<partner>=<bps>,…`: the owner's contract numbers, blank until set.
+      PAY_PARTNER_FEE_BPS: ${PAY_PARTNER_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
       # default — blank refuses (never 25). Owner may set 25 explicitly (see
@@ -1060,7 +1180,7 @@ services:
       SERVICE_NAME: svc-p2p
       # 4007: the code default is 4004, which svc-trade already holds.
       HTTP_PORT: '4007'
-      DATABASE_URL: postgres://svc_p2p:svc_p2p@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_p2p:${SVC_P2P_DB_PASSWORD:-svc_p2p}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
       # p2p.merchants — host `.env` must reach the container. Empty ceilings stay
@@ -1167,10 +1287,31 @@ services:
 
   # ── Phase 5 · SURFACES ─────────────────────────────────────
 
+  # svc-bank's own `bank` schema migrations, applied once by its Rust binary as its own role (svc_bank), before the
+  # service starts, as svc-ledger-migrate does for the ledger.
+  svc-bank-migrate:
+    image: intafaced/svc-bank:dev
+    build:
+      context: .
+      dockerfile: crates/svc-bank/Dockerfile
+    container_name: intafaced-svc-bank-migrate
+    restart: 'no'
+    command: ['/app/svc-bank', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-bank), its own image, like svc-ledger's.
   svc-bank:
-    <<: *app
+    image: intafaced/svc-bank:dev
+    build:
+      context: .
+      dockerfile: crates/svc-bank/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-bank
-    command: ['node', 'services/svc-bank/dist/index.js']
+    command: ['/app/svc-bank']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-bank
@@ -1278,13 +1419,19 @@ services:
       BANK_RECOVERY_JOBS_BATCH_LIMIT: ${BANK_RECOVERY_JOBS_BATCH_LIMIT-50}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4009']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4009/health']
     depends_on:
       # `nats` is now required. svc-bank owns INTAFACED_BANK and creates it at
       # boot — the stream has never existed, so svc-notify's finished margin-call
       # consumer has parked on it since it shipped. A margin call raised with no
       # transport is a grace clock running against a borrower who was never told.
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-bank-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
       # Compose sets TRADE_URL, so trade must be answerable for LTV marks.
@@ -1329,17 +1476,38 @@ services:
     # published to the host and never reachable through svc-edge.
     expose: ['4400']
 
+  # svc-agents' own `agents` schema migrations, applied once by its Rust binary as its own role (svc_agents), before the
+  # service starts, as svc-ledger-migrate does for the ledger.
+  svc-agents-migrate:
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    container_name: intafaced-svc-agents-migrate
+    restart: 'no'
+    command: ['/app/svc-agents', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-agents), its own image, like svc-ledger's.
   svc-agents:
-    <<: *app
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-agents
-    command: ['node', 'services/svc-agents/dist/index.js']
+    command: ['/app/svc-agents']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-agents
       HTTP_PORT: '4008'
       DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
-      # Affiliate accrue + payout after usage feeCharge. env.ts is optional with
+      # Affiliate accrue + payout after usage feeCharge. env.rs is optional with
       # no localhost default (unset = noop). Compose pins identity on the fleet
       # network. Never invents rates; identity owns the payout door.
       IDENTITY_URL: http://svc-identity:4002
@@ -1370,10 +1538,10 @@ services:
       # Billing window: no git default — blank refuses (never 60). Owner may
       # set 60 explicitly (see .env.example). Same `:?` shape as pay
       # confirmations so compose-up fails instead of publishing a 60-minute
-      # bill window. Window must divide 1440 (env.ts). Timeout still 60000.
+      # bill window. Window must divide 1440 (env.rs). Timeout still 60000.
       AGENTS_USAGE_WINDOW_MINUTES: ${AGENTS_USAGE_WINDOW_MINUTES:?missing — copy .env.example to .env}
       AGENTS_UPSTREAM_TIMEOUT_MS: ${AGENTS_UPSTREAM_TIMEOUT_MS:-60000}
-      # Upstream auth header name + prefix (env.ts defaults x-api-key / empty).
+      # Upstream auth header name + prefix (env.rs defaults x-api-key / empty).
       # Without compose pass-through a host `.env` pin never reaches the container.
       AGENTS_UPSTREAM_AUTH_HEADER: ${AGENTS_UPSTREAM_AUTH_HEADER:-x-api-key}
       AGENTS_UPSTREAM_AUTH_PREFIX: ${AGENTS_UPSTREAM_AUTH_PREFIX:-}
@@ -1412,14 +1580,24 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
+      # Research answers (J-agents-10 #4): the uncertainty scale, lowest first; unset refuses an answer about a market.
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4008']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4008/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-agents-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
 
@@ -1561,6 +1739,11 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Signal providers' own fill count (J-copy-bots-otc-22). The provider criteria are owner values, pass-through
+      # only with no compose default: blank refuses every signal publish (market.provider_criteria_not_set).
+      TRADE_URL: http://svc-trade:4004
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: ${MARKET_SIGNAL_PROVIDER_MIN_TIER:-}
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: ${MARKET_SIGNAL_PROVIDER_MIN_FILLS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck
@@ -1617,12 +1800,33 @@ services:
     depends_on:
       svc-trade: { condition: service_healthy }
 
+  # svc-tax's own `tax` schema migrations, applied once by its Rust binary as its own role (svc_tax), the way
+  # `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-tax-migrate:
+    image: intafaced/svc-tax:dev
+    build:
+      context: .
+      dockerfile: crates/svc-tax/Dockerfile
+    container_name: intafaced-svc-tax-migrate
+    restart: 'no'
+    command: ['/app/svc-tax', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Lot export (tax.engine). Reads ledger; no second book. Owner map blank →
   # tax.jurisdiction_unmapped at the door — never a silent country default.
+  # The Rust binary (crates/svc-tax), its own image, like svc-fix's.
   svc-tax:
-    <<: *app
+    image: intafaced/svc-tax:dev
+    build:
+      context: .
+      dockerfile: crates/svc-tax/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-tax
-    command: ['node', 'services/svc-tax/dist/index.js']
+    command: ['/app/svc-tax']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-tax
@@ -1638,13 +1842,18 @@ services:
       CONNECT_DATA_LAKE_TSDB_URL: ${CONNECT_DATA_LAKE_TSDB_URL:-}
       INDEXER_URL: ${INDEXER_URL:-}
       # Role svc_tax and schema tax come from postgres-init.
-      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env)
+      # svc-tax-migrate applies its migrations. Blank DATABASE_POOL_MAX (x-service-env)
       # refuses tax.database_pool_max_unset when this URL is set. Never invent a pool size.
       DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced
     expose: ['4020']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4020/health']
     depends_on:
-      <<: *needs-schema
+      postgres:
+        condition: service_healthy
+      svc-tax-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
 
@@ -1679,6 +1888,8 @@ services:
       # Owner-published isolate ceilings. Blank = sandbox refuses quant.sandbox_max_ops_unset / quant.sandbox_max_source_unset.
       SANDBOX_MAX_OPS: ${SANDBOX_MAX_OPS:-}
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
+      # Paper-book fee in basis points. Blank = every paper order refuses quant.paper_fee_unset (never invented as zero).
+      QUANT_PAPER_FEE_BPS: ${QUANT_PAPER_FEE_BPS:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
       # Role svc_quant and schema quant come from postgres-init.
@@ -1704,7 +1915,7 @@ services:
       # The CRM schema (`ops`, 6 migrations). Without this the fleet never creates it and
       # outreach intake refuses ops.crm.storage_unconfigured. Storage also needs a positive
       # OPS_DATABASE_POOL_MAX, which stays a blank pass-through: never invent a pool size.
-      DATABASE_URL: postgres://svc_ops:svc_ops@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_ops:${SVC_OPS_DB_PASSWORD:-svc_ops}@postgres:5432/intafaced
       OPS_DATABASE_POOL_MAX: ${OPS_DATABASE_POOL_MAX:-}
       # The legacy warehouse/team contact sources stay hardcoded-absent (ops.identity_unwired / ops.support_unwired). IDENTITY_URL below
       # is the founder authority and approval client. Local CRM rows still write. No second contact book.
@@ -1787,16 +1998,35 @@ services:
     command: ['--dev', '--bind', '0.0.0.0']
     expose: ['7880', '7881', '7882/udp']
 
-  svc-academy:
-    <<: *app
-    container_name: intafaced-svc-academy
-    command: ['node', 'services/svc-academy/dist/index.js']
+  # svc-academy's own `academy` schema migrations, applied once by its Rust binary as its own role (svc_academy), the
+  # way `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-academy-migrate:
+    image: intafaced/svc-academy:dev
+    build:
+      context: .
+      dockerfile: crates/svc-academy/Dockerfile
+    container_name: intafaced-svc-academy-migrate
+    restart: 'no'
+    command: ['/app/svc-academy', 'migrate']
     environment:
-      # *internal-secret is required here. src/env.ts merges
-      # `internalServiceEnvSchema` for its two callees, and
-      # INTERNAL_SERVICE_SECRET has no default — so without it the process dies
-      # at import with `EnvError: INTERNAL_SERVICE_SECRET: Required` and the
-      # container is never created at all. That is why there are no
+      DATABASE_URL: postgres://svc_academy:${SVC_ACADEMY_DB_PASSWORD:-svc_academy}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-academy), its own image, like svc-tax's.
+  svc-academy:
+    image: intafaced/svc-academy:dev
+    build:
+      context: .
+      dockerfile: crates/svc-academy/Dockerfile
+    restart: unless-stopped
+    container_name: intafaced-svc-academy
+    command: ['/app/svc-academy']
+    environment:
+      # *internal-secret is required here. src/env.rs refuses a missing
+      # INTERNAL_SERVICE_SECRET (it signs the calls to its callees), so without
+      # it the process exits at start and the container never becomes healthy. That is why there are no
       # restart-loop logs for anyone to read: a service that fails to boot is
       # loud, a service nobody started is silent.
       #
@@ -1830,16 +2060,16 @@ services:
       # Owner-published lobby ceiling. Empty = unset refuse
       # academy.room_capacity_unset. Never invent 5000.
       ACADEMY_MAX_ROOM_CAPACITY: ${ACADEMY_MAX_ROOM_CAPACITY:-}
-      # Paper-drill ops kill. env.ts already names this (default true); without
+      # Paper-drill ops kill. env.rs already names this (default true); without
       # compose pass-through a host `.env` never reaches the container. Live
       # trade on svc-trade is unaffected. No prize, IFC, or paper balance here.
       ACADEMY_PAPER_TRADING_ENABLED: ${ACADEMY_PAPER_TRADING_ENABLED:-true}
-      # Tournament ladder kill. env.ts already names this (default true) and
+      # Tournament ladder kill. env.rs already names this (default true) and
       # refuses academy.tournament_disabled when off. Without compose
       # pass-through a host `.env` never reaches the container. No prize,
       # IFC, or programme JSON here.
       ACADEMY_TOURNAMENT_ENABLED: ${ACADEMY_TOURNAMENT_ENABLED:-true}
-      # Owner-published ambassador rate law. env.ts already names these
+      # Owner-published ambassador rate law. env.rs already names these
       # (empty default = unpublished refuse). Never invent session credits
       # or fee %. Class M settlement stays owner JSON + ledger recipes.
       ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON: ${ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON:-}
@@ -1868,6 +2098,17 @@ services:
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
       ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
+      # J-academy-07 course payments: owner values, blank until set (nothing is sold while any is blank).
+      ACADEMY_PAYMENT_RPC_URL: ${ACADEMY_PAYMENT_RPC_URL:-}
+      ACADEMY_PAYMENT_CHAIN_ID: ${ACADEMY_PAYMENT_CHAIN_ID:-}
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: ${ACADEMY_PAYMENT_TOKEN_ADDRESS:-}
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: ${ACADEMY_PAYMENT_TOKEN_DECIMALS:-}
+      ACADEMY_PAYMENT_ASSET: ${ACADEMY_PAYMENT_ASSET:-}
+      ACADEMY_PAYMENT_RECEIVER: ${ACADEMY_PAYMENT_RECEIVER:-}
+      ACADEMY_PAYMENT_CONFIRMATIONS: ${ACADEMY_PAYMENT_CONFIRMATIONS:-}
+      ACADEMY_REFUND_SIGNER_URL: ${ACADEMY_REFUND_SIGNER_URL:-}
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: ${ACADEMY_PURCHASE_RECONCILE_SECONDS:-}
+      LEDGER_URL: http://svc-ledger:4001
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
@@ -1883,14 +2124,20 @@ services:
       ACADEMY_VIDEO_POSITION_SAVE_SECONDS: ${ACADEMY_VIDEO_POSITION_SAVE_SECONDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4016']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4016/health']
     depends_on:
       # *needs-bus since certification publishes `intafaced.identity.xp.earned`
-      # (services/svc-academy/src/certs/xp-publish.ts). NATS_URL already arrives
+      # (crates/svc-academy/src/certs). NATS_URL already arrives
       # on *service-env; what was missing was the ordering. Academy degrades
       # rather than dies without the bus, so this is about not starting into a
       # known-absent dependency — not about making the lobby need one.
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-academy-migrate:
+        condition: service_completed_successfully
       svc-identity:
         condition: service_healthy
       svc-token:
@@ -1907,7 +2154,7 @@ services:
       LEDGER_URL: http://svc-ledger:4001
       # Role svc_mining_pool and schema mining_pool come from postgres-init.
       # The drizzle files are applied by migrate-all. Without this URL the
-      # fleet never creates windows/shares (workspace-sync).
+      # fleet never creates windows/shares.
       DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
     healthcheck: *healthcheck
@@ -2094,6 +2341,8 @@ services:
     restart: unless-stopped
     # 8090 because that is the port every existing doc already claims. Making
     # the docs true is cheaper than correcting all of them.
+    # The stack's one web entry point, and the only port here not bound to 127.0.0.1 (#9168,
+    # tooling/ci/compose-ports.test.mjs): it serves the customer site and proxies its API and stream same-origin.
     ports: ['8090:80']
     # Origins the browser CSP must allow beyond this site; all optional, empty by
     # default (see apps/customer/csp-origins.envsh). An invalid value stops the
@@ -2126,10 +2375,9 @@ services:
   # doc: "Do not connect 04_Web_Admin webpack to monorepo services without edge
   # auth." The staff surface we DO serve is `admin` below, on 3100.
   #
-  # This line exists because `workspace-sync` check 7 forbids SILENCE, not
-  # absence. Until 2026-08-03 the check could not see anything under `vendor/`
-  # at all, so this directory was absent AND silent — the exact state that let
-  # the trading shell take 48 commits with nobody able to look at it.
+  # This line says why it is absent, so the directory is never absent AND
+  # silent — the exact state that let the trading shell take 48 commits with
+  # nobody able to look at it.
   #
   # Not permanent. ADMIN-0 phase A2 ports the screens that must move (withdraw
   # examine, fee manage) one at a time through contracts; phase A3 is the
@@ -2229,21 +2477,20 @@ services:
       # docs/adr/2026-10-14-hsts-staged-ramp-no-preload.md.
       HSTS_MAX_AGE_SECONDS: ${ADMIN_HSTS_MAX_AGE_SECONDS:-86400}
       HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
-    ports: ['3100:3100']
+    ports: ['127.0.0.1:3100:3100']
     healthcheck: *healthcheck
 
-  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, runs
-  # once (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded),
-  # then runs, in this order: the founder seed (init, then enrol through svc-identity's own doors) and the TEST content
-  # seed (apply, then status, which prints what it made: Home's TEST deposit, TEST notice and inbox row, and the Earn,
-  # Loans and P2P rows), stopping at the first step that fails. Each script keeps its own guards: the founder seed enrols
-  # only through a loopback edge, so this service shares the host's network and reaches svc-edge on its published :4000
-  # once it is healthy; the TEST content seed refuses unless a local test stack marker with a loopback database is in
-  # LOCAL_STACK_STATE. KNOWN GAP on a plain compose stack: identity reads the founder invites at boot from the host's
-  # .env.founder.local (`pnpm local:founder init` before `up`), while this container's `init` would write its own copy in
-  # /app, which the image's `node` user cannot write (run 41170820323: EACCES on /app/.env.founder.local), so `init` stops
-  # the run there; were it written, `enrol` would be refused by identity, and compose writes no stack marker, so the
-  # content step would refuse too. The run creates nothing (#6853). `pnpm local:stack` runs the same scripts and seeds.
+  # The tester profile's seed (HM-desks-03, J-home-ia-11). OFF BY DEFAULT: it starts only under `--profile tester`, with
+  # docker-compose.tester.yml layered on (its wiring: the state folder, the stack id, the loopback ports), runs once
+  # (restart 'no') and exits. Its entrypoint refuses unless APP_ENV is exactly dev or test (exit 2, nothing seeded), then
+  # runs, in this order: the founder step (enrol the local test founder pair through svc-identity's own doors, wait until
+  # identity runs with their ids, confirm their emails), the founders' TEST verification (each submits its own
+  # `full` request, the two TEST operators approve it, as the stack's gates do), the TEST personal transfer
+  # limits (the gates' `terms`) and the TEST content seed (apply, home, then status, which prints
+  # what it made), stopping at the first step that fails. Each script keeps its own guards: they reach the stack only on
+  # the loopback ports its compose marker lists (this service shares the host's network), and only once the database on
+  # that port holds the marker's stack id. Before `up`, `node tooling/scripts/local-test-compose-env.mjs` writes the env
+  # file, the marker and the founder vault draft into LOCAL_STACK_STATE.
   seed:
     <<: *app
     container_name: intafaced-seed
@@ -2259,8 +2506,9 @@ services:
       [
         'node',
         'tooling/scripts/local-tester-seed.mjs',
-        'local-founder-seed.mjs init',
-        'local-founder-seed.mjs enrol',
+        'local-tester-founders.mjs enrol',
+        'local-test-gates.mjs verify',
+        'local-test-gates.mjs terms',
         'local-test-seed.mjs apply',
         'local-test-seed.mjs home',
         'local-test-seed.mjs status',
@@ -2275,6 +2523,7 @@ services:
       - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
 
 volumes:
+  edgestate:
   matchingjournal:
   execution-ems-journal:
   academy-miniodata:

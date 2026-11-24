@@ -19,6 +19,17 @@ describe('agentHeldAction (J-developer-15 #6)', () => {
     expect(agentHeldAction('POST', '/api/trade/trpc/settlement.payout')).toBeUndefined();
   });
 
+  it('holds every call to the bank and card door, whatever its method or spelling (J-agents-21 #9)', () => {
+    expect(agentHeldAction('POST', '/api/bank/trpc/cards.threeDS.answer')).toBe('bank.call');
+    expect(agentHeldAction('GET', '/api/bank/trpc/spaces.list')).toBe('bank.call');
+    expect(agentHeldAction('POST', '/api/bank/trpc/transfers.create,spaces.list')).toBe('bank.call');
+    expect(agentHeldAction('POST', '/API/Bank/trpc/transfers.create')).toBe('bank.call');
+    expect(agentHeldAction('POST', '/api//bank/trpc/transfers.create')).toBe('bank.call');
+    expect(agentHeldAction('GET', '/api/bank')).toBe('bank.call');
+    expect(agentHeldAction('GET', '/api/banking/x')).toBeUndefined();
+    expect(agentHeldAction('POST', '/api/v1/venue/agent/orders')).toBeUndefined();
+  });
+
   it('holds a path it cannot decode', () => {
     expect(agentHeldAction('POST', '/api/pay/trpc/%E0%A4%A')).toBe('pay.payout');
   });

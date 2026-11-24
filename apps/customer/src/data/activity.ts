@@ -7,7 +7,8 @@
  */
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import type { ApiClient } from '../shared/api';
+import { callAs, type ApiClient } from '../shared/api';
+import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
 import { useSession } from '../features/session/session';
 import { classifyFailure } from './poll';
 import type { Source } from './source';
@@ -65,6 +66,16 @@ export interface ActivityItem {
   purchase?: true;
   /** The signed-in person's own wording for this line on the statements and reports they download. Never shown to anyone else. */
   reportDescription?: string;
+  /**
+   * Whose record the line is, when the partner bank holds the person's money and the line is the partner's own record of
+   * a move it made (svc-bank `partner-activity.ts`). Absent on a line of our own ledger.
+   */
+  heldAt?: { label: string };
+  /**
+   * A payment between two people: its fees as the bank recorded them when it was made. `fee` is ours, `networkFee` what
+   * the book that moved it stated; null is "not known". Absent on every other line.
+   */
+  fees?: { fee: Decimal | null; networkFee: Decimal | null };
 }
 
 const itemSchema = z
@@ -105,6 +116,14 @@ const itemSchema = z
       .string()
       .nullish()
       .transform((value) => (value ? value : undefined)),
+    heldAt: z
+      .object({ label: z.string().min(1) })
+      .nullish()
+      .transform((value) => (value ? { label: value.label } : undefined)),
+    fees: z
+      .object({ fee: z.string().nullable(), networkFee: z.string().nullable() })
+      .nullish()
+      .transform((value) => (value ? { fee: value.fee, networkFee: value.networkFee } : undefined)),
   })
   .transform(({ note, ...item }) => (note ? { ...item, paymentNote: note } : item));
 
@@ -149,6 +168,11 @@ export interface ActivityFeed {
   /** The last "load more" failed; the rows already shown are still good. */
   moreFailed: boolean;
   loadMore: () => void;
+  /**
+   * Where each loaded page starts in `items` (the first is 0). A screen that groups lines groups them within a page, so
+   * "load more" only adds rows below and never rewrites a row already shown. Absent: all of `items` is one page.
+   */
+  pageStarts?: readonly number[];
 }
 
 export interface ActivityOptions {
@@ -172,7 +196,14 @@ type State =
   | { phase: 'loading' }
   | { phase: 'refused'; code: string }
   | { phase: 'error' }
-  | { phase: 'ready'; items: ActivityItem[]; cursor: string | null; loadingMore: boolean; moreFailed: boolean };
+  | {
+      phase: 'ready';
+      items: ActivityItem[];
+      pageStarts: number[];
+      cursor: string | null;
+      loadingMore: boolean;
+      moreFailed: boolean;
+    };
 
 export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}, now: () => number = Date.now): Source<ActivityFeed> {
   const limit = Math.max(1, Math.min(200, Math.trunc(options.pageSize ?? ACTIVITY_PAGE_SIZE)));
@@ -206,6 +237,7 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
             loadingMore: state.loadingMore,
             moreFailed: state.moreFailed,
             loadMore,
+            pageStarts: state.pageStarts,
           },
         };
       }
@@ -224,16 +256,19 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
       ...(options.year !== undefined ? { year: options.year } : {}),
       ...(options.address ? { address: options.address } : {}),
     };
-    const result = await api.query('bank', 'activity.list', input, activityPageSchema, { signal: controller.signal });
+    const result = await callAs(api, BANK_ACTIVITY_LIST, input, activityPageSchema, { signal: controller.signal });
     if (inflight !== controller || controller.signal.aborted) return;
     inflight = null;
     if (result.ok) {
       const seen = new Set(state.phase === 'ready' ? state.items.map((item) => item.id) : []);
       const fresh = result.data.items.filter((item) => !seen.has(item.id));
       asOf = now();
+      const more = state.phase === 'ready' && cursor !== null;
+      const kept = state.phase === 'ready' && more ? state : null;
       state = {
         phase: 'ready',
-        items: state.phase === 'ready' && cursor ? [...state.items, ...fresh] : fresh,
+        items: kept ? [...kept.items, ...fresh] : fresh,
+        pageStarts: kept ? (fresh.length > 0 ? [...kept.pageStarts, kept.items.length] : kept.pageStarts) : [0],
         cursor: result.data.nextCursor,
         loadingMore: false,
         moreFailed: false,

@@ -3,12 +3,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach } from 'vitest';
+import { fakeSql, partial } from '@intafaced/service-kit/testing';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createIdentityRouter } from './router.js';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { identityActionPayloadHash, stubActionApprovals } from './auth/privileged-dual-control.js';
-import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
+import { AuthError, type ApiKeyActionScope, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 import type { RankService } from './rank/rank-service.js';
 import type { FreezeService } from './affiliates/freeze-service.js';
@@ -24,7 +25,10 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
-import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { KycProfileError, type KycProfileDesk, type KycProfileErrorCode } from './kyc/profile.js';
+import { IDENTITY_KYC_PROFILE_PROCEDURES } from '@intafaced/contracts/identity-kyc-profile-procedures';
+import { IDENTITY_KYC_GET_DOCUMENT } from '@intafaced/contracts/identity-kyc-procedures';
+import type { ProcedureSample } from '@intafaced/contracts/procedure';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 
@@ -137,9 +141,10 @@ function stubServices(): Stub {
       return Promise.resolve(result(...args));
     }) as never;
 
-  const auth = {
+  const auth = partial<AuthService>({
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
+    kycTradingOnly: record('kycTradingOnly', () => false),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
     listKycCases: record('listKycCases', () => []),
     assertKycRejectable: record('assertKycRejectable', () => undefined),
@@ -149,6 +154,12 @@ function stubServices(): Stub {
     deactivateKycCapability: record('deactivateKycCapability', () => capabilitiesRead),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
+    accountState: record('accountState', (userId: string) => ({
+      userId,
+      status: 'active' as const,
+      kycTier: 'basic' as const,
+      archived: false,
+    })),
     approveKycRecord: record('approveKycRecord', () =>
       kycRecord({ status: 'approved', reviewedBy: OPERATOR, reviewedAt: new Date('2026-07-28T09:00:00.000Z') }),
     ),
@@ -171,11 +182,11 @@ function stubServices(): Stub {
       allowCredentials: [{ type: 'public-key' as const, id: 'cred-1' }],
       userVerification: 'preferred' as const,
     })),
-    withApiKeyAction: (input: { proof?: unknown }, run: (scope: unknown) => Promise<unknown>) => {
+    withApiKeyAction: <T>(input: { proof?: unknown }, run: (scope: ApiKeyActionScope) => Promise<T>): Promise<T> => {
       if (!input.proof) return Promise.reject(new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required'));
       return run({
-        tx: {},
-        createApiKey: (i: unknown) => (auth.createApiKey as (x: unknown) => unknown)(i),
+        tx: fakeSql<ApiKeyActionScope['tx']>(),
+        createApiKey: (i) => auth.createApiKey(i),
         revokeApiKey: async () => true,
       });
     },
@@ -233,16 +244,16 @@ function stubServices(): Stub {
       userId: USER,
       mfaRequired: false,
     })),
-  } as unknown as AuthService;
+  });
 
-  const rank = {
+  const rank = partial<RankService>({
     awardXp: record('awardXp', () => ({
       snapshot: { rank: 1, xp: 100n },
       applied: true,
       rankChanged: false,
     })),
     perks: record('perks', () => ({ rank: 1, feeDiscountBps: 0, p2pLimitMultiplier: 1 })),
-  } as unknown as RankService;
+  });
 
   return {
     auth,
@@ -698,11 +709,11 @@ describe('kyc.proofOfAddress (I-kyc-compliance-11)', () => {
   });
 
   it('a second document while one waits for review refuses as a conflict with its code', async () => {
-    const desk = {
+    const desk = partial<KycPoaDesk>({
       async submit() {
         throw new KycPoaError('waiting', 'kyc.poa_pending');
       },
-    } as unknown as KycPoaDesk;
+    });
     const caller = createIdentityRouter(stub.auth, stub.rank, { kycPoa: desk }).createCaller(await ctx(['identity:write']));
     const input = { type: 'utility_bill', country: 'DE', issuedOn: '2026-01-01', contentType: 'application/pdf', bytesBase64: 'AQID' };
     const refused = await caller.kyc.proofOfAddress.submit(input).catch((e: unknown) => e);
@@ -712,7 +723,7 @@ describe('kyc.proofOfAddress (I-kyc-compliance-11)', () => {
 
   it('submits for the caller only; listFor is behind admin:compliance; refusals keep their codes', async () => {
     const seen: unknown[][] = [];
-    const desk = {
+    const desk = partial<KycPoaDesk>({
       async submit(...args: unknown[]) {
         seen.push(args);
         throw new KycPoaError('too old', 'kyc.poa_too_old', { maxAgeDays: 90 });
@@ -720,7 +731,7 @@ describe('kyc.proofOfAddress (I-kyc-compliance-11)', () => {
       async listFor() {
         return [];
       },
-    } as unknown as KycPoaDesk;
+    });
     const make = async (scopes: string[]) => createIdentityRouter(stub.auth, stub.rank, { kycPoa: desk }).createCaller(await ctx(scopes));
     const input = { type: 'utility_bill', country: 'DE', issuedOn: '2026-01-01', contentType: 'application/pdf', bytesBase64: 'AQID' };
     const refused = await (await make(['identity:write'])).kyc.proofOfAddress.submit(input).catch((e: unknown) => e);
@@ -751,7 +762,7 @@ describe('kyc.selfie (I-kyc-compliance-09)', () => {
   it('acts for the caller only; a used link is CONFLICT, an unknown one NOT_FOUND; listFor is behind admin:compliance', async () => {
     const seen: unknown[][] = [];
     const token = 'A'.repeat(43);
-    const desk = {
+    const desk = partial<KycSelfieDesk>({
       async submit(...args: unknown[]) {
         seen.push(args);
         throw new KycSelfieError('used', 'kyc.handoff_used');
@@ -763,7 +774,7 @@ describe('kyc.selfie (I-kyc-compliance-09)', () => {
       async listFor() {
         return [];
       },
-    } as unknown as KycSelfieDesk;
+    });
     const make = async (scopes: string[]) =>
       createIdentityRouter(stub.auth, stub.rank, { kycSelfie: desk }).createCaller(await ctx(scopes));
     const input = { contentType: 'image/jpeg', bytesBase64: 'AQID', handoff: token };
@@ -799,7 +810,7 @@ describe('kyc.selfie (I-kyc-compliance-09)', () => {
     };
     const decided: unknown[] = [];
     const desk = (state: 'provided' | 'decided_other') =>
-      ({
+      partial<KycSelfieDesk>({
         async assertDecidable() {
           if (state === 'decided_other') throw new KycSelfieError('decided', 'kyc.selfie_decided');
           return USER;
@@ -816,7 +827,7 @@ describe('kyc.selfie (I-kyc-compliance-09)', () => {
             decidedAt: '2026-10-29T00:01:00.000Z',
           };
         },
-      }) as unknown as KycSelfieDesk;
+      });
     const make = async (opts: { mfa?: boolean; userId?: string } = {}, state: 'provided' | 'decided_other' = 'provided') =>
       createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycSelfie: desk(state) }).createCaller(
         await ctx(['admin:compliance'], { userId: OPERATOR, ...opts }),
@@ -853,7 +864,7 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
 
   it("acts only on the caller's own draft, and maps each refusal", async () => {
     const seen: unknown[][] = [];
-    const desk = {
+    const desk = partial<KycProfileDesk>({
       async start(...args: unknown[]) {
         seen.push(['start', ...args]);
         throw new KycProfileError('stale', 'kyc.profile_version');
@@ -866,7 +877,7 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
         seen.push(['saveStep', ...args]);
         throw new KycProfileError('none', 'kyc.document_types_unset');
       },
-    } as unknown as KycProfileDesk;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(await ctx(['identity:write']));
     // There is no id to tamper with: an extra `userId` is refused as input, before the desk.
     expect(codeOf(await api.kyc.profile.start({ tier: 'basic', userId: OPERATOR } as never).catch((e: unknown) => e))).toBe('BAD_REQUEST');
@@ -899,12 +910,12 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
       new KycProfileError('open', 'kyc.profile_request_open', { status: 'pending' }),
       new KycProfileError('unreadable', 'kyc.profile_unreadable'),
     ];
-    const desk = {
+    const desk = partial<KycProfileDesk>({
       async submit(...args: unknown[]) {
         seen.push(args);
         throw answers.shift();
       },
-    } as unknown as KycProfileDesk;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(await ctx(['identity:write']));
     const open = await api.kyc.profile.submit({ version: 3 }).catch((e: unknown) => e);
     expect(codeOf(open)).toBe('CONFLICT');
@@ -914,6 +925,32 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
       [USER, 3],
       [USER, 3],
     ]);
+  });
+
+  it('each record sends every refusal it lists with the status it lists', async () => {
+    for (const record of IDENTITY_KYC_PROFILE_PROCEDURES) {
+      for (const [code, status] of Object.entries(record.refusals)) {
+        const refuse = () => {
+          throw new KycProfileError(code, code as KycProfileErrorCode);
+        };
+        const desk = partial<KycProfileDesk>({ read: refuse, start: refuse, upload: refuse, submit: refuse, documentTypes: refuse });
+        const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(
+          await ctx(['identity:read', 'identity:write']),
+        );
+        const samples: readonly ProcedureSample[] = record.samples;
+        const accepted = samples.find((sample) => sample.verdict === 'accept')?.input;
+        const calls: Record<string, () => Promise<unknown>> = {
+          'kyc.documentTypes.read': () => api.kyc.documentTypes.read(accepted as never),
+          'kyc.profile.read': () => api.kyc.profile.read(),
+          'kyc.profile.start': () => api.kyc.profile.start(accepted as never),
+          'kyc.profile.upload': () => api.kyc.profile.upload(accepted as never),
+          'kyc.profile.submit': () => api.kyc.profile.submit(accepted as never),
+        };
+        const err = await calls[record.path]!().catch((e: unknown) => e);
+        expect(codeOf(err), `${record.name} ${code}`).toBe(status);
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe(code);
+      }
+    }
   });
 });
 
@@ -1479,7 +1516,7 @@ describe('auth.register optional referrerId', () => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
 
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
       await ctx([]),
@@ -1500,7 +1537,7 @@ describe('auth.register optional referrerId', () => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
 
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
       await ctx([]),
@@ -1516,11 +1553,11 @@ describe('auth.register optional referrerId', () => {
 
   it('refuses self-referral at register (loud)', async () => {
     const { ReferralError } = await import('./affiliates/referral-tree.js');
-    const referral = {
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
       attribute: async () => {
         throw new ReferralError('Self-referral is refused', 'referral.self');
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    });
 
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
       await ctx([]),
@@ -1549,7 +1586,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
 
   function affiliatesRouter() {
     const frozen = new Set<string>([NODE]);
-    const referral = {
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
       treeBoard: async (frozenIds?: ReadonlySet<string>) => ({
         edges: 2,
         referrers: 1,
@@ -1594,9 +1631,9 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
           },
         };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    });
 
-    const freeze = {
+    const freeze = partial<import('./affiliates/freeze-service.js').FreezeService>({
       frozenIds: async () => new Set(frozen),
       list: async (_limit: number) => [],
       freeze: async (input: { beneficiaryId: string; frozenBy: string; reason: string }) => {
@@ -1617,12 +1654,13 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
           frozenAt: new Date('2026-08-07T15:00:00.000Z'),
         };
       },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
+    });
 
     return createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       referral,
       freeze,
+      programmeDepth: 5,
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
   }
@@ -1686,7 +1724,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
   it('freeze/unfreeze without a distinct confirmOperatorId refuse and do not write', async () => {
     const held = new Set<string>([NODE]);
     let writes = 0;
-    const referral = {
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
       treeBoard: async () => ({ edges: 0, referrers: 0, maxDepth: 0, frozenCount: 0, maxDepthCap: 5 }),
       nodeStatus: async (userId: string) => ({
         userId,
@@ -1699,8 +1737,8 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
         attributedAt: null,
       }),
       listMembers: async () => ({ members: [], board: { total: 0, frozenInList: 0, maxDepthInList: 0, rootId: null } }),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
-    const freeze = {
+    });
+    const freeze = partial<import('./affiliates/freeze-service.js').FreezeService>({
       frozenIds: async () => new Set(held),
       list: async () => [],
       freeze: async (input: { beneficiaryId: string; frozenBy: string; reason: string }) => {
@@ -1723,7 +1761,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
           frozenAt: new Date('2026-08-07T15:00:00.000Z'),
         };
       },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       referral,
@@ -1754,7 +1792,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
 
   it('freeze/unfreeze without MFA refuse and do not write', async () => {
     let writes = 0;
-    const freeze = {
+    const freeze = partial<import('./affiliates/freeze-service.js').FreezeService>({
       frozenIds: async () => new Set<string>(),
       list: async () => [],
       freeze: async () => {
@@ -1765,7 +1803,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
         writes += 1;
         throw new Error('must not unfreeze without MFA');
       },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       freeze,
@@ -1932,15 +1970,35 @@ describe('affiliates.payout on the mount', () => {
     return ledger;
   }
 
-  async function mounted(opts: { law?: typeof publishedLaw | undefined; ledger?: MemoryLedger } = {}) {
+  async function mounted(
+    opts: {
+      law?: typeof publishedLaw | undefined;
+      ledger?: MemoryLedger;
+      depth?: number | undefined;
+      /** Account status of one beneficiary; everyone else is active. */
+      account?: { userId: string; status: 'frozen' | 'closed' };
+    } = {},
+  ) {
     const store = new MemoryAccrualStore();
     await store.saveRows([accrualRow(), accrualRow({ beneficiaryId: BENE1, hop: 1, rate: '0.07', commissionAmount: '7' })]);
-    const r = createIdentityRouter(stub.auth, stub.rank, {
+    const account = opts.account;
+    const auth = account
+      ? (Object.assign(Object.create(stub.auth) as AuthService, {
+          accountState: async (userId: string) => ({
+            userId,
+            status: userId === account.userId ? account.status : ('active' as const),
+            kycTier: 'basic' as const,
+            archived: false,
+          }),
+        }) as AuthService)
+      : stub.auth;
+    const r = createIdentityRouter(auth, stub.rank, {
       registrationOpen: true,
       accruals: store,
       accrualTierLaw: opts.law,
+      programmeDepth: 'depth' in opts ? opts.depth : 5,
       ledger: opts.ledger,
-      freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
+      freeze: partial<FreezeService>({ frozenIds: async () => new Set<string>() }),
       actionApprovals: stubActionApprovals(CONFIRM),
     });
     return { store, router: r };
@@ -1951,6 +2009,19 @@ describe('affiliates.payout on the mount', () => {
   it('payout IS mounted — it appears on the same router index.ts registers', async () => {
     const { router: r } = await mounted();
     expect(Object.keys(r._def.procedures)).toContain('affiliates.payout');
+  });
+
+  it('a blank programme depth (RC-campaigns-07) refuses payout, even with published rates, and moves nothing', async () => {
+    const ledger = await fundedLedger();
+    const { router: r } = await mounted({ law: publishedLaw, ledger, depth: undefined });
+    const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+    for (const dryRun of [true, false]) {
+      const err = await api.affiliates.payout({ feeEventId: FEE_EVT, dryRun }).catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.programme_depth_unset');
+    }
+    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
+    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
   });
 
   it('reaching payout with no published rate refuses by CODE and moves nothing', async () => {
@@ -1983,6 +2054,26 @@ describe('affiliates.payout on the mount', () => {
     // Not `affiliate.payout.invalid` — the rate gate ran first, on zero rows.
     expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.rates_unset');
   });
+
+  // #4689: the account itself, not only the programme's freeze. One frozen or closed node stops the whole tree.
+  for (const status of ['frozen', 'closed'] as const) {
+    it(`a ${status} beneficiary account refuses the payout, dry run included, and moves nothing`, async () => {
+      const ledger = await fundedLedger();
+      const { router: r } = await mounted({ law: publishedLaw, ledger, account: { userId: BENE1, status } });
+      const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+      for (const dryRun of [true, false]) {
+        const err = await api.affiliates
+          .payout({ feeEventId: FEE_EVT, dryRun, approvalId: 'appr-1', operationId: 'op-1' })
+          .catch((e: unknown) => e);
+        expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.beneficiary_cannot_receive');
+      }
+      expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
+      expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
+      expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('0');
+      expect(await bal(ledger, rewardsEngine(ASSET_U))).toBe('0');
+    });
+  }
 
   it('with a published rate the route pays the whole tree, and balances prove it', async () => {
     const ledger = await fundedLedger();
@@ -2112,13 +2203,11 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     tiers: [{ hop: 0, rate: '0.130' }],
   };
 
-  function mounted(opts: { law?: typeof publishedLaw | undefined } = {}) {
+  function mounted(opts: { law?: typeof publishedLaw | undefined; depth?: number | undefined } = {}) {
     const parent = new Map<string, string>([[PAYER, BENE0]]);
-    const referral = {
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
       loadParentMap: async () => parent,
-      attribute: async () => ({ ok: true }),
-      getReferrer: async () => null,
-      listDownline: async () => [],
+      attribute: async () => ({ userId: PAYER, referrerId: BENE0, attributedAt: new Date() }),
       treeBoard: async () => ({
         edges: 1,
         referrers: 1,
@@ -2126,9 +2215,8 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
         frozenCount: 0,
         maxDepthCap: 5,
       }),
-      members: async () => [],
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
-    const freeze = {
+    });
+    const freeze = partial<import('./affiliates/freeze-service.js').FreezeService>({
       frozenIds: async () => new Set<string>(),
       list: async () => [],
       freeze: async () => {
@@ -2137,7 +2225,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
       unfreeze: async () => {
         throw new Error('unused');
       },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
+    });
     const store = new MemoryAccrualStore();
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
@@ -2145,6 +2233,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
       freeze,
       accruals: store,
       accrualTierLaw: opts.law,
+      programmeDepth: 'depth' in opts ? opts.depth : 5,
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
     return { store, router: r };
@@ -2154,6 +2243,18 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     const { router: r } = mounted();
     expect(Object.keys(r._def.procedures)).toContain('affiliates.accrue');
     expect(Object.keys(r._def.procedures)).toContain('affiliates.accrueDryRun');
+  });
+
+  it('a blank programme depth (RC-campaigns-07) refuses accrual, dry-run or durable, before the rate law; nothing stored', async () => {
+    const { store, router: r } = mounted({ law: publishedLaw, depth: undefined });
+    const api = r.createCaller(await ctx(['admin:read', 'admin:write'], { userId: OPERATOR }));
+    const fee = { feeEventId: FEE, userId: PAYER, feeAmount: '100', asset: 'USDT' };
+    for (const call of [() => api.affiliates.accrueDryRun(fee), () => api.affiliates.accrue(fee)]) {
+      const err = await call().catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.programme_depth_unset');
+    }
+    expect(await store.listByFeeEvent(FEE)).toEqual([]);
   });
 
   it('accrueDryRun with unpublished law and no tiers refuses rates_unset', async () => {
@@ -2469,7 +2570,9 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
 describe('kyc.getDocument is compliance-only bytes, never a public/user read', () => {
   it('getDocument is mounted behind admin:compliance', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
-    expect(src).toMatch(/getDocument:\s*scopedProcedure\('admin:compliance'\)/);
+    // Mounted from its record, whose access is the compliance scope alone (mountRecord enforces the record's access).
+    expect(src).toMatch(/getDocument:\s*mountRecord\(\s*IDENTITY_KYC_GET_DOCUMENT,/);
+    expect(IDENTITY_KYC_GET_DOCUMENT.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
     expect(src).toContain('vault.getFor');
     expect(src).not.toMatch(/readDocument|downloadDocument/);
     expect(src).toContain('storeDocument');
@@ -2796,13 +2899,13 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       revokeShare: async (referrerId: string) => store.revokeShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }) => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
     return {
       api: createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral }),
       store,
@@ -2873,7 +2976,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       createShare: async (referrerId: string) => store.createShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }, late?: { windowSeconds: number | undefined }) => {
         windows.push(late?.windowSeconds);
@@ -2882,7 +2985,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
       edgeOf: async (userId: string) => (edges.has(userId) ? { userId, referrerId: edges.get(userId)!, attributedAt: new Date() } : null),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral, referralAttachWindowSeconds: 600 });
     const mine = await api.createCaller(await ctx(['identity:write'])).affiliates.createShare();
     const theirs = await api.createCaller(await ctx(['identity:write'], { userId: OTHER_REF })).affiliates.createShare();
@@ -2899,9 +3002,9 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
 
   it('attachWindow reads unset while the owner window is blank, and open or closed from the account age', async () => {
     const created = new Date(Date.now() - 120_000);
-    const referral = {
-      accountAge: async () => ({ createdAt: created, now: new Date() }),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
+      accountAge: async () => ({ createdAt: created, reopenedAt: null, now: new Date() }),
+    });
     const unset = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral });
     expect(await unset.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
       state: 'unset',
@@ -2920,9 +3023,9 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
 
   it('attachWindow runs again from a lapsed relationship (reopenedAt), measured from the lapse, not sign-up', async () => {
     const reopened = new Date(Date.now() - 60_000);
-    const referral = {
+    const referral = partial<import('./affiliates/referral-service.js').ReferralService>({
       accountAge: async () => ({ createdAt: new Date(Date.now() - 86_400_000), reopenedAt: reopened, now: new Date() }),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 600 });
     expect(await api.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
       state: 'open',
@@ -2935,14 +3038,14 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     const at = new Date('2026-10-24T03:00:00Z');
     const ended = { userId: USER, referrerId: VISITOR, attributedAt: at, lastActivityAt: at, periodSeconds: 600, lapsedAt: at };
     const asked: string[] = [];
-    const referralLapse = {
+    const referralLapse = partial<import('./affiliates/referral-lapse.js').ReferralLapseService>({
       standingOf: async (userId: string) => {
         asked.push(userId);
         return { state: 'unset' as const };
       },
       latestOf: async () => ended,
       log: async () => [ended],
-    } as unknown as import('./affiliates/referral-lapse.js').ReferralLapseService;
+    });
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referralLapse });
     const mine = await api.createCaller(await ctx(['identity:read'])).affiliates.myLapse();
     expect(mine).toEqual({
@@ -3000,7 +3103,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       decidedAt: null,
       appliedAt: null,
     });
-    const referralRebind = {
+    const referralRebind = partial<import('./affiliates/referral-rebind.js').ReferralRebindService>({
       request: async (userId: string, to: string, reason: string) => {
         asked.push([userId, to, reason]);
         return request(userId, to);
@@ -3009,10 +3112,10 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
         decided.push([operatorId, id, decision]);
         return { ...request(VISITOR, USER), state: 'approved' as const, decidedBy: operatorId };
       },
-    } as unknown as import('./affiliates/referral-rebind.js').ReferralRebindService;
+    });
     const share = {
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referralRebind });
     const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
 
@@ -3038,16 +3141,16 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     const { store } = shareRouter();
     const live = store.createShare(USER);
     const seen: Array<{ referrerId?: string }> = [];
-    const auth = {
+    const auth = partial<typeof stub.auth>({
       ...stub.auth,
       signUpStart: async (input: { referrerId?: string }) => {
         seen.push(input);
         return { accepted: true, next: 'confirm_email', flowId: '77777777-7777-4777-8777-777777777777', resendAfterSeconds: 60 };
       },
-    } as unknown as typeof stub.auth;
+    });
     const share = {
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const api = createIdentityRouter(auth, stub.rank, { registrationOpen: true, share });
     const anon = api.createCaller(await ctx([]));
     const form = {

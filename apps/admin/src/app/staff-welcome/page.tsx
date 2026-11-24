@@ -1,6 +1,7 @@
 import { staffInvitationSchema, type StaffInvitation } from '@intafaced/contracts/identity-staff';
 import { StaffWelcomeForm } from '@/components/staff-welcome-form';
-import { adminSessionConfig, founderEdgeCall } from '@/lib/founder-session';
+import { adminSessionConfig, founderEdgeRecordCall } from '@/lib/founder-session';
+import { IDENTITY_STAFF_INVITATION } from '@intafaced/contracts/identity-staff-procedures';
 
 /**
  * First connection for an invited staff member (J-ops-console-09 #2). The link in their invite mail opens this page; it
@@ -13,7 +14,7 @@ const TOKEN = /^[A-Za-z0-9_-]{32,128}$/;
 async function readInvitation(token: string): Promise<StaffInvitation | null> {
   if (!TOKEN.test(token)) return { state: 'invalid', code: 'identity.staff_invite_invalid' };
   try {
-    const raw = await founderEdgeCall(adminSessionConfig(), 'identity', 'staff.invitation', 'GET', { token });
+    const raw = await founderEdgeRecordCall(adminSessionConfig(), IDENTITY_STAFF_INVITATION, { token });
     const parsed = staffInvitationSchema.safeParse(raw);
     return parsed.success ? parsed.data : null;
   } catch {

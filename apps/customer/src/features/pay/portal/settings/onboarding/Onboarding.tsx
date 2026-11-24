@@ -15,6 +15,7 @@ import type { DestinationProof } from '../../access/destination-step-up';
 import { normaliseReference } from '../../money/Destinations';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { BusinessApplication } from './Application';
+import { useBusinessDraft } from './business-draft';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress, TermsState } from '../account/schemas';
@@ -28,7 +29,6 @@ import { describeDestination, railWords } from '../../money/destination';
 import {
   businessDetails,
   destinationShapeOk,
-  emptyBusiness,
   merchantNames,
   onboardingSteps,
   railKind,
@@ -148,7 +148,7 @@ export function OnboardingView(props: OnboardingViewProps) {
   ];
   const shown = props.step ? (props.step === 'business' ? 0 : props.step === 'verification' ? 1 : 2) : null;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <nav aria-label={t('stepsLabel')}>
         <ol className="sa-steps">
           {items.map(([index, state, title, short, slug]) => (
@@ -160,7 +160,7 @@ export function OnboardingView(props: OnboardingViewProps) {
               <p>
                 <strong>{t(`stepState_${state}` as 'stepState_done')}</strong>
               </p>
-              <a className="text-link" href={`/pay/onboarding/${slug}`}>
+              <a className="lt-link" href={`/pay/onboarding/${slug}`}>
                 {state === 'done' ? a('stepReview') : a('stepOpen')}
               </a>
             </li>
@@ -171,7 +171,7 @@ export function OnboardingView(props: OnboardingViewProps) {
       {shown === 0 && <StepBusiness {...props} />}
       {shown === 1 && <StepVerification {...props} />}
       {shown === 2 && <StepGoLive {...props} />}
-      {shown !== null && merchant === null && <p className="muted">{a('startHere')}</p>}
+      {shown !== null && merchant === null && <p className="lt-muted">{a('startHere')}</p>}
     </div>
   );
 }
@@ -202,10 +202,10 @@ function Terms({
       </Blocker>
     );
   return (
-    <div data-testid="onboarding-terms" className="stack">
+    <div data-testid="onboarding-terms" className="lt-stack">
       <h3 className="pp-sub">{a('termsTitle')}</h3>
-      <p className="muted">{a('termsBody')}</p>
-      <a className="text-link" href={terms.url} target="_blank" rel="noreferrer noopener">
+      <p className="lt-muted">{a('termsBody')}</p>
+      <a className="lt-link" href={terms.url} target="_blank" rel="noreferrer noopener">
         {a('termsRead', { version: terms.version })}
       </a>
       {terms.state === 'accepted' ? (
@@ -213,7 +213,7 @@ function Terms({
           {a('termsAccepted', { version: terms.version })} <DateTime value={terms.acceptedAt} />
         </p>
       ) : (
-        <div className="pp-actions">
+        <div className="lt-actions">
           <PortalReview
             title={a('termsAccept')}
             variant="primary"
@@ -273,7 +273,7 @@ function Overview(props: OnboardingViewProps) {
       </PaySection>
       <PaySection title={a('overviewNowTitle')} description={a('overviewNowBody')}>
         {merchant ? (
-          <div className="pp-actions">
+          <div className="lt-actions">
             <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/links/new" />}>
               {t('createFirstLink')}
             </Button>
@@ -286,15 +286,15 @@ function Overview(props: OnboardingViewProps) {
             {a('startBusiness')}
           </Button>
         )}
-        <p className="muted">
+        <p className="lt-muted">
           {a('limitsLine')} <TestTag />{' '}
-          <a className="text-link" href="/pay/limits">
+          <a className="lt-link" href="/pay/limits">
             {t('reviewLimits')}
           </a>
         </p>
       </PaySection>
       <PaySection title={a('overviewWaitTitle')} description={a('overviewWaitBody')}>
-        <div className="stack">
+        <div className="lt-stack">
           <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
             {a('docsBlocked')}
           </Blocker>
@@ -312,9 +312,10 @@ function Overview(props: OnboardingViewProps) {
 function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: OnboardingViewProps) {
   const { t } = portalCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
-  const [form, setForm] = useState<BusinessForm>(emptyBusiness);
+  // What is typed is kept as a saved draft by the service until the account is opened (J-merchant-02 #1).
+  const { form, setForm, unsaved } = useBusinessDraft(portal, !merchant);
   const [tried, setTried] = useState(false);
-  useUnsavedForm(!merchant && Object.values(form).some(Boolean), a('acUnsaved'));
+  useUnsavedForm(!merchant && unsaved, a('acUnsaved'));
   const set = (field: keyof BusinessForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
   const errors: BusinessErrors = tried || Object.values(form).some(Boolean) ? validateBusiness(form) : {};
   const errorText = (field: keyof BusinessForm) => (errors[field] ? t(`err_${errors[field]}` as 'err_required') : undefined);
@@ -326,7 +327,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           values={[
             [
               t('factMerchantId'),
-              <span data-testid="pp-mono" className="pp-mono">
+              <span data-testid="pp-mono" className="lt-mono">
                 {merchant.id}
               </span>,
             ],
@@ -340,7 +341,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           </p>
         )}
         <p className="muted pp-note">{a('businessEditElsewhere')}</p>
-        <a className="text-link" href="/pay/settings">
+        <a className="lt-link" href="/pay/settings">
           {a('editBusiness')}
         </a>
       </PaySection>
@@ -352,7 +353,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
     <PaySection title={t('step1Title')} description={t('step1Body')}>
       <form
         data-testid="form-stack"
-        className="form-stack pp-form"
+        className="lt-stack"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -505,7 +506,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
                         : t('kybNoneNote')}
                 </p>
                 {canSubmit && (
-                  <div data-testid="form-stack" className="form-stack pp-form">
+                  <div data-testid="form-stack" className="lt-stack">
                     <Field
                       label={`${t('fKybRef')} *`}
                       value={ref}
@@ -542,7 +543,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
         kybRef={kyb.status === 'ready' && kyb.data ? kyb.data.kybRef : merchant.kybRef}
         onSubmitted={onKybSubmitted}
       />
-      <a className="text-link" href="/pay/onboarding/go-live">
+      <a className="lt-link" href="/pay/onboarding/go-live">
         {a('continueGoLive')}
       </a>
       <PaySection title={t('historyTitle')}>
@@ -573,16 +574,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
   );
 }
 
-export const kybWord = (status: string, t: ReturnType<typeof portalCopy.useCopy>['t']) =>
-  status === 'none'
-    ? t('chipKyb_none')
-    : status === 'pending'
-      ? t('chipKyb_pending')
-      : status === 'approved'
-        ? t('chipKyb_approved')
-        : status === 'rejected'
-          ? t('chipKyb_rejected')
-          : status;
+import { kybWord } from './kyb-word';
 
 function StepGoLive(props: OnboardingViewProps) {
   const { portal, merchant, rails, saved, onDestinationSaved, retry, progress } = props;
@@ -622,7 +614,7 @@ function StepGoLive(props: OnboardingViewProps) {
             const kind = railKind(chosen.id);
             const shapeOk = ref.trim() === '' || destinationShapeOk(kind, ref);
             return (
-              <div data-testid="form-stack" className="form-stack pp-form">
+              <div data-testid="form-stack" className="lt-stack">
                 <SelectField
                   label={`${t('fRail')} *`}
                   value={chosen.id}
@@ -654,7 +646,7 @@ function StepGoLive(props: OnboardingViewProps) {
                           [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
                           [
                             t('factDestination'),
-                            <span data-testid="pp-mono" className="pp-mono">
+                            <span data-testid="pp-mono" className="lt-mono">
                               {normaliseReference(ref)}
                             </span>,
                           ],
@@ -696,7 +688,7 @@ function StepGoLive(props: OnboardingViewProps) {
               t('factLimits'),
               <>
                 <TestTag />{' '}
-                <a className="text-link" href="/pay/limits">
+                <a className="lt-link" href="/pay/limits">
                   {t('reviewLimits')}
                 </a>
               </>,
@@ -709,8 +701,8 @@ function StepGoLive(props: OnboardingViewProps) {
           </Blocker>
         )}
         <Terms portal={portal} merchantId={merchant.id} terms={steps.progress?.terms ?? null} onAccepted={retry} />
-        <div className="pp-actions">
-          <a className="text-link" href="/pay/pricing">
+        <div className="lt-actions">
+          <a className="lt-link" href="/pay/pricing">
             {t('reviewPricing')}
           </a>
           <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/merchant" />}>

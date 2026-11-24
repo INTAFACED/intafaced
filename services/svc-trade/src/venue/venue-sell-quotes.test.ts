@@ -45,7 +45,9 @@ afterAll(
     }),
 );
 
-function desk(now = () => new Date('2026-11-10T03:00:00.000Z')) {
+const TEST_SLIPPAGE_CAP_BPS = 5_000;
+
+function desk(now = () => new Date('2026-11-10T03:00:00.000Z'), slippageCapBps: number | null = TEST_SLIPPAGE_CAP_BPS) {
   const door = new UserVenueDoor({
     connect: async () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
@@ -54,6 +56,11 @@ function desk(now = () => new Date('2026-11-10T03:00:00.000Z')) {
     builder: BUILDER,
     now,
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+    // A Convert sell previews a market order, which the owner's price protection bounds: a labelled TEST value, the
+    // widest the setting takes, so the venue's own preview decides every figure here.
+    slippageCapBps,
+    // The owner's spread limit on a market order: a labelled TEST value; the simulator's book sits well inside it.
+    spreadLimitBps: 100,
   });
   const store = new MemoryVenueSellQuoteStore();
   return { quotes: new VenueSellQuotes({ door, store, now }), store };
@@ -92,6 +99,18 @@ describe('VenueSellQuotes: a Convert sell priced by the venue', () => {
       baseAsset: 'BTC',
       quoteAsset: 'USDC',
     });
+  });
+
+  it("takes only the bids inside the owner's price protection, and a blank protection refuses, storing nothing", async () => {
+    // 1 bps under the best bid 59990 is 59984.001: the bid at 59980 is past it, so 1.5 fills only the 1 at 59990.
+    const tight = desk(undefined, 1);
+    const q = await tight.quotes.quote(principal, { owner, symbol: 'BTC-USDC', amount: a('1.5'), quoteKey: 'quote-key-0005' });
+    expect(q.fill).toEqual({ known: true, value: { amount: a('1'), averagePrice: a('59990') } });
+    const blank = desk(undefined, null);
+    await expect(
+      blank.quotes.quote(principal, { owner, symbol: 'BTC-USDC', amount: a('1.5'), quoteKey: 'quote-key-0006' }),
+    ).rejects.toMatchObject({ code: 'trade.slippage_cap_unset' });
+    expect(await blank.store.latest(10)).toEqual([]);
   });
 
   it('sends nothing to the venue: no order rests or fills, and the balance is untouched', async () => {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
 import { shortId } from '@/lib/desk/desk-model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { fetchStaff, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import type { StaffMemberView } from '@/lib/support/staff';
 import { lastSequence } from '@/lib/support/trail';

@@ -1,6 +1,7 @@
-import { StateBlock } from '@intafaced/ui';
+import { DocPage } from '../DocPage';
+import { ReadFailed, ReadLoading } from '../ReadState';
 import { spotOrderTypesSchema } from '@intafaced/contracts/spot-order-types';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { deskCopy } from '../../../screens/trade/desk/copy';
 import { useRead } from '../use-read';
 import { acceptedCells, refusedName } from './order-types-view';
@@ -18,21 +19,17 @@ export function OrderTypesPage({ title }: { title: string }) {
   const { api } = useSession();
   const { read, reload } = useRead((signal) => api.rest('/order-types', spotOrderTypesSchema, { signal }), [api]);
   return (
-    <div className="pub-page" data-testid="developers-order-types">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('typesLead')}</p>
-      </header>
+    <DocPage id="order-types" title={title} lead={t('typesLead')} back={t('back')}>
       {read.status === 'loading' ? (
-        <StateBlock kind="loading" rows={7} rowHeight={32} label={t('loading')} />
+        <ReadLoading rows={7} label={t('loading')} />
       ) : read.status === 'failed' ? (
-        <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
+        <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
       ) : (
         <>
-          <section className="pub-card" aria-labelledby="dev-order-types">
+          <section aria-labelledby="dev-order-types">
             <h2 id="dev-order-types">{t('typesTitle')}</h2>
-            <div className="table-scroll">
-              <table className="pub-table dev-text-table" data-testid="order-types-accepted">
+            <div>
+              <table className="lt-table" data-testid="order-types-accepted">
                 <thead>
                   <tr>
                     <th scope="col">{t('colType')}</th>
@@ -56,7 +53,7 @@ export function OrderTypesPage({ title }: { title: string }) {
                         <td>{cells.timeInForce}</td>
                         <td>{cells.note}</td>
                         <td>
-                          <pre>
+                          <pre className="lt-code">
                             <code>{cells.example}</code>
                           </pre>
                         </td>
@@ -67,10 +64,10 @@ export function OrderTypesPage({ title }: { title: string }) {
               </table>
             </div>
           </section>
-          <section className="pub-card" aria-labelledby="dev-order-types-refused">
+          <section aria-labelledby="dev-order-types-refused">
             <h2 id="dev-order-types-refused">{t('refusedTitle')}</h2>
-            <p className="muted">{t('refusedLead')}</p>
-            <table className="pub-table dev-text-table" data-testid="order-types-refused">
+            <p className="lt-hint">{t('refusedLead')}</p>
+            <table className="lt-table" data-testid="order-types-refused">
               <thead>
                 <tr>
                   <th scope="col">{t('colType')}</th>
@@ -91,9 +88,6 @@ export function OrderTypesPage({ title }: { title: string }) {
           </section>
         </>
       )}
-      <a className="text-link" href="/developers">
-        ← {t('back')}
-      </a>
-    </div>
+    </DocPage>
   );
 }

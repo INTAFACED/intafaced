@@ -33,6 +33,11 @@ public final class DropCopyIngest implements AutoCloseable {
         return port;
     }
 
+    /** The address this listener is bound to. */
+    public InetSocketAddress address() {
+        return server.getAddress();
+    }
+
     /** Another read on this listener (the adapter status and health, AdapterStatus). */
     public void mount(String path, com.sun.net.httpserver.HttpHandler handler) {
         server.createContext(path, handler);
@@ -48,6 +53,12 @@ public final class DropCopyIngest implements AutoCloseable {
      */
     public static Result start(
             int port, String beginString, String secret, DropCopyHub hub, ServiceKeys.Inbound s2s) {
+        return start("", port, beginString, secret, hub, s2s);
+    }
+
+    /** As above, listening on {@code host} only; a blank host listens on every interface. */
+    public static Result start(
+            String host, int port, String beginString, String secret, DropCopyHub hub, ServiceKeys.Inbound s2s) {
         if (port <= 0) {
             return Result.refuse(
                     DropCopyIngestConfig.UNCONFIGURED,
@@ -60,7 +71,7 @@ public final class DropCopyIngest implements AutoCloseable {
         }
         DropCopyHub target = hub == null ? DropCopyHub.disabled() : hub;
         try {
-            HttpServer http = HttpServer.create(new InetSocketAddress(port), 0);
+            HttpServer http = HttpServer.create(FixAcceptorMain.listenAddress(host, port), 0);
             int bound = http.getAddress().getPort();
             http.createContext(PATH, exchange -> handle(exchange, beginString, secret, target, s2s));
             http.setExecutor(Executors.newCachedThreadPool(daemonFactory()));

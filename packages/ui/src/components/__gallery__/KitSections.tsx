@@ -13,7 +13,7 @@ export const KIT_SECTIONS = [
   { id: 'table', label: 'Table', Component: TableSection },
   { id: 'input', label: 'Input and Field', Component: InputSection },
   { id: 'page', label: 'Page and EmptyState', Component: PageSection },
-  { id: 'figures', label: 'Stat, KeyValue, Badge, StatusChip', Component: FiguresSection },
+  { id: 'figures', label: 'Stat, KeyValue, Badge, StatusChip, HeldMark', Component: FiguresSection },
 ] as const;
 
 export function KitSections() {

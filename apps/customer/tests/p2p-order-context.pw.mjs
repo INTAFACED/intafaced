@@ -300,7 +300,7 @@ test('current GET and preflight reject wrong identity ownership malformed data a
     await scenario(browser, 'current-' + name, async ({ page, state }) => {
       state.replyTrade = async () => ({ status: 200, data });
       await login(page, null);
-      await expect(page.locator('.p2p-order .failure')).toBeVisible();
+      await expect(page.locator('.p2p-order :is(.failure, .lt-refusal)')).toBeVisible();
       await expect(page.locator('.p2p-order-identity')).toHaveCount(0);
       expect(state.writes).toEqual([]);
     });
@@ -501,7 +501,7 @@ test('payment details use deliberate current recovery and refuse unrelated instr
     const section = page
       .locator('.pay-section')
       .filter({ has: page.getByRole('heading', { name: 'External payment destination', exact: true }) });
-    await expect(section.locator('.failure')).toBeVisible();
+    await expect(section.locator(':is(.failure, .lt-refusal)')).toBeVisible();
     state.replyDestination = async () => ({ status: 200, data: details });
     await section.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(section).toContainText(details.details.account);
@@ -509,14 +509,14 @@ test('payment details use deliberate current recovery and refuse unrelated instr
     await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
     await expect(page.locator('#main')).not.toContainText(details.details.account);
     state.replyTrade = async () => ({ status: 200, data: { ...order } });
-    await page.locator('.p2p-order .failure').getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.locator('.p2p-order :is(.failure, .lt-refusal)').getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Reveal agreed payment details', exact: true })).toBeVisible();
     for (const changed of [{ tradeId: order.offerId }, { methodId: 'unrelated-method' }, { fiatCurrency: 'EUR' }]) {
       state.replyDestination = async () => ({ status: 200, data: { ...details, ...changed } });
       if (await page.getByRole('button', { name: 'Reveal agreed payment details', exact: true }).count())
         await page.getByRole('button', { name: 'Reveal agreed payment details', exact: true }).click();
       else await section.getByRole('button', { name: 'Try again', exact: true }).click();
-      await expect(section.locator('.failure')).toBeVisible();
+      await expect(section.locator(':is(.failure, .lt-refusal)')).toBeVisible();
       await expect(page.locator('#main')).not.toContainText(details.details.account);
     }
     expect(state.writes).toEqual([]);
@@ -748,7 +748,7 @@ test('all five P2P rooms remain reachable by natural keyboard on the current pho
     'p2p-rooms-keyboard',
     async ({ page, state }) => {
       await login(page);
-      const nav = page.locator('.pay-order-tabs'),
+      const nav = page.locator('[data-testid="p2p-rooms"][data-order]'),
         links = nav.locator('a');
       await expect(links).toHaveCount(5);
       await expect(nav.locator('[aria-current="page"]')).toHaveText('Your orders');

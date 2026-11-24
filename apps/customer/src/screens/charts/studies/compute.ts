@@ -10,6 +10,7 @@
  *   (a percentage point), before it is shown or drawn; the drawn value is the shown value.
  */
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
+import { chartValue } from '../../../shared/chart-value';
 import { fractionDigits } from '../../../data/decimal';
 import type { Candle, Loadable } from '../../../data/types';
 import { toSeconds } from '../../trade/chart/chart-data';
@@ -46,6 +47,7 @@ import {
   type RatingSignal,
 } from './math';
 import type { StudyInstance } from './model';
+import type { FundingFeed } from './data';
 
 /** Why a study shows no value, or what it could not read. The words are the copy's; the codes are the contract. */
 export type Reason =
@@ -132,6 +134,8 @@ export interface StudyContext {
   higher: Record<string, Loadable<Candle[]> | undefined>;
   /** The public trades, when a study reads them. Undefined until requested. */
   tape: Loadable<Print[]> | undefined;
+  /** The venue's funding on the market's base asset, when the funding study reads it. Undefined until requested. */
+  funding?: Loadable<FundingFeed> | undefined;
   /** Percent mode: the chart's price scale is a percent change, so a study on the price scale cannot be drawn with it. */
   percent?: boolean;
   /** Bar replay: the epoch ms where the last drawn bar closes. Trades at or after it have not happened yet and are not read. */
@@ -223,7 +227,7 @@ function track(bars: readonly Candle[], values: readonly Maybe[], o: TrackOption
     const value = text === null ? null : Number(text);
     let tone: SeriesPoint['tone'] = null;
     if (value !== null && o.tone === 'sign') tone = value >= 0 ? 'up' : 'down';
-    if (value !== null && o.tone === 'candle') tone = Number(bar.c) >= Number(bar.o) ? 'up' : 'down';
+    if (value !== null && o.tone === 'candle') tone = chartValue(bar.c) >= chartValue(bar.o) ? 'up' : 'down';
     points.push({
       time: toSeconds(bar.t) + shift * o.stepSec,
       value: value === null ? null : roundToDecimals(value, o.digits),
@@ -241,6 +245,58 @@ const signalWord = (value: RatingSignal['value']): string =>
 const visiblePrints = (prints: readonly Print[], replayEnd: number | undefined): readonly Print[] =>
   replayEnd === undefined ? prints : prints.filter((p) => p.t < replayEnd);
 
+/** Refusals of the funding read that mean the series is not published for this market, said by name. */
+const FUNDING_NOT_PUBLISHED = new Set(['trade.venue.not_offered', 'trade.venue.unknown_market', 'trade.user_venue_off']);
+
+/** Decimals of a decimal string's fraction. */
+const fractionOf = (text: string): number => (text.split('.')[1] ?? '').length;
+
+/**
+ * The venue's funding rate on the market's base asset (J-charts-desk-04 #6), in its own pane, in percent per interval.
+ * At each bar the rate drawn is the newest one the venue had settled by that bar's close, so no bar reads a later rate;
+ * a bar before the first settled rate is a gap. Not published (no listed perpetual on the asset, or a venue that
+ * publishes no funding history): the typed refusal naming the series, and nothing is drawn.
+ */
+function fundingStudy(study: StudyInstance, ctx: StudyContext): StudyResult {
+  if (ctx.bars.length === 0) return refuse('noBars');
+  const loadable = ctx.funding;
+  if (loadable?.status === 'refused' && FUNDING_NOT_PUBLISHED.has(loadable.code))
+    return refuse('notServed', { series: 'Funding rate', symbol: ctx.symbol });
+  const feed = feedOf(loadable, 'notServed');
+  if (!feed.ok)
+    return feed.result.status === 'refused' && feed.result.reason === 'notServed'
+      ? refuse('notServed', { series: 'Funding rate', symbol: ctx.symbol })
+      : feed.result;
+  const { rows, perpetual, intervalSeconds, test } = feed.data;
+  if (rows.length === 0) return refuse('notServed', { series: 'Funding rate', symbol: ctx.symbol });
+  const stepMs = TIMEFRAME_MS[ctx.interval];
+  // Percent is the rate times 100: two fewer decimals than the rate carries, and never fewer than two.
+  const digits = Math.max(2, Math.max(...rows.map((r) => fractionOf(r.rate))) - 2);
+  const closedBy = ctx.replayEnd ?? Number.POSITIVE_INFINITY;
+  const values: Maybe[] = ctx.bars.map((bar) => {
+    const end = Math.min(bar.t + stepMs, closedBy);
+    let rate: string | null = null;
+    for (const row of rows) {
+      if (row.t > end) break;
+      rate = row.rate;
+    }
+    return rate === null ? null : Number(rate) * 100;
+  });
+  const per = intervalSeconds === null ? '' : ` per ${intervalSeconds % 3600 === 0 ? `${intervalSeconds / 3600}h` : `${intervalSeconds}s`}`;
+  const name = `${test ? 'TEST ' : ''}Funding rate ${perpetual} (%${per})`;
+  const latest = rows.filter((r) => r.t <= closedBy).at(-1);
+  const facts: Fact[] = [
+    { name: 'Perpetual', text: perpetual },
+    { name: 'Settled rates read', text: String(rows.filter((r) => r.t <= closedBy).length) },
+  ];
+  if (latest)
+    facts.push({
+      name: 'Latest settled',
+      text: `${formatAt(Number(latest.rate) * 100, digits)}% at ${new Date(latest.t).toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+    });
+  return ready([track(ctx.bars, values, { key: study.id, name, pane: 'sub', color: study.color, digits, stepSec: stepMs / 1000 })], facts);
+}
+
 /**
  * The result of one study on the loaded bars. Order of checks: no bars, then the study's own inputs, then the feeds it
  * reads, then the bars' sufficiency for each value. In percent mode a study with a line on the price scale is refused:
@@ -255,10 +311,11 @@ export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResu
 function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
   const { bars, interval } = ctx;
   const i = study.inputs;
-  if (study.kind === 'open-interest' || study.kind === 'funding' || study.kind === 'on-chain') {
-    const series = study.kind === 'open-interest' ? 'Open interest' : study.kind === 'funding' ? 'Funding rate' : 'On-chain series';
-    return refuse('notServed', { series, symbol: ctx.symbol });
+  // Open interest and on-chain series: no venue or source we read publishes their history, so each is refused by name.
+  if (study.kind === 'open-interest' || study.kind === 'on-chain') {
+    return refuse('notServed', { series: study.kind === 'open-interest' ? 'Open interest' : 'On-chain series', symbol: ctx.symbol });
   }
+  if (study.kind === 'funding') return fundingStudy(study, ctx);
   // A tape study on a market with no bars says what it reads once the tape has answered: with no public trades there is no
   // tape to build from (a failed or refused read says so too). While the tape loads it says no bars, as every study does.
   if (bars.length === 0 && (study.kind === 'volume-delta' || study.kind === 'volume-profile')) {
@@ -410,7 +467,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       const p = readPeriod(i.period);
       if (p === null) return refuse('enterPeriod');
       if (bars.length <= p) return refuse('needsBars', { count: String(p + 1) });
-      const closes = bars.map((b) => Number(b.c));
+      const closes = bars.map((b) => chartValue(b.c));
       return ready([track(bars, rsi(closes, p), { ...base, key: study.id, name: `RSI ${p}`, pane: 'sub', digits: PERCENT_DIGITS })]);
     }
 
@@ -420,7 +477,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       const g = readPeriod(i.signal);
       if (f === null || s === null || g === null) return refuse('enterPeriod');
       if (bars.length < s) return refuse('needsBars', { count: String(s) });
-      const closes = bars.map((b) => Number(b.c));
+      const closes = bars.map((b) => chartValue(b.c));
       const m = macd(closes, f, s, g);
       return ready([
         track(bars, m.line, { ...base, key: `${study.id}:m`, name: `MACD ${f} ${s} ${g}`, pane: 'sub', digits }),
@@ -457,7 +514,7 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       if (m === null) return refuse('enterValue');
       if (bars.length < p) return refuse('needsBars', { count: String(p) });
       const b = bollinger(
-        bars.map((x) => Number(x.c)),
+        bars.map((x) => chartValue(x.c)),
         p,
         m,
       );

@@ -30,7 +30,7 @@ describe('futures jobs: funding rate computer wiring', () => {
     const setIntervalFn = ((fn: () => unknown, ms: number) => {
       callbacks.set(ms, [...(callbacks.get(ms) ?? []), fn]);
       return callbacks.size as never;
-    }) as unknown as typeof setInterval;
+    }) as typeof setInterval;
     const handle = startFuturesJobs({
       sql: db.sql,
       ledger: { post: vi.fn(), balance: vi.fn() },

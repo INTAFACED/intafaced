@@ -108,13 +108,23 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
   const board = async () => (await p2p.listOfferBoard({ limit: 50, viewerId: TAKER })).offers.map((offer: { id: string }) => offer.id);
 
   const iso = (d: Date) => d.toISOString();
-  /** The schedule checks compare with the next UTC midnight: within a minute of it, wait until it has passed. */
-  const awayFromMidnight = async () => {
-    const left = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1) - Date.now();
-    if (left < 60_000) await new Promise((resolve) => setTimeout(resolve, left + 1_000));
+  /**
+   * The schedule is read on the database clock, so the test cannot pin "now". It works in a fixed-offset zone whose
+   * local time is at least six hours from midnight instead (UTC, or UTC+12 when UTC is near midnight): the whole test
+   * stays inside one local day, with no wait.
+   */
+  const awayFromMidnight = (d: Date) => {
+    const hour = d.getUTCHours();
+    return hour >= 6 && hour < 18 ? { zone: 'UTC', offsetHours: 0 } : { zone: 'Etc/GMT-12', offsetHours: 12 };
   };
+  /** The zone's local wall time, carried as a UTC date so `getUTC*` reads it. */
+  const local = (d: Date, offsetHours: number) => new Date(d.getTime() + offsetHours * 3_600_000);
   const day = (d: Date) => ((d.getUTCDay() + 6) % 7) + 1; // ISO: 1 Monday … 7 Sunday
-  const midnightAfter = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+  /** The instant of the zone's next local midnight after `d`. */
+  const midnightAfter = (d: Date, offsetHours: number) => {
+    const l = local(d, offsetHours);
+    return new Date(Date.UTC(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate() + 1) - offsetHours * 3_600_000);
+  };
 
   it('an offline maker is off the board for others, still on their own, and back once online; open orders carry on', async () => {
     const offer = await sellOffer();
@@ -144,42 +154,44 @@ describe('svc-p2p merchant console (P-ads-merchant-08)', () => {
   });
 
   it('on a schedule, the ads are on the board inside a window and off outside it, with when that changes next', async () => {
-    await awayFromMidnight();
     const offer = await sellOffer();
     const now = new Date();
-    const today = day(now);
+    const { zone: tz, offsetHours } = awayFromMidnight(now);
+    const today = day(local(now, offsetHours));
     const tomorrow = (today % 7) + 1;
     const open = await p2p.setPresence(MAKER, {
       mode: 'scheduled',
-      timezone: 'UTC',
+      timezone: tz,
       windows: [{ day: today, start: '00:00', end: '24:00' }],
     });
-    expect(open).toMatchObject({ mode: 'scheduled', timezone: 'UTC', onBoard: true });
-    expect(iso(open.nextChangeAt!)).toBe(iso(midnightAfter(now)));
+    expect(open).toMatchObject({ mode: 'scheduled', timezone: tz, onBoard: true });
+    expect(iso(open.nextChangeAt!)).toBe(iso(midnightAfter(now, offsetHours)));
     expect(await board()).toContain(offer.id);
     // Only tomorrow: off now, and back on the board when tomorrow's window opens.
     const closed = await p2p.setPresence(MAKER, {
       mode: 'scheduled',
-      timezone: 'UTC',
+      timezone: tz,
       windows: [{ day: tomorrow, start: '00:00', end: '24:00' }],
     });
     expect(closed.onBoard).toBe(false);
-    expect(iso(closed.nextChangeAt!)).toBe(iso(midnightAfter(now)));
+    expect(iso(closed.nextChangeAt!)).toBe(iso(midnightAfter(now, offsetHours)));
     expect(await board()).not.toContain(offer.id);
     // Back to back windows are one stretch: the change is at the end of tomorrow, not at midnight.
     const both = await p2p.setPresence(MAKER, {
       mode: 'scheduled',
-      timezone: 'UTC',
+      timezone: tz,
       windows: [
         { day: today, start: '00:00', end: '24:00' },
         { day: tomorrow, start: '00:00', end: '24:00' },
       ],
     });
     expect(both.onBoard).toBe(true);
-    expect(iso(both.nextChangeAt!)).toBe(iso(midnightAfter(midnightAfter(now))));
+    expect(iso(both.nextChangeAt!)).toBe(iso(midnightAfter(midnightAfter(now, offsetHours), offsetHours)));
     // In another time zone the window is that zone's day: a window on the zone's today is open.
-    const zone = 'Pacific/Kiritimati';
-    const zoneToday = ((new Date(now.toLocaleString('en-US', { timeZone: zone })).getDay() + 6) % 7) + 1;
+    // That zone is also kept at least two hours from its own midnight (UTC+14, or UTC-6 while UTC+14 is near midnight).
+    const far = (offset: number) => (now.getUTCHours() + offset + 24) % 24 >= 2 && (now.getUTCHours() + offset + 24) % 24 < 22;
+    const { zone, offset } = far(14) ? { zone: 'Pacific/Kiritimati', offset: 14 } : { zone: 'Etc/GMT+6', offset: -6 };
+    const zoneToday = day(local(now, offset));
     expect(
       (await p2p.setPresence(MAKER, { mode: 'scheduled', timezone: zone, windows: [{ day: zoneToday, start: '00:00', end: '24:00' }] }))
         .onBoard,

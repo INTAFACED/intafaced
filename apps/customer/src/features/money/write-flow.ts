@@ -1,7 +1,24 @@
-import { createApiClient, type ApiResult } from '../../shared/api';
+import { createApiClient, parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
 import { bankWriteForReview } from './contracts';
 import { settleRefusal } from './money-refusal-copy';
 import type { ActionSpec } from './components';
+
+/** The name a spec's call goes by: its record's path. */
+export const writeName = (spec: ActionSpec): string => spec.record.path;
+
+/**
+ * Sends one reviewed bank write, the one way every write dialog does: by its record (`api.call`), with the answer held to
+ * what was reviewed (`bankWriteForReview`) and to the spec's own check.
+ */
+export function sendWrite(
+  api: Pick<ApiClient, 'call'>,
+  spec: ActionSpec,
+  sent: Record<string, unknown>,
+  input: Record<string, unknown>,
+): Promise<ApiResult<unknown>> {
+  const verified = (data: unknown) => spec.verifyOutcome?.(data, input) ?? true;
+  return api.call(spec.record, sent, { accept: parsesAs(bankWriteForReview(spec.record.path, input).refine(verified)) });
+}
 
 /** The wire answer of a tRPC mutation. */
 export const wire = (data: unknown) => new Response(JSON.stringify({ result: { data } }));
@@ -23,12 +40,7 @@ export async function sendReviewed(
 ): Promise<{ input: Record<string, unknown>; outcome: ApiResult<unknown>; refusedFirst: boolean }> {
   const api = createApiClient({ fetch: fetcher });
   const input = spec.input(values, requestId);
-  const sent = await api.mutate(
-    'bank',
-    spec.procedure,
-    input,
-    bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
-  );
-  const settled = settleRefusal(sent, spec.procedure);
+  const sent = await sendWrite(api, spec, input, input);
+  const settled = settleRefusal(sent, writeName(spec));
   return { input, outcome: settled.outcome, refusedFirst: settled.refusedFirst };
 }

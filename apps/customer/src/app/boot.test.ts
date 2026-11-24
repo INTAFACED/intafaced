@@ -4,19 +4,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BOOT_SCRIPT, VIEW_KEY, homeBoot } from './boot';
-import { LOOK_KEY, resolveLook } from './look';
+import { savePreferences } from '../shared/preferences';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = document.documentElement;
 
 /** Runs the boot script as the browser would, on a page with an empty #root. */
-function boot(path: string, view?: object, look?: string) {
+function boot(path: string, view?: object) {
   history.replaceState(null, '', path);
   localStorage.clear();
   if (view) localStorage.setItem(VIEW_KEY, JSON.stringify(view));
-  if (look) localStorage.setItem(LOOK_KEY, look);
   html.removeAttribute('data-boot');
-  html.removeAttribute('data-look');
   document.body.innerHTML = '<div id="boot-frame"></div><div id="root"></div>';
   new Function(BOOT_SCRIPT)();
   return document.getElementById('root')!;
@@ -26,7 +24,6 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 afterEach(() => {
   vi.useRealTimers();
   html.removeAttribute('data-boot');
-  html.removeAttribute('data-look');
   localStorage.clear();
 });
 
@@ -102,22 +99,24 @@ describe('the boot script', () => {
     expect(html.hasAttribute('data-boot')).toBe(false);
   });
 
-  it('reads the key the app keeps its layout preference under', () => {
-    expect(readFileSync(join(here, '../shared/preferences.ts'), 'utf8')).toContain(`const key = '${VIEW_KEY}';`);
+  it('reads the key the app keeps its layout preference under: a Pro choice the app saved leaves Home unmarked', () => {
+    history.replaceState(null, '', '/home');
+    localStorage.clear();
+    savePreferences({ layoutMode: 'pro' });
+    expect(JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}')).toMatchObject({ layoutMode: 'pro' });
+    html.removeAttribute('data-boot');
+    new Function(BOOT_SCRIPT)();
+    expect(html.hasAttribute('data-boot')).toBe(false);
+    savePreferences({ layoutMode: 'simple' });
+    new Function(BOOT_SCRIPT)();
+    expect(html.getAttribute('data-boot')).toBe('home');
   });
 
-  it('sets the look the app will set, on every path, before the first paint', () => {
-    for (const [path, stored, expected] of [
-      ['/home', 'lit', 'lit'],
-      ['/trade', 'lit', 'lit'],
-      ['/home', null, null],
-      ['/home?look=lit', null, 'lit'],
-      ['/home?look=off', 'lit', null],
-      ['/home?look=other', 'lit', 'lit'],
-    ] as const) {
-      boot(path, undefined, stored ?? undefined);
-      expect(html.getAttribute('data-look'), `${path} ${stored}`).toBe(expected);
-      expect(resolveLook(location.search), `${path} ${stored}`).toBe(expected);
+  it('sets no look: Volt is on the root from index.html, whatever the query says', () => {
+    for (const path of ['/home', '/trade', '/home?look=off', '/home?look=off&direction=x']) {
+      boot(path);
+      expect(html.hasAttribute('data-look'), path).toBe(false);
+      expect(html.hasAttribute('data-direction'), path).toBe(false);
     }
   });
 });

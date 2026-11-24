@@ -2,11 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type R
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
+import { useChartSource } from '../trade/chart/chart-source';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import { dataStatus as computeStatus, tradeRefusal } from './data-status';
-import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
-import { ownerValue, useChartOwnerValues } from './owner-values';
+import { rememberLastTrade, useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
+import { ownerValue, useChartOwnerCounts, useChartOwnerValues } from './owner-values';
+import { venueStatusInputs } from './venue-charts';
 import { refusalText, StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
 import { chartSettingsKey, isStoredChartSettings, readChartSettings, type ChartSettings } from './chart-settings';
@@ -35,6 +37,12 @@ import { ChartTrading } from './trading/ChartTrading';
 import { ChartAlerts } from './alerts/ChartAlerts';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
+import { DateInput } from '@intafaced/ui/lit';
+
+/** The chart's tools start open, except on a phone-width screen (charts.css's phone width), where the chart comes first. */
+function toolsOpenAtFirst(): boolean {
+  return typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 760px)').matches;
+}
 
 /** What an add-on is drawn over: the price scale or percent mode, and whether a bar replay is cut. */
 export interface AddonView {
@@ -98,15 +106,26 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
   const { userId } = useSession();
+  const source = useChartSource();
+  const venue = source.kind === 'venue' ? source : null;
   const polled = useChartCandles(market.symbol, interval);
-  const stream = useCandleStream(market.symbol, interval, openSocket);
+  const stream = useCandleStream(market.symbol, interval, openSocket, venue === null);
   const now = useNow(2_000);
   // The data status: the market's state, its newest trade and the owner's class and boundary, judged against the candles.
-  const lifecycle = useMarketLifecycle(market.symbol);
-  const bookHalt = useBookHalt(market.symbol);
+  const engineLifecycle = useMarketLifecycle(market.symbol, venue === null);
+  const engineBookHalt = useBookHalt(market.symbol, venue === null);
   const serverClock = useServerClock();
-  const lastTrade = useLastTrade(market.symbol);
-  const owner = useChartOwnerValues(market.symbol);
+  const engineLastTrade = useLastTrade(market.symbol, venue === null);
+  const venueState = venue ? venueStatusInputs(venue, market.symbol, polled, now) : null;
+  const lifecycle = venueState ? venueState.lifecycle : engineLifecycle;
+  const bookHalt = venueState ? venueState.bookHalt : engineBookHalt;
+  const lastTrade = venueState ? venueState.lastTrade : engineLastTrade;
+  // The newest trade this tab has read for the market, kept once the tape stops answering, so a down feed names its last
+  // tick even on a chart opened during the outage. Module memory, not state: keeping it never causes a render of its own.
+  const lastTradeSeenMs = rememberLastTrade(market.symbol, lastTrade);
+  const engineOwner = useChartOwnerValues(market.symbol, venue === null);
+  const venueOwner = useChartOwnerCounts(venue !== null);
+  const owner = venue !== null ? venueOwner : engineOwner;
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
   const protectionRead = ownerValue(owner, 'orderProtectionBps');
@@ -119,6 +138,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     bookHalt,
     candles: polled,
     lastTrade,
+    lastTradeSeenMs,
     pollIntervalMs: CANDLE_POLL_MS,
   });
   // Settings and price lines are this device's own display choices.
@@ -156,6 +176,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const drawnBars = replayBars(all, replay.replay);
   const [percent, setPercent] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(toolsOpenAtFirst);
   const [replayNote, setReplayNote] = useState<string | null>(null);
   useEffect(() => {
     if (command?.kind === 'replay') setReplayOpen((open) => !open);
@@ -299,7 +320,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
       </WorkbenchChart>
     );
 
-  const moreActive = (MORE_INTERVALS as readonly string[]).includes(interval);
+  const primaryIntervals = venue ? CHART_INTERVALS.filter((id) => venue.intervals.includes(id)) : CHART_INTERVALS;
+  const extraIntervals = venue ? MORE_INTERVALS.filter((id) => venue.intervals.includes(id)) : MORE_INTERVALS;
+  const moreActive = (extraIntervals as readonly string[]).includes(interval);
   const note = stream.mode === 'stream' ? t('Feed stream') : isStreamInterval(interval) ? t('Feed poll') : t('Feed poll interval');
   const feedText =
     status.feed === 'connected'
@@ -338,24 +361,26 @@ export const MarketChartWidget = memo(function MarketChartWidget({
       </div>
       <div className="cw-bar">
         <div className="cw-chips" role="group" aria-label={t('Chart intervals')}>
-          {CHART_INTERVALS.map((id) => (
+          {primaryIntervals.map((id) => (
             <button key={id} type="button" aria-pressed={interval === id} onClick={() => onInterval(id)}>
               {intervalLabel(id)}
             </button>
           ))}
-          <Menu>
-            <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
-              {moreActive ? intervalLabel(interval) : t('More intervals')}
-              <span aria-hidden="true"> ▾</span>
-            </MenuTrigger>
-            <MenuContent align="start">
-              {MORE_INTERVALS.map((id) => (
-                <MenuItem key={id} onClick={() => onInterval(id)}>
-                  {intervalLabel(id)}
-                </MenuItem>
-              ))}
-            </MenuContent>
-          </Menu>
+          {extraIntervals.length > 0 && (
+            <Menu>
+              <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
+                {moreActive ? intervalLabel(interval) : t('More intervals')}
+                <span aria-hidden="true"> ▾</span>
+              </MenuTrigger>
+              <MenuContent align="start">
+                {extraIntervals.map((id) => (
+                  <MenuItem key={id} onClick={() => onInterval(id)}>
+                    {intervalLabel(id)}
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
+          )}
         </div>
         <div className="cw-chips" role="group" aria-label={t('Chart style')}>
           {CHART_STYLES.map((id) => (
@@ -365,64 +390,71 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           ))}
         </div>
       </div>
-      <div className="cw-bar cw-bar--options">
-        {onScheme && (
+      {/* On a phone the chart's own tools fold under one line, so the chart comes before them; wider, they start open. */}
+      <details className="cw-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
+        <summary className="cw-tools-summary">
+          {t('Chart tools')}
+          <span aria-hidden="true"> ▾</span>
+        </summary>
+        <div className="cw-bar cw-bar--options">
+          {onScheme && (
+            <label className="cw-select cw-select--inline">
+              <span>{t('Colours')}</span>
+              <select value={scheme} onChange={(event) => onScheme(event.target.value as ColourScheme)}>
+                {COLOUR_SCHEMES.map((id) => (
+                  <option key={id} value={id}>
+                    {t(SCHEME_LABEL[id])}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="cw-select cw-select--inline">
-            <span>{t('Colours')}</span>
-            <select value={scheme} onChange={(event) => onScheme(event.target.value as ColourScheme)}>
-              {COLOUR_SCHEMES.map((id) => (
+            <span>{t('Price source')}</span>
+            <select
+              value="last"
+              onChange={(event) => {
+                const basis = event.target.value as PriceBasis;
+                setBasisRefused(PUBLISHED_BASES.includes(basis) ? null : basis);
+              }}
+            >
+              {PRICE_BASES.map((id) => (
                 <option key={id} value={id}>
-                  {t(SCHEME_LABEL[id])}
+                  {t(BASIS_LABEL[id])}
                 </option>
               ))}
             </select>
           </label>
+          <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
+            {t('Bar replay')}
+          </button>
+          <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+            {t('Chart settings')}
+          </button>
+          <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
+            {t('Price line')}
+          </button>
+          <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
+            <label className="cw-select cw-select--inline">
+              <span>{t('Go to date')}</span>
+              <DateInput type="datetime-local" name="date" required />
+            </label>
+            <button type="submit">{t('Go')}</button>
+          </form>
+        </div>
+        {markets && (
+          <CompareTools
+            host={host}
+            market={market}
+            markets={markets}
+            interval={interval}
+            style={mode}
+            bars={drawnBars}
+            percent={percent}
+            onPercent={setPercent}
+          />
         )}
-        <label className="cw-select cw-select--inline">
-          <span>{t('Price source')}</span>
-          <select
-            value="last"
-            onChange={(event) => {
-              const basis = event.target.value as PriceBasis;
-              setBasisRefused(PUBLISHED_BASES.includes(basis) ? null : basis);
-            }}
-          >
-            {PRICE_BASES.map((id) => (
-              <option key={id} value={id}>
-                {t(BASIS_LABEL[id])}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
-          {t('Bar replay')}
-        </button>
-        <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
-          {t('Chart settings')}
-        </button>
-        <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
-          {t('Price line')}
-        </button>
-        <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
-          <label className="cw-select cw-select--inline">
-            <span>{t('Go to date')}</span>
-            <input type="datetime-local" name="date" required />
-          </label>
-          <button type="submit">{t('Go')}</button>
-        </form>
-      </div>
-      {markets && (
-        <CompareTools
-          host={host}
-          market={market}
-          markets={markets}
-          interval={interval}
-          style={mode}
-          bars={drawnBars}
-          percent={percent}
-          onPercent={setPercent}
-        />
-      )}
+      </details>
       {basisRefused && (
         <p className="cw-note" role="status" data-code={BASIS_UNPUBLISHED}>
           {t('Basis refused', { basis: t(BASIS_LABEL[basisRefused]) })}
@@ -498,7 +530,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
               <button type="submit">{t('Start replay')}</button>
             </form>
           )}
-          <span className="cw-replay-note">{t('Replay note')}</span>
+          <span className="lt-muted">{t('Replay note')}</span>
           {replayNote && (
             <span role="status" data-testid="replay-note">
               {replayNote}

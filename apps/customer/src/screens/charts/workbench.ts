@@ -34,14 +34,14 @@ export function workbenchId(search: string): string {
   return id !== null && WORKBENCH_ID.test(id) ? id : DEFAULT_WORKBENCH;
 }
 /** `?interval=15m` opens the workbench at that interval. An unknown one is ignored (see `unofferedInterval`). */
-export function intervalFromSearch(search: string): ChartInterval | undefined {
+export function intervalFromSearch(search: string, offered: readonly string[] = ALL_INTERVALS): ChartInterval | undefined {
   const value = new URLSearchParams(search).get('interval');
-  return isChartInterval(value) ? value : undefined;
+  return isChartInterval(value) && offered.includes(value) ? value : undefined;
 }
 /** An interval asked for in the address that this chart does not offer (`?interval=3d`): named back to the person. */
-export function unofferedInterval(search: string): string | undefined {
+export function unofferedInterval(search: string, offered: readonly string[] = ALL_INTERVALS): string | undefined {
   const value = new URLSearchParams(search).get('interval');
-  return value !== null && value !== '' && !isChartInterval(value) ? value.slice(0, 16) : undefined;
+  return value !== null && value !== '' && (!isChartInterval(value) || !offered.includes(value)) ? value.slice(0, 16) : undefined;
 }
 export const settingKey = (userId: string | null, id: string): string => `charts-workbench:${userId ?? 'guest'}:${id}`;
 

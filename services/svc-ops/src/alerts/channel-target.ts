@@ -11,7 +11,7 @@ import { lookup } from 'node:dns/promises';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
-import { OPS_CHANNEL_TARGET_UNSET } from '@intafaced/contracts';
+import { OPS_CHANNEL_TARGET_UNSET } from '@intafaced/contracts/ops-alert-notify';
 import { OpsError } from '../codes.js';
 
 export type ChannelResolver = (host: string) => Promise<readonly string[]>;

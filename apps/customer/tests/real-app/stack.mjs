@@ -1,9 +1,17 @@
-import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { execFile, execFileSync } from 'node:child_process';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_TEST_DEVICE_KEY, localStackState, localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
+import {
+  JOURNEY_TMP,
+  LOCAL_TEST_DEVICE_KEY,
+  localStackState,
+  localTestDeviceState,
+  stackUrl,
+} from '../../../../tooling/scripts/local-test-facts.mjs';
+export { HOOK_PORTS, STACK_PORTS, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { noteStackTool } from './partner-start.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -21,15 +29,16 @@ export async function signOutBrowser(context) {
 }
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
-export const EDGE = 'http://127.0.0.1:14500';
-export const LEDGER = 'http://127.0.0.1:14501';
-export const ORIGIN = 'http://127.0.0.1:3210';
+// The stack's addresses come from its one port table (LOCAL_STACK_SLOT moves them all).
+export const EDGE = stackUrl('edge');
+export const LEDGER = stackUrl('ledger');
+export const ORIGIN = stackUrl('customer');
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 
 /** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
 export const stackFile = (name) => path.join(STATE, name);
-const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
+const RUN = process.env.JOURNEY_RUN_DIR ?? JOURNEY_TMP;
 
 /**
  * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,
@@ -43,9 +52,14 @@ export const worldState = {
   read() {
     try {
       const state = JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
-      return { file: state.file ?? null, makerArgs: state.makerArgs ?? null, accounts: state.accounts ?? [] };
+      return {
+        file: state.file ?? null,
+        makerArgs: state.makerArgs ?? null,
+        accounts: state.accounts ?? [],
+        venueId: state.venueId ?? null,
+      };
     } catch {
-      return { file: null, makerArgs: null, accounts: [] };
+      return { file: null, makerArgs: null, accounts: [], venueId: null };
     }
   },
   write(state) {
@@ -87,6 +101,13 @@ export function recordSignIn(url, body) {
 }
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
+/** The account an earlier step of `journey` kept in its journey state (`run.write({ who })`); a step with none fails in words. */
+export function stepAccount(run, journey) {
+  const kept = run.read().who;
+  if (!kept) throw new Error(`${journey}: step 1 left no account, so this step has no one to sign in`);
+  return kept;
+}
+
 export function journeyState(id) {
   const file = path.join(RUN, `${id}.json`);
   return {
@@ -100,6 +121,15 @@ export function journeyState(id) {
       writeFileSync(file, JSON.stringify(state, null, 2), { mode: 0o600 });
       return state;
     },
+  };
+}
+
+/** A step's read of its run (`journeyState`), refusing by name when an earlier step left one of `keys` unset. */
+export function stepState(run, J) {
+  return function state(...keys) {
+    const s = run.read();
+    for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
+    return s;
   };
 }
 
@@ -228,11 +258,96 @@ const run = (script, args, timeout) =>
  * the tool's own stdout and stderr.
  */
 export function tool(script, ...args) {
+  noteStackTool(script, args);
   try {
     return run(script, args, TOOL_CAP_MS);
   } catch (error) {
     throw toolError(error, script, args);
   }
+}
+
+/**
+ * `tool`, awaited: the worker's event loop stays free while the tool runs. A long tool call (a service stopped or
+ * started, about 84 s) that blocks the loop outlives Edge's 72 s keep-alive without this process seeing Edge close the
+ * socket, so the next request through Edge is written to a closed socket and fails with "other side closed" (#7449,
+ * as approveKyb in #7461). Same output, limit and error as `tool`.
+ */
+export async function toolAwaited(script, ...args) {
+  noteStackTool(script, args);
+  try {
+    return await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [path.join(ROOT, 'tooling/scripts', script), ...args],
+        { cwd: ROOT, encoding: 'utf8', timeout: TOOL_CAP_MS, maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)),
+      ),
+    );
+  } catch (error) {
+    // A killed run is the limit reached: it reads as `tool`'s timeout does.
+    const raw = error?.killed ? Object.assign(error, { code: 'ETIMEDOUT' }) : error;
+    if (typeof raw?.code === 'number') Object.assign(raw, { status: raw.code, code: null });
+    throw toolError(raw, script, args);
+  }
+}
+
+/**
+ * After a stop, start or restart: cheap reads of Edge's own health (unthrottled, it moves nothing) drop every kept-alive
+ * socket Edge closed while the stack tool ran, until three in a row answer, so the next request, a write included, goes
+ * out on a live socket and is never sent twice. A read that meets a closed socket fails before any answer
+ * (`UND_ERR_SOCKET`, "other side closed").
+ */
+async function dropClosedSockets() {
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/health`, { headers: { origin: ORIGIN } }).then((r) => r.arrayBuffer());
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
+
+/** Runs `fn` with these stack settings set (a string) or unset (`undefined` or `null`), and puts the environment back. */
+async function withSettings(settings, fn) {
+  const before = Object.fromEntries(Object.keys(settings).map((k) => [k, process.env[k]]));
+  const put = (values) => {
+    for (const [k, v] of Object.entries(values)) {
+      if (v === undefined || v === null) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  put(settings);
+  try {
+    return await fn();
+  } finally {
+    put(before);
+  }
+}
+
+/**
+ * The one supported way a journey stops, starts or restarts a stack service. The stack tool waits for the service's
+ * health (local-test-stack.mjs `waitHealthy`); it runs awaited, so this worker's event loop sees Edge close an idle
+ * kept-alive socket while it runs, and then every closed socket is dropped (`dropClosedSockets`). A blocking `tool(…)`
+ * restart froze the worker past Edge's 72 s keep-alive, and the next call through Edge failed with "other side closed"
+ * (#7449, #8395). `settings` are `LOCAL_STACK_*` values for this call only (`undefined` or `null` unsets one).
+ */
+export async function restartService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'restart', service));
+  await dropClosedSockets();
+}
+
+/** A stack service stopped, as `restartService` (awaited, closed sockets dropped). */
+export async function stopService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'stop', service));
+  await dropClosedSockets();
+}
+
+/** A stopped stack service started again on its own (`start --only`), as `restartService`. */
+export async function startService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'start', '--only', service));
+  await dropClosedSockets();
 }
 
 /**
@@ -328,6 +443,15 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * Sign up through /register as a real person would: details, then the mailed code. `who` needs handle, email and
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
+/**
+ * A fresh TEST person: a handle that starts with `prefix`, its LOCAL-TEST address, and a TEST password made for this run,
+ * kept only in the run file (mode 600). Nothing is signed up.
+ */
+export function testPerson(prefix) {
+  const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+}
+
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
   actedAs(who);
   const seen = mailedCodes(who.email).length;
@@ -337,6 +461,7 @@ export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth =
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption(country);
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
@@ -359,6 +484,27 @@ export async function json(res) {
   } catch {
     return { status: res.status, body: text };
   }
+}
+
+/**
+ * A spot sell the ledger refused for less base than it asked, with the likely cause added to the refusal's message: a
+ * buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left (#8404
+ * `8cd82aa5`, J-algo-dev-05 #3: "requested 0.001, available 0.000999"). The answer is otherwise the app's own.
+ */
+export function withFeeNote(route, body, res) {
+  if (!/^\/api\/v1\/orders(\?|$)/.test(route) || body?.side !== 'sell' || res?.status !== 400) return res;
+  const message = res.body?.message;
+  const m = typeof message === 'string' ? /Insufficient (\S+): requested (\d[\d.]*\d|\d), available (\d[\d.]*\d|\d)/.exec(message) : null;
+  if (res.body?.intafacedCode !== 'ledger.insufficient_funds' || !m) return res;
+  let short;
+  try {
+    short = toUnits(m[3]) < toUnits(m[2]);
+  } catch {
+    return res;
+  }
+  if (!short) return res;
+  const note = ` (journey helper: a buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left; sell what the balance holds, (await api(who).balances()).${m[1]}.free)`;
+  return { ...res, body: { ...res.body, message: `${message}${note}` } };
 }
 
 /**
@@ -390,10 +536,12 @@ export async function api(who, { totpCode } = {}) {
   // A kept-alive socket that Edge closed while the test waited (a lane restart takes longer than Edge's idle timeout)
   // fails before any answer. A read is sent once more on a fresh socket; a write never is.
   const call = (method, route, body) =>
-    send(method, route, body).catch((error) => {
-      if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
-      return send(method, route, body);
-    });
+    send(method, route, body)
+      .catch((error) => {
+        if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+        return send(method, route, body);
+      })
+      .then((res) => (method === 'POST' ? withFeeNote(route, body, res) : res));
   return {
     /** The account's user id, as identity answered the sign-in. */
     userId: login.body.result.data.userId,
@@ -520,3 +668,12 @@ export function fromUnits(units) {
 }
 /** price x amount, in units. */
 export const times = (a, b) => (toUnits(a) * toUnits(b)) / SCALE;
+
+/** The svc-trade market id of a listed spot symbol, from the public markets list; throws by name when it is not listed. */
+export async function marketIdOf(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  if (res.status !== 200) throw new Error(`the public markets list answered ${res.status}`);
+  const market = (await res.json()).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`${symbol} is not listed on the stack`);
+  return market.id;
+}

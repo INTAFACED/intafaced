@@ -48,6 +48,8 @@ const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): 
   burstCount: 0,
   lastFiredAt: null,
   source: 'mark',
+  channels: null,
+  webhookUrl: null,
   ...patch,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });

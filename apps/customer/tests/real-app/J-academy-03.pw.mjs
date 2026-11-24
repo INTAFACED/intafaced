@@ -552,9 +552,7 @@ test(`${J} #9 a to-do shows on another device; saving the goal works and sending
   await expect(planner.locator('[data-goal="3"]')).toContainText('Goal: 3 items a week.');
   await expect(planner.locator('[data-goal="3"]')).toContainText('Email reminder on.');
   await planner.getByRole('button', { name: 'Send reminder now', exact: true }).click();
-  await expect(planner.locator('[data-not-connected="vendor.email"]')).toContainText(
-    'The goal reminder email needs an email delivery provider.',
-  );
+  await expect(planner.locator('[data-not-connected="vendor.email"]')).toContainText('The goal reminder email needs an email sender.');
 });
 
 test(`${J} #10 Continue on another device opens the item last read`, async ({ page, browser }) => {

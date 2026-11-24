@@ -9,6 +9,7 @@ import {
   SERVICE_TIMESTAMP_HEADER,
   verifyServiceHeaders,
 } from '@intafaced/contracts';
+import { createMarketLifecycleAdmissionProof, MATCHING_SUBMIT_ORDER } from '@intafaced/exchange-contract';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AdaptResult, MatchingOrderCommand } from './command.js';
 import {
@@ -18,6 +19,7 @@ import {
   postMatchingSubmit,
   readCompIdAccountMap,
   resolveAccountId,
+  fixOrderId,
   toMatchingSubmitBody,
   type MatchingPortOptions,
 } from './matching-port.js';
@@ -27,8 +29,28 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OWNER_MAP = '{"CLIENT":"acct-desk"}';
 const SECRET = 'a'.repeat(32);
 
+/** A TEST market lifecycle admission proof for BTC/USDT: svc-fix has no real source of one (see `lifecycleProof`). */
+const testProof = createMarketLifecycleAdmissionProof(
+  {
+    marketId: 'BTC/USDT',
+    ruleVersion: 'TEST-rules-1',
+    instrumentId: 'TEST-instrument',
+    instrumentVersion: 'TEST-v1',
+    state: 'OPEN',
+    reasonCategory: 'NORMAL',
+    reasonCode: 'trade.lifecycle.ready',
+    effectiveAt: '2026-11-18T00:00:00.000Z',
+    observedAt: '2026-11-18T00:00:00.000Z',
+    lastGoodState: 'OPEN',
+    allowedActions: ['PLACE'],
+    transitionId: 'TEST-transition',
+    evidenceRefs: ['TEST-evidence'],
+  },
+  'PLACE',
+);
+
 function liveOpts(url: string, extra: Partial<MatchingPortOptions> = {}): MatchingPortOptions {
-  return { matchingBaseUrl: url, compIdAccountJson: OWNER_MAP, internalServiceSecret: SECRET, ...extra };
+  return { matchingBaseUrl: url, compIdAccountJson: OWNER_MAP, internalServiceSecret: SECRET, lifecycleProof: () => testProof, ...extra };
 }
 
 const limitCmd: MatchingOrderCommand = {
@@ -117,27 +139,57 @@ async function capture(req: IncomingMessage, res: ServerResponse, status: number
 
 describe('toMatchingSubmitBody — decimal strings, no last price', () => {
   it('maps qty and price as strings with owner account and tif', () => {
-    const body = toMatchingSubmitBody(limitCmd, 'acct-desk', 'GTC');
+    const body = toMatchingSubmitBody(limitCmd, { accountId: 'acct-desk', tif: 'GTC', lifecycleProof: testProof });
     expect(body).toEqual({
-      orderId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      orderId: fixOrderId('CLIENT', limitCmd.clOrdId),
       accountId: 'acct-desk',
       type: 'limit',
       side: 'buy',
       qty: '1.50',
       price: '100.25',
       tif: 'GTC',
+      lifecycleProof: testProof,
     });
+    // What svc-fix sends is what matching parses: the record both sides use.
+    expect(MATCHING_SUBMIT_ORDER.input.safeParse(body).success).toBe(true);
     expect(typeof body.qty).toBe('string');
     expect(typeof body.price).toBe('string');
     expect(matchingSubmitPath(limitCmd)).toBe('/markets/BTC%2FUSDT/orders');
   });
 
   it('keeps market price null rather than inventing last', () => {
-    const body = toMatchingSubmitBody(marketCmd, 'acct-desk', 'GTC');
+    const body = toMatchingSubmitBody(marketCmd, { accountId: 'acct-desk', tif: 'GTC', lifecycleProof: testProof });
     expect(body.price).toBeNull();
     expect(body).not.toHaveProperty('last');
     expect(body).not.toHaveProperty('lastPx');
     expect(body).not.toHaveProperty('lastPrice');
+  });
+});
+
+describe('the submit matching requires (#8847)', () => {
+  it('with no lifecycle proof source, refuses by name and sends nothing', async () => {
+    const url = await listen(async (req, res) => capture(req, res, 200, namedAck));
+    const result = await postMatchingSubmit(limitCmd, liveOpts(url, { lifecycleProof: undefined }));
+    expect(result).toMatchObject({ ok: false, error: { code: 'matching_lifecycle_proof_unavailable' } });
+    expect(recorded).toHaveLength(0);
+  });
+
+  it('a client order id that is not a GUID is sent as the GUID of its session and id, the same every time', async () => {
+    const url = await listen(async (req, res) => capture(req, res, 200, namedAck));
+    const clientId = { ...limitCmd, clOrdId: 'ORD-2026-11-18-0001' };
+    expect((await postMatchingSubmit(clientId, liveOpts(url))).ok).toBe(true);
+    expect((await postMatchingSubmit(clientId, liveOpts(url))).ok).toBe(true);
+    const [first, second] = recorded.map((r) => JSON.parse(r.body) as { orderId: string });
+    expect(first!.orderId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(second!.orderId).toBe(first!.orderId);
+    expect(fixOrderId('OTHER', clientId.clOrdId)).not.toBe(first!.orderId);
+  });
+
+  it('FIX DAY has no matching time in force: refused by name before any POST', async () => {
+    const url = await listen(async (req, res) => capture(req, res, 200, namedAck));
+    const result = await postMatchingSubmit({ ...limitCmd, tif: 'DAY' }, liveOpts(url));
+    expect(result).toMatchObject({ ok: false, error: { code: 'tif_unsupported' } });
+    expect(recorded).toHaveLength(0);
   });
 });
 
@@ -207,7 +259,8 @@ describe('postAdaptedNewOrder — fake matching HTTP', () => {
     expect(typeof posted.price).toBe('string');
     expect(posted.accountId).toBe('acct-desk');
     expect(posted.tif).toBe('GTC');
-    expect(posted.orderId).toBe(limitCmd.clOrdId);
+    expect(posted.orderId).toBe(fixOrderId('CLIENT', limitCmd.clOrdId));
+    expect(MATCHING_SUBMIT_ORDER.input.safeParse(posted).success, recorded[0]?.body).toBe(true);
     expect(posted).not.toHaveProperty('lastPrice');
     expect(result.ok && result.ack).toEqual(namedAck);
     expect(result.ok && result.ack).not.toHaveProperty('fills');

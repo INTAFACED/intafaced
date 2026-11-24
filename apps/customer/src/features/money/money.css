@@ -236,6 +236,14 @@
   margin-bottom: var(--if-space-8);
   min-width: 0;
 }
+/* Transfers: the ways into direct debits, the calendar and rules sit as their own group, apart from the form below. */
+.money-transfer-links {
+  margin-block-end: var(--if-space-8);
+}
+/* Standing instructions open a new group: a section's space above them, never touching the card before. */
+.money-standing-orders {
+  margin-block-start: var(--if-space-8);
+}
 
 .money-selected-instruction {
   border-top: 2px solid var(--if-lime);
@@ -360,9 +368,18 @@
   grid-column: 4;
   grid-row: 1 / span 2;
 }
+/* A run the partner bank made: its move in the last column's first row, the ledger reference under it. */
+.money-execution-partner {
+  grid-column: 4;
+  grid-row: 1;
+}
+.money-execution-partner + .money-execution-ledger {
+  grid-row: 2;
+}
 .money-execution-quantity dd {
   font-weight: 500;
 }
+.money-execution-partner dd,
 .money-execution-ledger dd {
   font-size: var(--if-text-sm);
   line-height: var(--if-leading-base);
@@ -436,6 +453,13 @@
   .money-execution-ledger {
     grid-column: 1 / -1;
     grid-row: 4;
+  }
+  .money-execution-partner {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .money-execution-partner + .money-execution-ledger {
+    grid-row: 5;
   }
   .money-execution-quantity dd {
     font-size: var(--if-text-md);
@@ -1108,24 +1132,6 @@
   font-size: var(--if-text-base);
   line-height: 22px;
 }
-.money-bank-nav {
-  display: flex;
-  gap: var(--if-space-6);
-  overflow-x: auto;
-  padding-bottom: var(--if-space-3);
-  margin: -8px 0 var(--if-space-8);
-  border-bottom: 1px solid var(--color-divider);
-}
-.money-bank-nav a {
-  flex: 0 0 auto;
-  min-height: 44px;
-  padding-block: var(--if-space-3);
-  color: var(--color-muted);
-}
-.money-bank-nav a[aria-current='page'] {
-  color: var(--if-accent-text);
-  box-shadow: 0 2px 0 var(--if-lime);
-}
 .money-record {
   padding: var(--if-space-6) 0;
   border-top: 1px solid var(--color-divider);
@@ -1625,9 +1631,6 @@
   }
 }
 @media (max-width: 767px) {
-  .money-bank-nav:has(+ .money-selected-space) {
-    margin-bottom: var(--if-space-4);
-  }
   .money-selected-space {
     display: flex;
     flex-direction: column;

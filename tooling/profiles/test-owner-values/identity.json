@@ -51,6 +51,11 @@
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
       "note": "TEST: accepted ID types for DE and US only, so another country reads not published (J-identity-08 #2)."
     },
+    "IDENTITY_STREAM_TOKEN_TTL_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "LOCAL TEST ONLY, not an owner decision: a stream token from POST /api/v1/stream/token opens the private stream for twenty seconds, so a journey can wait out its end and see ws.token_expired (J-developer-09 #2). LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL=off leaves it blank, so every mint refuses identity.stream_token_ttl_unset."
+    },
     "IDENTITY_REQUEST_SIGN_WINDOW_SECONDS": {
       "service": "identity",
       "value": "300",
@@ -65,6 +70,11 @@
       "service": "identity",
       "value": "image/jpeg,image/png,application/pdf",
       "note": "TEST: the ID photo may be JPEG, PNG or PDF (J-identity-08 #2)."
+    },
+    "IDENTITY_SANCTIONS_PERSONS_LIST": {
+      "service": "identity",
+      "value": "{\"label\": \"TEST: the local test stack only, never a real list\", \"entries\": [{\"legalName\": \"TEST Listed Person\", \"dateOfBirth\": \"1970-01-01\", \"country\": \"DE\"}]}",
+      "note": "TEST: one TEST person, never a real name, so the trading checks can show a hit held under review (J-cex-spot-01 #3). Identity refuses a TEST list outside APP_ENV dev or test. LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off leaves it blank, so the kyc.screening_list_unset refusal can be seen."
     },
     "IDENTITY_KYC_POA_MAX_AGE_DAYS": {
       "service": "identity",
@@ -110,6 +120,11 @@
       "service": "identity",
       "value": "1800",
       "note": "A recovery link a Support case mails works for thirty minutes, so the journey can send it, use it once and see a second use refused (J-identity-05 #5)."
+    },
+    "IDENTITY_EXTRA_CONTROLS_MIN": {
+      "service": "identity",
+      "value": "2",
+      "note": "A person who sets step-up extras chooses at least two checks, so the bank room can show one check refused and two saved (J-bank-18 #4). `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off` on a restart leaves it blank, as production is until the owner sets it."
     },
     "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
       "service": "identity",
@@ -201,6 +216,21 @@
       "value": "10",
       "note": "TEST: saved screens per account. Not an owner limit."
     },
+    "IDENTITY_DESK_LAYOUT_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: saved desk layouts per account. Not an owner limit."
+    },
+    "IDENTITY_DESK_LAYOUT_RESTORE_CAP": {
+      "service": "identity",
+      "value": "20",
+      "note": "TEST: deleted desk layouts kept for restoring. Not an owner limit."
+    },
+    "IDENTITY_DESK_LAYOUT_RESTORE_DAYS": {
+      "service": "identity",
+      "value": "7",
+      "note": "TEST: days a deleted desk layout can be restored in. Not an owner limit."
+    },
     "IDENTITY_LOGIN_CODE_TTL_SECONDS": {
       "service": "identity",
       "value": "600",
@@ -288,8 +318,8 @@
     },
     "IDENTITY_ACTION_APPROVAL_POLICIES": {
       "service": "identity",
-      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
-      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows so both governed ledger correction types need two operators other than the requester and are applied by svc-ops (OPS-change-control-01 CR-1)."
+      "value": "{\"ops.ledger.reverse\":{\"requiredApprovals\":\"1\",\"approverAudience\":\"founder\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"},\"ops.ledger.adjust\":{\"requiredApprovals\":\"2\",\"approverAudience\":\"operator\",\"applier\":\"svc-ops\",\"maxAgeSeconds\":\"600\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: TEST rows applied by svc-ops (OPS-change-control-01 CR-1). A reversal needs one founder other than the requester (OPS-ledger-desk-02, J-ops-console-05 #1-#3: a different approver); an adjustment needs two operators other than the requester."
     },
     "IDENTITY_STAFF_INVITE_TTL_SECONDS": {
       "service": "identity",
@@ -323,8 +353,28 @@
     },
     "IDENTITY_API_RATE_LIMITS": {
       "service": "identity",
-      "value": "{\"tiers\":[{\"id\":\"base\",\"burst\":60,\"refillPerMinute\":1200},{\"id\":\"sandbox\",\"burst\":30,\"refillPerMinute\":600}],\"grantCeilingPerMinute\":6000}",
-      "note": "TEST: live keys spend from a bucket of 60 that refills 1,200 a minute, sandbox keys 30 and 600, and a reviewer may grant one key up to 6,000 a minute, so J-developer-06 can spend a burst, see the 429 and have a request granted in part. `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a restart leaves it blank, so the not-set banner and refusals can be seen (J-developer-06 #1 #5)."
+      "value": "{\"tiers\":[{\"id\":\"base\",\"burst\":60,\"refillPerMinute\":1200},{\"id\":\"sandbox\",\"burst\":30,\"refillPerMinute\":600},{\"id\":\"user\",\"burst\":75,\"refillPerMinute\":1200}],\"grantCeilingPerMinute\":6000}",
+      "note": "TEST: live keys spend from a bucket of 60 that refills 1,200 a minute, sandbox keys 30 and 600, all of one account's keys together 75 and 1,200 (the per-user budget), and a reviewer may grant one key up to 6,000 a minute, so J-developer-06 can spend a burst, see the 429 and have a request granted in part, and J-cex-spot-15 #7 can spend the per-user budget across two keys. `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a restart leaves it blank, so the not-set banner and refusals can be seen, and no key is issued (J-developer-06 #1 #5, J-cex-spot-15 #7)."
+    },
+    "IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES": {
+      "service": "identity",
+      "value": "2",
+      "note": "TEST: two qualified invitees (introduced directly, verification approved) let a person apply as a partner (J-campaigns-07 #1)."
+    },
+    "IDENTITY_PARTNER_REAPPLY_DAYS": {
+      "service": "identity",
+      "value": "30",
+      "note": "TEST: a rejected partner applicant may apply again thirty days after the decision (J-campaigns-07 #3)."
+    },
+    "IDENTITY_PARTNER_PROGRAMME_DEPTH": {
+      "service": "identity",
+      "value": "2",
+      "note": "TEST: the partner programme reaches two levels of a sub-tree, so a third-level invitee is counted and not shown (J-campaigns-07 #4)."
+    },
+    "IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS": {
+      "service": "identity",
+      "value": "300",
+      "note": "TEST: a rotated key may keep working beside its replacement for up to five minutes, so J-developer-07 can rotate with a 60-second overlap. `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it blank, so an overlap above 0 is refused (J-developer-07 #1)."
     }
   }
 }

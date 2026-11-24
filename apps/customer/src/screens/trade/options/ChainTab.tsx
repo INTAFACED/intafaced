@@ -120,7 +120,7 @@ export function ChainTab({
         return (
           <span>
             {formatAsOf(Date.parse(m.expiryDatetime), { now })}{' '}
-            <span className="text-fg-2">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
+            <span className="lt-muted">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
           </span>
         );
       },
@@ -186,8 +186,8 @@ export function ChainTab({
   if (markets.status === 'refused') return <RefusedRegion code={markets.code} />;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="lt-stack">
+      <div className="lt-toolbar">
         <Filter
           label={t('Underlying')}
           value={underlying}
@@ -215,7 +215,7 @@ export function ChainTab({
           <Freshness asOf={asOfOf(markets)} now={now} />
         </span>
       </div>
-      <p className="m-0 text-xs text-fg-2">{t('No quote feed hint')}</p>
+      <p className="lt-hint">{t('No quote feed hint')}</p>
       {markets.status === 'ready' && sorted.length === 0 ? (
         none
       ) : (

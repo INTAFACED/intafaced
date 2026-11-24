@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -71,7 +71,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -1014,7 +1014,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
         side: 'long',
         size: amt('1'),
         leverage: amt('10'),
-        marginMode: 'cross' as unknown as 'isolated',
+        marginMode: 'cross' as 'isolated',
       }),
     ).rejects.toMatchObject({ code: 'trade.cross_margin_unsupported' });
 
@@ -1033,7 +1033,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
         side: 'long',
         size: amt('1'),
         leverage: amt('10'),
-        marginMode: 'portfolio' as unknown as 'isolated',
+        marginMode: 'portfolio' as 'isolated',
       }),
     ).rejects.toMatchObject({ code: 'trade.portfolio_margin_unset' });
     expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(before);

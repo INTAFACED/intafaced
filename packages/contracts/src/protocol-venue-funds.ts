@@ -76,3 +76,56 @@ export const protocolVenueBuildOutputSchema = z
   })
   .strict();
 export type ProtocolVenueBuild = z.infer<typeof protocolVenueBuildOutputSchema>;
+
+/** A token address that is not an ERC-20 on the venue's chain (no code, or no `decimals()`): there is nothing to review. */
+export const ASSET_LINK_NOT_TOKEN = 'protocol.asset_link_not_token' as const;
+
+export const protocolAssetLinkReviewInputSchema = z.object({ token: address }).strict();
+export type ProtocolAssetLinkReviewInput = z.infer<typeof protocolAssetLinkReviewInputSchema>;
+
+/**
+ * `protocol.venue.assetLinkReview` (D-bridge-chain-04, J-dex-protocol-05 #10): whether an ERC-20 is one of the trading
+ * venue's own two assets, read from the token and the venue contract at one block. `linked` means the venue trades this
+ * very token (its `baseToken` or `quoteToken`), so moving it in and out carries no bridging risk; anything else is
+ * `not_linked` with the reason. A read: nothing is stored, signed or posted.
+ */
+export const protocolAssetLinkReviewOutputSchema = z
+  .object({
+    venue: address,
+    chainId: z.number().int().positive(),
+    blockNumber: z.string().regex(/^(0|[1-9][0-9]*)$/),
+    token,
+    verdict: z.enum(['linked', 'not_linked']),
+    /** The venue asset the token is, when linked. */
+    side: protocolVenueSideSchema.nullable(),
+    /** The venue's two assets as the contract names them, so the reason can be checked. */
+    venueAssets: z.array(z.object({ side: protocolVenueSideSchema, token }).strict()).length(2),
+    reason: z.string(),
+  })
+  .strict();
+export type ProtocolAssetLinkReview = z.infer<typeof protocolAssetLinkReviewOutputSchema>;
+
+/** One read-only call on the venue contract, with an example a developer can paste. */
+export const protocolVenueReadCallSchema = z
+  .object({
+    name: z.string(),
+    signature: z.string(),
+    description: z.string(),
+    example: z.string(),
+  })
+  .strict();
+export type ProtocolVenueReadCall = z.infer<typeof protocolVenueReadCallSchema>;
+
+/**
+ * `protocol.venue.reads`: the contract-read docs. The venue's public getters, the core state any contract or client can
+ * read, each with an example aimed at the configured venue on its chain. Reads of the trading core itself (precompile-style
+ * reads and delayed core actions) belong to INTACORE and wait on its published interface (`owner.decision`).
+ */
+export const protocolVenueReadsOutputSchema = z
+  .object({
+    venue: address,
+    chainId: z.number().int().positive(),
+    calls: z.array(protocolVenueReadCallSchema).min(1),
+  })
+  .strict();
+export type ProtocolVenueReads = z.infer<typeof protocolVenueReadsOutputSchema>;

@@ -5,7 +5,7 @@ import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN, STAFF_HOLD_REASON_
 import { ControlDesk } from '@/components/control-desk';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { HOLD_STATE_LABEL, holdActionable, movementLine, placeKey } from '@/lib/accounts/holds';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 
 type Loaded = { readonly list: StaffHoldList; readonly writes: RefusalView | null };
 type PlaceReply = { ok: true; detail: string } | { ok: false; refusal: RefusalView | null };

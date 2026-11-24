@@ -13,13 +13,7 @@ import type { Principal } from '@intafaced/auth';
  */
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import { UNSUPPORTED_COLLATERAL_CLASS, checkCollateralClassForMargin, type MarginModeRefuseCode } from './margin-mode.js';
-import {
-  HAIRCUT_CREDIT_SHORT,
-  HAIRCUT_UNSET,
-  readOwnerHaircutBps,
-  requireOwnerHaircutBps,
-  type OpenCreditDecision,
-} from './haircut-credit.js';
+import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
 
 export {
   HAIRCUT_CREDIT_SHORT,
@@ -100,7 +94,7 @@ const OPEN_FLAG = Symbol.for('intafaced.trade.collateralHaircutOpen');
 
 export function installCollateralHaircutOpen(ctor: typeof PositionService): void {
   const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
+    open: PositionService['open'];
     [OPEN_FLAG]?: true;
   };
   if (proto[OPEN_FLAG]) return;

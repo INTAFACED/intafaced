@@ -20,7 +20,7 @@ vi.mock('./edge', () => ({
 
 const { venueChangeRequest } = await import('./venue-markets-calls');
 
-const ctx = { session: {} as FounderSession, config: {} } as unknown as TradeCtx;
+const ctx = { session: {} as FounderSession, config: {} } as TradeCtx;
 const REASON = 'TEST: J-cex-spot-16 console review';
 const GONE = 'T16GONE-USDC';
 

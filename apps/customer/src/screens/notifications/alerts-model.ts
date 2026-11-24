@@ -66,6 +66,8 @@ export type Refusal =
   | 'quotaReached'
   | 'notFound'
   | 'logOff'
+  | 'webhookOff'
+  | 'webhookRejected'
   | 'other';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
@@ -95,6 +97,8 @@ export function settleFailure(failure: Failure): Settled {
   if (/notify\.alert_(text_limit|expiry_max|conditions_limit)_unset/.test(said)) return { kind: 'refused', refusal: 'optionNotOn' };
   if (/alert\.(text_too_long|message_placeholder_unknown)/.test(said)) return { kind: 'refused', refusal: 'textRejected' };
   if (/alert\.expiry_(in_past|too_far)/.test(said)) return { kind: 'refused', refusal: 'expiryRejected' };
+  if (/notify\.alert_webhook_ports_unset/.test(said)) return { kind: 'refused', refusal: 'webhookOff' };
+  if (/alert\.webhook_[a-z_]+/.test(said)) return { kind: 'refused', refusal: 'webhookRejected' };
   if (/notify\.alert_quota_unset/.test(said)) return { kind: 'refused', refusal: 'quotaOff' };
   if (/alert\.quota_reached/.test(said)) return { kind: 'refused', refusal: 'quotaReached' };
   if (/alert\.not_editable/.test(said)) return { kind: 'refused', refusal: 'notEditable' };

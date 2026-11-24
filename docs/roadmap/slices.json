@@ -2408,7 +2408,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-02",
@@ -2438,7 +2438,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-acct-04",
@@ -2815,7 +2815,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["BK-cctl-02"]
   },
   {
@@ -2831,7 +2831,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cctl-03",
@@ -2846,7 +2846,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cctl-04",
@@ -2861,7 +2861,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1,
+    "order": 2,
     "later": ["BK-cissue-04", "BK-cops-02"]
   },
   {
@@ -2877,7 +2877,7 @@
     "outside": "`rail.card` (no live issuer; card-sim on the stack)",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-ccrypto-02",
@@ -2907,7 +2907,7 @@
     "outside": "`rail.card` (card-sim on the stack)",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cdisp-01",
@@ -2969,7 +2969,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cissue-02",
@@ -2984,7 +2984,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cissue-03",
@@ -2999,7 +2999,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cissue-04",
@@ -3014,7 +3014,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cops-01",
@@ -3167,7 +3167,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-cpay-02",
@@ -3182,7 +3182,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-earn-01",
@@ -3439,7 +3439,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-pots-02",
@@ -3514,7 +3514,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "BK-safe-01",
@@ -3830,7 +3830,7 @@
     "outside": "`rail.card`: real captures arrive only from a connected issuer; the simulator path is labelled TEST.",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 2
   },
   {
     "id": "RC-bank-03",
@@ -6441,7 +6441,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-05",
@@ -6471,7 +6471,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-07",
@@ -6486,7 +6486,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-08",
@@ -6501,7 +6501,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-09",
@@ -6516,7 +6516,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 4
   },
   {
     "id": "CB-copy-pro-share-10",
@@ -7898,7 +7898,7 @@
     "outside": "`vendor.kyc` (named: identity verification) where the level needs it",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 0
   },
   {
     "id": "D-account-08",
@@ -9165,7 +9165,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 3
+    "order": 4
   },
   {
     "id": "DV-keys-01",
@@ -9616,7 +9616,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-developer-02",
@@ -9631,7 +9631,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 4
   },
   {
     "id": "RC-developer-03",
@@ -11745,7 +11745,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "RC-home-ia-04",
@@ -12001,7 +12001,7 @@
     "outside": "`vendor.email` (the mail only)",
     "size": "L",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-02",
@@ -12046,7 +12046,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-05",
@@ -12061,7 +12061,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-06",
@@ -12091,7 +12091,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-08",
@@ -12121,7 +12121,7 @@
     "outside": "`vendor.kyc`",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-10",
@@ -12136,7 +12136,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-11",
@@ -12151,7 +12151,7 @@
     "outside": "`vendor.kyc` (automatic check only)",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-12",
@@ -12241,7 +12241,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 1
+    "order": 2
   },
   {
     "id": "I-kyc-compliance-18",
@@ -12271,7 +12271,7 @@
     "outside": "`vendor.aml` (data vendor only)",
     "size": "L",
     "families": 1,
-    "order": 3
+    "order": 1
   },
   {
     "id": "I-kyc-compliance-20",
@@ -16080,7 +16080,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-ORD-01",
@@ -18249,7 +18249,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-disputes-security-02",
@@ -18264,7 +18264,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-disputes-security-03",
@@ -18309,7 +18309,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-disputes-security-06",
@@ -18324,7 +18324,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-disputes-security-07",
@@ -18520,7 +18520,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2,
+    "order": 1,
     "later": ["P-order-02"]
   },
   {
@@ -18536,7 +18536,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-order-03",
@@ -18642,7 +18642,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "P-trade-orders-07",
@@ -18657,7 +18657,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "P-trade-orders-08",
@@ -18732,7 +18732,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2,
+    "order": 1,
     "later": ["P-order-01"]
   },
   {
@@ -18899,7 +18899,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-p2p-01",
@@ -18914,7 +18914,7 @@
     "outside": "`audit.external` for mainnet; `rail.crypto` when the chain node is not configured (existing `protocol.rpc_unset` refusal stays the typed error underneath).",
     "size": "M",
     "families": 0,
-    "order": 3,
+    "order": 1,
     "later": ["RC-p2p-02"]
   },
   {
@@ -18930,7 +18930,7 @@
     "outside": "`audit.external` on mainnet; `rail.crypto` when no chain node is configured. Testnet is built and labelled.",
     "size": "L",
     "families": 0,
-    "order": 3
+    "order": 1
   },
   {
     "id": "RC-p2p-03",

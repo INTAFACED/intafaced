@@ -25,7 +25,27 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.mock('../../features/session/session', () => ({
-  useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      query: () => new Promise(() => {}),
+      mutate: () => new Promise(() => {}),
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
+  }),
 }));
 // The chart's own order controls read open orders through the desk's data; these tests place none.
 vi.mock('../trade/desk/data', () => ({
@@ -63,6 +83,10 @@ vi.mock('./market-state', async (original) => ({
 vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
   useChartHistory: () => ({ state: world.history, load: async () => world.history, oldestReachable: 0 }),
+}));
+vi.mock('./venue-charts', async (original) => ({
+  ...(await original<typeof import('./venue-charts')>()),
+  useVenueChartMarkets: () => ({ status: 'off' }),
 }));
 vi.mock('./owner-values', async (original) => ({
   ...(await original<typeof import('./owner-values')>()),

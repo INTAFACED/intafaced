@@ -3,7 +3,7 @@ import { confirmationDepth, railPayload } from './internal.js';
 
 const at = new Date('2026-10-29T06:00:00.000Z');
 const result = (status: string, raw: Record<string, unknown>) =>
-  ({ ok: true, status, railRef: 'addr', amount: 60n, assetId: 'USDT', at, raw }) as unknown as Parameters<typeof railPayload>[0];
+  ({ ok: true, status, railRef: 'addr', amount: 60n, assetId: 'USDT', at, raw }) as Parameters<typeof railPayload>[0];
 
 describe('the confirmation count a merchant reads while a crypto payment waits (J-merchant-05 #4)', () => {
   it('a pending rail result keeps how deep its transfer is and how deep it must be', () => {

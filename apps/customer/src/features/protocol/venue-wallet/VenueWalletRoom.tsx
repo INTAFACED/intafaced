@@ -1,14 +1,14 @@
+// volt-room: /wallet/venue
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { Field } from '../../../shared/ui';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import type { StepUpBegin } from '../../account/security-step-up';
+import { useSession } from '../../session';
+import { StepUpConfirm } from '../../money';
+import type { StepUpBegin } from '../../account';
 import { useWallet } from '../wallet/WalletProvider';
 import { APP_CHAIN_ID, type TypedDataDocument } from '../wallet/eip1193';
 import { transferCalldata } from '../wallet/transfer';
@@ -27,6 +27,7 @@ import {
   type VenueWithdrawal,
 } from './venue-account-api';
 import { venueWalletCopy, type VenueWalletCopyKey } from './venue-wallet-copy';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 /**
  * /wallet/venue (J-wallet-09), on the flow template: the signed-in person connects the wallet in this browser to their
@@ -200,8 +201,6 @@ async function readVenueFigure(account: ReturnType<typeof createVenueAccountApi>
   const row = read.data.value.find((balance) => balance.asset === ASSET);
   return { free: row?.free ?? '0', asOf: read.data.asOf };
 }
-
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** A fee the venue reports, or "not known": never shown as 0 when the venue does not publish it. */
 function feeText(fee: VenueWithdrawal['fee'], t: T): string {
@@ -700,7 +699,12 @@ export function VenueWalletRoom() {
               <p>{t('pickWallet')}</p>
               {wallet.wallets.length === 0 ? <p>{t('noWallet')}</p> : null}
               {wallet.wallets.map((entry) => (
-                <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
+                <Button
+                  tone="primary"
+                  key={entry.info.uuid}
+                  disabled={wallet.status === 'connecting'}
+                  onClick={() => void wallet.connect(entry)}
+                >
                   {t('connectWallet', { name: entry.info.name })}
                 </Button>
               ))}
@@ -732,7 +736,9 @@ export function VenueWalletRoom() {
           {message ? (
             <details open>
               <summary>{t('messageTitle')}</summary>
-              <pre data-venue-message>{message}</pre>
+              <pre className="lt-code lt-wrap" data-venue-message>
+                {message}
+              </pre>
               <p>{t('messageNote')}</p>
             </details>
           ) : null}
@@ -742,12 +748,12 @@ export function VenueWalletRoom() {
         address ? (
           <div>
             {!blocked && (!connection || expired) ? (
-              <Button variant="primary" loading={busy} disabled={busy} onClick={() => void connect()}>
+              <Button tone="primary" aria-busy={busy || undefined} disabled={busy} onClick={() => void connect()}>
                 {connection ? t('signAgain') : t('connect')}
               </Button>
             ) : null}{' '}
             {connection ? (
-              <Button variant="secondary" disabled={busy} onClick={() => void disconnect()}>
+              <Button tone="secondary" disabled={busy} onClick={() => void disconnect()}>
                 {t('disconnect')}
               </Button>
             ) : null}
@@ -784,7 +790,7 @@ export function VenueWalletRoom() {
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
-                <Button disabled={busy} onClick={() => void deposit()}>
+                <Button tone="primary" disabled={busy} onClick={() => void deposit()}>
                   {t('deposit')}
                 </Button>{' '}
                 <div data-testid="withdraw-destination" role="group" aria-label={t('destinationGroup')}>
@@ -799,22 +805,21 @@ export function VenueWalletRoom() {
                     disabled={busy}
                     onChange={(event) => setDestinationText(event.target.value)}
                   />
-                  <label className="field">
-                    <span>{t('network')}</span>
-                    <select
-                      name="venue-network"
-                      value={route ? String(route.chainId) : ''}
-                      disabled={!editing || busy}
-                      onChange={() => undefined}
-                    >
-                      {route ? (
-                        <option value={String(route.chainId)}>{route.network ?? t('networkChain', { id: String(route.chainId) })}</option>
-                      ) : null}
-                    </select>
-                  </label>
+                  <Select
+                    label={t('network')}
+                    name="venue-network"
+                    value={route ? String(route.chainId) : ''}
+                    disabled={!editing || busy}
+                    onChange={() => undefined}
+                    options={
+                      route
+                        ? [{ value: String(route.chainId), label: route.network ?? t('networkChain', { id: String(route.chainId) }) }]
+                        : []
+                    }
+                  />
                   {!editing ? (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy || withdrawAsk !== null}
                       onClick={() => {
                         setDestinationText(owner ?? '');
@@ -827,22 +832,17 @@ export function VenueWalletRoom() {
                   {needsTick ? (
                     <div>
                       <p role="alert">{destinationKind === 'contract' ? t('contractWarning') : t('contractUnread')}</p>
-                      <label>
-                        {/* The app resets native inputs to appearance: none, which leaves a checkbox with no size: this
-                            one keeps the browser's own box, so the person can see and tick it. */}
-                        <input
-                          type="checkbox"
-                          className="appearance-auto size-3.5 shrink-0 accent-lime"
-                          checked={contractTicked}
-                          disabled={busy}
-                          onChange={(event) => setContractTicked(event.target.checked)}
-                        />{' '}
+                      <Checkbox checked={contractTicked} disabled={busy} onCheckedChange={setContractTicked}>
                         {t('contractTick')}
-                      </label>
+                      </Checkbox>
                     </div>
                   ) : null}
                 </div>
-                <Button disabled={busy || withdrawAsk !== null || unsettled || !destinationReady} onClick={() => void withdraw()}>
+                <Button
+                  tone="primary"
+                  disabled={busy || withdrawAsk !== null || unsettled || !destinationReady}
+                  onClick={() => void withdraw()}
+                >
                   {t('withdraw')}
                 </Button>
                 {depositNote ? (
@@ -873,7 +873,7 @@ export function VenueWalletRoom() {
                       disabled={busy}
                       onApproved={(id) => void confirmedWithdraw(id)}
                     />
-                    <Button variant="secondary" disabled={busy} onClick={() => setWithdrawAsk(null)}>
+                    <Button tone="secondary" disabled={busy} onClick={() => setWithdrawAsk(null)}>
                       {t('cancelStepUp')}
                     </Button>
                   </div>

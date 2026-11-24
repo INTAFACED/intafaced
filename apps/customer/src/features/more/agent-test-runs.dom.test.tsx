@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { OwnAgent, OwnAgentAnalytics, OwnAgentCatalogue, OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,7 +43,7 @@ const dryRun = (requestId: string, input: Record<string, string>): OwnAgentTestR
     ? { kind: 'run', tool: 'support.kb.search', module: 'support', dataClass: 'own_data', input }
     : { kind: 'refused', tool: 'support.kb.search', code: 'agents.consent_required' },
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:00:00.000Z',
 });
@@ -63,8 +64,9 @@ const engineRun = (requestId: string, ask: string): OwnAgentTestRun => ({
   content: null,
   outputSchema: null,
   guard: { content: null, outcome: 'answered', code: null, approval: null },
+  memory: null,
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:01:00.000Z',
 });
@@ -94,7 +96,7 @@ const guardedRun = (input: Record<string, unknown>): OwnAgentTestRun => {
         content: label,
         outcome: 'awaiting_approval',
         code: null,
-        approval: { amount: '1', assetId: 'USDT', destination: 'my own savings' },
+        approval: { amount: '1', assetId: asAssetId('USDT'), destination: 'my own savings' },
       },
     };
   return { ...run, content, outputSchema };
@@ -109,7 +111,7 @@ const toolTest = (requestId: string, tool: string): OwnAgentTestRun => ({
   checks: [{ check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }],
   effect: { kind: 'would_move', tool, module: tool.split('.')[0]!, input: {} },
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:02:00.000Z',
 });
@@ -122,7 +124,7 @@ const analytics = (includeTest: boolean): OwnAgentAnalytics => ({
   failed: 0,
   testRuns: includeTest ? 1 : null,
   cost: '0.01',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
 });
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -169,6 +171,21 @@ vi.mock('../session/session', () => {
       if (procedure === 'own.toolTest') return { ok: true, data: toolTest(input.requestId as string, input.tool as string) };
       return { ok: true, data: dryRun(input.requestId as string, input.input as Record<string, string>) };
     },
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
   };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };
 });
@@ -187,7 +204,7 @@ async function mount(node: React.ReactNode, ready: string) {
 }
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === name)!;
 const field = (host: HTMLElement, label: string) =>
-  [...host.querySelectorAll('label')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+  [...host.querySelectorAll('label')].find((l) => (l.querySelector('span') ?? l).textContent === label)!.control as HTMLInputElement;
 async function type(input: HTMLInputElement, value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
@@ -273,7 +290,7 @@ describe('hostile content and output guards on a test run (J-agents-10 #1-#3)', 
     expect(approve).toEqual({
       id: AGENT.id,
       runId: '44444444-4444-4444-8444-444444444444',
-      payload: { amount: '1', assetId: 'USDT', destination: 'my own savings' },
+      payload: { amount: '1', assetId: asAssetId('USDT'), destination: 'my own savings' },
     });
     // Decided: there is nothing left to approve.
     expect(button(host.querySelector('[aria-label="Approval request"]')!, 'Approve')).toBeUndefined();

@@ -6,6 +6,7 @@ import { TesterBuild } from './TesterBuild';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
 import { FrozenByYou } from './FrozenByYou';
+import { ClosedAppeal } from './ClosedAppeal';
 import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
@@ -15,13 +16,20 @@ import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
-import { useAccountViewStatus } from '../account/ViewSync';
+import { useAccountViewStatus } from '../account';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
-import { useSession, sessionSchema, type Session } from '../session/session';
-import { signAssertion, signInWithPasskey } from '../session/webauthn';
-import { findBrowserWallet, signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
-import type { Eip1193Provider } from '../protocol/wallet/eip1193';
+import {
+  findBrowserWallet,
+  sessionSchema,
+  signAssertion,
+  signInWithPasskey,
+  signWithBrowserWallet,
+  useSession,
+  walletChallengeSchema,
+  type Session,
+} from '../session';
+import type { Eip1193Provider } from '../protocol';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
@@ -40,6 +48,7 @@ import {
   type AuthRecord,
 } from './public-auth-guards';
 import './public-auth.css';
+import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
 
 type Original = {
   api: ApiClient;
@@ -97,7 +106,10 @@ export function AuthForm({ register }: { register: boolean }) {
   const [activeRecord, setActiveRecord] = useState<string | null>(null);
   const mounted = useRef(true),
     running = useRef<Original | null>(null),
-    abort = useRef<AbortController | null>(null);
+    abort = useRef<AbortController | null>(null),
+    // The details of a password sign-in identity answered "closed", kept only until the person asks to appeal the
+    // closure (J-identity-14 #3) or anything else happens: a new attempt, leaving, or the form being cleared.
+    closedProof = useRef<{ identifier: string; password: string } | null>(null);
   const form = useRef<HTMLFormElement | null>(null);
   const [, invalidateNavigation] = useState(0);
   const url = location.href;
@@ -146,6 +158,7 @@ export function AuthForm({ register }: { register: boolean }) {
     abort.current?.abort();
     abort.current = null;
     running.current = null;
+    closedProof.current = null;
     clearInputs();
     setIdentifier('');
     setMissingPasskeyIdentifier(false);
@@ -250,6 +263,7 @@ export function AuthForm({ register }: { register: boolean }) {
     if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
     let identifierForRequest = identifier.trim();
     if (kind === 'secondStep' && !secondStepOptions) return;
+    closedProof.current = null;
     if (kind === 'options' && !identifierForRequest) {
       const input = form.current?.elements.namedItem('identifier');
       // Some autofill tools change the DOM without an input event. Capture it now:
@@ -286,10 +300,13 @@ export function AuthForm({ register }: { register: boolean }) {
       target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
     };
     // Private inputs are captured in this invocation only. No request body enters the browser journal.
-    const input =
-      kind === 'register'
-        ? { handle: handle.trim(), email: identifierForRequest, password, ...(region ? { region: region.toUpperCase() } : {}) }
-        : { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
+    const registerInput = {
+      handle: handle.trim(),
+      email: identifierForRequest,
+      password,
+      ...(region ? { region: region.toUpperCase() } : {}),
+    };
+    const loginInput = { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
     const identifierForPasskey = identifierForRequest;
     const controller = new AbortController();
     abort.current = controller;
@@ -403,13 +420,10 @@ export function AuthForm({ register }: { register: boolean }) {
           });
         } else {
           if (!same(original)) return;
-          answer = await original.api.mutate(
-            'identity',
-            kind === 'register' ? 'auth.register' : 'auth.login',
-            input,
-            kind === 'register' ? sessionSchema : signInAnswerSchema,
-            { signal: controller.signal },
-          );
+          answer =
+            kind === 'register'
+              ? await original.api.call(IDENTITY_AUTH_REGISTER, registerInput, { signal: controller.signal })
+              : await original.api.call(IDENTITY_AUTH_LOGIN, loginInput, { signal: controller.signal });
           // Too many failed sign-ins came from this address: solve the service's challenge here, then send once more.
           if (kind !== 'register' && !answer.ok && answer.code === 'auth.challenge_required') {
             setChallengeTries(0);
@@ -422,9 +436,13 @@ export function AuthForm({ register }: { register: boolean }) {
                   if (same(original)) setChallengeTries(tries);
                 });
                 if (!same(original)) return;
-                answer = await original.api.mutate('identity', 'auth.login', { ...input, challenge: proof }, signInAnswerSchema, {
-                  signal: controller.signal,
-                });
+                answer = await original.api.call(
+                  IDENTITY_AUTH_LOGIN,
+                  { ...loginInput, challenge: proof },
+                  {
+                    signal: controller.signal,
+                  },
+                );
               }
             } finally {
               setChallengeTries(null);
@@ -435,6 +453,10 @@ export function AuthForm({ register }: { register: boolean }) {
         if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
         if (stage.record) settle(stage.record, answer);
         if (!same(original)) return;
+        closedProof.current =
+          kind === 'password' && !answer.ok && answer.code === 'auth.account_frozen' && answer.accountState === 'closed'
+            ? { identifier: identifierForRequest, password }
+            : null;
         setPassword('');
         setTotp('');
         if (answer.ok) {
@@ -636,17 +658,17 @@ export function AuthForm({ register }: { register: boolean }) {
                 }
               />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="original" /> · <Copy k={record.kind} />
             </p>
             <small>
               <Copy k="browserRef" /> · <span lang="zxx">{record.localRef}</span>
             </small>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="after" /> ·{' '}
               {record.target === 'invite' ? <Copy k="invitation" /> : roomTitle(findRoom(record.target)!, requestedLocale)}
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k={register ? 'separateRegister' : 'separate'} />
             </p>
             {register && (
@@ -693,10 +715,14 @@ export function AuthForm({ register }: { register: boolean }) {
           <>
             <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
             <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
-            <div className="public-auth-context">
-              <Copy k="after" />
-              <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
-            </div>
+            {(inviteToken || (authContext.hasReturn && destination !== '/home')) && (
+              <div className="public-auth-context">
+                <Copy k="after" />
+                <span>
+                  {inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}
+                </span>
+              </div>
+            )}
           </>
         )}
         {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
@@ -716,7 +742,7 @@ export function AuthForm({ register }: { register: boolean }) {
           />
         ) : (
           <>
-            <form ref={form} className="form-stack" onSubmit={submit}>
+            <form ref={form} className="lt-stack" onSubmit={submit}>
               {!register && (
                 <p className="public-auth-method">
                   <Copy k="method" />
@@ -803,14 +829,14 @@ export function AuthForm({ register }: { register: boolean }) {
                 <div lang="und">
                   {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
                     // The per-account pause: say how long, from the service's own Retry-After.
-                    <p data-testid="failure" className="failure" role="alert" lang={languageFor('locked')}>
+                    <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor('locked')}>
                       {result.retryAfterSeconds
                         ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                         : t('lockedPlain')}
                     </p>
                   ) : secondStep ? (
                     // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                    <div data-testid="failure" className="failure" role="alert">
+                    <div data-testid="failure" className="lt-refusal" role="alert">
                       <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
                       {codeStep && (
                         <Button
@@ -844,15 +870,24 @@ export function AuthForm({ register }: { register: boolean }) {
                     </div>
                   ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                     // Sent only after the password verified: name the state and the one way forward.
-                    <div data-testid="failure" className="failure" role="alert">
+                    <div data-testid="failure" className="lt-refusal" role="alert">
                       <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
-                      <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
+                      <a className="lt-link" href="/help" lang={languageFor('stateHelp')}>
                         {t('stateHelp')}
                       </a>
                       {result.accountState === 'frozen' && (
-                        <a className="text-link" href="/appeal" lang={languageFor('stateAppeal')}>
+                        <a className="lt-link" href="/appeal" lang={languageFor('stateAppeal')}>
                           {t('stateAppeal')}
                         </a>
+                      )}
+                      {result.accountState === 'closed' && (
+                        <ClosedAppeal
+                          take={() => {
+                            const proof = closedProof.current;
+                            closedProof.current = null;
+                            return proof;
+                          }}
+                        />
                       )}
                     </div>
                   ) : (
@@ -865,14 +900,14 @@ export function AuthForm({ register }: { register: boolean }) {
                 {register ? (
                   <>
                     {p('Already have an account?')}{' '}
-                    <a className="text-link" href={publicAuthHref(authContext, '/login')}>
+                    <a className="lt-link" href={publicAuthHref(authContext, '/login')}>
                       {p('Sign in')}
                     </a>
                   </>
                 ) : (
                   <>
                     {p('Need an account?')}{' '}
-                    <a className="text-link" href={publicAuthHref(authContext, '/register')}>
+                    <a className="lt-link" href={publicAuthHref(authContext, '/register')}>
                       {p('Create one')}
                     </a>
                   </>
@@ -892,7 +927,7 @@ export function AuthForm({ register }: { register: boolean }) {
             {!register && <TesterBuild />}
             {!register && <CodeSignIn />}
             {!register && walletStopped && (
-              <p data-testid="failure" className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
+              <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
                 {t(walletWordsStopped[walletStopped])}
               </p>
             )}

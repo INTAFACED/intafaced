@@ -2,7 +2,6 @@
  * J-cex-spot-20 #3: the SBE tape's consumers from the adapter's own record, one row per open `format=sbe` socket with
  * the last tape sequence sent, read only by svc-edge with the dedicated read key.
  */
-import type { IncomingMessage } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
@@ -18,7 +17,10 @@ import {
   serviceAuthHeadersForBody,
   type Keyring,
 } from '@intafaced/contracts';
-import { SBE_STATUS_PATH, SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
+import { WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
+import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
+
+const SBE_STATUS_PATH = WS_SBE_CONSUMERS.path;
 import { TradeHub } from './trade/hub.js';
 import { createWebSocketGateway, type WebSocketGateway } from './ws/gateway.js';
 

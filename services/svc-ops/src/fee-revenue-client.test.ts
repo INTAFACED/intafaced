@@ -27,7 +27,7 @@ function keypair() {
 describe('fee revenue client', () => {
   it('is unconfigured, with its own code, when there is no URL or no credential, and never calls out', async () => {
     let called = 0;
-    const fetcher = (async () => (called++, json(OK_BODY))) as unknown as typeof fetch;
+    const fetcher = (async () => (called++, json(OK_BODY))) as typeof fetch;
     const noUrl = createFeeRevenueClient({ secret: 'x'.repeat(32), fetcher });
     const noKey = createFeeRevenueClient({ ledgerUrl: 'http://ledger.internal:4001', fetcher });
     for (const client of [noUrl, noKey]) {
@@ -42,7 +42,7 @@ describe('fee revenue client', () => {
     const fetcher = (async (url: string, init: RequestInit) => {
       seen.push({ url, body: String(init.body), headers: init.headers as Record<string, string> });
       return json(OK_BODY);
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     const client = createFeeRevenueClient({
       ledgerUrl: 'http://ledger.internal:4001/',
       s2s: { signer: keypair().signer, mode: 'keypair' },
@@ -73,7 +73,7 @@ describe('fee revenue client', () => {
       const client = createFeeRevenueClient({
         ledgerUrl: 'http://ledger.internal:4001',
         s2s: { signer: keypair().signer, mode: 'keypair' },
-        fetcher: (async () => respond()) as unknown as typeof fetch,
+        fetcher: (async () => respond()) as typeof fetch,
       });
       expect(await client.read(WINDOW)).toMatchObject({ ok: false, code: OPS_FEE_REVENUE_UNAVAILABLE });
     }

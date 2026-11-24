@@ -1,0 +1,80 @@
+import { useState } from 'react';
+import { Button, Field, Select, TextArea } from '@intafaced/ui/lit';
+import type { StatusPage } from '../status';
+import { statusCopy } from '../status-copy';
+
+/** Where the service draws the badge; Edge serves it on the site's own origin. */
+const statusBadgeUrl = (origin: string, componentId: string | null) =>
+  `${origin}/api/notify/status/badge.svg${componentId ? `?component=${encodeURIComponent(componentId)}` : ''}`;
+
+const escapeAttr = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+/**
+ * "Share this status" on /status (SP-status-05): an image another page can show, for the whole page or one component,
+ * with a plain link back here. Image and link only, never a frame.
+ */
+export function StatusBadgeShare({ components }: { components: StatusPage['components'] }) {
+  const copy = statusCopy.useCopy();
+  const [componentId, setComponentId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean | 'failed'>(false);
+  const origin = typeof location === 'undefined' ? '' : location.origin;
+  const image = statusBadgeUrl(origin, componentId);
+  const alt = componentId ? `${components.find((c) => c.id === componentId)?.name ?? componentId} status` : copy.t('title');
+  const snippet = `<a href="${escapeAttr(`${origin}/status`)}"><img src="${escapeAttr(image)}" alt="${escapeAttr(alt)}"></a>`;
+
+  async function copySnippet() {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+    } catch {
+      setCopied('failed');
+    }
+  }
+
+  return (
+    <section className="lt-stack" aria-labelledby="status-share" data-testid="status-share">
+      <h2 id="status-share">{copy.t('shareTitle')}</h2>
+      <p className="lt-hint">{copy.t('shareLead')}</p>
+      <Select
+        label={copy.t('shareWhat')}
+        value={componentId ?? ''}
+        onChange={(value) => {
+          setComponentId(value || null);
+          setCopied(false);
+        }}
+        options={[
+          { value: '', label: copy.t('shareWholePage') },
+          ...components.map((component) => ({ value: component.id, label: component.name })),
+        ]}
+      />
+      <p>
+        <img src={image} alt={alt} data-testid="status-share-image" />
+      </p>
+      <Field
+        label={copy.t('shareImageLink')}
+        readOnly
+        value={image}
+        data-testid="status-share-url"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <TextArea
+        label={copy.t('shareSnippet')}
+        readOnly
+        rows={3}
+        value={snippet}
+        data-testid="status-share-snippet"
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={() => void copySnippet()}>
+          {copied === true ? copy.t('shareCopied') : copy.t('shareCopy')}
+        </Button>
+      </div>
+      {copied === 'failed' ? (
+        <p role="alert" data-testid="status-share-copy-failed">
+          {copy.t('shareCopyFailed')}
+        </p>
+      ) : null}
+    </section>
+  );
+}

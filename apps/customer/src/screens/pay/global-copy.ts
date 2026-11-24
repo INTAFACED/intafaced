@@ -55,7 +55,7 @@ const en = {
   askedPurpose: 'What is this payment for?',
   askedSource: 'Where does this money come from?',
   askedReference: 'Reference for the recipient',
-  askedHint: 'The service asked for this. Fill it in, then confirm again.',
+  askedHint: 'Additional details are required. Fill this in, then confirm again.',
   confirmWhy: 'This sends money out of your account, so we check it’s you first. The check covers exactly this send.',
   confirmPasskey: 'Confirm with a passkey',
   confirmCode: 'Confirm with a code',
@@ -71,9 +71,9 @@ const en = {
   passkeyUnavailable: 'Passkeys need a secure browser connection here. Enter a code instead.',
   confirmFailed: 'We couldn’t confirm it’s you. Try again.',
   uncertain: 'We didn’t get a clear answer. Your send may have gone through. Confirm again to check: the same send is never made twice.',
-  standIn: 'TEST: {label}. Nobody receives the money and every figure here is a test figure.',
+  standIn: 'TEST mode: Nobody receives the money and every corridor, rate, and fee here is for testing only.',
   sentTitle: 'Send recorded',
-  sentBody: 'Follow it below. We show the status the service reports and nothing else.',
+  sentBody: 'Follow the status of your transfer below.',
   sendAnother: 'Send another',
   statusSubmitted: 'Received',
   statusSent: 'Sent',
@@ -120,6 +120,18 @@ const en = {
   recallSending: 'Asking…',
   recallAsked: 'You asked for this back: {reason}. We will show the answer here.',
   recallAnswered: 'You asked for this back: {reason}.',
+  checkLabel: 'Not in the list? Enter a country code',
+  checkButton: 'Check',
+  checkUnsupported: 'Sending to {country} is not supported: there is no corridor there. Only the destinations in the list can be sent to.',
+  checkSupported: 'Sending to {country} is supported: choose it in the list above.',
+  checkBad: 'Enter a two-letter country code, such as DE.',
+  swiftCharges: 'SWIFT charges',
+  swiftSHA:
+    'Shared (SHA): you pay the sending charge, and the banks along the way and the receiving bank may take theirs from what arrives.',
+  swiftOUR: 'You pay them all (OUR): no bank takes its charge from what arrives.',
+  swiftBEN: 'The recipient pays them all (BEN): every bank may take its charge from what arrives.',
+  swiftUnset: 'The partner gave no SWIFT charge handling for this destination.',
+  failedNeeds: 'Needs: {blocker}',
 } as const;
 
 const es = {
@@ -176,7 +188,7 @@ const es = {
   askedPurpose: '¿Para qué es este pago?',
   askedSource: '¿De dónde viene este dinero?',
   askedReference: 'Referencia para el destinatario',
-  askedHint: 'El servicio lo pidió. Rellénalo y confirma de nuevo.',
+  askedHint: 'Se necesitan más datos. Rellénalo y confirma de nuevo.',
   confirmWhy:
     'Esto envía dinero fuera de tu cuenta, así que primero comprobamos que eres tú. La comprobación cubre exactamente este envío.',
   confirmPasskey: 'Confirmar con una passkey',
@@ -194,9 +206,9 @@ const es = {
   confirmFailed: 'No pudimos confirmar que eres tú. Inténtalo de nuevo.',
   uncertain:
     'No recibimos una respuesta clara. Puede que tu envío se haya hecho. Confirma de nuevo para comprobarlo: el mismo envío nunca se hace dos veces.',
-  standIn: 'Prueba: {label}. Nadie recibe el dinero y cada cifra aquí es de prueba.',
+  standIn: 'Modo TEST: Nadie recibe el dinero y cada destino, tipo de cambio y comisión aquí es solo de prueba.',
   sentTitle: 'Envío registrado',
-  sentBody: 'Síguelo abajo. Mostramos el estado que informa el servicio y nada más.',
+  sentBody: 'Sigue el estado de tu envío abajo.',
   sendAnother: 'Enviar otro',
   statusSubmitted: 'Recibido',
   statusSent: 'Enviado',
@@ -243,6 +255,18 @@ const es = {
   recallSending: 'Enviando…',
   recallAsked: 'Pediste que lo devuelvan: {reason}. Te mostraremos la respuesta aquí.',
   recallAnswered: 'Pediste que lo devuelvan: {reason}.',
+  checkLabel: '¿No está en la lista? Escribe un código de país',
+  checkButton: 'Comprobar',
+  checkUnsupported: 'Enviar a {country} no es posible: no hay un corredor allí. Solo se puede enviar a los destinos de la lista.',
+  checkSupported: 'Enviar a {country} es posible: elígelo en la lista de arriba.',
+  checkBad: 'Escribe un código de país de dos letras, como DE.',
+  swiftCharges: 'Comisiones SWIFT',
+  swiftSHA:
+    'Compartidas (SHA): tú pagas la comisión de envío, y los bancos intermedios y el banco receptor pueden cobrar la suya de lo que llega.',
+  swiftOUR: 'Las pagas todas (OUR): ningún banco cobra su comisión de lo que llega.',
+  swiftBEN: 'Las paga el destinatario (BEN): cada banco puede cobrar su comisión de lo que llega.',
+  swiftUnset: 'El socio no indicó cómo se reparten las comisiones SWIFT para este destino.',
+  failedNeeds: 'Necesita: {blocker}',
 } as const;
 
 const fr = {
@@ -299,7 +323,7 @@ const fr = {
   askedPurpose: 'Quel est le motif de ce paiement ?',
   askedSource: 'D’où vient cet argent ?',
   askedReference: 'Référence pour le destinataire',
-  askedHint: 'Le service l’a demandé. Remplis-le puis confirme à nouveau.',
+  askedHint: 'Des informations supplémentaires sont requises. Remplis-le puis confirme à nouveau.',
   confirmWhy:
     'Cela envoie de l’argent hors de ton compte, nous vérifions donc d’abord que c’est toi. La vérification couvre exactement cet envoi.',
   confirmPasskey: 'Confirmer avec une passkey',
@@ -317,9 +341,9 @@ const fr = {
   confirmFailed: 'Nous n’avons pas pu confirmer que c’est toi. Réessaie.',
   uncertain:
     'Nous n’avons pas eu de réponse claire. Ton envoi est peut-être parti. Confirme à nouveau pour vérifier : le même envoi n’est jamais fait deux fois.',
-  standIn: 'Test : {label}. Personne ne reçoit l’argent et chaque chiffre ici est un test.',
+  standIn: 'Mode TEST : Personne ne reçoit l’argent et chaque destination, taux et frais ici sert uniquement aux tests.',
   sentTitle: 'Envoi enregistré',
-  sentBody: 'Suis-le ci-dessous. Nous montrons le statut indiqué par le service et rien d’autre.',
+  sentBody: 'Suis l’état de ton envoi ci-dessous.',
   sendAnother: 'Envoyer un autre',
   statusSubmitted: 'Reçu',
   statusSent: 'Envoyé',
@@ -366,6 +390,19 @@ const fr = {
   recallSending: 'Envoi…',
   recallAsked: 'Tu as demandé le retour : {reason}. La réponse s’affichera ici.',
   recallAnswered: 'Tu as demandé le retour : {reason}.',
+  checkLabel: 'Pas dans la liste ? Saisis un code pays',
+  checkButton: 'Vérifier',
+  checkUnsupported:
+    'L’envoi vers {country} n’est pas possible : aucun corridor n’y va. Seules les destinations de la liste sont possibles.',
+  checkSupported: 'L’envoi vers {country} est possible : choisis-le dans la liste ci-dessus.',
+  checkBad: 'Saisis un code pays de deux lettres, comme DE.',
+  swiftCharges: 'Frais SWIFT',
+  swiftSHA:
+    'Partagés (SHA) : tu paies les frais d’envoi, et les banques intermédiaires et la banque du destinataire peuvent prélever les leurs sur ce qui arrive.',
+  swiftOUR: 'Tu les paies tous (OUR) : aucune banque ne prélève ses frais sur ce qui arrive.',
+  swiftBEN: 'Le destinataire les paie tous (BEN) : chaque banque peut prélever ses frais sur ce qui arrive.',
+  swiftUnset: 'Le partenaire n’a pas indiqué la répartition des frais SWIFT pour cette destination.',
+  failedNeeds: 'Nécessite : {blocker}',
 } as const;
 
 export const globalCopy = defineCopy('customer.payGlobal', en, { es, fr });

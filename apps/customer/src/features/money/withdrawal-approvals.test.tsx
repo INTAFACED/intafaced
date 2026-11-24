@@ -23,11 +23,14 @@ const base = {
   expiresAt: '2026-10-21T09:20:00Z',
   createdAt: '2026-10-20T09:20:00Z',
   decidedAt: null,
-} as unknown as ApprovalRequest;
+} as ApprovalRequest;
 
 let viewer: string | null = owner;
 let resource: Resource<unknown> = { status: 'loading' };
-vi.mock('../session/session', () => ({ useSession: () => ({ api: {}, userId: viewer }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ api: {}, userId: viewer }),
+}));
 vi.mock('../../shared/resource', async (original) => ({
   ...(await original<typeof import('../../shared/resource')>()),
   useResource: () => ({ resource, reload: () => undefined }),
@@ -52,6 +55,8 @@ describe('the withdrawal approvals room', () => {
     expect(html).toContain('Waiting for approvals');
     expect(html).toContain('1 of 2 approvals');
     expect(html).toContain(`requestId=${id}`);
+    expect(html).toContain('The withdrawals you sent for approval, newest first.');
+    expect(html).not.toContain('shown · up to');
   });
   it('shows an honest empty state, not a made-up row', () => {
     resource = { status: 'ready', data: [] };

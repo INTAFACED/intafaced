@@ -39,7 +39,8 @@ const tokenShown = (prefix: string) => prefix + '…';
 export function WebhooksRoom() {
   const { t } = roomCopy.useCopy();
   const transport = useApi();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(transport);
   const venue = venueApi(transport);
   const wallets = createVenueWalletApi(transport);
@@ -91,7 +92,7 @@ export function WebhooksRoom() {
   ];
 
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader
         title={t('Chart alert webhooks')}
         description={t('Turn a chart alert into an order on one venue market, ready for your wallet to sign.')}
@@ -101,7 +102,7 @@ export function WebhooksRoom() {
           <EmptyState variant="refused" title={t('You are signed out')} reason={t('Sign in to make a webhook.')} />
         ) : (
           <>
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button
                 onClick={() => {
                   setRequestKey(`wh-${crypto.randomUUID()}`);
@@ -169,7 +170,7 @@ export function WebhooksRoom() {
             <Input kind="text" value={account} onValueChange={setOwner} maxLength={64} autoComplete="off" />
           </Field>
           {refused ? <p role="alert">{refused}</p> : null}
-          <div className="cb-action-row">
+          <div className="lt-actions">
             <Button disabled={!symbol || !account || busy} onClick={() => void create()}>
               {t('Create webhook')}
             </Button>

@@ -32,7 +32,7 @@ export const ANNOUNCEMENT_LINK_LABEL_MAX = 60;
 export const ANNOUNCEMENT_LIST_LIMIT = 50;
 
 /** A link is an https address or a path on this console; never another scheme, never a protocol-relative `//host`. */
-export const ANNOUNCEMENT_LINK = /^(?:https:\/\/[^\s"'<>]{1,2000}|\/(?![/\\])[^\s"'<>]{0,500})$/;
+export const ANNOUNCEMENT_LINK = /^(?:https:\/\/[^\s"'<>]{1,2000}|\/(?:[^\s"'<>/\\][^\s"'<>]{0,499})?)$/;
 
 const iso = z.string().datetime({ offset: true });
 

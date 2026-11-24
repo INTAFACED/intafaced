@@ -1,7 +1,10 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  lead: 'Set approval rules on your own accounts: a second person approves payments at or above a limit. Registered company accounts need business verification, which isn’t connected.',
+  sectionsLabel: 'On this page',
+  explain:
+    'Approval rules are kept by the bank. A payment at or above the limit waits until a second person on the team approves it; smaller payments go out straight away. Payroll pays several people in one step and stays under the limit.',
+  lead: 'Have a second person approve payments on your accounts at or above a limit you choose. Accounts for a registered company need business verification, which isn’t offered.',
   openTitle: 'Set up approvals',
   openLead: 'Choose a currency and the amount from which a payment on your accounts needs a second person.',
   openButton: 'Set up approvals',
@@ -154,7 +157,10 @@ const en = {
   outcomePosted: 'Sent straight away',
 } as const;
 const es = {
-  lead: 'Define reglas de aprobación en tus propias cuentas: una segunda persona aprueba los pagos a partir de un límite. Las cuentas de empresa registradas necesitan verificación de empresa, que no está conectada.',
+  sectionsLabel: 'En esta página',
+  explain:
+    'Las reglas de aprobación las guarda el banco. Un pago igual o superior al límite espera a que una segunda persona del equipo lo apruebe; los pagos menores salen al momento. La nómina paga a varias personas en un solo paso y se mantiene por debajo del límite.',
+  lead: 'Haz que una segunda persona apruebe los pagos de tus cuentas a partir del límite que elijas. Las cuentas de una empresa registrada necesitan verificación de empresa, que no se ofrece.',
   openTitle: 'Configurar aprobaciones',
   openLead: 'Elige una moneda y el importe a partir del cual un pago de tus cuentas necesita a una segunda persona.',
   openButton: 'Configurar aprobaciones',
@@ -307,7 +313,10 @@ const es = {
   outcomePosted: 'Enviado de inmediato',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
-  lead: 'Définissez des règles d’approbation sur vos propres comptes : une seconde personne approuve les paiements à partir d’un plafond. Les comptes d’entreprise enregistrés demandent une vérification d’entreprise, non connectée.',
+  sectionsLabel: 'Sur cette page',
+  explain:
+    'Les règles d’approbation sont tenues par la banque. Un paiement égal ou supérieur au plafond attend qu’une seconde personne de l’équipe l’approuve ; les paiements plus petits partent tout de suite. La paie règle plusieurs personnes en une étape et reste sous le plafond.',
+  lead: 'Faites approuver par une seconde personne les paiements de vos comptes à partir du plafond que vous choisissez. Les comptes d’une entreprise enregistrée demandent une vérification d’entreprise, qui n’est pas proposée.',
   openTitle: 'Configurer les approbations',
   openLead: 'Choisissez une devise et le montant à partir duquel un paiement de vos comptes exige une seconde personne.',
   openButton: 'Configurer les approbations',

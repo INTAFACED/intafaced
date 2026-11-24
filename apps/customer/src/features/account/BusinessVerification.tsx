@@ -1,6 +1,6 @@
-import { Page } from '../../shared/ui';
+// volt-room: /identbusiness
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { businessCopy } from './business-verification-copy';
-import '../public/public-pages.css';
 
 const STEPS = [
   { path: '/pay/onboarding/business', title: 'step1', body: 'step1Body' },
@@ -12,41 +12,54 @@ const STEPS = [
 export function BusinessVerification() {
   const copy = businessCopy.useCopy();
   return (
-    <Page title={copy.t('title')} description={copy.t('intro')}>
-      <div className="pub-card pub-card--flat">
-        <h2>{copy.t('whereTitle')}</h2>
-        <p className="muted">{copy.t('whereBody')}</p>
-        <ol className="pub-list">
-          {STEPS.map((step) => (
-            <li key={step.path}>
-              <span>
-                <strong>{copy.t(step.title)}</strong>
-                <span className="muted">{copy.t(step.body)}</span>
-              </span>
-              <a className="text-link" href={step.path}>
-                {copy.t('open')} →
+    <div lang={copy.languageFor('title')}>
+      <FlowTemplate
+        title={copy.t('title')}
+        description={copy.t('intro')}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-sections">
+            <section className="lt-stack">
+              <h2>{copy.t('whereTitle')}</h2>
+              <p className="lt-muted">{copy.t('whereBody')}</p>
+              <ol className="lt-list lt-list-rule">
+                {STEPS.map((step) => (
+                  <li key={step.path} className="lt-row lt-row-between">
+                    <span className="lt-stack-tight">
+                      <strong>{copy.t(step.title)}</strong>
+                      <span className="lt-muted">{copy.t(step.body)}</span>
+                    </span>
+                    <a className="lt-link" href={step.path}>
+                      {copy.t('open')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+                    </a>
+                  </li>
+                ))}
+              </ol>
+              <p className="lt-muted">{copy.t('boundary')}</p>
+            </section>
+          </div>
+        }
+        summary={
+          <div className="lt-sections">
+            <section className="lt-stack">
+              <h2>{copy.t('startTitle')}</h2>
+              <p className="lt-muted">{copy.t('startBody')}</p>
+              <div className="lt-actions">
+                <a className="lt-button lt-button-primary" href="/pay/merchant">
+                  {copy.t('startAction')}
+                </a>
+              </div>
+            </section>
+            <section className="lt-stack">
+              <h2>{copy.t('personalTitle')}</h2>
+              <p className="lt-muted">{copy.t('personalBody')}</p>
+              <a className="lt-link" href="/verification">
+                {copy.t('personalAction')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
-            </li>
-          ))}
-        </ol>
-      </div>
-      <div className="pub-grid">
-        <section className="pub-card">
-          <h2>{copy.t('startTitle')}</h2>
-          <p>{copy.t('startBody')}</p>
-          <a className="button button--primary" href="/pay/merchant">
-            {copy.t('startAction')}
-          </a>
-        </section>
-        <section className="pub-card">
-          <h2>{copy.t('personalTitle')}</h2>
-          <p>{copy.t('personalBody')}</p>
-          <a className="text-link" href="/verification">
-            {copy.t('personalAction')} →
-          </a>
-        </section>
-      </div>
-      <p className="muted">{copy.t('boundary')}</p>
-    </Page>
+            </section>
+          </div>
+        }
+      />
+    </div>
   );
 }

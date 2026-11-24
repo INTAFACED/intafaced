@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { walletCopy } from './copy';
 import {
@@ -10,6 +11,7 @@ import {
   refuseReason,
   discoverWallets,
   firstAddress,
+  isRejection,
   parseChainId,
   runSignRequest,
   SIGN_TIMEOUT_MS,
@@ -22,6 +24,8 @@ import {
   type TypedDataDocument,
 } from './eip1193';
 
+/** How long a remembered wallet has to answer `eth_accounts` (it never prompts) before the room is shown disconnected. */
+export const RESTORE_TIMEOUT_MS = 5_000;
 /** Remembered only to restore the same wallet without a prompt. Storage may be absent or blocked; the page works without it. */
 const REMEMBER_KEY = 'if.web3.wallet';
 function remembered(store: Pick<Storage, 'getItem'> | undefined): string | null {
@@ -49,13 +53,15 @@ function browserStore(): Storage | undefined {
 
 /** The node reads a room may make through the wallet. Nothing here can sign or send. */
 /** Read-only node calls. `eth_getBlockByNumber`, `eth_getBalance` and `eth_call` at one block let Assets read a wallet as of one block. */
-export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call';
+export type ReadMethod =
+  'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call' | 'eth_getTransactionCount';
 const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>([
   'eth_getTransactionReceipt',
   'eth_blockNumber',
   'eth_getBlockByNumber',
   'eth_getBalance',
   'eth_call',
+  'eth_getTransactionCount',
 ]);
 type TransactionRequest = Extract<SignRequest, { kind: 'transaction' }>;
 /**
@@ -77,6 +83,11 @@ export interface Sequence {
   steps: SequenceStep[];
   /** Facts the person checks before every step, such as each token's contract address. */
   facts?: Array<{ label: string; value: string }>;
+  /**
+   * The network the steps are sent on, when it is not the room's own: a bridge's mint on its destination chain. The
+   * wallet is asked to switch there after the person continues, and back to the room's network once the steps end.
+   */
+  chainId?: number;
 }
 export type SequenceResult =
   | { status: 'sent'; hashes: string[]; signatures?: string[] }
@@ -85,7 +96,8 @@ export type SequenceResult =
 /** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
 const STEP_MINED_TIMEOUT_MS = 120_000;
 
-export type WalletStatus = 'disconnected' | 'connecting' | 'connected';
+/** `restoring`: a remembered wallet is being asked, without a prompt, whether it is still authorised; nothing inside renders. */
+export type WalletStatus = 'restoring' | 'disconnected' | 'connecting' | 'connected';
 export interface WalletState {
   status: WalletStatus;
   wallets: DiscoveredWallet[];
@@ -142,6 +154,20 @@ const Context = createContext<WalletApi>(empty);
 /** Outside a provider (a server render, a test) the wallet is simply not connected. */
 export const useWallet = (): WalletApi => useContext(Context);
 
+/** What sits behind a wallet: nothing renders until a remembered wallet has answered, so no control offers Connect first. */
+export function WalletGate({ children }: { children: ReactNode }) {
+  const { status } = useWallet();
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  return status === 'restoring' ? (
+    <p className="lt-hint" role="status" aria-busy="true" data-wallet="restoring">
+      {t('restoring')}
+    </p>
+  ) : (
+    children
+  );
+}
+
 interface PendingSequence {
   sequence: Sequence;
   account: string;
@@ -195,23 +221,29 @@ interface Pending {
  * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
  * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
  * `chainId` is the network the room signs on: the app's own (APP_CHAIN_ID) unless the room names another, as a venue
- * desk does with the chain its venue's signatures name.
+ * desk does with the chain its venue's signatures name. `gate={false}` leaves the gate to the frame, which places `WalletGate`
+ * around its room and keeps its own bar.
  */
 export function WalletProvider({
   children,
   discovery = true,
   scope,
   chainId: configured = APP_CHAIN_ID,
+  gate = true,
 }: {
   children: ReactNode;
   discovery?: boolean;
+  gate?: boolean;
   scope?: string;
   chainId?: number;
 }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
+  const store = useMemo(browserStore, []);
+  const [status, setStatus] = useState<WalletStatus>(() => (remembered(store) ? 'restoring' : 'disconnected'));
+  // Every wallet this page will see has answered discovery: the request was made once the page had loaded.
+  const [discovered, setDiscovered] = useState(!discovery);
   const [connected, setConnected] = useState<DiscoveredWallet | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -219,12 +251,24 @@ export function WalletProvider({
   const [pending, setPending] = useState<Pending | null>(null);
   const [sequence, setSequence] = useState<PendingSequence | null>(null);
   const [idleMinutes, setIdleMinutes] = useState<number | null>(null);
-  const store = useMemo(browserStore, []);
   const restored = useRef(false);
 
   useEffect(() => {
-    if (!discovery || typeof window === 'undefined') return;
-    return discoverWallets(window, setWallets);
+    if (!discovery || typeof window === 'undefined') {
+      setDiscovered(true);
+      return;
+    }
+    const stop = discoverWallets(window, setWallets);
+    if (document.readyState === 'complete') {
+      setDiscovered(true);
+      return stop;
+    }
+    const loaded = () => setDiscovered(true);
+    window.addEventListener('load', loaded, { once: true });
+    return () => {
+      window.removeEventListener('load', loaded);
+      stop();
+    };
   }, [discovery]);
 
   const adopt = useCallback((wallet: DiscoveredWallet, accounts: unknown, chain: unknown) => {
@@ -272,21 +316,37 @@ export function WalletProvider({
 
   // A wallet that is still authorised comes back without a prompt (eth_accounts never asks).
   useEffect(() => {
-    if (restored.current || status !== 'disconnected') return;
+    if (restored.current || status !== 'restoring') return;
     const rdns = remembered(store);
     const wallet = rdns ? wallets.find((entry) => entry.info.rdns === rdns) : undefined;
-    if (!wallet) return;
+    if (!wallet) {
+      if (discovered) setStatus('disconnected');
+      return;
+    }
     restored.current = true;
+    let answered = false;
+    const unanswered = setTimeout(() => {
+      answered = true;
+      setStatus('disconnected');
+    }, RESTORE_TIMEOUT_MS);
     void (async () => {
       try {
         const accounts = await wallet.provider.request({ method: 'eth_accounts' });
-        if (!firstAddress(accounts)) return remember(store, null);
-        adopt(wallet, accounts, await wallet.provider.request({ method: 'eth_chainId' }));
+        const chain = firstAddress(accounts) ? await wallet.provider.request({ method: 'eth_chainId' }) : null;
+        if (answered) return;
+        if (!firstAddress(accounts)) {
+          remember(store, null);
+          return setStatus('disconnected');
+        }
+        adopt(wallet, accounts, chain);
       } catch {
-        /* the wallet will be asked again when the person presses Connect */
+        if (!answered) setStatus('disconnected');
+      } finally {
+        answered = true;
+        clearTimeout(unanswered);
       }
     })();
-  }, [wallets, status, store, adopt]);
+  }, [wallets, discovered, status, store, adopt]);
 
   // A move to another room cancels a sheet that is still open: the room that asked for it is gone.
   const scopeRef = useRef(scope);
@@ -451,72 +511,91 @@ export function WalletProvider({
         return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
+      const target = next.chainId ?? configured;
       return new Promise<SequenceResult>((resolve) => {
         setSequence({
           sequence: next,
           account,
-          chainId: chainId ?? configured,
+          chainId: next.chainId ?? chainId ?? configured,
           resolve,
           run: async () => {
-            const sent: string[] = [];
-            const signatures: string[] = [];
-            for (const [index, step] of next.steps.entries()) {
-              if ('sign' in step) {
-                const signed = await runSignRequest(
-                  wallet.provider,
-                  account,
-                  { kind: 'typedData', typedData: step.sign },
-                  SIGN_TIMEOUT_MS,
-                  configured,
-                );
-                if (signed.status === 'rejected') return { status: 'rejected', sent };
-                if (signed.status !== 'signed')
-                  return {
-                    status: 'failed',
-                    step: index,
-                    sent,
-                    message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
-                  };
-                signatures.push(signed.signature);
-                continue;
-              }
-              let request: TransactionRequest;
-              if ('prepare' in step) {
-                const built = await step.prepare([...signatures]);
-                if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
-                const refused = refuseReason(built.request);
-                if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
-                request = built.request;
-              } else request = step.request;
-              const result = await runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, configured);
-              if (result.status === 'rejected') return { status: 'rejected', sent };
-              if (result.status !== 'sent')
-                return {
-                  status: 'failed',
-                  step: index,
-                  sent,
-                  message: result.status === 'failed' ? result.message : t('signNotConnected'),
-                };
-              sent.push(result.hash);
-              if (index === next.steps.length - 1) break;
-              const provider = wallet.provider;
-              const mined = await waitMined(
-                (hash) => provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
-                result.hash,
-                STEP_MINED_TIMEOUT_MS,
-              );
-              if (mined.status !== 'success')
-                return {
-                  status: 'failed',
-                  step: index,
-                  sent,
-                  reverted: mined.status === 'reverted',
-                  message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
-                };
+            if (target === configured) return runSteps();
+            try {
+              await wallet.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(target) }] });
+            } catch (error) {
+              if (isRejection(error)) return { status: 'rejected', sent: [] };
+              return { status: 'failed', step: 0, sent: [], message: t('switchFailed') };
             }
-            return { status: 'sent', hashes: sent, signatures };
+            try {
+              return await runSteps();
+            } finally {
+              // Back to the room's own network, whatever the steps did; the room reads the wallet's chain again.
+              await wallet.provider
+                .request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(configured) }] })
+                .catch(() => undefined);
+              setChainId(parseChainId(await wallet.provider.request({ method: 'eth_chainId' }).catch(() => null)));
+            }
           },
         });
+        const runSteps = async (): Promise<SequenceResult> => {
+          const sent: string[] = [];
+          const signatures: string[] = [];
+          for (const [index, step] of next.steps.entries()) {
+            if ('sign' in step) {
+              const signed = await runSignRequest(
+                wallet.provider,
+                account,
+                { kind: 'typedData', typedData: step.sign },
+                SIGN_TIMEOUT_MS,
+                target,
+              );
+              if (signed.status === 'rejected') return { status: 'rejected', sent };
+              if (signed.status !== 'signed')
+                return {
+                  status: 'failed',
+                  step: index,
+                  sent,
+                  message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
+                };
+              signatures.push(signed.signature);
+              continue;
+            }
+            let request: TransactionRequest;
+            if ('prepare' in step) {
+              const built = await step.prepare([...signatures]);
+              if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
+              const refused = refuseReason(built.request);
+              if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
+              request = built.request;
+            } else request = step.request;
+            const result = await runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, target);
+            if (result.status === 'rejected') return { status: 'rejected', sent };
+            if (result.status !== 'sent')
+              return {
+                status: 'failed',
+                step: index,
+                sent,
+                message: result.status === 'failed' ? result.message : t('signNotConnected'),
+              };
+            sent.push(result.hash);
+            if (index === next.steps.length - 1) break;
+            const provider = wallet.provider;
+            const mined = await waitMined(
+              (hash) => provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
+              result.hash,
+              STEP_MINED_TIMEOUT_MS,
+            );
+            if (mined.status !== 'success')
+              return {
+                status: 'failed',
+                step: index,
+                sent,
+                reverted: mined.status === 'reverted',
+                message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
+              };
+          }
+          return { status: 'sent', hashes: sent, signatures };
+        };
       });
     },
     [connected, address, chainId, configured, t],
@@ -543,7 +622,7 @@ export function WalletProvider({
   };
   return (
     <Context.Provider value={api}>
-      {children}
+      {gate ? <WalletGate>{children}</WalletGate> : children}
       {sequence && (
         <SequenceSheet
           sequence={sequence.sequence}
@@ -606,10 +685,10 @@ export function SignSheet({
     <Dialog title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sign">
         <p>{t(request.kind === 'transaction' ? 'sheetSends' : request.kind === 'message' ? 'sheetSignsMessage' : 'sheetSignsData')}</p>
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('fact_account')}</dt>
-            <dd className="numeric">{account}</dd>
+            <dd className="lt-mono">{account}</dd>
           </div>
           <div>
             <dt>{t('fact_network')}</dt>
@@ -618,21 +697,23 @@ export function SignSheet({
           {facts.map((fact, index) => (
             <div key={`${fact.label}:${index}`}>
               <dt>{t(`fact_${fact.label}`)}</dt>
-              <dd className="numeric">{fact.value}</dd>
+              <dd className="lt-mono">{fact.value}</dd>
             </div>
           ))}
         </dl>
         <details open>
           <summary>{t('sheetExact')}</summary>
-          <pre className="numeric" data-sheet-payload>
+          <pre className="lt-code lt-wrap" data-sheet-payload>
             {payloadText(request, account, chainId)}
           </pre>
         </details>
-        <p className="muted">
+        <p className="lt-hint">
           {t(request.kind === 'transaction' ? 'sheetMovesFunds' : request.kind === 'message' ? 'sheetMovesNothing' : 'sheetMayAuthorise')}
         </p>
-        <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
-        <Button variant="secondary" onClick={onCancel}>
+        <Button tone="primary" onClick={onContinue}>
+          {t('sheetContinue')}
+        </Button>{' '}
+        <Button tone="secondary" onClick={onCancel}>
           {t('sheetCancel')}
         </Button>
       </div>
@@ -667,10 +748,10 @@ export function SequenceSheet({
               })
             : t('seqSends', { count: String(sequence.steps.length) })}
         </p>
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('fact_account')}</dt>
-            <dd className="numeric">{account}</dd>
+            <dd className="lt-mono">{account}</dd>
           </div>
           <div>
             <dt>{t('fact_network')}</dt>
@@ -679,7 +760,7 @@ export function SequenceSheet({
           {(sequence.facts ?? []).map((fact) => (
             <div key={fact.label}>
               <dt>{fact.label}</dt>
-              <dd className="numeric">{fact.value}</dd>
+              <dd className="lt-mono">{fact.value}</dd>
             </div>
           ))}
         </dl>
@@ -691,7 +772,7 @@ export function SequenceSheet({
         <details>
           <summary>{t('sheetExact')}</summary>
           {sequence.steps.map((step, index) => (
-            <pre key={index} className="numeric" data-sheet-payload>
+            <pre key={index} className="lt-code lt-wrap" data-sheet-payload>
               {'request' in step
                 ? payloadText(step.request, account, chainId)
                 : 'sign' in step
@@ -700,9 +781,11 @@ export function SequenceSheet({
             </pre>
           ))}
         </details>
-        <p className="muted">{t('sheetMovesFunds')}</p>
-        <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
-        <Button variant="secondary" onClick={onCancel}>
+        <p className="lt-hint">{t('sheetMovesFunds')}</p>
+        <Button tone="primary" onClick={onContinue}>
+          {t('sheetContinue')}
+        </Button>{' '}
+        <Button tone="secondary" onClick={onCancel}>
           {t('sheetCancel')}
         </Button>
       </div>

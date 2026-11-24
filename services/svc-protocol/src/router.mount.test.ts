@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { decodeFunctionData, encodeFunctionData, toFunctionSelector } from 'viem';
+import { describe, expect, it, vi } from 'vitest';
+import { decodeFunctionData } from 'viem';
 import type { Address, Hex } from 'viem';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -10,7 +10,7 @@ import { createProtocolRouter } from './router.js';
 import type { ProtocolRouterDeps } from './router.js';
 
 /**
- * THE MOUNT BOUNDARY, for svc-protocol (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-protocol.
  *
  * The context comes from `createEdgeContext` over real headers, as `index.ts`
  * builds it, rather than from a `Context` literal that would keep passing on a
@@ -21,9 +21,9 @@ import type { ProtocolRouterDeps } from './router.js';
  * surface is permissionless by design (§22). The signature buys nothing on
  * chain — no principal, forged or genuine, can move a user's assets, since the
  * only thing that authorises on this plane is a signature from the user's own
- * key. What it defends is the registry: `myAccounts` and `claimAccount` decide
- * WHOSE INTAFACED profile an address is attached to, and that is a question
- * about identity, not about custody.
+ * key. What it defends is whose INTAFACED profile a row belongs to (the
+ * embedded wallet, the venue wallet connection), and that is a question about
+ * identity, not about custody.
  */
 
 const SECRET = 'a-protocol-mount-test-edge-secret-length';
@@ -79,15 +79,7 @@ function stubDeps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRou
       isDeployed: async () => false,
       genesisHash: async () => `0x${'e'.repeat(64)}` as const,
     },
-    registry: { accountsOf: async () => [] },
-    relay: {
-      buildDeployment: () => ({
-        to: FACTORY,
-        data: '0xdead',
-        value: 0n,
-        summary: 'deploy',
-      }),
-    },
+    relay: {},
     relayEnabled: () => true,
     ammFactoryAddress: () => ZERO as `0x${string}`,
     swapSlippageBps: () => null,
@@ -95,19 +87,27 @@ function stubDeps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRou
   } as unknown as ProtocolRouterDeps;
 }
 
+/** The signed-in person's embedded wallet: a scoped read whose store answers only for the principal's own user id. */
+function walletDeps(onRead: (userId: string) => void) {
+  return stubDeps({
+    embeddedWallet: {
+      store: {
+        find: async (userId: string) => (onRead(userId), null),
+        insert: async () => {
+          throw new Error('unreachable');
+        },
+      },
+      setting: () => ({ kind: 'unset' }),
+    },
+  });
+}
+
 describe('svc-protocol mount — authorisation', () => {
   it('refuses an anonymous caller on a scoped procedure, and reads nothing', async () => {
     let read = false;
-    const deps = stubDeps({
-      registry: {
-        accountsOf: async () => {
-          read = true;
-          return [];
-        },
-      },
-    });
+    const deps = walletDeps(() => (read = true));
 
-    await expect(createProtocolRouter(deps).createCaller(anonymous()).myAccounts()).rejects.toMatchObject({
+    await expect(createProtocolRouter(deps).createCaller(anonymous()).embeddedWallet.status()).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
     expect(read).toBe(false);
@@ -116,53 +116,49 @@ describe('svc-protocol mount — authorisation', () => {
   /**
    * THE ONE THAT MATTERS.
    *
-   * An unsigned principal is anonymous, so a caller cannot read the registry as
+   * An unsigned principal is anonymous, so a caller cannot read a row as
    * somebody else — which on this plane is the only thing there is to steal.
    */
   it('refuses a self-asserted principal, however privileged it claims to be', async () => {
     const ctx = forged(principal({ scopes: ['protocol:read', 'admin:treasury'], tier: 'full', mfa: true }));
     expect(ctx.principal).toBeNull();
 
-    await expect(createProtocolRouter(stubDeps()).createCaller(ctx).myAccounts()).rejects.toMatchObject({
+    await expect(
+      createProtocolRouter(walletDeps(() => undefined))
+        .createCaller(ctx)
+        .embeddedWallet.status(),
+    ).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
   });
 
-  it('accepts a principal the edge signed, and reads that principal own accounts', async () => {
+  it('accepts a principal the edge signed, and reads that principal own row', async () => {
     let readFor: string | null = null;
-    const deps = stubDeps({
-      registry: {
-        accountsOf: async (userId: string) => {
-          readFor = userId;
-          return [];
-        },
-      },
-    });
+    const deps = walletDeps((userId) => (readFor = userId));
 
-    await expect(createProtocolRouter(deps).createCaller(signed()).myAccounts({ limit: 1 })).resolves.toEqual([]);
+    await expect(createProtocolRouter(deps).createCaller(signed()).embeddedWallet.status()).resolves.toMatchObject({ wallet: null });
     expect(readFor).toBe(USER);
   });
+});
 
-  it('omitting myAccounts limit refuses PRECONDITION_FAILED — never dumps the registry', async () => {
+describe('svc-protocol mount — strict screening', () => {
+  // vitest.config.ts turns screening off for business fixtures; this test arms the production default
+  // (unset INTAFACED_SCREENING_FAIL_CLOSED) and a blank list, and proves a signed request refuses.
+  it('refuses a signed request with unconfigured screening before reading anything', async () => {
     let read = false;
-    const deps = stubDeps({
-      registry: {
-        accountsOf: async () => {
-          read = true;
-          return [{ id: 'x', address: OWNER, owner: OWNER, deployed: false }];
-        },
-      },
-    });
-
-    await expect(createProtocolRouter(deps).createCaller(signed()).myAccounts()).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('protocol.my_accounts_list_limit_unset'),
-    });
-    await expect(createProtocolRouter(deps).createCaller(signed()).myAccounts({})).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('never invent 50'),
-    });
-    expect(read).toBe(false);
+    const deps = walletDeps(() => (read = true));
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_UNSIGNED_SANCTIONS_ROWS', 'off');
+    try {
+      await expect(createProtocolRouter(deps).createCaller(signed()).embeddedWallet.status()).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { decision: { code: 'denied.screening_unconfigured' } },
+      });
+      expect(read).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -174,30 +170,6 @@ describe('svc-protocol mount — the public surface', () => {
     expect(status.signedBy).toBe('shehzad002');
     expect(status.artifactHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(status.packagePath).toBe('docs/audits/protocol-smart-accounts-2026-08-08.md');
-  });
-
-  it('serves auditRegistry with suite fingerprints and zero audited packages', async () => {
-    const registry = await createProtocolRouter(stubDeps()).createCaller(anonymous()).auditRegistry();
-    expect(registry.anyAudited).toBe(false);
-    expect(registry.auditedCount).toBe(0);
-    expect(registry.packageCount).toBe(1);
-    expect(registry.suiteCount).toBeGreaterThan(15);
-    expect(registry.packages.every((record) => record.audited === false)).toBe(true);
-    expect(registry.suites.every((row) => row.sourceHash.match(/^0x[0-9a-f]{64}$/))).toBeTruthy();
-    expect(registry.packages.map((record) => record.id)).toEqual(['protocol-smart-accounts']);
-  });
-
-  it('refuses amm.buildCreatePool when the factory is zero', async () => {
-    await expect(
-      createProtocolRouter(stubDeps()).createCaller(anonymous()).amm.buildCreatePool({
-        tokenA: OWNER,
-        tokenB: FACTORY,
-        feeBps: 30,
-      }),
-    ).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('PROTOCOL_AMM_FACTORY_ADDRESS'),
-    });
   });
 
   it('serves health to an anonymous caller without a custodial stamp', async () => {
@@ -233,18 +205,6 @@ describe('svc-protocol mount — the public surface', () => {
       code: 'PRECONDITION_FAILED',
     });
   });
-
-  it('refuses buildDeployment when implementation is zero', async () => {
-    const deps = stubDeps({
-      chain: {
-        config: { chainId: CHAIN_ID, factory: FACTORY, implementation: ZERO },
-        isDeployed: async () => false,
-      },
-    });
-    await expect(createProtocolRouter(deps).createCaller(anonymous()).buildDeployment({ owner: OWNER })).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-    });
-  });
 });
 
 /**
@@ -263,7 +223,7 @@ describe('svc-protocol mount — the public surface', () => {
  * the way the real one does.
  *
  * The contract being asserted: **503 with a code, never 500, and never a
- * value.** A path that cannot reach a chain must refuse. A smart-account claim
+ * value.** A path that cannot reach a chain must refuse. An address prediction
  * that "succeeds" against no chain is worse than an outage, because a user will
  * believe it and may fund an address on the strength of it.
  */
@@ -284,15 +244,6 @@ function deadChain(overrides: Record<string, unknown> = {}) {
     config: { chainId: CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION, rpcUrl: RPC },
     isDeployed: async () => {
       throw unreachable('isDeployed');
-    },
-    sessionOf: async () => {
-      throw unreachable('sessionOf');
-    },
-    isSessionLive: async () => {
-      throw unreachable('isSessionLive');
-    },
-    ownerOf: async () => {
-      throw unreachable('ownerOf');
     },
     poolReserves: async () => {
       throw unreachable('poolReserves');
@@ -329,7 +280,6 @@ function deadChain(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const SESSION_KEY = '0x4444444444444444444444444444444444444444';
 const POOL = '0x5555555555555555555555555555555555555555';
 const TOKEN_A = '0x6666666666666666666666666666666666666666';
 const TOKEN_B = '0x7777777777777777777777777777777777777777';
@@ -344,78 +294,11 @@ describe('no chain — every dependent path refuses with a typed reason', () => 
     });
   });
 
-  /**
-   * THE ONE THAT MATTERS.
-   *
-   * Before this change `sessionStatus` had no try/catch at all, so an
-   * unreachable RPC escaped as a raw viem error and became a 500 whose message
-   * was a stack trace about HTTP. The shape it returns on a *successful* read of
-   * an account with no session — `exists: false, live: false` — is what makes
-   * getting this wrong dangerous: those two answers are indistinguishable to a
-   * client, and one of them is a lie.
-   */
-  it('refuses sessionStatus instead of reporting "no session"', async () => {
-    await expect(caller().sessionStatus({ account: OWNER, sessionKey: SESSION_KEY })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-  });
-
-  it('never answers sessionStatus with exists:false when it could not read the chain', async () => {
-    const result = await caller()
-      .sessionStatus({ account: OWNER, sessionKey: SESSION_KEY })
-      .then(
-        (value) => ({ resolved: true, value }),
-        () => ({ resolved: false, value: null }),
-      );
-    expect(result.resolved).toBe(false);
-  });
-
-  /**
-   * A deployed account that genuinely has no session for a key is the ONLY case
-   * allowed to answer `exists: false`. Proving the negative is reachable matters
-   * as much as proving the refusal is: a guard that refused everything would
-   * pass the test above and be useless.
-   */
-  it('does answer exists:false for a deployed account whose owner granted nothing', async () => {
-    const chain = deadChain({ isDeployed: async () => true, sessionOf: async () => null });
-    const router = createProtocolRouter(stubDeps({ chain })).createCaller(anonymous());
-    await expect(router.sessionStatus({ account: OWNER, sessionKey: SESSION_KEY })).resolves.toMatchObject({
-      exists: false,
-      live: false,
-      spentWei: null,
-    });
-  });
-
-  it('refuses sessionStatus for an address that holds no contract code', async () => {
-    const chain = deadChain({ isDeployed: async () => false });
-    const router = createProtocolRouter(stubDeps({ chain })).createCaller(anonymous());
-    await expect(router.sessionStatus({ account: OWNER, sessionKey: SESSION_KEY })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-      message: expect.stringContaining('protocol.contract_not_deployed'),
-    });
-  });
-
   it('refuses the AMM quote that sources its own reserves', async () => {
     await expect(caller().amm.quoteFromPool({ pool: POOL, tokenIn: TOKEN_A, amountIn: '1000' })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
       message: expect.stringContaining('protocol.chain_unreachable'),
     });
-  });
-
-  it('refuses poolReserves rather than reporting zero liquidity', async () => {
-    await expect(caller().amm.poolReserves({ pool: POOL })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-  });
-
-  /**
-   * Zero reserves would be read downstream as `amm.no_liquidity` — i.e. the
-   * confident claim "this pool is empty" about a pool nobody has looked at.
-   */
-  it('does not fall back to zero reserves', async () => {
-    await expect(caller().amm.poolReserves({ pool: POOL })).rejects.toSatisfy(
-      (err: { message?: string }) => !/"?reserve0"?\s*[:=]\s*"?0"?/.test(err.message ?? ''),
-    );
   });
 
   it('reports the outage as data on chainStatus, so a surface can render it', async () => {
@@ -489,7 +372,7 @@ describe('the AMM will not quote a side the pool does not trade', () => {
   });
 
   /** The provenance flag is the point: a caller can tell a real quote from arithmetic. */
-  it('marks a chain-sourced quote as such, and a caller-supplied one as not', async () => {
+  it('marks a chain-sourced quote as such', async () => {
     const chain = deadChain({
       poolReserves: async () => ({ reserve0: 1_000_000n, reserve1: 2_000_000n, blockTimestampLast: 7 }),
       poolToken0: async () => TOKEN_A,
@@ -501,23 +384,6 @@ describe('the AMM will not quote a side the pool does not trade', () => {
     await expect(router.amm.quoteFromPool({ pool: POOL, tokenIn: TOKEN_A, amountIn: '10000' })).resolves.toMatchObject({
       reservesFromChain: true,
     });
-    await expect(
-      router.amm.quoteExactIn({ amountIn: '10000', reserveIn: '1000000', reserveOut: '2000000', feeBps: 30 }),
-    ).resolves.toMatchObject({
-      reservesFromChain: false,
-    });
-  });
-
-  it('refuses quoteExactIn and buildCreatePool when feeBps is omitted (no invented 30)', async () => {
-    const router = createProtocolRouter(stubDeps()).createCaller(anonymous());
-    await expect(
-      // @ts-expect-error omitted feeBps must refuse — do not invent 30
-      router.amm.quoteExactIn({ amountIn: '10000', reserveIn: '1000000', reserveOut: '2000000' }),
-    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(
-      // @ts-expect-error omitted feeBps must refuse — do not invent 30
-      router.amm.buildCreatePool({ tokenA: OWNER, tokenB: FACTORY }),
-    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 });
 
@@ -552,12 +418,32 @@ describe('swap builder refuses an unbounded minAmountOut before it builds callda
     });
   }
 
-  function caller(slippageBps: number | null, reads: { n: number } = { n: 0 }) {
+  function caller(slippageBps: number | null, reads: { n: number } = { n: 0 }, blocked: readonly string[] = []) {
+    // The blocklist answers only `blockedAmong`; the swap reads nothing else from it.
+    const trustDesk = { blockedAmong: async (_chainId: number, tokens: readonly string[]) => tokens.filter((t) => blocked.includes(t)) };
     return {
       reads,
-      api: createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps })).createCaller(anonymous()),
+      api: createProtocolRouter(
+        stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps, compliance: { store: {}, trustDesk } }),
+      ).createCaller(anonymous()),
     };
   }
+
+  it('a pool trading a blocked token is not routed: the swap refuses protocol.token_blocked and quotes nothing', async () => {
+    const { api, reads } = caller(SLIPPAGE_BPS, { n: 0 }, [TOKEN_B.toLowerCase()]);
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('protocol.token_blocked'),
+    });
+    expect(reads.n).toBe(0);
+  });
+
+  it('with no blocklist wired the swap refuses rather than routing unchecked', async () => {
+    const reads = { n: 0 };
+    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => SLIPPAGE_BPS })).createCaller(anonymous());
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+    expect(reads.n).toBe(0);
+  });
 
   const swap = (minAmountOut: bigint) => ({
     pool: POOL,
@@ -604,154 +490,5 @@ describe('swap builder refuses an unbounded minAmountOut before it builds callda
     expect(decoded.functionName).toBe('swapExactIn');
     expect(decoded.args[2]).toBe(floor);
     expect(built.to).toBe(POOL);
-  });
-});
-
-describe('session check refuses an unbounded swap from a fresh quote', () => {
-  const RESERVE_IN = 1_000_000n;
-  const RESERVE_OUT = 2_000_000n;
-  const FEE_BPS = 30;
-  const AMOUNT_IN = 10_000n;
-  const SLIPPAGE_BPS = 100;
-  const quote = getAmountOut(AMOUNT_IN, RESERVE_IN, RESERVE_OUT, FEE_BPS);
-  const floor = (quote * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
-  const ROUTER = '0x9999999999999999999999999999999999999999' as Address;
-  const poolSelector = toFunctionSelector('swapExactIn(address,uint256,uint256,address)');
-
-  function chain(reads: { n: number }) {
-    return deadChain({
-      poolReserves: async (pool: Address) => {
-        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
-        reads.n += 1;
-        return { reserve0: RESERVE_IN, reserve1: RESERVE_OUT, blockTimestampLast: 1 };
-      },
-      poolToken0: async (pool: Address) => {
-        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
-        return TOKEN_A;
-      },
-      poolToken1: async (pool: Address) => {
-        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
-        return TOKEN_B;
-      },
-      poolFeeBps: async (pool: Address) => {
-        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
-        return FEE_BPS;
-      },
-    });
-  }
-
-  function sessionCall(minAmountOut: bigint, reads: { n: number }, slippageBps: number | null) {
-    const data = encodeFunctionData({
-      abi: poolAbi,
-      functionName: 'swapExactIn',
-      args: [TOKEN_A, AMOUNT_IN, minAmountOut, OWNER],
-    });
-    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps })).createCaller(anonymous());
-    return api.checkSessionCall({
-      account: OWNER,
-      spec: {
-        key: SESSION_KEY,
-        validAfter: 0,
-        validUntil: Math.floor(Date.now() / 1000) + 3_600,
-        spendLimitWei: '0',
-        targets: [POOL],
-        selectors: [poolSelector],
-      },
-      target: POOL,
-      value: '0',
-      data,
-      spentWei: '0',
-    });
-  }
-
-  it('blank slippage config refuses before the quote', async () => {
-    const reads = { n: 0 };
-    await expect(sessionCall(floor, reads, null)).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('protocol.swap_slippage_unset'),
-    });
-    expect(reads.n).toBe(0);
-  });
-
-  it('refuses a minimum under the floor and accepts the floor', async () => {
-    const under = await sessionCall(floor - 1n, { n: 0 }, SLIPPAGE_BPS);
-    expect(under.allowed).toBe(false);
-    expect(under.code).toBe('session.swap_min_out_below_bound');
-    const at = await sessionCall(floor, { n: 0 }, SLIPPAGE_BPS);
-    expect(at.allowed).toBe(true);
-    expect(at.code).toBe('allowed');
-    const zero = await sessionCall(0n, { n: 0 }, SLIPPAGE_BPS);
-    expect(zero.code).toBe('session.swap_min_out_below_bound');
-  });
-
-  it('quotes the pool named in router calldata, not the router target', async () => {
-    const reads = { n: 0 };
-    const data = encodeFunctionData({
-      abi: [
-        {
-          type: 'function',
-          name: 'swapExactIn',
-          stateMutability: 'nonpayable',
-          inputs: [
-            { name: 'pool', type: 'address' },
-            { name: 'tokenIn', type: 'address' },
-            { name: 'amountIn', type: 'uint256' },
-            { name: 'minAmountOut', type: 'uint256' },
-            { name: 'to', type: 'address' },
-          ],
-          outputs: [{ name: 'amountOut', type: 'uint256' }],
-        },
-      ] as const,
-      functionName: 'swapExactIn',
-      args: [POOL, TOKEN_A, AMOUNT_IN, floor, OWNER],
-    });
-    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => SLIPPAGE_BPS })).createCaller(anonymous());
-    const decision = await api.checkSessionCall({
-      account: OWNER,
-      spec: {
-        key: SESSION_KEY,
-        validAfter: 0,
-        validUntil: Math.floor(Date.now() / 1000) + 3_600,
-        spendLimitWei: '0',
-        targets: [ROUTER, POOL],
-        selectors: [toFunctionSelector('swapExactIn(address,address,uint256,uint256,address)')],
-      },
-      target: ROUTER,
-      value: '0',
-      data,
-      spentWei: '0',
-    });
-    expect(reads.n).toBe(1);
-    expect(decision).toMatchObject({ allowed: true, code: 'allowed' });
-  });
-});
-
-describe('svc-protocol mount — founding badge claim needs the owner signature', () => {
-  it('refuses an unsigned claim from a signed principal and stores nothing', async () => {
-    let stored = false;
-    const deps = stubDeps({
-      registry: {
-        accountsOf: async () => [{ id: 'a', userId: USER, chainId: CHAIN_ID, address: OWNER, owner: OWNER, deployed: true }],
-      },
-      badge: {
-        store: {
-          isListed: async () => true,
-          findClaim: async () => null,
-          findClaimByAddress: async () => null,
-          putClaim: async (r: unknown) => {
-            stored = true;
-            return r;
-          },
-          setTxHash: async () => {
-            throw new Error('unreachable');
-          },
-        },
-        minter: { signerFor: () => ({ mint: async () => '0x' as Hex }) },
-        window: () => ({ opensAt: new Date(Date.now() - 60_000), closesAt: new Date(Date.now() + 60_000) }),
-        mainnet: () => false,
-      },
-    });
-    await expect(createProtocolRouter(deps).createCaller(signed()).badge.claim()).rejects.toThrow(/badge\.not_eligible/);
-    expect(stored).toBe(false);
   });
 });

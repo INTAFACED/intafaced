@@ -4,8 +4,13 @@ const en = {
   catalogueTitle: 'Campaign catalogue',
   catalogueLoading: 'Reading the published campaigns',
   catalogueNone: 'No campaign is running right now',
-  catalogueNoneBody:
-    'When a campaign is published it shows here with its dates, rules and reward. Nothing here is a list made up for show.',
+  catalogueNoneBody: 'When a campaign is published it shows here with its dates, rules and reward, and you can join it from here.',
+  firstPointCompete: 'Trading competitions and prize draws',
+  firstPointTasks: 'Tasks and milestones with a set reward',
+  firstPointVouchers: 'Vouchers you claim with a code',
+  firstCatalogueAction: 'Claim a voucher code',
+  mineNoneBody: 'Campaigns you join show here with their state, their dates and what you have done so far.',
+  firstMineAction: 'Browse the campaigns',
   filterAny: 'Any',
   filterNone: 'No published campaign matches these filters.',
   campaignsLabel: 'Published campaigns',
@@ -27,6 +32,7 @@ const en = {
   type_competition: 'Competition',
   type_milestone: 'Milestone',
   type_draw: 'Draw',
+  type_drop: 'Limited drop',
   type_pool: 'Reward pool',
   type_distribution: 'Distribution',
   type_trial_pass: 'Trial pass',
@@ -59,6 +65,7 @@ const en = {
   'campaigns.region_blocked': 'This campaign is not open in your region, so you cannot join it.',
   'campaigns.participant_unread': 'Your account could not be checked against this campaign’s rules. Nothing was joined.',
   'campaigns.review_not_needed': 'Your account can take part, so there is nothing to review.',
+  'campaigns.seats_full': 'Every seat in this competition is taken, so you cannot join it.',
   joined: 'Joined',
   notJoined: '—',
   windowValue: '{start} to {end}',
@@ -121,6 +128,7 @@ const es = {
   type_competition: 'Competición',
   type_milestone: 'Hito',
   type_draw: 'Sorteo',
+  type_drop: 'Drop limitado',
   type_pool: 'Fondo de recompensas',
   type_distribution: 'Distribución',
   type_trial_pass: 'Pase de prueba',
@@ -153,6 +161,7 @@ const es = {
   'campaigns.region_blocked': 'Esta campaña no está disponible en tu región, así que no puedes unirte.',
   'campaigns.participant_unread': 'No se pudo comprobar tu cuenta con las reglas de esta campaña. No te uniste a nada.',
   'campaigns.review_not_needed': 'Tu cuenta puede participar, así que no hay nada que revisar.',
+  'campaigns.seats_full': 'Todas las plazas de esta competición están ocupadas, así que no puedes unirte.',
   joined: 'Te uniste',
   notJoined: '—',
   windowValue: '{start} a {end}',
@@ -187,6 +196,12 @@ const es = {
   'campaign.outside_window': 'Esta campaña no funciona a esta hora. Inténtalo dentro de sus días y horas.',
   'campaigns.timezone_unset':
     'La zona horaria de la plataforma no está definida, así que no se pueden comprobar las horas. No te uniste a nada.',
+  firstPointCompete: 'Competiciones de trading y sorteos',
+  firstPointTasks: 'Tareas y metas con una recompensa fijada',
+  firstPointVouchers: 'Vales que reclamas con un código',
+  firstCatalogueAction: 'Reclamar un código de vale',
+  mineNoneBody: 'Las campañas a las que te unes aparecen aquí con su estado, sus fechas y lo que llevas hecho.',
+  firstMineAction: 'Ver las campañas',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -216,6 +231,7 @@ const fr = {
   type_competition: 'Compétition',
   type_milestone: 'Palier',
   type_draw: 'Tirage',
+  type_drop: 'Drop limité',
   type_pool: 'Cagnotte de récompenses',
   type_distribution: 'Distribution',
   type_trial_pass: 'Pass d’essai',
@@ -249,6 +265,7 @@ const fr = {
   'campaigns.region_blocked': 'Cette campagne est fermée dans ta région : impossible de la rejoindre.',
   'campaigns.participant_unread': 'Ton compte n’a pas pu être vérifié selon les règles de cette campagne. Rien n’a été rejoint.',
   'campaigns.review_not_needed': 'Ton compte peut participer : il n’y a rien à réexaminer.',
+  'campaigns.seats_full': 'Toutes les places de cette compétition sont prises : tu ne peux pas la rejoindre.',
   joined: 'Inscrit',
   notJoined: '—',
   windowValue: '{start} au {end}',
@@ -283,6 +300,12 @@ const fr = {
   'campaign.outside_window': 'Cette campagne ne fonctionne pas à cette heure. Réessaie pendant ses jours et heures.',
   'campaigns.timezone_unset':
     'Le fuseau horaire de la plateforme n’est pas défini : les heures ne peuvent pas être vérifiées. Rien n’a été rejoint.',
+  firstPointCompete: 'Compétitions de trading et tirages au sort',
+  firstPointTasks: 'Tâches et étapes avec une récompense fixée',
+  firstPointVouchers: 'Bons que vous réclamez avec un code',
+  firstCatalogueAction: 'Réclamer un code de bon',
+  mineNoneBody: 'Les campagnes que vous rejoignez apparaissent ici avec leur état, leurs dates et ce que vous avez déjà fait.',
+  firstMineAction: 'Parcourir les campagnes',
 } satisfies Record<keyof typeof en, string>;
 
 export const campaignCatalogueCopy = defineCopy('more.campaigns.catalogue', en, { es, fr });

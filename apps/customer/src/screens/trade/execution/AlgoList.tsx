@@ -85,7 +85,7 @@ function StatusCell({ row }: { row: ParentRead }) {
   const misses = row.progress?.missesRecorded ?? row.parent.missesRecorded;
   const emitted = row.progress?.childrenEmitted ?? row.parent.childrenEmitted;
   return (
-    <span className="flex flex-wrap items-center gap-1">
+    <span className="lt-toolbar">
       <Badge tone={TONE[status]}>{t(`Status ${status}`)}</Badge>
       {misses > 0 && emitted < row.parent.slicesPlanned ? (
         <Badge tone="warn">{t('Partial: {n} misses', { n: String(misses) })}</Badge>
@@ -134,7 +134,7 @@ export function AlgoList({
       cell: (r) => (
         <>
           {r.ok ? r.parent.symbol : r.id}
-          {r.ok ? <span className="sr-only">{t('Schedule {id}', { id: r.id })}</span> : null}
+          {r.ok ? <span className="lt-sr">{t('Schedule {id}', { id: r.id })}</span> : null}
         </>
       ),
     },
@@ -260,7 +260,7 @@ export function AlgoList({
   return (
     <Gate load={load}>
       {(rows, asOf) => (
-        <div className="flex flex-col gap-2">
+        <div className="lt-stack">
           <div className="flex items-center gap-2 text-sm text-fg-2">
             <Freshness asOf={asOf} />
             <span>{t('Schedules re-read every 10 s')}</span>
@@ -268,7 +268,7 @@ export function AlgoList({
           {listing.status === 'refused' || listing.status === 'error' ? (
             <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
           ) : (
-            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+            <p className="lt-hint">{t('Schedule list window')}</p>
           )}
           <Table
             label={t('Schedules')}
@@ -392,12 +392,12 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
         ]}
       />
       {blocked ? <Why>{blocked}</Why> : null}
-      <p className="m-0 text-sm text-fg-2">{t('Children note')}</p>
-      <div className="flex flex-wrap items-center gap-3">
+      <p className="lt-hint">{t('Children note')}</p>
+      <div className="lt-toolbar">
         <Button variant="secondary" size={32} onClick={() => onClone(parent)}>
           {t('Create new with these numbers')}
         </Button>
-        <span className="text-sm text-fg-2">{t('Schedules are not edited')}</span>
+        <span className="lt-hint">{t('Schedules are not edited')}</span>
       </div>
     </section>
   );

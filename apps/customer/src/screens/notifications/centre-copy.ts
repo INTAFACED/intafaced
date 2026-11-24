@@ -92,6 +92,7 @@ export const centreCopy = defineCopy('notifications-centre', {
     'No alert reaches this device while notifications are blocked; your in-app inbox still works. To allow them, open this site’s settings in your browser, allow notifications, then press the button again.',
   pushDismissed: 'The browser was not given an answer, so nothing changed. Press the button again to be asked.',
   pushRegisterAction: 'Registering this device',
+  emailCopyAction: 'An email copy of this update',
   pushSubscribeFailed: 'This browser could not set up push for this site. Nothing was registered. Try again in a moment.',
   pushCodeSent: 'We asked for a code to be sent to this device. Type it below to confirm it.',
   pushDevice: 'A device is registered.',
@@ -116,6 +117,7 @@ export const centreCopy = defineCopy('notifications-centre', {
   cellUnavailable: 'Not offered',
   cellFixedOn: 'Always on. We keep this one on for your protection.',
   cellPlatformOff: 'Not set up on this platform, so nothing can be sent here.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   cellNotConnected: 'Not connected on this platform, so nothing can be sent here.',
   catLockedWrite: 'That choice is fixed on, so it stayed on.',
   // Quiet hours

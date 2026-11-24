@@ -1,10 +1,10 @@
 import type { Approval, Settlement } from '../schemas';
 import { DateTime } from '../ui/DateTime';
 import { mc } from './copy';
-import { whoIs } from './common';
+import { whoIs } from './money-words';
 import { describeDestination } from './destination';
 import { orderTrail, type TrailEvent } from './model';
-import type { Lifecycle } from './schemas';
+import type { PayPayoutLifecycle as Lifecycle } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const KINDS = {
@@ -131,16 +131,15 @@ export function fallbackEvents(
 export function Trail({ events }: { events: readonly TrailEvent[] }) {
   const { t } = mc.useCopy();
   return (
-    <ol className="pp-timeline" aria-label={t('trailLabel')}>
+    <ol className="lt-list" aria-label={t('trailLabel')}>
       {events.map((e) => (
         <li key={e.key}>
-          <span className="pp-timeline-dot" aria-hidden="true" />
           <div>
             <strong>{trailTitle(t, e.kind)}</strong>
-            {e.who && <p className="muted">{t('trailBy', { who: e.who })}</p>}
-            {e.destination && <p className="muted">{e.destination}</p>}
-            {e.failure && <p className="muted">{e.failure}</p>}
-            <small className="muted">{e.at ? <DateTime value={e.at} /> : t('trailNoTime')}</small>
+            {e.who && <p className="lt-muted">{t('trailBy', { who: e.who })}</p>}
+            {e.destination && <p className="lt-muted">{e.destination}</p>}
+            {e.failure && <p className="lt-muted">{e.failure}</p>}
+            <small className="lt-muted">{e.at ? <DateTime value={e.at} /> : t('trailNoTime')}</small>
           </div>
         </li>
       ))}
@@ -165,12 +164,12 @@ export function LifecycleTrail({
   return (
     <>
       {lifecycle.failure && (
-        <p className="pp-callout pp-callout--warn" role="alert">
+        <p className="lt-stale" role="alert">
           {lifecycle.failure.message}
         </p>
       )}
       {lifecycle.events.length === 0 ? (
-        <p className="muted">{t('trailNone')}</p>
+        <p className="lt-muted">{t('trailNone')}</p>
       ) : (
         <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names, settlement)} />
       )}

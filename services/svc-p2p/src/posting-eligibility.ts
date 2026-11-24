@@ -22,14 +22,13 @@
  * `postingChecks` is the one place a check is judged, so the checklist the form
  * shows and the refusal at post can never disagree.
  */
+import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from '@intafaced/contracts/p2p-procedures';
 import { KYC_TIERS, tierSatisfies, type KycTier } from '@intafaced/config';
 import { SCALE, parseAmount } from '@intafaced/ledger-client';
 
 export const POSTING_THRESHOLDS_SETTING = 'P2P_POSTING_THRESHOLDS';
 
-export const POSTING_CHECK_IDS = ['kyc_tier', 'completed_orders', 'completion_rate'] as const;
 export type PostingCheckId = (typeof POSTING_CHECK_IDS)[number];
-export const POSTING_CHECK_STATES = ['met', 'not_met', 'unknown'] as const;
 export type PostingCheckState = (typeof POSTING_CHECK_STATES)[number];
 
 export interface PostingCheck {
@@ -55,7 +54,6 @@ export type PostingThresholds =
   | { readonly status: 'active'; readonly byFiat: ReadonlyMap<string, FiatPostingThreshold | 'none'> };
 
 /** What the policy says for one fiat. */
-export const POSTING_POLICIES = ['thresholds', 'none', 'unset', 'invalid'] as const;
 export type FiatPostingPolicy = (typeof POSTING_POLICIES)[number];
 
 const FIAT = /^[A-Z]{3}$/;

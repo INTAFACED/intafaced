@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The routing view's data (J-derivatives-28 #6): per venue, our users' routed volume and the builder fees the venue
  * charged on those fills in the period, and house exposure "none: routed". Every amount is a decimal string as svc-trade
@@ -34,7 +35,6 @@ export interface VenueRoutingView {
   readonly truncated: boolean;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const DECIMAL = /^-?\d+(\.\d+)?$/;
 
 function amounts(v: unknown): AssetAmount[] | null {

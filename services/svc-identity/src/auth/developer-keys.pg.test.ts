@@ -15,6 +15,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService, type KycTier } from './auth-service.js';
 import { parseApiKeyCapByTier, passkeyMintRule } from './developer-keys.js';
+import { parseRatePolicy, type RatePolicy } from './api-rate-limits.js';
 import { totp } from './totp.js';
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperKeysRouter } from '../developer-keys-router.js';
@@ -64,18 +65,32 @@ if (!available) {
   await rank.seedTiers();
 
   let caps: ReadonlyMap<KycTier, number> | null = parseApiKeyCapByTier('none=3');
+  /** TEST rate tiers with a per-user budget: a key of either environment has a budget. */
+  const TEST_RATES = parseRatePolicy(
+    JSON.stringify({
+      tiers: [
+        { id: 'base', burst: 60, refillPerMinute: 1200 },
+        { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+        { id: 'user', burst: 75, refillPerMinute: 1200 },
+      ],
+    }),
+  );
+  let ratePolicy: RatePolicy | null = TEST_RATES;
   let passkeyRule = false;
   const sealKey = randomBytes(32);
   let signingEncKey: Buffer | null = sealKey;
   let signingWindowSeconds: number | null = 300;
+  let leadAnswer: 'lead' | 'not_lead' | 'unavailable' | null = 'not_lead';
   let n = 0;
   const unique = () => `dk${process.pid}${++n}`;
 
   beforeEach(async () => {
     caps = parseApiKeyCapByTier('none=3');
+    ratePolicy = TEST_RATES;
     passkeyRule = false;
     signingEncKey = sealKey;
     signingWindowSeconds = 300;
+    leadAnswer = 'not_lead';
     await db.truncateAll();
     await rank.seedTiers();
   });
@@ -93,11 +108,18 @@ if (!available) {
       get capByTier() {
         return caps;
       },
+      get ratePolicy() {
+        return ratePolicy;
+      },
       get signingEncKey() {
         return signingEncKey;
       },
       get signingWindowSeconds() {
         return signingWindowSeconds;
+      },
+      get leadCheck() {
+        const answer = leadAnswer;
+        return answer === null ? undefined : async () => answer;
       },
       mayMint: async (userId, factor) => {
         if (passkeyRule) await passkeyMintRule(db.sql)(userId, factor);
@@ -272,6 +294,39 @@ if (!available) {
       expect(readRow!.require_signature).toBe(false);
     });
 
+    it('a copy:lead key only for an approved lead, as svc-trade answers; refused before the factor is spent otherwise (J-copy-bots-otc-07 #1 #2)', async () => {
+      for (const [answer, code] of [
+        ['not_lead', 'identity.key_lead_not_approved'],
+        ['unavailable', 'identity.key_lead_check_unavailable'],
+        [null, 'identity.key_lead_check_unavailable'],
+      ] as const) {
+        leadAnswer = answer;
+        const s = await register();
+        const c = await caller(s);
+        const p = await proof(s);
+        await expect(
+          c.developerKeys.create({ ...ask(s.userId, 'lead', { scopes: ['trade:read', 'trade:write', 'copy:lead'] }), factorProof: p }),
+        ).rejects.toMatchObject({ message: expect.stringContaining(`[${code}]`) });
+        expect(await keysOf(s.userId)).toHaveLength(0);
+        expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+      }
+      leadAnswer = 'lead';
+      const s = await register();
+      const made = await (
+        await caller(s)
+      ).developerKeys.create({
+        ...ask(s.userId, 'lead', { scopes: ['trade:read', 'trade:write', 'copy:lead'] }),
+        factorProof: await proof(s),
+      });
+      expect(made.record.scopes).toEqual(expect.arrayContaining(['copy:lead']));
+      // A key without the lead scope never asks.
+      leadAnswer = 'unavailable';
+      const plain = await (
+        await caller(s)
+      ).developerKeys.create({ ...ask(s.userId, 'reader', { scopes: ['trade:read'] }), factorProof: await proof(s) });
+      expect(plain.record.scopes).toEqual(['trade:read']);
+    });
+
     it('refuses a key that may place orders while signing is not set up, before the factor is spent', async () => {
       signingEncKey = null;
       const s = await register();
@@ -382,6 +437,37 @@ if (!available) {
         expect((await c.developerKeys.list({ limit: 50 })).cap).toEqual({ limit: null, live: 0 });
       }
       expect(await keysOf(s.userId)).toHaveLength(0);
+    });
+
+    it('refuses while no rate budget is set for a live key (no tiers, no base tier, or no per-user budget): no key is issued (J-cex-spot-15 #7)', async () => {
+      const s = await register();
+      const c = await caller(s);
+      const tiers = (ids: string[]) =>
+        parseRatePolicy(
+          JSON.stringify({
+            tiers: JSON.parse(
+              JSON.stringify({
+                tiers: [
+                  { id: 'base', burst: 60, refillPerMinute: 1200 },
+                  { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+                  { id: 'user', burst: 75, refillPerMinute: 1200 },
+                ],
+              }),
+            ).tiers.filter((t: { id: string }) => ids.includes(t.id)),
+          }),
+        );
+      for (const blank of [null, tiers(['sandbox', 'user']), tiers(['base', 'sandbox'])]) {
+        ratePolicy = blank;
+        await expect(c.developerKeys.create({ ...ask(s.userId, 'bot-1'), factorProof: await proof(s) })).rejects.toMatchObject({
+          code: 'PRECONDITION_FAILED',
+          message: expect.stringContaining('[identity.rate_limits_unset]'),
+        });
+      }
+      expect(await keysOf(s.userId)).toHaveLength(0);
+      // Once a budget is set, the same request makes its one key.
+      ratePolicy = TEST_RATES;
+      expect((await c.developerKeys.create({ ...ask(s.userId, 'bot-1'), factorProof: await proof(s) })).key).toMatch(/^ifc_/);
+      expect(await keysOf(s.userId)).toHaveLength(1);
     });
 
     it('refuses the fourth live key at a cap of three; revoked and ended keys do not count', async () => {

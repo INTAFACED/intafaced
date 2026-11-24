@@ -1,26 +1,20 @@
 import './developers.css';
 import type { ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
-import { WithAccount } from '../../access/WithAccount';
 import type { RoomDef, RoomTable } from '../../rooms-model';
 import type { PortalRoom, PortalRoute } from '../../routes';
 import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
-import { DeveloperNav } from './DeveloperNav';
-import { DeliveryList } from './Deliveries';
-import { Docs } from './Docs';
-import { EndpointPage } from './Endpoint';
-import { Keys } from './Keys';
-import { canManageWebhooks } from './model';
-import { Sandbox } from './Sandbox';
-import { Signing } from './Signing';
-import { Webhooks } from './Webhooks';
+import { DeliveriesRoom } from './Deliveries';
+import { DocsRoom } from './DocsRoom';
+import { EndpointRoom } from './Endpoint';
+import { KeysRoom } from './Keys';
+import { SandboxRoom } from './Sandbox';
+import { SigningRoom } from './Signing';
+import { WebhooksRoom } from './Webhooks';
+import { LinkButton } from '../../volt/parts';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
-    {label}
-  </Button>
-);
+/** The heading's one action: a link drawn as one of the kit's buttons (the keys and webhooks pages are on the kit). */
+const link = (href: string, label: string) => <LinkButton href={href}>{label}</LinkButton>;
 
 type Words = { title: string; purpose: string; action?: ReactNode };
 const words: Record<string, () => Words> = {
@@ -37,47 +31,32 @@ const words: Record<string, () => Words> = {
   'developer-docs': () => ({ title: c.t('docsTitle'), purpose: c.t('docsPurpose') }),
 };
 
-function Frame({ room, children }: { room: PortalRoom; children: ReactNode }) {
-  return (
-    <div className="stack">
-      <DeveloperNav room={room} />
-      {children}
-    </div>
-  );
-}
-
 /** The signed-in client, built once; a page takes it as a prop so a test can hand it a fake. */
 function Live({ children }: { children: (api: SettingsBApi) => ReactNode }) {
   return <>{children(useSettingsBApi())}</>;
 }
 
-const def = (
-  room: PortalRoom,
-  body: (route: PortalRoute, api: SettingsBApi, ctx: { role: string; scopes: readonly string[] }) => ReactNode,
-): RoomDef => ({
+/** A developer page on its Volt template (settings or record-list): it draws its own title row, its index and its sections. */
+const volt = (room: PortalRoom, body: (route: PortalRoute, ctx: { scopes: readonly string[] }) => ReactNode): RoomDef => ({
   header: () => words[room]!(),
   here: '/pay/developer/keys',
-  render: (route, { authority }) => (
-    <WithAccount>
-      {({ role }) => (
-        <Frame room={room}>
-          <Live>{(api) => body(route, api, { role, scopes: authority?.scopes ?? [] })}</Live>
-        </Frame>
-      )}
-    </WithAccount>
-  ),
+  ownTitle: true,
+  render: (route, { authority }) => body(route, { scopes: authority?.scopes ?? [] }),
 });
 
 export const developersRooms: RoomTable = {
-  'developer-keys': def('developer-keys', (_r, api, { scopes }) => <Keys api={api} scopes={scopes} />),
-  'developer-signing': def('developer-signing', (_r, api) => <Signing api={api} />),
-  'developer-webhooks': def('developer-webhooks', (_r, api, { role }) => <Webhooks api={api} canManage={canManageWebhooks(role)} />),
-  'developer-endpoint': def('developer-endpoint', (route, api, { role }) => (
-    <EndpointPage api={api} endpointId={route.param ?? ''} canManage={canManageWebhooks(role)} />
-  )),
-  'developer-deliveries': def('developer-deliveries', (_r, api, { role }) => (
-    <DeliveryList api={api} canManage={canManageWebhooks(role)} />
-  )),
-  'developer-sandbox': def('developer-sandbox', (_r, api) => <Sandbox api={api} />),
-  'developer-docs': def('developer-docs', () => <Docs />),
+  'developer-keys': volt('developer-keys', (_r, { scopes }) => <KeysRoom scopes={scopes} />),
+  'developer-signing': volt('developer-signing', () => <SigningRoom />),
+  'developer-webhooks': volt('developer-webhooks', () => <WebhooksRoom />),
+  'developer-endpoint': volt('developer-endpoint', (route) => <EndpointRoom endpointId={route.param ?? ''} />),
+  'developer-deliveries': volt('developer-deliveries', () => <DeliveriesRoom />),
+  'developer-sandbox': volt('developer-sandbox', () => <SandboxRoom />),
+  // The guide draws on its own reading template, with its own title, the developer pages as links and the account's
+  // states (DocsRoom.tsx), so it takes neither the frame's heading nor the row above.
+  'developer-docs': {
+    header: () => words['developer-docs']!(),
+    here: '/pay/developer/keys',
+    ownTitle: true,
+    render: () => <Live>{(api) => <DocsRoom api={api} />}</Live>,
+  },
 };

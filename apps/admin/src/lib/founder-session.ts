@@ -3,8 +3,17 @@ import { isExplicitDevOrTest } from '@intafaced/config';
 import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { CONSOLE_READ_ONLY } from '@intafaced/contracts/ops-console-mode';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import { loadConsoleMode } from '@/lib/console-mode/read';
 import { staffReadAreasOf, type OperatorAccess } from '@/lib/operator-access';
+import { IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS } from '@intafaced/contracts/identity-account-controls-procedures';
+import { IDENTITY_STAFF_TEST_STATUS } from '@intafaced/contracts/identity-staff-test-status-procedures';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -284,6 +293,50 @@ export async function founderEdgeCall(
   return data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data;
 }
 
+type EdgeRecord = ProcedureRecord & TrpcTransport & { readonly module: 'identity' | 'ops' | 'trade' | 'pay' };
+
+/**
+ * `founderEdgeCall` through the call's record: the module, path and method come from the record, the input leaves exactly
+ * as given (the service checks it, and refuses as before), and the answer is parsed by `record.output` and the record's
+ * `accept` checks. An answer the record refuses throws as an unreadable one does (`admin.upstream_invalid`, 502).
+ */
+export async function founderEdgeRecordCall<R extends EdgeRecord>(
+  config: AdminSessionConfig,
+  record: R,
+  input: ProcedureInput<R>,
+  accessToken?: string,
+  signIn?: { userAgent: string | null },
+): Promise<ProcedureOutput<R>> {
+  const raw = await founderEdgeCall(
+    config,
+    record.module,
+    record.path,
+    record.kind === 'query' ? 'GET' : 'POST',
+    input,
+    accessToken,
+    signIn,
+  );
+  const parsed = record.output.safeParse(raw);
+  if (!parsed.success || !replyAccepted(record, parsed.data)) throw new AdminSessionError('admin.upstream_invalid', 502);
+  return parsed.data as ProcedureOutput<R>;
+}
+
+/**
+ * `founderEdgeRecordCall` for a caller that reads the answer with its own `.safeParse()` and so decides what an answer it
+ * can't read means (a staff check reads it as "not staff"): an answer the record refuses comes back as `undefined`, never a
+ * throw, and the caller's own parse refuses it as before. A refusal or an unreachable service still throws.
+ */
+export async function founderEdgeRecordRead<R extends EdgeRecord>(
+  config: AdminSessionConfig,
+  record: R,
+  input: ProcedureInput<R>,
+  accessToken?: string,
+): Promise<ProcedureOutput<R> | undefined> {
+  const raw = await founderEdgeCall(config, record.module, record.path, record.kind === 'query' ? 'GET' : 'POST', input, accessToken);
+  const parsed = record.output.safeParse(raw);
+  return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : undefined;
+}
+
 /**
  * Who the console admits: a current founder, everywhere. On a local or test stack only (`APP_ENV` exactly `dev` or `test`,
  * the raw value), also a member of identity's labelled TEST staff roster (support, compliance, risk, finance), so staff
@@ -298,7 +351,7 @@ export async function assertCurrentFounder(
   config: AdminSessionConfig,
   env: Record<string, string | undefined> = process.env,
 ): Promise<OperatorAccess> {
-  const raw = await founderEdgeCall(config, 'identity', 'accountControls.operatorStatus', 'GET', {}, session.accessToken);
+  const raw = await founderEdgeRecordRead(config, IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS, {}, session.accessToken);
   const status = accountOperatorEntitlementSchema.safeParse(raw);
   if (!status.success) throw new AdminSessionError('admin.upstream_invalid', 502);
   if (status.data.status === 'enabled' && status.data.userId === session.userId) return { kind: 'founder' };
@@ -310,7 +363,7 @@ export async function assertCurrentFounder(
     isExplicitDevOrTest(env.APP_ENV)
   ) {
     const staff = staffTestStatusSchema.safeParse(
-      await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, session.accessToken),
+      await founderEdgeRecordRead(config, IDENTITY_STAFF_TEST_STATUS, undefined, session.accessToken),
     );
     // Only a well-formed answer naming this user and a TEST role admits. Anything else (no role, another user, an answer
     // this console can't read) is not shown to be staff, so it gets the same refusal as any other non-founder.

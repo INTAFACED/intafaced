@@ -35,7 +35,7 @@ async function statusDesk(browser) {
   const page = await context.newPage();
   await founderSignIn(page, 'a');
   await page.goto('/notify/status');
-  await expect(page.getByRole('heading', { level: 1, name: 'Status page' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Status page/i })).toBeVisible();
   return page;
 }
 
@@ -110,14 +110,14 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
 
   const define = page.getByTestId('status-define');
   for (const [i, c] of COMPONENTS.entries()) {
-    await define.getByRole('button', { name: 'Add component' }).click();
-    await define.getByLabel(`Row ${i + 1} id`).fill(c.id);
-    await define.getByLabel(`Row ${i + 1} name`).fill(c.name);
-    await define.getByLabel(`Row ${i + 1} group`).fill(c.group);
-    await define.getByLabel(`Row ${i + 1} outside source`).fill(c.source);
+    await define.getByRole('button', { name: 'Add component', exact: true }).click();
+    await define.getByLabel(`Row ${i + 1} id`, { exact: true }).fill(c.id);
+    await define.getByLabel(`Row ${i + 1} name`, { exact: true }).fill(c.name);
+    await define.getByLabel(`Row ${i + 1} group`, { exact: true }).fill(c.group);
+    await define.getByLabel(`Row ${i + 1} outside source`, { exact: true }).fill(c.source);
   }
   await define.getByLabel(/^Reason/).fill(`TEST journey ${J} #1: components, groups and one outside dependency`);
-  await define.getByRole('button', { name: 'Save the page' }).click();
+  await define.getByRole('button', { name: 'Save the page', exact: true }).click();
   await expect(page.getByTestId('status-desk-outcome')).toContainText('Saved');
 
   // No fresh reading yet (a stack that ran this before keeps its old, stale one): No data, and it says why.
@@ -132,9 +132,9 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
 
   // The operator enters the outside dependency's state by hand: it carries the source and its age.
   const reading = page.getByTestId('status-reading');
-  await reading.getByLabel('Component').selectOption('sms-gateway');
-  await reading.getByLabel('State').selectOption('operational');
-  await reading.getByRole('button', { name: 'Store reading' }).click();
+  await reading.getByLabel('Component', { exact: true }).selectOption('sms-gateway');
+  await reading.getByLabel('State', { exact: true }).selectOption('operational');
+  await reading.getByRole('button', { name: 'Store reading', exact: true }).click();
   await expect(page.getByTestId('status-desk-outcome')).toContainText('Reading stored');
   await expect(outside).toContainText('Operational');
   await expect(outside.getByTestId('status-visible-why')).toHaveText('from its latest reading');
@@ -149,7 +149,7 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
 
   // Past the staleness window the reading no longer counts: No data, with the stale reading and its age still shown.
   await page.waitForTimeout((TEST_STALENESS_SECONDS + 2) * 1000);
-  await page.getByRole('button', { name: 'Read again' }).click();
+  await page.getByRole('button', { name: 'Read again', exact: true }).click();
   await expect(outside.getByTestId('status-visible-why')).toHaveText('its latest reading is older than the staleness window');
   await expect(outside).toContainText('No data');
   await expect(outside.getByTestId('status-visible-reading')).toContainText(`Operational from ${OUTSIDE_SOURCE}, `);
@@ -165,27 +165,27 @@ async function incidentDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/incidents');
-  await expect(page.getByRole('heading', { level: 1, name: 'Incidents' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Incidents/i })).toBeVisible();
   return page;
 }
 
 const outcome = (page) => page.getByTestId('incident-desk-outcome');
 const incidentCard = (page, title) => page.getByTestId('incident').filter({ has: page.getByRole('heading', { name: title }) });
 const entry = (page, title, body) => incidentCard(page, title).getByTestId('incident-entry').filter({ hasText: body });
-const readAgain = (page) => page.getByRole('button', { name: 'Read again' }).click();
+const readAgain = (page) => page.getByRole('button', { name: 'Read again', exact: true }).click();
 
 /** The incident declared in #2 and carried through #3 and #4. */
 const INCIDENT_TITLE = `${TEMPLATE.title} (run ${RUN})`;
 
 /** A asks, B approves, A publishes one entry of the incident, all on the desk. */
 async function publishEntry(a, b, body) {
-  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Ask for approval' }).click();
+  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Ask for approval', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: requested');
   await readAgain(b);
-  await entry(b, INCIDENT_TITLE, body).getByRole('button', { name: 'Approve' }).click();
+  await entry(b, INCIDENT_TITLE, body).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(outcome(b)).toContainText('Done: approved');
   await readAgain(a);
-  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Publish' }).click();
+  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: published');
   await expect(entry(a, INCIDENT_TITLE, body)).toHaveAttribute('data-status', 'published');
 }
@@ -198,37 +198,37 @@ test(`${J} #2 declare an incident from a template: no template is supplied, the 
   const templates = a.getByTestId('incident-templates');
   for (const row of await templates.locator('[data-testid^="incident-template-"]').all()) {
     const id = await row.getAttribute('data-testid');
-    await row.getByRole('button', { name: 'Retire' }).click();
+    await row.getByRole('button', { name: 'Retire', exact: true }).click();
     await expect(templates.getByTestId(id)).toHaveCount(0);
   }
-  await expect(templates.getByRole('button', { name: 'Retire' })).toHaveCount(0);
+  await expect(templates.getByRole('button', { name: /Retire/i })).toHaveCount(0);
   const declare = a.getByTestId('incident-declare');
   await expect(declare.getByTestId('incident-templates-none')).toBeVisible();
-  await expect(declare.getByLabel('Template').locator('option')).toHaveText(['No templates']);
-  await expect(declare.getByLabel('Title')).toHaveValue('');
-  await expect(declare.getByLabel('First update')).toHaveValue('');
+  await expect(declare.getByLabel('Template', { exact: true }).locator('option')).toHaveText(['No templates']);
+  await expect(declare.getByLabel('Title', { exact: true })).toHaveValue('');
+  await expect(declare.getByLabel('First update', { exact: true })).toHaveValue('');
 
   // The founder's own wording, naming the component it affects.
-  await templates.getByLabel('Template id (lowercase, digits, dashes)').fill(TEMPLATE.id);
-  await templates.getByLabel('Name').fill(TEMPLATE.name);
-  await templates.getByLabel('Group (optional)').fill(TEMPLATE.group);
-  await templates.getByLabel('Incident title').fill(TEMPLATE.title);
-  await templates.getByLabel('First update').fill(TEMPLATE.body);
-  await templates.getByLabel('Impact').selectOption('minor');
-  await templates.getByRole('checkbox', { name: 'Payments' }).check();
-  await templates.getByRole('button', { name: 'Save template' }).click();
+  await templates.getByLabel('Template id (lowercase, digits, dashes)', { exact: true }).fill(TEMPLATE.id);
+  await templates.getByLabel('Name', { exact: true }).fill(TEMPLATE.name);
+  await templates.getByLabel('Group (optional)', { exact: true }).fill(TEMPLATE.group);
+  await templates.getByLabel('Incident title', { exact: true }).fill(TEMPLATE.title);
+  await templates.getByLabel('First update', { exact: true }).fill(TEMPLATE.body);
+  await templates.getByLabel('Impact', { exact: true }).selectOption('minor');
+  await templates.getByRole('checkbox', { name: 'Payments', exact: true }).check();
+  await templates.getByRole('button', { name: 'Save template', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: template saved');
   await expect(templates.getByTestId(`incident-template-${TEMPLATE.id}`)).toContainText(`${TEMPLATE.name} (${TEMPLATE.group})`);
 
   // Declared from the template: it fills the incident, and the founder names this run in the title.
-  await declare.getByLabel('Template').selectOption({ label: TEMPLATE.name });
-  await expect(declare.getByLabel('Title')).toHaveValue(TEMPLATE.title);
-  await expect(declare.getByLabel('First update')).toHaveValue(TEMPLATE.body);
-  await expect(declare.getByLabel('Impact')).toHaveValue('minor');
-  await expect(declare.getByRole('checkbox', { name: 'Payments' })).toBeChecked();
-  await expect(declare.getByRole('checkbox', { name: 'API' })).not.toBeChecked();
-  await declare.getByLabel('Title').fill(INCIDENT_TITLE);
-  await declare.getByRole('button', { name: 'Save draft' }).click();
+  await declare.getByLabel('Template', { exact: true }).selectOption({ label: TEMPLATE.name });
+  await expect(declare.getByLabel('Title', { exact: true })).toHaveValue(TEMPLATE.title);
+  await expect(declare.getByLabel('First update', { exact: true })).toHaveValue(TEMPLATE.body);
+  await expect(declare.getByLabel('Impact', { exact: true })).toHaveValue('minor');
+  await expect(declare.getByRole('checkbox', { name: 'Payments', exact: true })).toBeChecked();
+  await expect(declare.getByRole('checkbox', { name: /API/i })).not.toBeChecked();
+  await declare.getByLabel('Title', { exact: true }).fill(INCIDENT_TITLE);
+  await declare.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: drafted');
   const card = incidentCard(a, INCIDENT_TITLE);
   await expect(card).toHaveAttribute('data-state', 'draft');
@@ -246,13 +246,13 @@ test(`${J} #3 a second founder approves, the approver cannot also publish, and t
   const b = await incidentDesk(browser, 'b');
   const first = (page) => entry(page, INCIDENT_TITLE, TEMPLATE.body);
 
-  await first(a).getByRole('button', { name: 'Ask for approval' }).click();
+  await first(a).getByRole('button', { name: 'Ask for approval', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: requested');
   await expect(first(a).getByTestId('incident-approval')).toHaveAttribute('data-status', 'PENDING');
   await expect(first(a)).toContainText('asked by you');
 
   // The founder who asked cannot approve: identity refuses.
-  await first(a).getByRole('button', { name: 'Approve' }).click();
+  await first(a).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(outcome(a)).toHaveAttribute('data-code', 'action_approval.same_person');
   await expect(first(a).getByTestId('incident-approval')).toHaveAttribute('data-status', 'PENDING');
 
@@ -260,11 +260,11 @@ test(`${J} #3 a second founder approves, the approver cannot also publish, and t
   // anyway with the approval: the approver cannot also publish, and the approval is spent.
   await readAgain(b);
   await expect(first(b)).toContainText('asked by another founder');
-  await first(b).getByRole('button', { name: 'Approve' }).click();
+  await first(b).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(outcome(b)).toContainText('Done: approved');
   await expect(first(b).getByTestId('incident-approval')).toHaveAttribute('data-status', 'APPROVED');
   await expect(first(b)).toContainText('Approved by you. The founder who asked publishes it');
-  await expect(first(b).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+  await expect(first(b).getByRole('button', { name: /Publish/i })).toHaveCount(0);
   await readAgain(a);
   const approval = first(a).getByTestId('incident-approval');
   await expect(approval).toHaveAttribute('data-status', 'APPROVED');
@@ -310,15 +310,33 @@ test(`${J} #4 post updates, then resolve: the component goes back to its own sta
   const RESOLVED = `TEST Card payments are back to normal (run ${RUN}).`;
 
   await update.getByLabel('Update', { exact: true }).fill(UPDATE);
-  await update.getByLabel('Impact now').selectOption('minor');
-  await update.getByRole('button', { name: 'Save update draft' }).click();
+  // The update raises the impact from Minor (#3: degraded) to Major, so the component visibly follows the incident's
+  // newest status, not only its first one.
+  await update.getByLabel('Impact now', { exact: true }).selectOption('major');
+  await update.getByRole('button', { name: 'Save update draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: drafted');
   await publishEntry(a, b, UPDATE);
   await expect(card).toHaveAttribute('data-state', 'open');
 
+  // Before resolve: the component shows the incident's status, on the page's record and on /status.
+  const during = await statusRead();
+  const open = during.incidents.find((i) => i.title === INCIDENT_TITLE);
+  expect(open).toMatchObject({ impact: 'major', resolvedAt: null });
+  expect(open.updates.map((u) => u.body)).toEqual(expect.arrayContaining([TEMPLATE.body, UPDATE]));
+  expect(during.components.find((c) => c.id === 'payments')).toMatchObject({
+    state: 'partial_outage',
+    basis: 'incident',
+    incidentId: open.id,
+  });
+  const watcher = await browser.newPage({ baseURL: ORIGIN });
+  await watcher.goto('/status');
+  await expect(watcher.getByTestId('status-component-payments')).toHaveAttribute('data-state', 'partial_outage');
+  await expect(watcher.getByTestId(`status-incident-${open.id}`)).toContainText(UPDATE);
+  await watcher.context().close();
+
   await update.getByLabel('Update', { exact: true }).fill(RESOLVED);
   await update.getByRole('checkbox', { name: /resolves the incident/ }).check();
-  await update.getByRole('button', { name: 'Save update draft' }).click();
+  await update.getByRole('button', { name: 'Save update draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: drafted');
   await expect(entry(a, INCIDENT_TITLE, RESOLVED)).toContainText('resolves the incident');
   await publishEntry(a, b, RESOLVED);
@@ -353,6 +371,41 @@ test(`${J} #4 post updates, then resolve: the component goes back to its own sta
       parentId: resolved.id,
     }),
   ).rejects.toThrow(/notify\.notice_incident_resolved/);
+
+  // A recurrence is a new incident: declared on its own, it gets its own id, the component follows it, and the resolved
+  // one stays resolved. It is resolved again here, so the steps after this start from no open incident of this run.
+  const RECUR_TITLE = `${INCIDENT_PREFIX} card payments are slow again (run ${RUN})`;
+  const recur = await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: RECUR_TITLE,
+      body: 'TEST Card payments are slow again.',
+      minutes: 5,
+      key: `j19-recur:${RUN}`,
+      impact: 'minor',
+      components: ['payments'],
+    }),
+    `j19-recur:${RUN}`,
+  );
+  const again = await statusRead();
+  const recurred = again.incidents.find((i) => i.title === RECUR_TITLE);
+  expect(recurred).toMatchObject({ resolvedAt: null, components: ['payments'] });
+  expect(recurred.id).not.toBe(resolved.id);
+  expect(again.incidents.find((i) => i.id === resolved.id).resolvedAt).not.toBeNull();
+  expect(again.components.find((c) => c.id === 'payments')).toMatchObject({ state: 'degraded', incidentId: recurred.id });
+  await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: RECUR_TITLE,
+      body: 'TEST Back to normal.',
+      minutes: 5,
+      key: `j19-recur-resolve:${RUN}`,
+      parentId: recur.id,
+      resolves: true,
+    }),
+    `j19-recur-resolve:${RUN}`,
+  );
+  expect((await statusRead()).components.find((c) => c.id === 'payments').incidentId).toBeNull();
   await a.context().close();
   await b.context().close();
 });
@@ -368,7 +421,7 @@ async function subscriberDesk(browser) {
   const page = await context.newPage();
   await founderSignIn(page, 'a');
   await page.goto('/notify/subscribers');
-  await expect(page.getByRole('heading', { level: 1, name: 'Status subscribers' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Status subscribers/i })).toBeVisible();
   return page;
 }
 
@@ -392,12 +445,12 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
   const visitor = await browser.newPage({ baseURL: ORIGIN });
   await visitor.goto('/status');
   const form = visitor.getByTestId('status-subscribe');
-  await form.getByLabel('Email address').fill(SUBSCRIBER);
-  await form.getByRole('button', { name: 'Subscribe' }).click();
+  await form.getByLabel('Email address', { exact: true }).fill(SUBSCRIBER);
+  await form.getByRole('button', { name: 'Subscribe', exact: true }).click();
   await expect(form.getByTestId('status-subscribe-sent')).toContainText('Check your inbox');
   const [confirm] = statusMail(SUBSCRIBER);
   await visitor.goto(/(\/status\/confirm\?token=\S+)/.exec(confirm.text)[1]);
-  await visitor.getByRole('button', { name: 'Confirm' }).click();
+  await visitor.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(visitor.getByTestId('status-subscription-state')).toHaveText('Active');
   await visitor.context().close();
 
@@ -425,7 +478,7 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
   await expect(channels.getByTestId('subscriber-channel-push')).toContainText('vendor.push');
 
   const deliveries = page.getByTestId('subscriber-deliveries');
-  await deliveries.getByLabel('Published notice').selectOption(notice.id);
+  await deliveries.getByLabel('Published notice', { exact: true }).selectOption(notice.id);
   const mine = deliveries.locator(`[data-testid="subscriber-delivery"][data-email="${SUBSCRIBER}"]`);
   await expect(mine).toHaveCount(1);
   await expect(mine).toHaveAttribute('data-channel', 'email');
@@ -433,7 +486,7 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
 
   // The fan-out runs twice more: still one row per subscriber and channel, still one message.
   for (let i = 0; i < 2; i += 1) {
-    await deliveries.getByRole('button', { name: 'Send again' }).click();
+    await deliveries.getByRole('button', { name: 'Send again', exact: true }).click();
     await expect(deskOutcome(page)).toContainText('Done: sent again');
   }
   await expect(mine).toHaveCount(1);
@@ -476,7 +529,7 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
     const waiting = rows.locator(`[data-testid="subscriber-delivery"][data-email="${SUBSCRIBER}"]`);
     await expect(async () => {
       await desk.reload();
-      await rows.getByLabel('Published notice').selectOption(quiet.id);
+      await rows.getByLabel('Published notice', { exact: true }).selectOption(quiet.id);
       await expect(waiting).toHaveCount(1, { timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(waiting).toHaveAttribute('data-channel', 'email');
@@ -503,7 +556,7 @@ test(`${J} #5 subscriber delivery: one row per subscriber and channel however of
   // The subscriber leaves by the link in the update, so later runs do not keep mailing it.
   const leave = await browser.newPage({ baseURL: ORIGIN });
   await leave.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(updates()[0].text)[1]);
-  await leave.getByRole('button', { name: 'Unsubscribe' }).click();
+  await leave.getByRole('button', { name: 'Unsubscribe', exact: true }).click();
   await expect(leave.getByTestId('status-subscription-left')).toBeVisible();
   await leave.context().close();
 });
@@ -517,14 +570,14 @@ test(`${J} #6 subscriber safeguards: a blank rate limit refuses, and an import w
   const importList = async (text) => {
     await importer.getByLabel(/^Source/).fill('j19-test');
     await importer.getByLabel(/^Addresses/).fill(text);
-    await importer.getByRole('button', { name: 'Import' }).click();
+    await importer.getByRole('button', { name: 'Import', exact: true }).click();
   };
   const list = `${IMPORTED[0]}\n${IMPORTED[0].toUpperCase()}, ${IMPORTED[1]}`;
 
   // The owner blanks the rate limit: subscribing on /status and imports refuse.
-  await safeguards.getByLabel('Subscribe requests per address per hour').fill('');
-  await safeguards.getByLabel('Reason').fill(`TEST journey ${J} #6: blank rate limit`);
-  await safeguards.getByRole('button', { name: 'Save safeguards' }).click();
+  await safeguards.getByLabel('Subscribe requests per address per hour', { exact: true }).fill('');
+  await safeguards.getByLabel('Reason', { exact: true }).fill(`TEST journey ${J} #6: blank rate limit`);
+  await safeguards.getByRole('button', { name: 'Save safeguards', exact: true }).click();
   await expect(deskOutcome(page)).toContainText('Done: safeguards saved');
   await expect(safeguards.getByTestId('subscriber-safeguards-now')).toContainText('Subscribe requests per address: blank');
   const visitor = await browser.newPage({ baseURL: ORIGIN });
@@ -536,9 +589,11 @@ test(`${J} #6 subscriber safeguards: a blank rate limit refuses, and an import w
   await expect(page.locator(`[data-testid="subscriber-row"][data-email="${IMPORTED[0]}"]`)).toHaveCount(0);
 
   // With the limit set again, the import folds the duplicate into one record, and importing again adds nothing.
-  await safeguards.getByLabel('Subscribe requests per address per hour').fill(String(TEST_SAFEGUARDS.subscribeRatePerHour));
-  await safeguards.getByLabel('Reason').fill(`TEST journey ${J} #6: rate limit set again`);
-  await safeguards.getByRole('button', { name: 'Save safeguards' }).click();
+  await safeguards
+    .getByLabel('Subscribe requests per address per hour', { exact: true })
+    .fill(String(TEST_SAFEGUARDS.subscribeRatePerHour));
+  await safeguards.getByLabel('Reason', { exact: true }).fill(`TEST journey ${J} #6: rate limit set again`);
+  await safeguards.getByRole('button', { name: 'Save safeguards', exact: true }).click();
   await expect(deskOutcome(page)).toContainText('Done: safeguards saved');
   // The refused list is still there to import again, previewed before it is sent.
   await expect(importer.getByTestId('subscriber-import-preview')).toContainText('3 lines, 2 distinct');
@@ -546,7 +601,7 @@ test(`${J} #6 subscriber safeguards: a blank rate limit refuses, and an import w
   await expect(deskOutcome(page).getByTestId('subscriber-import-result')).toContainText(
     '3 received, 2 distinct addresses: 2 added, 0 already known',
   );
-  await page.getByTestId('subscriber-list').getByLabel('State').selectOption('unconfirmed');
+  await page.getByTestId('subscriber-list').getByLabel('State', { exact: true }).selectOption('unconfirmed');
   for (const email of IMPORTED) {
     const row = page.locator(`[data-testid="subscriber-row"][data-email="${email}"]`);
     await expect(row).toHaveCount(1);
@@ -579,7 +634,7 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
   await expect(incidentCard(a, OPEN_TITLE)).toHaveAttribute('data-state', 'open');
   await expect(postmortem(a, OPEN_TITLE)).toContainText('once a published update has resolved the incident');
   await postmortem(a, OPEN_TITLE).getByRole('textbox').fill('TEST Written too early.');
-  await postmortem(a, OPEN_TITLE).getByRole('button', { name: 'Save postmortem draft' }).click();
+  await postmortem(a, OPEN_TITLE).getByRole('button', { name: 'Save postmortem draft', exact: true }).click();
   await expect(outcome(a)).toHaveAttribute('data-code', 'status.postmortem_requires_resolved');
   await expect(outcome(a)).toContainText('The incident is not resolved yet');
   await expect(postmortem(a, OPEN_TITLE)).toHaveAttribute('data-status', 'none');
@@ -590,23 +645,23 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
   await expect(section).toHaveAttribute('data-status', 'none');
   await expect(section).toContainText('No postmortem is written yet.');
   await section.getByRole('textbox').fill(POSTMORTEM);
-  await section.getByRole('button', { name: 'Save postmortem draft' }).click();
+  await section.getByRole('button', { name: 'Save postmortem draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: postmortem saved');
   await expect(section).toHaveAttribute('data-status', 'draft');
   await expect(section).toContainText('Draft, version 1, last written by you');
   expect((await publishedPostmortems()).some((p) => p.body === POSTMORTEM)).toBe(false);
 
-  await section.getByRole('button', { name: 'Ask for approval' }).click();
+  await section.getByRole('button', { name: 'Ask for approval', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: requested');
   await expect(section.getByTestId('postmortem-approval')).toHaveAttribute('data-status', 'PENDING');
   await readAgain(b);
-  await postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Approve' }).click();
+  await postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(outcome(b)).toContainText('Done: approved');
   await expect(postmortem(b, INCIDENT_TITLE)).toContainText('Approved by you. The founder who asked publishes it');
-  await expect(postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+  await expect(postmortem(b, INCIDENT_TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
   await readAgain(a);
   await expect(section.getByTestId('postmortem-approval')).toHaveAttribute('data-status', 'APPROVED');
-  await section.getByRole('button', { name: 'Publish' }).click();
+  await section.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: postmortem published');
   await expect(section).toHaveAttribute('data-status', 'published');
   await expect(section.getByTestId('postmortem-body')).toHaveText(POSTMORTEM);
@@ -649,7 +704,7 @@ async function maintenanceDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/maintenance');
-  await expect(page.getByRole('heading', { level: 1, name: 'Maintenance' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Maintenance/i })).toBeVisible();
   return page;
 }
 
@@ -669,11 +724,11 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   const visitor = await browser.newPage({ baseURL: ORIGIN });
   await visitor.goto('/status');
   const form = visitor.getByTestId('status-subscribe');
-  await form.getByLabel('Email address').fill(READER);
-  await form.getByRole('button', { name: 'Subscribe' }).click();
+  await form.getByLabel('Email address', { exact: true }).fill(READER);
+  await form.getByRole('button', { name: 'Subscribe', exact: true }).click();
   await expect(form.getByTestId('status-subscribe-sent')).toContainText('Check your inbox');
   await visitor.goto(/(\/status\/confirm\?token=\S+)/.exec(statusMail(READER)[0].text)[1]);
-  await visitor.getByRole('button', { name: 'Confirm' }).click();
+  await visitor.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(visitor.getByTestId('status-subscription-state')).toHaveText('Active');
 
   const a = await maintenanceDesk(browser, 'a');
@@ -686,32 +741,32 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   // With no offsets, none: a window written without them lists no reminder, and, published to start at the same moment
   // as the one below, sends none while the other's reminders go out.
   const QUIET = `TEST journey ${J}: no reminders (run ${RUN})`;
-  await schedule.getByLabel('Title').fill(QUIET);
-  await schedule.getByLabel('What happens').fill('TEST A window with no reminders.');
-  await schedule.getByLabel('Starts').fill(localUtc(start));
-  await schedule.getByLabel('Planned end').fill(localUtc(start + 30 * 60_000));
-  await schedule.getByRole('button', { name: 'Save draft' }).click();
+  await schedule.getByLabel('Title', { exact: true }).fill(QUIET);
+  await schedule.getByLabel('What happens', { exact: true }).fill('TEST A window with no reminders.');
+  await schedule.getByLabel('Starts', { exact: true }).fill(localUtc(start));
+  await schedule.getByLabel('Planned end', { exact: true }).fill(localUtc(start + 30 * 60_000));
+  await schedule.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: drafted');
   const quiet = maintenanceWindow(a, QUIET);
   await expect(quiet.getByTestId('maintenance-reminders')).toHaveText('No reminders.');
-  await quiet.getByRole('button', { name: 'Ask for approval' }).click();
+  await quiet.getByRole('button', { name: 'Ask for approval', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: requested');
-  await b.getByRole('button', { name: 'Read again' }).click();
-  await maintenanceWindow(b, QUIET).getByRole('button', { name: 'Approve' }).click();
+  await b.getByRole('button', { name: 'Read again', exact: true }).click();
+  await maintenanceWindow(b, QUIET).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(maintenanceOutcome(b)).toContainText('Done: approved');
-  await a.getByRole('button', { name: 'Read again' }).click();
-  await quiet.getByRole('button', { name: 'Publish' }).click();
+  await a.getByRole('button', { name: 'Read again', exact: true }).click();
+  await quiet.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: published');
   await expect(quiet).toHaveAttribute('data-state', 'scheduled');
   const quietMail = () => statusMail(READER).filter((m) => m.subject === `Scheduled maintenance: ${QUIET}`);
 
-  await schedule.getByLabel('Title').fill(TITLE);
-  await schedule.getByLabel('What happens').fill('TEST We upgrade the card payment service.');
-  await schedule.getByLabel('Starts').fill(localUtc(start));
-  await schedule.getByLabel('Planned end').fill(localUtc(start + 30 * 60_000));
-  await schedule.getByRole('checkbox', { name: 'Payments' }).check();
-  await schedule.getByLabel('Reminders, minutes before the start').fill('1, 2');
-  await schedule.getByRole('button', { name: 'Save draft' }).click();
+  await schedule.getByLabel('Title', { exact: true }).fill(TITLE);
+  await schedule.getByLabel('What happens', { exact: true }).fill('TEST We upgrade the card payment service.');
+  await schedule.getByLabel('Starts', { exact: true }).fill(localUtc(start));
+  await schedule.getByLabel('Planned end', { exact: true }).fill(localUtc(start + 30 * 60_000));
+  await schedule.getByRole('checkbox', { name: 'Payments', exact: true }).check();
+  await schedule.getByLabel('Reminders, minutes before the start', { exact: true }).fill('1, 2');
+  await schedule.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: drafted');
   const card = maintenanceWindow(a, TITLE);
   await expect(card).toHaveAttribute('data-state', 'draft');
@@ -721,21 +776,21 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   ]);
 
   // A asks, B approves, A publishes.
-  await card.getByRole('button', { name: 'Ask for approval' }).click();
+  await card.getByRole('button', { name: 'Ask for approval', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: requested');
-  await b.getByRole('button', { name: 'Read again' }).click();
-  await maintenanceWindow(b, TITLE).getByRole('button', { name: 'Approve' }).click();
+  await b.getByRole('button', { name: 'Read again', exact: true }).click();
+  await maintenanceWindow(b, TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(maintenanceOutcome(b)).toContainText('Done: approved');
-  await expect(maintenanceWindow(b, TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
-  await a.getByRole('button', { name: 'Read again' }).click();
-  await card.getByRole('button', { name: 'Publish' }).click();
+  await expect(maintenanceWindow(b, TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
+  await a.getByRole('button', { name: 'Read again', exact: true }).click();
+  await card.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: published');
   await expect(card).toHaveAttribute('data-state', 'scheduled');
   const id = await card.getAttribute('data-window-id');
 
   // Scheduled: it cannot be verified before it has started.
-  await card.getByLabel('Reason for a move').fill('TEST checking early');
-  await card.getByRole('button', { name: 'Mark verifying' }).click();
+  await card.getByLabel('Reason for a move', { exact: true }).fill('TEST checking early');
+  await card.getByRole('button', { name: 'Mark verifying', exact: true }).click();
   await expect(maintenanceOutcome(a)).toHaveAttribute('data-code', 'status.maintenance_illegal_move');
   await expect(card).toHaveAttribute('data-state', 'scheduled');
 
@@ -744,7 +799,7 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   await expect
     .poll(
       async () => {
-        await a.getByRole('button', { name: 'Read again' }).click();
+        await a.getByRole('button', { name: 'Read again', exact: true }).click();
         return card.locator('[data-testid="maintenance-reminder"][data-sent="yes"]').count();
       },
       { timeout: 4 * 60_000, intervals: [10_000] },
@@ -760,7 +815,7 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   await expect
     .poll(
       async () => {
-        await a.getByRole('button', { name: 'Read again' }).click();
+        await a.getByRole('button', { name: 'Read again', exact: true }).click();
         return card.getAttribute('data-state');
       },
       { timeout: 3 * 60_000, intervals: [10_000] },
@@ -770,17 +825,17 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   expect(reminders()).toHaveLength(2);
 
   // Verified, then completed; a reopen is refused; it leaves the open maintenance at once.
-  await card.getByLabel('Reason for a move').fill('TEST upgrade applied, checking payments');
-  await card.getByRole('button', { name: 'Mark verifying' }).click();
+  await card.getByLabel('Reason for a move', { exact: true }).fill('TEST upgrade applied, checking payments');
+  await card.getByRole('button', { name: 'Mark verifying', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: moved to verifying');
   await expect(card).toHaveAttribute('data-state', 'verifying');
-  await card.getByLabel('Reason for a move').fill('TEST payments checked');
-  await card.getByRole('button', { name: 'Mark completed' }).click();
+  await card.getByLabel('Reason for a move', { exact: true }).fill('TEST payments checked');
+  await card.getByRole('button', { name: 'Mark completed', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: moved to completed');
   await expect(card).toHaveAttribute('data-state', 'completed');
   await expect(card.getByTestId('maintenance-moves')).toContainText('TEST payments checked');
-  await card.getByLabel('Reason for a move').fill('TEST reopen');
-  await card.getByRole('button', { name: 'Reopen' }).click();
+  await card.getByLabel('Reason for a move', { exact: true }).fill('TEST reopen');
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
   await expect(maintenanceOutcome(a)).toHaveAttribute('data-code', 'status.maintenance_reopen_refused');
   await expect(card).toHaveAttribute('data-state', 'completed');
   const page = await statusRead();
@@ -789,16 +844,16 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   expect(reminders()).toHaveLength(2);
   // The quiet window, in progress from the same start, sent no reminder at any point; it is completed too.
   expect(quietMail()).toHaveLength(0);
-  await quiet.getByLabel('Reason for a move').fill('TEST quiet window checked');
-  await quiet.getByRole('button', { name: 'Mark verifying' }).click();
+  await quiet.getByLabel('Reason for a move', { exact: true }).fill('TEST quiet window checked');
+  await quiet.getByRole('button', { name: 'Mark verifying', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: moved to verifying');
-  await quiet.getByLabel('Reason for a move').fill('TEST quiet window done');
-  await quiet.getByRole('button', { name: 'Mark completed' }).click();
+  await quiet.getByLabel('Reason for a move', { exact: true }).fill('TEST quiet window done');
+  await quiet.getByRole('button', { name: 'Mark completed', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: moved to completed');
 
   // The reader leaves by the link in a reminder.
   await visitor.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(reminders()[0].text)[1]);
-  await visitor.getByRole('button', { name: 'Unsubscribe' }).click();
+  await visitor.getByRole('button', { name: 'Unsubscribe', exact: true }).click();
   await expect(visitor.getByTestId('status-subscription-left')).toBeVisible();
   await visitor.context().close();
   await a.context().close();
@@ -811,7 +866,7 @@ async function noticesDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/notices');
-  await expect(page.getByRole('heading', { level: 1, name: 'Announcements' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Announcements/i })).toBeVisible();
   return page;
 }
 
@@ -826,10 +881,10 @@ test(`${J} #9 an announcement with a kind and a category: off the list refused, 
     // The founders' category list, an owner value: labelled TEST here and put back as it was at the end.
     const categories = a.getByTestId('notice-categories');
     await categories
-      .getByLabel('One per line, as id: Name (blank clears the list)')
+      .getByLabel('One per line, as id: Name (blank clears the list)', { exact: true })
       .fill('j19-listings: TEST new listings\nj19-risk: TEST risk notices');
-    await categories.getByLabel('Reason for the change').fill(`TEST journey ${J} #9 categories`);
-    await categories.getByRole('button', { name: 'Save categories' }).click();
+    await categories.getByLabel('Reason for the change', { exact: true }).fill(`TEST journey ${J} #9 categories`);
+    await categories.getByRole('button', { name: 'Save categories', exact: true }).click();
     await expect(noticesOutcome(a)).toContainText('Done: categories saved');
     await expect(a.getByTestId('notice-categories-list')).toContainText('TEST new listings');
 
@@ -847,24 +902,24 @@ test(`${J} #9 an announcement with a kind and a category: off the list refused, 
 
     const TITLE = `TEST journey ${J}: a new market opens (run ${RUN})`;
     const draft = a.getByTestId('notice-draft');
-    await draft.getByLabel('Title').fill(TITLE);
-    await draft.getByLabel('Message').fill('TEST The TEST/USDT market opens on Monday.');
-    await draft.getByLabel('Category').selectOption({ label: 'TEST new listings' });
-    await draft.getByRole('button', { name: 'Save draft' }).click();
+    await draft.getByLabel('Title', { exact: true }).fill(TITLE);
+    await draft.getByLabel('Message', { exact: true }).fill('TEST The TEST/USDT market opens on Monday.');
+    await draft.getByLabel('Category', { exact: true }).selectOption({ label: 'TEST new listings' });
+    await draft.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(noticesOutcome(a)).toContainText('Done: drafted');
     const card = noticeCard(a, TITLE);
     await expect(card).toHaveAttribute('data-status', 'draft');
     await expect(card.getByTestId('notice-filing')).toContainText('Kind: announcement. Category: TEST new listings.');
     expect((await publishedNotices()).some((n) => n.title === TITLE)).toBe(false);
 
-    await card.getByRole('button', { name: 'Ask for approval' }).click();
+    await card.getByRole('button', { name: 'Ask for approval', exact: true }).click();
     await expect(noticesOutcome(a)).toContainText('Done: requested');
-    await b.getByRole('button', { name: 'Read again' }).click();
-    await noticeCard(b, TITLE).getByRole('button', { name: 'Approve' }).click();
+    await b.getByRole('button', { name: 'Read again', exact: true }).click();
+    await noticeCard(b, TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(noticesOutcome(b)).toContainText('Done: approved');
-    await expect(noticeCard(b, TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
-    await a.getByRole('button', { name: 'Read again' }).click();
-    await card.getByRole('button', { name: 'Publish' }).click();
+    await expect(noticeCard(b, TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
+    await a.getByRole('button', { name: 'Read again', exact: true }).click();
+    await card.getByRole('button', { name: 'Publish', exact: true }).click();
     await expect(noticesOutcome(a)).toContainText('Done: published');
     await expect(card).toHaveAttribute('data-status', 'published');
 
@@ -897,7 +952,7 @@ test(`${J} #9 an announcement with a kind and a category: off the list refused, 
 test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per component, on the public site`, async ({ browser }) => {
   const page = await statusDesk(browser);
   const badges = page.getByTestId('status-badges');
-  await expect(badges.getByRole('heading', { name: 'Badges' })).toBeVisible();
+  await expect(badges.getByRole('heading', { name: 'Badges', exact: true })).toBeVisible();
   await expect(badges.getByTestId('status-badges-no-origin')).toHaveCount(0);
   const defined = (await statusDefinition()).components;
   expect(defined.map((c) => c.id)).toEqual(COMPONENTS.map((c) => c.id));
@@ -918,9 +973,8 @@ test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per comp
     if (c.id) expect(await res.text()).toContain(`<title>${c.name}: `);
   }
   // The desk opens the image on the public site (the console loads no image from another site).
-  await expect(badges.getByTestId('status-badge-sms-gateway').getByRole('link', { name: 'Open the badge image' })).toHaveAttribute(
-    'href',
-    `${ORIGIN}/api/notify/status/badge.svg?component=sms-gateway`,
-  );
+  await expect(
+    badges.getByTestId('status-badge-sms-gateway').getByRole('link', { name: 'Open the badge image', exact: true }),
+  ).toHaveAttribute('href', `${ORIGIN}/api/notify/status/badge.svg?component=sms-gateway`);
   await page.context().close();
 });

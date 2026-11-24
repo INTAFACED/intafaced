@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV } from '@intafaced/sbe-codec';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
 import { attachBusHalf, closeBusSession } from './bus-session-close.js';
@@ -28,6 +28,7 @@ import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { NewConnectionWindow } from './new-connection-window.js';
+import { PerIpGuard } from './per-ip.js';
 import { createWebSocketGateway } from './ws/gateway.js';
 import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { customerOriginsFromEnv } from './customer-origin.js';
@@ -348,6 +349,7 @@ const busLifecycle = createBusLifecycle({
           await half.orders.unsubscribe().catch(() => undefined);
           await half.fills.unsubscribe().catch(() => undefined);
           await half.positions.unsubscribe().catch(() => undefined);
+          await half.balances.unsubscribe().catch(() => undefined);
         },
         announce: () => privateOrderHub.announceBus(true),
       });
@@ -423,6 +425,9 @@ const busLifecycle = createBusLifecycle({
               await privateHalf?.positions.unsubscribe();
             },
             async () => {
+              await privateHalf?.balances.unsubscribe();
+            },
+            async () => {
               await dropHalf?.fills.unsubscribe();
             },
           ],
@@ -451,7 +456,15 @@ const poller = new DepthPoller(
   app.log,
 );
 
+// The per-IP cap and storm ban on the public doors, published on GET /policy (DV-limits-03, J-developer-09 #6).
+const perIp = new PerIpGuard({
+  maxConnections: env.WS_PER_IP_MAX_CONNECTIONS,
+  stormsBeforeBan: env.WS_PER_IP_STORMS_BEFORE_BAN,
+  banSeconds: env.WS_PER_IP_BAN_SECONDS,
+});
+
 registerRoutes(app, {
+  perIpPolicy: () => perIp.view(),
   hub,
   l3Hub,
   tradeHub,
@@ -469,6 +482,7 @@ registerRoutes(app, {
   privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
+  timing: { heartbeatMs: env.WS_HEARTBEAT_MS, muxIdleMs },
   sbe,
 });
 registerTapeLabelDoor(app);
@@ -518,6 +532,7 @@ const gateway = createWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
+  admitAddress: (address) => perIp.admit(address),
   sbeConsumers,
   sbe,
 });

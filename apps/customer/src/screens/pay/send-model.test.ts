@@ -60,6 +60,13 @@ describe('sourcesFrom', () => {
       ['n', 'Holiday'],
     ]);
   });
+  it('names the partner bank that holds a space, and none for the ledger’s (J-pay-01 #3)', () => {
+    const rows = sourcesFrom([space({ id: 'p', heldAt: { label: 'TEST partner bank' } }), space({ id: 'l', assetId: 'BTC' })], now);
+    expect(rows.map((row) => [row.id, row.heldAt])).toEqual([
+      ['p', 'TEST partner bank'],
+      ['l', null],
+    ]);
+  });
   it('keeps every space’s own name for the From line, the main one included', () => {
     const rows = sourcesFrom([space({ id: 'n', kind: 'named', name: 'Holiday' }), space({ id: 'p', assetId: 'USDT' })], now);
     expect(rows.map((row) => row.space)).toEqual(['Main', 'Holiday']);

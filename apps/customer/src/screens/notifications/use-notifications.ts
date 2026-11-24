@@ -9,9 +9,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../features/session/session';
 import type { ApiResult } from '../../shared/api';
-import type { Loadable } from './deps';
-import { useDataEnv, useSource } from './deps';
-import { announceChange, listNotifications, markAllRead, markRead, onChange, unreadCount, type Notification } from './notify-api';
+import type { Loadable } from './data';
+import { useDataEnv, useSource } from './data';
+import {
+  announceChange,
+  inboxPolicy,
+  listNotifications,
+  markAllRead,
+  markRead,
+  onChange,
+  unreadCount,
+  type InboxPolicy,
+  type Notification,
+} from './notify-api';
 import type { NotifyMarket } from './notify-view';
 
 /**
@@ -20,6 +30,7 @@ import type { NotifyMarket } from './notify-view';
  */
 export const UNREAD_INTERVAL_MS = 50_000;
 const MARKETS_INTERVAL_MS = 300_000;
+const POLICY_INTERVAL_MS = 300_000;
 
 const marketRow = z
   .object({ id: z.string(), base: z.string(), quote: z.string(), spot: z.boolean().optional(), paper: z.boolean().optional() })
@@ -47,6 +58,34 @@ export function useUnreadCount(): number | null {
   // Something was read in the popover or on the page: ask again now rather than at the next 60 s tick.
   useEffect(() => onChange(() => env.poller.refresh(key)), [env, key]);
   return load.status === 'ready' ? load.data : null;
+}
+
+/**
+ * The owner's inbox settings (svc-notify `notify.inboxPolicy`): the page size the Notifications page lists by and the
+ * bell's unread cap. Each is null until the owner sets it; nothing here invents one.
+ */
+export function useInboxPolicy(): Loadable<InboxPolicy> {
+  const env = useDataEnv();
+  const source = useMemo(
+    () =>
+      env.poller.source<InboxPolicy>(
+        'notify-inbox-policy',
+        async (signal) => {
+          const result = await inboxPolicy(env.api, signal);
+          return result.ok
+            ? { ok: true, data: result.data }
+            : { ok: false, reason: result.reason, code: result.code, status: result.status };
+        },
+        { intervalMs: POLICY_INTERVAL_MS },
+      ),
+    [env],
+  );
+  return useSource(source);
+}
+
+/** The badge's text: the exact count, or "<cap>+" above the owner's cap. With no cap set, always the exact count. */
+export function badgeText(unread: number, cap: number | null): string {
+  return cap !== null && unread > cap ? `${cap}+` : String(unread);
 }
 
 /**

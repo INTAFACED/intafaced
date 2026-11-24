@@ -72,10 +72,26 @@ export const registryNetworkIdSchema = z
 
 export const assetPrecisionSchema = z.number().int().min(0).max(MAX_ASSET_PRECISION);
 
+/** A link the owner publishes for an asset on one network (its explorer page, say): https only, never guessed. */
+export const assetNetworkLinkSchema = z
+  .object({
+    label: z.string().min(1).max(64),
+    url: z
+      .string()
+      .max(512)
+      .regex(/^https:\/\/[^\s/?#]+\.[^\s/?#]+(?:[/?#]\S*)?$/, 'links are https addresses'),
+  })
+  .strict();
+export type AssetNetworkLink = z.infer<typeof assetNetworkLinkSchema>;
+
 export const assetNetworkSchema = z
   .object({
     networkId: registryNetworkIdSchema,
     label: z.string().min(1).max(64),
+    /** The token's contract on this network, as the owner published it. Absent for a native coin, or when not known. */
+    contract: z.string().trim().min(1).max(128).optional(),
+    /** Links for the asset on this network. Absent or empty when none is known. */
+    links: z.array(assetNetworkLinkSchema).max(8).optional(),
   })
   .strict();
 export type AssetNetwork = z.infer<typeof assetNetworkSchema>;

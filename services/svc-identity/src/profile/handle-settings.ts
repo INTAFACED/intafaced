@@ -20,7 +20,7 @@
  *   and a change claim a handle under the same per-handle advisory lock, so a race cannot slip a retired handle through.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { assertNotSecurityLocked } from '../auth/security-lock.js';
 
 export type HandleSettingsCode =
@@ -56,12 +56,12 @@ const HANDLE_CHARS = /^[a-zA-Z0-9_]+$/;
  * Hold the per-handle claim lock for the rest of the transaction. Sign-up and a handle change both take it before they
  * check and write a handle, so "retired?" and "taken?" are answered against settled rows.
  */
-export async function lockHandleClaim(tx: Sql, handle: string): Promise<void> {
+export async function lockHandleClaim(tx: Queryable, handle: string): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtext(${'identity.handle:' + handle.toLowerCase()}))`;
 }
 
 /** True when `handle` was given up by an account other than `userId` (null: any account, for sign-up). */
-export async function handleRetiredByOther(tx: Sql, handle: string, userId: string | null): Promise<boolean> {
+export async function handleRetiredByOther(tx: Queryable, handle: string, userId: string | null): Promise<boolean> {
   const rows = await tx<Array<{ one: number }>>`
     SELECT 1 AS one FROM retired_handles
      WHERE handle = ${handle} AND (${userId}::uuid IS NULL OR user_id <> ${userId}::uuid) LIMIT 1
@@ -231,7 +231,7 @@ export class HandleSettingsService {
   }
 
   /** The session row must be unrevoked and unexpired, whatever its access token still says. */
-  private async requireLive(q: Sql, actor: HandleActor): Promise<void> {
+  private async requireLive(q: Queryable, actor: HandleActor): Promise<void> {
     const rows = await q<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM sessions

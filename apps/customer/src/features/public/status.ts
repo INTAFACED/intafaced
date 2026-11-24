@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { marketSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Fetcher } from '../../data/poll';
-import { statusPageSchema } from '@intafaced/contracts/status-page';
+import { NOTIFY_STATUS_PAGE_READ } from '@intafaced/contracts/notify-status-page-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import {
   statusChallengeMet,
   statusChallengeSchema,
@@ -16,9 +17,11 @@ import {
   statusSubscriptionUpdateInputSchema,
   type StatusChallenge,
 } from '@intafaced/contracts/status-subscriptions';
-import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
+import { readStatusFeed, type StatusFeed } from '../../shared/notify-reads';
 import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../shared/market-maintenance';
-import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
+import { contractProcedure, readContract } from '../../shared/contract-call';
+import { venueDoorOff, venueModeOf, type VenueMarketStates } from '../../data/venue-market-states';
+import type { Loadable } from '../../data/types';
 
 export type MaintenanceWindow = StatusFeed['maintenance'][number];
 
@@ -66,6 +69,24 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
   };
 }
 
+/** The venue's modes while its read answers, today's read where the door is off, and the venue read's own state otherwise. */
+export function modesFrom(venue: Loadable<VenueMarketStates>, own: Loadable<MarketMode[]>): Loadable<MarketMode[]> {
+  if (venueDoorOff(venue)) return own;
+  if (venue.status !== 'ready') return venue as Loadable<MarketMode[]>;
+  const observedAt = venue.data.asOf;
+  return {
+    status: 'ready',
+    asOf: venue.asOf,
+    data: venue.data.value.markets.map((m) => ({
+      symbol: m.symbol,
+      state: venueModeOf(m),
+      reasonCode: null,
+      observedAt,
+      maintenance: null,
+    })),
+  };
+}
+
 /**
  * The as-of time of the modes table: the oldest time the service observed a listed mode, so no row is shown fresher
  * than it is; null when none was.
@@ -99,13 +120,11 @@ export function knownMode(state: string | null): ModeKey | null {
   return state !== null && KNOWN.has(state) ? (state as ModeKey) : null;
 }
 
-export type StatusPage = ContractData<typeof statusPageRead>;
-
-const statusPageRead = contractProcedure('notify', 'statusPage.read', { output: statusPageSchema });
+export type StatusPage = ProcedureOutput<typeof NOTIFY_STATUS_PAGE_READ>;
 
 /** The founders' status page: defined components, their states, the uptime strip and incidents. Signed-out. */
 export function statusPageFetcher(api: ApiClient): Fetcher<StatusPage> {
-  return (signal) => readContract(api, statusPageRead, undefined, { signal });
+  return (signal) => api.call(NOTIFY_STATUS_PAGE_READ, undefined, { signal });
 }
 
 // hand-declared-ok: svc-notify's published postmortem output (statusPage.postmortems.published), not in contracts yet
