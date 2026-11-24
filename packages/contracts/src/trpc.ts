@@ -473,10 +473,14 @@ const t = initTRPC
       const deviceAuthorisation = deviceAuthorisationOf(cause);
       const secondStep = secondStepOf(cause);
       const p2pLimit = p2pLimitOf(cause);
+      // tRPC adds the server's stack (with file paths) whenever NODE_ENV is not
+      // 'production', which a test stack or the beta may run. An error reply
+      // carries only its code and message; the trace stays in the server log (#10604).
+      const { stack: _serverStack, ...publicData } = shape.data;
       return {
         ...shape,
         data: {
-          ...shape.data,
+          ...publicData,
           ...(requestId ? { requestId } : {}),
           // Surface our own error codes so clients can branch on
           // 'ledger.insufficient_funds' rather than parsing prose.
