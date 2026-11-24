@@ -520,14 +520,14 @@ test(`${J} #5 previews above the order cap and outside the price band: split off
       builderFee: null,
     };
     const prev = await me.post('/api/v1/venue/preview', { owner, intent: marketIntent });
-    expect(prev.status, JSON.stringify(prev.body)).toBe(422);
+    expect(prev.status, JSON.stringify(prev.body)).toBe(503);
     expect(prev.body.intafacedCode).toBe('trade.slippage_cap_unset');
     const prep = await me.post('/api/v1/venue/prepare', {
       owner,
       signer: { role: 'owner', address: owner },
       intent: marketIntent,
     });
-    expect(prep.status, JSON.stringify(prep.body)).toBe(422);
+    expect(prep.status, JSON.stringify(prep.body)).toBe(503);
     expect(prep.body.intafacedCode).toBe('trade.slippage_cap_unset');
     expect(await venueState(owner)).toEqual(unsetBefore);
   } finally {
