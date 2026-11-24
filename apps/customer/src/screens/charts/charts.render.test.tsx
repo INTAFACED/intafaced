@@ -84,6 +84,10 @@ vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
   useChartHistory: () => ({ state: world.history, load: async () => world.history, oldestReachable: 0 }),
 }));
+vi.mock('./venue-charts', async (original) => ({
+  ...(await original<typeof import('./venue-charts')>()),
+  useVenueChartMarkets: () => ({ status: 'off' }),
+}));
 vi.mock('./owner-values', async (original) => ({
   ...(await original<typeof import('./owner-values')>()),
   useChartOwnerValues: () =>

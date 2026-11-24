@@ -2,13 +2,21 @@
 // The route-to-template registry stays in step with the app's route table (the Volt kit).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
-import { PORTAL_ROOMS, parsePortalRoute } from '../features/pay/portal/routes';
+import { PORTAL_ROOMS, parsePortalRoute, portalRedirect } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
-import { renderPart } from './render-record/harness';
+import { renderPart, type Part } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
 import { voltMarks } from './volt-count';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The look gate's TEST account is a personal account with no business (`merchant.myAccess` returns `[]`), so
+// MerchantPortal replaces business rooms with `NoBusiness`. Answer `merchant.myAccess` with 503 here so each migrated
+// business room reaches its own template and is checked against `ROUTE_TEMPLATES`.
+const portalTemplateAnswer: Part['answer'] = ({ module, procedure }) =>
+  module === 'pay' && procedure === 'merchant.myAccess'
+    ? { status: 503, json: { error: { code: 'look_gate.no_services', message: 'No services run in the look gate.' } } }
+    : null;
 
 /**
  * Report-only until stage C of the redesign: a route without a template is listed, not failed. Stage C flips this
@@ -32,7 +40,17 @@ const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':projectId': 'TEST-launch',
   ':poolId': `0x${'9'.repeat(40)}`,
 };
-const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
+/**
+ * A parameter whose shape differs between the routes that share its name: a wallet holding's `:token` and a wallet
+ * claim's `:linkId` are 20-byte addresses (the router answers anything else not found), where a pay claim's `:token` or
+ * a pay link's `:linkId` is an id.
+ */
+const SAMPLE_ROUTE_PARAMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  '/wallet/tokens/:token': { ':token': `0x${'7'.repeat(40)}` },
+  '/wallet/claim/:linkId': { ':linkId': `0x${'8'.repeat(40)}` },
+};
+const opened = (route: string) =>
+  route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_ROUTE_PARAMS[route]?.[param] ?? SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 /** The screen file whose `// volt-room:` line says the room has moved onto its template (volt-count.ts). */
 const marks = voltMarks();
@@ -75,7 +93,9 @@ describe('room templates registry', () => {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
         const file = marks.get(room)?.[0];
         if (!isRoom(entry) || !file) continue;
-        const html = await renderPart({ name: room, route: opened(room) });
+        const portal = parsePortalRoute(portalRedirect(room) ?? room);
+        const answer = portal && portal.room !== 'onboarding' ? portalTemplateAnswer : undefined;
+        const html = await renderPart({ name: room, route: opened(room), answer });
         expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
         expect(drawn, `${room} (${file}) draws the ${entry.template} template`).toContain(entry.template);

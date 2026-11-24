@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';
 import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
-import { findRoom, rooms } from './navigation';
+import { findRoom, rooms, searchRooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
+import { allServices, visibleSections } from '../screens/more/tiles';
 
 const count = voltCount();
 const state = new Map(count.rooms.map((room) => [room.key, room.state]));
@@ -38,6 +39,64 @@ describe("the beta's menus", () => {
       const visible = !isHiddenPath(pathOf(href));
       const open = (state.get(href) === 'volt' || findRoom(href)?.area === 'public') && !betaOffFeatureFor(href);
       expect({ href, visible }).toEqual({ href, visible: open });
+    }
+  });
+
+  it("keep Trade's Orders row, whose room (/money/activity) counts in Volt (#10708)", () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
+    expect(state.get('/money/activity')).toBe('volt');
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
+    }
+    expect(betaHides('/money/activity')).toBe(false);
+  });
+
+  it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/trade/futures')).toBe('volt');
+    expect(betaHides('/trade/futures', betaList)).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', betaList)).toBe(false);
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(
+        trade?.items.map((item) => item.href),
+        `Trade menu in ${mode} mode`,
+      ).toContain('/trade/futures');
+    }
+    const moreTrade = allServices().find((group) => group.id === 'Trade');
+    expect(moreTrade?.rooms.map((room) => room.path)).toContain('/trade/futures');
+    expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
+  });
+
+  it('shows Agents (/agents) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/agents')).toBe('volt');
+    expect(state.get('/agents/:agentId')).toBe('volt');
+    expect(betaHides('/agents', betaList)).toBe(false);
+    expect(betaHides('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/agents')).toBeUndefined();
+    expect(betaOffFeatureFor('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBeUndefined();
+    expect(isHiddenPath('/agents')).toBe(false);
+    expect(isHiddenPath('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBe(false);
+    expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/agents');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/agents');
+    expect(searchRooms('agents', 'Personal').map((room) => room.path)).toContain('/agents');
+  });
+
+  it('shows Add money (/bank/ramps/new), Supported assets (/uc/assets) and Balance entries (/money/balance/:asset) on the beta (J-wallet-01)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/bank/ramps/new', '/bank/ramps/new'],
+      ['/uc/assets', '/uc/assets'],
+      ['/money/balance/:asset', '/money/balance/USDT'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(isHiddenPath(sample), sample).toBe(false);
     }
   });
 
@@ -150,6 +209,12 @@ describe('betaHides', () => {
     expect(betaHides('/coin/eth', list)).toBe(true);
     expect(betaHides('/not-a-room', list)).toBe(false);
     expect(betaHides('/coin/eth', undefined)).toBe(false);
+  });
+
+  it("shows a futures contract's address exactly when the futures desk is shown", () => {
+    const desk = (state: string) => betaRoomList([{ key: '/trade/futures', area: 'trade', state }], rooms);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('volt'))).toBe(false);
+    expect(betaHides('/trade/futures/BTC-PERP', desk('not-migrated'))).toBe(true);
   });
 
   it('never hides sign-in, the public pages or the merchant portal pages', () => {

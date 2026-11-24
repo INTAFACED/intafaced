@@ -11,7 +11,7 @@ import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
-const SETTINGS = 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off';
+const SETTINGS = 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -333,6 +333,21 @@ test("a stack on the beta's venue that still lists the journeys' TEST markets is
   assert.ok(
     seen.some((s) => s.step === 'stop'),
     'a marker without the TEST markets setting restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+test('a stack without TEST valuation prices is stopped and started whole with them so Home and Money show a total (#10632)', async () => {
+  const paths = home();
+  // The marker #10614's launch wrote: venue and TEST markets off, so svc-ops still returns valuation.prices_unset.
+  fs.writeFileSync(paths.settings, 'LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without LOCAL_STACK_VALUATION_PRICES=test restarts the stack',
   );
   assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
 });

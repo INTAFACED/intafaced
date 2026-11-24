@@ -1,4 +1,4 @@
-import { Badge, StatusTag, type StatusKind } from '@intafaced/ui';
+import { Tag, StatusTag, type StatusKind } from '@intafaced/ui/lit';
 import { isPositive } from '../../../data/decimal';
 import type { FuturesOrder, FuturesOrderOrigin } from './api';
 import { futuresRefusal } from './refusals';
@@ -39,9 +39,9 @@ export function FuturesOrderStatus({ order }: { order: FuturesOrder }) {
   };
   const word = order.status === 'cancelled' && isPositive(order.filledQty) ? t('Order part filled') : (words[order.status] ?? order.status);
   return (
-    <span className="flex flex-col">
+    <span className="lt-stack-tight">
       <StatusTag status={orderStatusKind(order)} label={word} />
-      {order.refusalCode ? <span className="text-2xs text-fg-3">{futuresRefusal({ code: order.refusalCode }).title}</span> : null}
+      {order.refusalCode ? <span className="lt-note">{futuresRefusal({ code: order.refusalCode }).title}</span> : null}
     </span>
   );
 }
@@ -51,15 +51,9 @@ export function FuturesOrderOrigin({ origin, label }: { origin: FuturesOrderOrig
   const { t } = tabsCopy.useCopy();
   const kind = origin ?? 'user';
   return (
-    <span className="lt-toolbar" data-origin={kind}>
-      <Badge variant={kind === 'user' ? 'outline' : 'soft'} tone={kind === 'liquidation' ? 'down' : 'neutral'}>
-        {t(`Origin ${kind}`)}
-      </Badge>
-      {label ? (
-        <Badge variant="outline" data-label={label}>
-          {label}
-        </Badge>
-      ) : null}
+    <span className="lt-row" data-origin={kind}>
+      <Tag tone={kind === 'liquidation' ? 'down' : 'neutral'}>{t(`Origin ${kind}`)}</Tag>
+      {label ? <Tag data-label={label}>{label}</Tag> : null}
     </span>
   );
 }

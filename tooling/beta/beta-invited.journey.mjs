@@ -233,6 +233,12 @@ try {
     Boolean(held),
     `invited: ${GRANT.amount} TEST ${GRANT.asset} held at ${held?.heldAt?.label ?? 'no partner'}, which Home and Money read`,
   );
+  const valuation = data(await ctx.edge.query('ops', 'valuation.prices'));
+  const priced = Boolean(valuation?.published && valuation?.test && valuation.prices?.some((p) => p.asset === GRANT.asset));
+  check(
+    priced,
+    `valuation.prices publishes a TEST price for ${GRANT.asset} so Home and Money show a total (${valuation?.published ? valuation.source : (valuation?.code ?? 'no answer')})`,
+  );
 
   // The uninvited person waits a whole minute of passes and gets nothing: still pending, no grant, the order refused.
   while (Date.now() - uninvitedAt < 65_000) await sleep(1_000);

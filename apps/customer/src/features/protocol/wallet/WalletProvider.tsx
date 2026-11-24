@@ -703,7 +703,7 @@ export function SignSheet({
         </dl>
         <details open>
           <summary>{t('sheetExact')}</summary>
-          <pre className="lt-mono" data-sheet-payload>
+          <pre className="lt-code lt-wrap" data-sheet-payload>
             {payloadText(request, account, chainId)}
           </pre>
         </details>
@@ -772,7 +772,7 @@ export function SequenceSheet({
         <details>
           <summary>{t('sheetExact')}</summary>
           {sequence.steps.map((step, index) => (
-            <pre key={index} className="lt-mono" data-sheet-payload>
+            <pre key={index} className="lt-code lt-wrap" data-sheet-payload>
               {'request' in step
                 ? payloadText(step.request, account, chainId)
                 : 'sign' in step

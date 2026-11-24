@@ -45,6 +45,8 @@ import {
   founderChangeConfirmInputSchema,
   founderApprovalQueueInputSchema,
   founderApprovalQueueSchema,
+  founderControlAuditListInputSchema,
+  founderControlAuditListSchema,
 } from './founder-admin.js';
 import {
   merchantMetricsInputSchema,
@@ -916,5 +918,23 @@ export const PAY_FOUNDER_ADMIN_APPROVALS_LIST = defineProcedure({
   samples: [
     { verdict: 'accept', input: { limit: 1 } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.control.audit.list',
+  kind: 'query',
+  path: 'founderAdmin.control.audit.list',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderControlAuditListInputSchema,
+  checks: { pay_audit_cursor_holds: { at: 'input.cursor', says: 'cursor exceeds bigint max' } },
+  output: founderControlAuditListSchema,
+  outputChecks: { pay_audit_cursor_holds: { at: 'output.entries[].seq', says: 'cursor exceeds bigint max' } },
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'pay_audit_cursor_holds', input: { limit: 1, cursor: '' } },
   ],
 });

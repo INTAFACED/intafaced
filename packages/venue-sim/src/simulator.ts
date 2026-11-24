@@ -634,8 +634,10 @@ function truncate(value: Amount, drop: number): Amount {
 }
 /** The public prints the simulator keeps per market, newest last; the tape and the candles read from these. */
 const PRINTS_KEPT = 5_000;
-/** The most prints or candles one read answers. */
+/** The most prints one read answers. */
 const MARKET_READ_MAX = 500;
+/** The most candles one read answers (matches the chart workbench's 720-bar history depth). */
+const CANDLE_READ_MAX = 720;
 
 const NO_RATES: VenueFeeRates = { makerFeeBps: { known: false }, takerFeeBps: { known: false } };
 
@@ -1450,15 +1452,23 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The newest `limit` candles of `symbol`'s prints on `interval`, oldest first; an interval with no print is not sent.
+   * When `since` is given, only buckets opening at or after `since` are returned.
    * TEST: only the prints the simulator keeps (`PRINTS_KEPT`) are counted.
    */
-  async candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+  async candles(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>> {
     this.up();
     const market = this.market(symbol);
     const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    const limit = typeof query === 'number' ? query : query.limit;
+    const sinceMs = typeof query === 'number' ? undefined : query.since?.getTime();
     const out: VenueCandle[] = [];
     for (const p of this.prints.get(market.symbol) ?? []) {
       const openMs = Math.floor(p.tradedAt.getTime() / stepMs) * stepMs;
+      if (sinceMs !== undefined && openMs < sinceMs) continue;
       const last = out[out.length - 1];
       if (last && last.openAt.getTime() === openMs)
         out[out.length - 1] = {
@@ -1478,7 +1488,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           baseVolume: p.amount,
         });
     }
-    return this.asOf(out.slice(-Math.min(limit, MARKET_READ_MAX)));
+    return this.asOf(out.slice(-Math.min(limit, CANDLE_READ_MAX)));
+  }
+
+  /**
+   * TEST control: record past TEST prints on `symbol` (strictly at or before the simulator's clock) so a chart journey
+   * can read historical candles across more than 240 buckets without waiting hours. Never invents future prints.
+   */
+  testSeedPrints(
+    symbol: string,
+    entries: readonly { readonly tradedAt: Date; readonly price: Amount; readonly amount: Amount; readonly takerSide: 'buy' | 'sell' }[],
+  ): number {
+    const market = this.market(symbol);
+    const nowMs = this.clock().getTime();
+    const prints = [...(this.prints.get(market.symbol) ?? [])];
+    for (const entry of entries) {
+      if (entry.tradedAt.getTime() > nowMs) refuse(this.venue.id, 'venue_rejected', 'TEST print time cannot be in the future');
+      if (compare(entry.price, ZERO) <= 0 || compare(entry.amount, ZERO) <= 0)
+        refuse(this.venue.id, 'venue_rejected', 'TEST print price and amount must be above zero');
+      this.printCounter += 1;
+      prints.push({
+        tradeId: `test-print-${this.printCounter}`,
+        symbol: market.symbol,
+        price: entry.price,
+        amount: entry.amount,
+        takerSide: entry.takerSide,
+        tradedAt: entry.tradedAt,
+      });
+    }
+    prints.sort((a, b) => a.tradedAt.getTime() - b.tradedAt.getTime());
+    if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
+    this.prints.set(market.symbol, prints);
+    return entries.length;
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -2960,13 +3001,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         p.size = ZERO;
         const at = this.clock();
         const liquidationId = `liq-${++this.liquidationCounter}`;
+        const partId = `${liquidationId}-1`;
         state.liquidations.push({
           liquidationId,
           symbol: market.symbol,
           side: p.side,
           state: 'done',
-          parts: [{ partId: `${liquidationId}-1`, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
+          parts: [{ partId, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
           startedAt: at,
+        });
+        this.recordLiquidationOrder({
+          state,
+          market,
+          positionSide: p.side,
+          qty,
+          mark,
+          asset: market.quoteAsset,
+          partId,
+          at,
         });
         this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
       }
@@ -4226,6 +4278,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         locked: lockAmount,
         lockedAsset: lockAsset,
         reduceOnly: intent.reduceOnly,
+        origin: 'user',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4552,6 +4607,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         trigger: { price: trigger.price, source: trigger.source, role: trigger.role, state: 'waiting', triggeredAt: null, failure: null },
         parentClientOrderId: parent?.order.venueClientOrderId ?? null,
         cancelReason: null,
+        origin: trigger.role === 'take_profit' ? 'take_profit' : 'stop',
+        originRef: null,
+        ...(intent.label ? { label: intent.label } : {}),
       },
     };
     state.orders.set(cloid, order);
@@ -4875,8 +4933,57 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, qty);
     const at = this.clock();
+    const partId = `${liquidationId}-${n}`;
+    this.recordLiquidationOrder({ state, market, positionSide: p.side, qty, mark, asset, partId, at });
     this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
-    return { partId: `${liquidationId}-${n}`, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+    return { partId, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+  }
+
+  /** Record the venue's own liquidation close as a filled order in the account's history (J-derivatives-04 #2). */
+  private recordLiquidationOrder(input: {
+    state: AccountState;
+    market: SimMarketConfig;
+    positionSide: 'long' | 'short';
+    qty: Amount;
+    mark: Amount;
+    asset: string;
+    partId: string;
+    at: Date;
+  }): void {
+    const { state, market, positionSide, qty, mark, asset, partId, at } = input;
+    const cloid = venueClientOrderId(this.venue.id, `liquidation:${partId}`);
+    this.venueOrderCounter += 1;
+    this.seqCounter += 1;
+    state.orders.set(cloid, {
+      account: state,
+      seq: this.seqCounter,
+      placedAt: at,
+      builderFee: null,
+      leverageBps: null,
+      marginMode: null,
+      lockPerUnit: ZERO,
+      marginAccount: market.marginAccount?.name ?? null,
+      order: {
+        venueOrderId: `sim-${this.venueOrderCounter}`,
+        venueClientOrderId: cloid,
+        symbol: market.symbol,
+        side: positionSide === 'long' ? 'sell' : 'buy',
+        type: 'market',
+        timeInForce: 'IOC',
+        price: mark,
+        amount: qty,
+        filled: qty,
+        remaining: ZERO,
+        averagePrice: mark,
+        status: 'filled',
+        locked: ZERO,
+        lockedAsset: asset,
+        reduceOnly: true,
+        origin: 'liquidation',
+        originRef: partId,
+        label: null,
+      },
+    });
   }
 
   /** Cancel every resting and waiting order of the account on `symbol`, its locks released once. */

@@ -20,5 +20,5 @@ export const businessCopy = defineCopy('account-business-verification', {
   personalTitle: 'Your own identity',
   personalBody: 'Verifying you as a person is separate from verifying a company.',
   personalAction: 'Open personal verification',
-  boundary: 'Verification is decided by the verification service. A step that is not available there shows its reason on that page.',
+  boundary: 'If a step is unavailable for your account or region, that page explains why.',
 });

@@ -197,7 +197,7 @@ function Entries({ current }: { current: () => boolean }) {
     <Panel
       id="allowlist-entries"
       title={t('entriesTitle')}
-      lead={t('entriesWindow', { limit })}
+      lead={t('entriesWindow')}
       actions={
         <Button
           tone="secondary"
@@ -287,9 +287,11 @@ function Entries({ current }: { current: () => boolean }) {
               />
             )}
             <div className="lt-toolbar" role="status">
-              <p>
-                {t('returned', { count: entries.length, limit })} {entries.length >= limit ? t('more') : ''}
-              </p>
+              {entries.length >= limit && (
+                <p>
+                  {t('returned', { count: entries.length })} {t('more')}
+                </p>
+              )}
               {entries.length >= limit && limit < 200 && (
                 <Button
                   tone="secondary"
@@ -445,7 +447,7 @@ function Changes({ current }: { current: () => boolean }) {
     `${userId}:allowlist-changes:${limit}`,
   );
   return (
-    <Panel id="allowlist-changes" title={t('changesTitle')} lead={t('entriesWindow', { limit })}>
+    <Panel id="allowlist-changes" title={t('changesTitle')} lead={t('changesWindow')}>
       <ReadResult
         resource={resource}
         retry={() => {

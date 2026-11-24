@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './stack.mjs';
 
-export const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
+export const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml', 'docker-compose.tester.yml'];
 
 /** The `seed` service's block in the compose files, as text (no YAML parser in the tree), or null when there is none. */
 export function seedService() {

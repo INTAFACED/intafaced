@@ -6,13 +6,21 @@ import type {
   Drop,
   DropClaim,
   DropClaimResult,
+  DropReward,
   DropRoom,
+  DropValue,
   DropView,
   Season,
   SeasonView,
   TgeSchedule,
 } from '@intafaced/contracts/campaigns-drops';
+import { CAMPAIGN_STATES, PARKED_CAMPAIGN_TYPES, type ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import { campaignLimitsSchema } from '@intafaced/contracts/campaigns-vouchers';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { ELIGIBILITY_REFUSAL, effectiveState, eligibilityOf, type CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
+import type { PayoutSaga } from './payouts.js';
+import { LIMIT_WORDS, drawnOf, limitRefusalOf } from './tasks.js';
 import { tgeView } from './tge.js';
 
 /**
@@ -25,8 +33,13 @@ import { tgeView } from './tge.js';
  * - A limited drop has a fixed count (blank refuses `drop.count_unset`). A claim writes one row under the business key
  *   `drop:<dropId>:<account>` and takes one from the count in the same transaction, under a lock on the drop row, so
  *   concurrent claims never exceed the count. Sold out refuses `drop.sold_out`; a second claim returns the first.
- * - A drop carries no value here: a claim records an entitlement and moves nothing. A drop with value pays through the
- *   reward saga (CM-payouts-ledger-02), which is not wired, so creating one refuses `campaigns.reward_saga_unwired`.
+ * - A drop with no campaign is an entitlement: a claim records the right and moves nothing. A drop with value names its
+ *   `drop` campaign (live, its reward set and in its budget's asset): each claim is worth the campaign's reward. In the
+ *   claim's own transaction, under the drop's lock and then the campaign's, the campaign must be live, the account inside
+ *   the campaign's limits and the reward inside its budget; the claim and one reward intent under the claim's own key
+ *   (`drop:<dropId>:<account>`) commit together. After the commit the caller's connected wallet is noted on it and the
+ *   reward saga (CM-payouts-ledger-02) owes it; the reward payer pays it once to that wallet and books the chain
+ *   transaction. A saga that is not wired refuses creating a drop with value (`campaigns.reward_saga_unwired`).
  * - Operators create (`campaigns:ops`); a second person publishes. The database refuses a publish by the creator too.
  *   Every change and every claim writes an audit row. Nothing is visible to customers until published.
  */
@@ -75,6 +88,10 @@ type DropRow = {
   id: string;
   title: string;
   season_id: string | null;
+  kind: 'entitlement' | 'value';
+  campaign_id: string | null;
+  value_asset: string | null;
+  value_amount: string | null;
   total_count: number;
   remaining: number;
   opens_at: Date;
@@ -86,7 +103,30 @@ type DropRow = {
   published_at: Date | null;
 };
 
-type ClaimRow = { claim_key: string; drop_id: string; created_at: Date };
+type ClaimRow = {
+  claim_key: string;
+  drop_id: string;
+  kind: 'entitlement' | 'value';
+  created_at: Date;
+  reward_asset: string | null;
+  reward_amount: string | null;
+  reward_state: DropReward['state'] | null;
+  pay_to_wallet: string | null;
+  chain_tx: string | null;
+};
+
+/** The drop with its campaign's reward, as every read of it takes it. */
+const SELECT_DROP = (sql: Queryable) =>
+  sql`SELECT d.*, c.reward_asset AS value_asset, c.reward_amount::text AS value_amount
+    FROM campaigns.drops d LEFT JOIN campaigns.campaigns c ON c.id = d.campaign_id`;
+
+/** A claim with its reward and the reward's booked payment, if any. */
+const SELECT_CLAIM = (sql: Queryable) =>
+  sql`SELECT cl.claim_key, cl.drop_id, cl.kind, cl.created_at, i.asset AS reward_asset, i.amount::text AS reward_amount,
+      i.state AS reward_state, i.pay_to_wallet, pay.chain_tx
+    FROM campaigns.drop_claims cl
+    LEFT JOIN campaigns.reward_intents i ON i.reward_key = cl.claim_key
+    LEFT JOIN campaigns.reward_payments pay ON pay.reward_key = cl.claim_key AND pay.state = 'booked'`;
 
 const iso = (d: Date) => d.toISOString();
 const isoOrNull = (d: Date | null) => (d ? d.toISOString() : null);
@@ -105,6 +145,11 @@ function toSeason(r: SeasonRow): Season {
   };
 }
 
+function valueOf(r: DropRow): DropValue | null {
+  if (r.kind !== 'value' || !r.campaign_id || !r.value_asset || r.value_amount === null) return null;
+  return { campaignId: r.campaign_id, asset: r.value_asset, amount: formatAmount(parseAmount(r.value_amount)) };
+}
+
 function toDrop(r: DropRow): Drop {
   return {
     id: r.id,
@@ -114,7 +159,8 @@ function toDrop(r: DropRow): Drop {
     remaining: r.remaining,
     opensAt: iso(r.opens_at),
     closesAt: isoOrNull(r.closes_at),
-    kind: 'entitlement',
+    kind: r.kind,
+    value: valueOf(r),
     status: r.status,
     createdBy: r.created_by,
     publishedBy: r.published_by,
@@ -124,7 +170,18 @@ function toDrop(r: DropRow): Drop {
 }
 
 function toClaim(r: ClaimRow): DropClaim {
-  return { dropId: r.drop_id, claimKey: r.claim_key, kind: 'entitlement', claimedAt: iso(r.created_at) };
+  const reward: DropReward | null =
+    r.kind === 'value' && r.reward_state && r.reward_asset && r.reward_amount !== null
+      ? {
+          rewardKey: r.claim_key,
+          asset: r.reward_asset,
+          amount: formatAmount(parseAmount(r.reward_amount)),
+          state: r.reward_state,
+          payTo: r.pay_to_wallet,
+          chainTx: r.chain_tx,
+        }
+      : null;
+  return { dropId: r.drop_id, claimKey: r.claim_key, kind: r.kind, claimedAt: iso(r.created_at), reward };
 }
 
 function dropState(r: DropRow, now: Date): DropView['state'] {
@@ -134,10 +191,25 @@ function dropState(r: DropRow, now: Date): DropView['state'] {
 }
 
 export const claimKeyOf = (dropId: string, accountId: string) => `drop:${dropId}:${accountId}`;
+/** The reward intent's period for one drop: its key is then `drop:<dropId>:<account>`, the claim's own key. */
+const dropPeriodOf = (dropId: string) => `drop:${dropId}`;
 
 export interface DropServiceOptions {
   sql: Sql;
   tgeSchedule: () => TgeSchedule | null;
+  /** The reward saga. Null while the ledger is not connected: a drop with value cannot be created. */
+  saga?: PayoutSaga | null;
+  /**
+   * Notes the caller's connected wallet on their open USDC rewards (TaskService.recordPayTo), from the headers their own
+   * request forwarded, so a claimed drop's reward is paid to that wallet. Absent: it is owed and waits for one.
+   */
+  payTo?: (accountId: string, forwarded: Record<string, string>) => Promise<boolean>;
+  /**
+   * The campaign's participation rules, read for a claim of a drop with value as a join and a voucher claim read them.
+   * Absent: a drop with value whose campaign's rules need the participant refuses `campaigns.participant_unread`.
+   */
+  campaigns?: Pick<CampaignService, 'eligibility'>;
+  log?: (event: string, detail: Record<string, unknown>) => void;
   now?: () => Date;
 }
 
@@ -148,6 +220,15 @@ export class DropService {
   constructor(private readonly options: DropServiceOptions) {
     this.sql = options.sql;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /** Notes the caller's connected wallet on their open rewards; a failed read leaves them owed and waiting. */
+  private async notePayTo(accountId: string, forwarded: Record<string, string> | undefined): Promise<void> {
+    if (!this.options.payTo || !forwarded) return;
+    await this.options.payTo(accountId, forwarded).catch((err: unknown) => {
+      this.options.log?.('campaigns.drop.pay_to_unread', { accountId, message: err instanceof Error ? err.message : String(err) });
+      return false;
+    });
   }
 
   /** The owner's TGE schedule, or null while blank. */
@@ -191,10 +272,11 @@ export class DropService {
     count: string;
     opensAt: string;
     closesAt?: string | null;
-    value?: { asset: string; amount: string } | null;
+    campaignId?: string | null;
     actor: string;
   }): Promise<Drop> {
-    if (input.value) {
+    const campaignId = input.campaignId?.trim() ? input.campaignId.trim() : null;
+    if (campaignId && !this.options.saga) {
       throw new CampaignsError(
         'campaigns.reward_saga_unwired',
         'A drop with value pays through the reward saga, which is not connected; create it with no value',
@@ -214,11 +296,13 @@ export class DropService {
           throw new CampaignsError('campaigns.window_invalid', 'A drop in a season opens and closes inside the season');
         }
       }
-      const [row] = await tx<DropRow[]>`
-        INSERT INTO campaigns.drops (id, title, season_id, total_count, remaining, opens_at, closes_at, created_by)
-        VALUES (${id}, ${input.title}, ${seasonId}, ${count}, ${count}, ${opensAt}, ${closesAt}, ${input.actor})
-        RETURNING *`;
-      await audit(tx, input.actor, 'drop.create', id, { title: input.title, seasonId, count, opensAt: iso(opensAt) });
+      if (campaignId) await assertDropCampaign(tx, campaignId);
+      await tx`
+        INSERT INTO campaigns.drops (id, title, season_id, total_count, remaining, opens_at, closes_at, created_by, kind, campaign_id)
+        VALUES (${id}, ${input.title}, ${seasonId}, ${count}, ${count}, ${opensAt}, ${closesAt}, ${input.actor},
+          ${campaignId ? 'value' : 'entitlement'}, ${campaignId})`;
+      await audit(tx, input.actor, 'drop.create', id, { title: input.title, seasonId, count, opensAt: iso(opensAt), campaignId });
+      const [row] = await tx<DropRow[]>`${SELECT_DROP(tx)} WHERE d.id = ${id}`;
       return toDrop(row!);
     });
   }
@@ -234,10 +318,11 @@ export class DropService {
           throw new CampaignsError('season.not_published', 'Publish the drop’s season before the drop');
         }
       }
-      const [out] = await tx<DropRow[]>`
+      await tx`
         UPDATE campaigns.drops SET status = 'published', published_by = ${input.actor}, published_at = now(), updated_at = now()
-        WHERE id = ${input.id} RETURNING *`;
+        WHERE id = ${input.id}`;
       await audit(tx, input.actor, 'drop.publish', input.id, {});
+      const [out] = await tx<DropRow[]>`${SELECT_DROP(tx)} WHERE d.id = ${input.id}`;
       return toDrop(out!);
     });
   }
@@ -245,14 +330,16 @@ export class DropService {
   async listForOps(): Promise<{ seasons: Season[]; drops: Drop[] }> {
     const [seasons, drops] = await Promise.all([
       this.sql<SeasonRow[]>`SELECT * FROM campaigns.seasons ORDER BY created_at DESC LIMIT 100`,
-      this.sql<DropRow[]>`SELECT * FROM campaigns.drops ORDER BY created_at DESC LIMIT 100`,
+      this.sql<DropRow[]>`${SELECT_DROP(this.sql)} ORDER BY d.created_at DESC LIMIT 100`,
     ]);
     return { seasons: seasons.map(toSeason), drops: drops.map(toDrop) };
   }
 
   // ── Customer (own account only; the account comes from the principal) ─────
 
-  async room(accountId: string): Promise<DropRoom> {
+  async room(accountId: string, forwarded?: Record<string, string>): Promise<DropRoom> {
+    // The person's own read: a claimed drop's reward with no wallet yet is given their connected wallet here.
+    await this.notePayTo(accountId, forwarded);
     const now = this.now();
     const [seasonRows, dropRows, claimRows] = await Promise.all([
       // The live season that started last; with none live, the next to start.
@@ -263,13 +350,13 @@ export class DropService {
         LIMIT 1`,
       // Every drop still open or to come, and every drop the caller claimed; closed ones nobody here claimed drop out.
       this.sql<DropRow[]>`
-        SELECT * FROM campaigns.drops d
+        ${SELECT_DROP(this.sql)}
         WHERE d.status = 'published'
           AND (d.closes_at IS NULL OR d.closes_at > ${now}
             OR EXISTS (SELECT 1 FROM campaigns.drop_claims c WHERE c.drop_id = d.id AND c.account_id = ${accountId}))
         ORDER BY d.opens_at DESC, d.id ASC
         LIMIT 200`,
-      this.sql<ClaimRow[]>`SELECT claim_key, drop_id, created_at FROM campaigns.drop_claims WHERE account_id = ${accountId}`,
+      this.sql<ClaimRow[]>`${SELECT_CLAIM(this.sql)} WHERE cl.account_id = ${accountId}`,
     ]);
     const mine = new Map(claimRows.map((c) => [c.drop_id, toClaim(c)]));
     const s = seasonRows[0];
@@ -283,11 +370,25 @@ export class DropService {
           // No task campaign feeds a season in this version: the sum over zero reward records.
           points: '0',
           taskCampaigns: 0,
+          // Season points do not run while the points type waits for the owner (J-campaigns-15's blocker).
+          pointsBlocker: PARKED_CAMPAIGN_TYPES.includes('points') ? 'owner.decision' : null,
         }
       : null;
     const drops: DropView[] = dropRows.map((r) => {
-      const { id, title, seasonId, count, remaining, opensAt, closesAt, kind } = toDrop(r);
-      return { id, title, seasonId, count, remaining, opensAt, closesAt, kind, state: dropState(r, now), mine: mine.get(r.id) ?? null };
+      const { id, title, seasonId, count, remaining, opensAt, closesAt, kind, value } = toDrop(r);
+      return {
+        id,
+        title,
+        seasonId,
+        count,
+        remaining,
+        opensAt,
+        closesAt,
+        kind,
+        value,
+        state: dropState(r, now),
+        mine: mine.get(r.id) ?? null,
+      };
     });
     return { season, drops, tge: tgeView(this.tgeSchedule()) };
   }
@@ -295,37 +396,154 @@ export class DropService {
   /**
    * One claim per account. The caller's own stored claim comes back first, whatever the drop's state now. Otherwise,
    * under a lock on the drop row: unknown or unpublished refuses `drop.unknown`, outside its window `drop.not_open`,
-   * none left `drop.sold_out`; else the claim row and the count change commit together.
+   * none left `drop.sold_out`; else the claim row and the count change commit together. A drop with value then locks its
+   * campaign: not live refuses `campaign.not_active`, a limit reached or unset by its name, no room in the budget
+   * `campaigns.budget_exhausted`; else its reward intent commits with the claim, under the claim's own key, and is owed
+   * after the commit. Whatever is refused, nothing is claimed and nothing is owed.
    */
-  async claim(input: { dropId: string; accountId: string }): Promise<DropClaimResult> {
+  async claim(input: { dropId: string; accountId: string; forwarded?: Record<string, string> }): Promise<DropClaimResult> {
     const key = claimKeyOf(input.dropId, input.accountId);
-    return transaction(
+    // A first claim of a drop with value meets its campaign's participation rules. Identity is read here, before the
+    // transaction and never under its locks; the transaction checks the rules it locks are the rules read here.
+    const rulesRead = await this.refuseIneligible(input.dropId, input.accountId, key);
+    const outcome = await transaction(
       this.sql,
       async (tx) => {
-        const [drop] = await tx<DropRow[]>`SELECT * FROM campaigns.drops WHERE id = ${input.dropId} FOR UPDATE`;
+        const locked = await tx`SELECT id FROM campaigns.drops WHERE id = ${input.dropId} FOR UPDATE`;
+        const [drop] = locked.length > 0 ? await tx<DropRow[]>`${SELECT_DROP(tx)} WHERE d.id = ${input.dropId}` : [];
         if (!drop || drop.status !== 'published') throw new CampaignsError('drop.unknown', 'No such drop');
-        const [existing] = await tx<ClaimRow[]>`
-          SELECT claim_key, drop_id, created_at FROM campaigns.drop_claims WHERE claim_key = ${key}`;
-        if (existing) return { claim: toClaim(existing), created: false, remaining: drop.remaining };
+        const [existing] = await tx<{ claim_key: string }[]>`
+          SELECT claim_key FROM campaigns.drop_claims WHERE claim_key = ${key}`;
+        if (existing) return { created: false, remaining: drop.remaining, valued: drop.kind === 'value' };
         const state = dropState(drop, this.now());
         if (state === 'not_open' || state === 'closed') {
           throw new CampaignsError('drop.not_open', state === 'closed' ? 'This drop has closed' : 'This drop opens later');
         }
         if (state === 'sold_out') throw new CampaignsError('drop.sold_out', 'This drop is sold out');
-        const [claim] = await tx<ClaimRow[]>`
-          INSERT INTO campaigns.drop_claims (claim_key, drop_id, account_id)
-          VALUES (${key}, ${input.dropId}, ${input.accountId})
-          RETURNING claim_key, drop_id, created_at`;
+        // A drop with value: its campaign is locked after the drop, so its budget and limits cannot move under us.
+        const value = drop.kind === 'value' ? await this.valueRoom(tx, { drop, accountId: input.accountId, rulesRead }) : null;
+        await tx`
+          INSERT INTO campaigns.drop_claims (claim_key, drop_id, account_id, kind)
+          VALUES (${key}, ${input.dropId}, ${input.accountId}, ${drop.kind})`;
         const [left] = await tx<{ remaining: number }[]>`
           UPDATE campaigns.drops SET remaining = remaining - 1, updated_at = now()
           WHERE id = ${input.dropId} AND remaining > 0 RETURNING remaining`;
         // The row lock makes this unreachable; if it ever happens the transaction rolls back and nothing is claimed.
         if (!left) throw new CampaignsError('drop.sold_out', 'This drop is sold out');
-        await audit(tx, input.accountId, 'drop.claim', input.dropId, { claimKey: key });
-        return { claim: toClaim(claim!), created: true, remaining: left.remaining };
+        if (value) {
+          await tx`
+            INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, form)
+            VALUES (${key}, ${value.campaignId}, ${input.accountId}, ${dropPeriodOf(input.dropId)}, ${value.asset},
+              ${value.amount}, 'qualified', 'paid')`;
+          await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${key}, 'qualified')`;
+        }
+        await audit(tx, input.accountId, 'drop.claim', input.dropId, { claimKey: key, ...(value ? { value } : {}) });
+        return { created: true, remaining: left.remaining, valued: value !== null };
       },
       { isolation: 'read committed' },
     );
+    if (outcome.valued) {
+      // The claimer's connected wallet is noted before the reward is owed, so the payer can send it once it is.
+      await this.notePayTo(input.accountId, input.forwarded);
+      // Owed after the commit, with no transaction open. A refusal or a lost answer leaves the intent open, and the
+      // saga's reconciler posts the same key again; the claim stands either way.
+      if (outcome.created && this.options.saga) {
+        await this.options.saga.attempt(key).catch((err: unknown) => {
+          this.options.log?.('campaigns.drop.owe_failed', { key, message: err instanceof Error ? err.message : String(err) });
+        });
+      }
+    }
+    const [claim] = await this.sql<ClaimRow[]>`${SELECT_CLAIM(this.sql)} WHERE cl.claim_key = ${key}`;
+    return { claim: toClaim(claim!), created: outcome.created, remaining: outcome.remaining };
+  }
+
+  /**
+   * Refuses a first claim of a drop with value when the caller does not meet its campaign's participation rules, or
+   * cannot be read against them, as a voucher claim refuses. Returns the rules it read (null: none, or no check owed).
+   */
+  private async refuseIneligible(dropId: string, accountId: string, key: string): Promise<string | null> {
+    const [row] = DropRulesRow.array().parse(
+      await this.sql`
+        SELECT d.kind, c.participation, EXISTS (SELECT 1 FROM campaigns.drop_claims cl WHERE cl.claim_key = ${key}) AS claimed
+        FROM campaigns.drops d LEFT JOIN campaigns.campaigns c ON c.id = d.campaign_id WHERE d.id = ${dropId}`,
+    );
+    if (!row || row.kind !== 'value' || row.claimed || !row.participation) return null;
+    const answer = this.options.campaigns
+      ? await this.options.campaigns.eligibility(row.participation, accountId).catch(() => 'unread' as const)
+      : eligibilityOf(row.participation, null);
+    if (answer !== 'eligible') {
+      const [code, message] = ELIGIBILITY_REFUSAL[answer];
+      throw new CampaignsError(code, message);
+    }
+    return rulesOf(row.participation);
+  }
+
+  /** What one claim of a drop with value is owed, once its campaign has room for it; refuses by name otherwise. */
+  private async valueRoom(
+    tx: Queryable,
+    { drop, accountId, rulesRead }: { drop: DropRow; accountId: string; rulesRead: string | null },
+  ): Promise<DropValue> {
+    const [c] = DropCampaignRow.array().parse(
+      await tx`
+        SELECT id, type, state, starts_at, ends_at, reward_asset, reward_amount::text AS reward_amount, budget_asset,
+          budget_limit::text AS budget_limit, limits, participation
+        FROM campaigns.campaigns WHERE id = ${drop.campaign_id} FOR UPDATE`,
+    );
+    if (!c) throw new CampaignsError('drop.campaign_invalid', 'This drop’s campaign is missing');
+    // The rules changed between the read and the lock: the caller was not checked against these, so nothing is claimed.
+    if (rulesOf(c.participation) !== rulesRead) throw new CampaignsError(...ELIGIBILITY_REFUSAL.unread);
+    const live = effectiveState(c, this.now());
+    if (live !== 'active') throw new CampaignsError('campaign.not_active', `This drop’s campaign is ${live}, so it pays nothing now`);
+    if (!c.budget_asset || c.budget_limit === null) {
+      throw new CampaignsError('campaigns.budget_unset', 'This drop’s campaign has no budget set, so nothing can be claimed');
+    }
+    if (!c.reward_asset || c.reward_amount === null) {
+      throw new CampaignsError('drop.campaign_invalid', 'This drop’s campaign has no reward set');
+    }
+    if (c.reward_asset !== c.budget_asset) {
+      throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
+    }
+    const over = await limitRefusalOf(tx, c.id, accountId, c.limits);
+    if (over) throw new CampaignsError(over, LIMIT_WORDS[over]);
+    const units = parseAmount(c.reward_amount);
+    if ((await drawnOf(tx, c.id)) + units > parseAmount(c.budget_limit)) {
+      throw new CampaignsError('campaigns.budget_exhausted', 'This drop’s budget has no room for another claim');
+    }
+    return { campaignId: c.id, asset: c.reward_asset, amount: formatAmount(units) };
+  }
+}
+
+/** One campaign's participation rules as compared between the read and the lock; null when it has none. */
+const rulesOf = (rules: ParticipationRules | null): string | null => (rules ? JSON.stringify(rules) : null);
+
+/** The campaign row a claim of a drop with value reads under its lock, parsed where it is read. */
+const DropCampaignRow = z.object({
+  id: z.string(),
+  type: z.string(),
+  state: z.enum(CAMPAIGN_STATES),
+  starts_at: z.date().nullable(),
+  ends_at: z.date().nullable(),
+  reward_asset: z.string().nullable(),
+  reward_amount: z.string().nullable(),
+  budget_asset: z.string().nullable(),
+  budget_limit: z.string().nullable(),
+  limits: campaignLimitsSchema.nullable(),
+  participation: z.custom<ParticipationRules>((v) => typeof v === 'object' && v !== null && !Array.isArray(v)).nullable(),
+});
+const DropRulesRow = z.object({ kind: z.string(), participation: DropCampaignRow.shape.participation, claimed: z.boolean() });
+const DropCampaignOf = DropCampaignRow.pick({ type: true, reward_asset: true, reward_amount: true, budget_asset: true });
+
+/** A drop with value names a `drop` campaign whose reward is set, in its budget's asset. */
+async function assertDropCampaign(tx: Queryable, campaignId: string): Promise<void> {
+  const [c] = DropCampaignOf.array().parse(
+    await tx`SELECT type, reward_asset, reward_amount::text AS reward_amount, budget_asset FROM campaigns.campaigns WHERE id = ${campaignId}`,
+  );
+  if (!c || c.type !== 'drop') throw new CampaignsError('drop.campaign_invalid', 'A drop with value names a drop campaign');
+  if (!c.reward_asset || c.reward_amount === null) {
+    throw new CampaignsError('drop.campaign_invalid', 'The drop campaign has no reward set, so a claim would be worth nothing');
+  }
+  if (c.budget_asset && c.budget_asset !== c.reward_asset) {
+    throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
   }
 }
 

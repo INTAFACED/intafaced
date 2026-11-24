@@ -2,34 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
 import { useSession } from '../session';
-import { type LineTotal } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { statementExtrasCopy } from './statement-extras-copy';
 import { BANK_STATEMENTS_LETTERS_REQUEST, BANK_STATEMENTS_TAX_LIST } from '@intafaced/contracts/bank-statements-procedures';
 
 const outside = (code: string | null | undefined): NotConnectedCode | null =>
   code && (NOT_CONNECTED_CODES as readonly string[]).includes(code) ? (code as NotConnectedCode) : null;
-
-/** Per coin, the net of a set of lines, as the bank folded them (J-bank-16 #1). The same list under a statement and on Activity. */
-export function LineTotals({ totals, testId }: { totals: readonly LineTotal[]; testId: string }) {
-  const { t } = statementExtrasCopy.useCopy();
-  return (
-    <div data-testid={testId} className="lt-stack">
-      <p className="lt-muted">{t('totalsTitle')}</p>
-      {totals.length === 0 ? (
-        <p>{t('totalsNone')}</p>
-      ) : (
-        <ul>
-          {totals.map((total) => (
-            <li key={total.asset} data-asset={total.asset} data-net={total.net}>
-              {t('totalLine', { asset: total.asset, net: total.net, lines: String(total.lines) })}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 type Said = { kind: 'off'; code: NotConnectedCode } | { kind: 'refused'; words: string; code: string | null } | null;
 

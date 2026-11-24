@@ -1,4 +1,4 @@
-import { Amount } from './ui-deps';
+import { Amount } from '@intafaced/ui/lit';
 import { fmtAmount } from './deps';
 import { moneyCopy } from './copy';
 import { setAsideLabel, setAsideLines, setAsideRef, setAsideSum } from './set-aside';
@@ -27,26 +27,28 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
       const figure = (value: string) => (hidden ? '••••' : fmtAmount(value));
       body = (
         <>
-          <table className="money-table money-table--activity" data-testid="set-aside">
-            <thead>
-              <tr>
-                <th scope="col">{t('Set aside column what')}</th>
-                <th scope="col" className="money-num">
-                  {t('Set aside column amount')}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, index) => (
-                <tr key={index}>
-                  <td title={setAsideRef(line.what)}>{setAsideLabel(line.what, copy)}</td>
-                  <td className="money-num">
-                    <Amount value={`${fmtAmount(line.amount)} ${asset}`} hidden={hidden} />
-                  </td>
+          <div className="lt-table-scroll">
+            <table className="lt-table" data-testid="set-aside">
+              <thead>
+                <tr>
+                  <th scope="col">{t('Set aside column what')}</th>
+                  <th scope="col" className="lt-num">
+                    {t('Set aside column amount')}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {lines.map((line, index) => (
+                  <tr key={index}>
+                    <td title={setAsideRef(line.what)}>{setAsideLabel(line.what, copy)}</td>
+                    <td className="lt-num">
+                      <Amount value={`${fmtAmount(line.amount)} ${asset}`} hidden={hidden} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {sum && split?.total !== undefined && (
             <p className="lt-hint" data-testid="set-aside-sum">
               {t(sum.adds ? 'Set aside adds up' : 'Set aside does not add up', {
@@ -62,8 +64,8 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
     }
   }
   return (
-    <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Set aside title')}>
-      <h2 className="money-detail__h">{t('Set aside title')}</h2>
+    <section data-testid="money-card" className="lt-stack" aria-label={t('Set aside title')}>
+      <h2>{t('Set aside title')}</h2>
       <p className="lt-hint">{t('Set aside intro')}</p>
       {body}
     </section>

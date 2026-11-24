@@ -482,11 +482,14 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
 /**
  * Refusals on a checked write whose service message is already the plain, specific sentence the person needs, so it is
  * shown as the bank wrote it: a space create at the owner's limit names that limit ("This account already has 5 spaces,
- * the most it can hold"), and with the limit blank it says the limit is not set. Each is a definite "no" that changes
- * nothing (`spaces.create` rolls the whole create back), so neither may leave the bank's writes paused as unconfirmed.
+ * the most it can hold"), with the limit blank it says the limit is not set, and a partner transfer refusal names what
+ * the partner reports in the account ("The partner reports … Nothing was moved."). Each is a definite "no" that changes
+ * nothing, so none may leave the bank's writes paused as unconfirmed.
  */
 export const SERVICE_WORDED_REFUSALS: Readonly<Record<string, readonly string[]>> = {
   'spaces.create': ['bank.space_limit_reached', 'bank.space_limit_unset'],
+  'transfers.create': ['bank.partner_insufficient_funds'],
+  'transfers.toUser': ['bank.partner_insufficient_funds'],
 };
 
 /** The code's sentence key. A few sentences depend on which write was refused. */

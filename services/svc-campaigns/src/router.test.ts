@@ -45,6 +45,7 @@ function setup(schedule: string | undefined = undefined) {
         claimKey: `drop:${input.dropId}:${input.accountId}`,
         kind: 'entitlement' as const,
         claimedAt: '2026-10-24T12:00:00.000Z',
+        reward: null,
       },
       created: true,
       remaining: 2,
@@ -118,7 +119,7 @@ describe('campaigns router', () => {
   it('claims for the signed-in account, never one named in the request', async () => {
     const { drops, api } = setup();
     const out = await api(await ctx(['campaigns:read', 'campaigns:write'])).drops.claim({ dropId: 'drop_1' });
-    expect(drops.claim).toHaveBeenCalledWith({ dropId: 'drop_1', accountId: ME });
+    expect(drops.claim).toHaveBeenCalledWith({ dropId: 'drop_1', accountId: ME, forwarded: expect.any(Object) });
     expect(out.claim.claimKey).toBe(`drop:drop_1:${ME}`);
     await expect(
       api(await ctx(['campaigns:write'])).drops.claim({ dropId: 'drop_1', accountId: 'someone-else' } as never),

@@ -1,44 +1,23 @@
-// The only file in this screen that knows where the shared pieces come from: the kit in @intafaced/ui and the
+// The only file in this screen that knows where the shared pieces come from: the Volt kit in @intafaced/ui/lit and the
 // data layer in ../../../data (the same pattern as the Home screen).
 export {
-  Amount,
   Button,
-  buttonVariants,
   ChangeText,
   CoinIcon,
   Menu,
-  MenuContent,
-  MenuItem,
-  MenuTrigger,
   Popover,
   PopoverContent,
   PopoverTrigger,
   Pct,
   Price,
-  SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
   StateBlock,
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  AmountInput,
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogClose,
-} from '@intafaced/ui';
+  Bone,
+} from '@intafaced/ui/lit';
+// The desk's loading shapes: Volt draws a placeholder by its shape (rows, figure, chart, form), never a size in pixels.
+export { Skeleton, type SkeletonShape } from '@intafaced/ui/lit/templates';
 
 export {
   direction,
@@ -55,4 +34,3 @@ export {
 export { compareDecimal, fractionDigits } from '../../../data/decimal';
 export { isHiddenPath } from '../../../app/feature-registry';
 export { defaultDeskPair, normalizePair } from '../../../app/navigation';
-export { navigate } from '../../../app/location';

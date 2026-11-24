@@ -17,24 +17,26 @@ import {
   venueRecord,
 } from './venue.mjs';
 import { venueBook } from './venue-reads.mjs';
+import { doorCalls, ledgerUntouched, ledgerView } from './venue-door.mjs';
 
 // J-derivatives-04's venue steps on the person's own venue account (the launch money model: the venue holds the margin
 // and the orders, the ledger posts nothing), in the running app against the stack's TEST venue simulator
-// (packages/venue-sim). #3 and #5 are the steps CUSTODY-DELTA marks Adapted (amend, cancel-on-disconnect); #4 and #6 are
-// proven here on the venue too, since trading on our own engine is out at launch; #7 crosses the person's own resting
-// order between the TEST book's best bid and ask, so it meets no one else. One test per step,
-// titled "J-derivatives-04 #<n>", run in order on one TEST account; #1 and #2 are in J-derivatives-04.pw.mjs.
+// (packages/venue-sim). All seven steps (#1 to #7) are proven here on the person's own venue account: #1 opens
+// /trade/orders (open orders, history, trades and executions with the same status words and each order's venue named),
+// #2 opens an order that came from a stop and one made by a liquidation (origin and label), #3 amends, #4 cancels, #5
+// arms cancel-on-disconnect, #6 refuses a second whole close, and #7 exercises self-trade prevention and edge rate limit.
+// One test per step, titled "J-derivatives-04 #<n>", run in order on one TEST account.
 //
-// Every order, lock, schedule and answer is read from the TEST venue itself, never the page. #3 to #5 rest TEST buys on
-// BTC-PERP at 40000, a third under the TEST makers' ladder (mid 60000), so they never fill. #6 needs the venue's trigger
-// orders, which only ETH-PERP's TEST listing takes (triggerSources): this file opens a TEST long of 0.1 ETH there and
-// reads its TEST mark (3000), never moves it, and rests the ladder at 3000 again after the file. The ledger is read before
-// and after to show it posts nothing. Every figure is TEST.
+// Every order, lock, schedule and answer is read from the TEST venue itself, never the page. #1 and #3 to #5 rest TEST
+// buys on BTC-PERP at 40000, a third under the TEST makers' ladder (mid 60000), so they never fill. #2 and #6 use
+// ETH-PERP for the venue's trigger orders (mark 3000, restored after), and #2 uses XLIQ-PERP for the TEST venue's
+// liquidation (mark 100, restored after). The ledger is read before and after to show it posts nothing. Every figure is TEST.
 const J = 'J-derivatives-04';
 const PERP = 'BTC-PERP';
 const DESK = `/trade/futures?symbol=${PERP}`;
 const TRIGGER_PERP = 'ETH-PERP';
 const TRIGGER_DESK = `/trade/futures?symbol=${TRIGGER_PERP}`;
+const LIQ_PERP = 'XLIQ-PERP';
 const REST = '40000';
 const LABEL = 'grid-7';
 const START_USDC = '3000';
@@ -44,7 +46,7 @@ test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 // The stack's TEST venue, for this file only, lowers an order in place and cancels several in one signed action, as the
 // venue it stands for does; svc-trade restarted so its door reads the venue afresh. After the file it does neither again
-// (J-cex-spot-05 does the same), and ETH-PERP's TEST ladder rests at its mark again.
+// (J-cex-spot-05 does the same), and ETH-PERP's and XLIQ-PERP's TEST marks/ladders rest at their marks again.
 const ORDER_CHANGES = { amendsInPlace: true, cancelsPerAction: 20 };
 test.beforeAll(async () => {
   test.setTimeout(240_000);
@@ -53,32 +55,23 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await testVenue('/test/switches', { amendsInPlace: false, cancelsPerAction: null });
+  await testVenue('/test/set-mark', { symbol: TRIGGER_PERP, price: '3000' }).catch(() => undefined);
   await testVenue('/test/ladder-mid', { symbol: TRIGGER_PERP, price: '3000' }).catch(() => undefined);
+  await testVenue('/test/set-mark', { symbol: LIQ_PERP, price: '100' }).catch(() => undefined);
+  await testVenue('/test/ladder-mid', { symbol: LIQ_PERP, price: '100' }).catch(() => undefined);
 });
 
 function state() {
   const s = run.read();
-  if (!s.account || !s.walletKey) throw new Error(`${J} #3 made no account and wallet, so this step has no one to act as`);
+  if (!s.account || !s.walletKey) throw new Error(`${J} #1 made no account and wallet, so this step has no one to act as`);
   return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
 }
 
 const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 const venueOrder = async (owner, venueClientOrderId) => (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId })).value;
 const schedule = async (owner) => (await venueRecord(owner, '/scheduled-cancel')).value;
-const ledgerView = async (who) => (await api(who)).balances();
 /** The wallet's signature prompts so far (typed data is the only thing an action is signed as). */
 const signatures = (wallet) => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length;
-
-/** Every door call this page makes, by its path (`prepare`, `submit`, `preview`). */
-function doorCalls(page) {
-  const calls = [];
-  page.on('request', (r) => {
-    const path = new URL(r.url()).pathname;
-    if (r.method() === 'POST' && path.startsWith('/api/v1/venue/'))
-      calls.push({ path: path.slice('/api/v1/venue/'.length), body: r.postDataJSON() });
-  });
-  return { all: calls, of: (name) => calls.filter((c) => c.path === name) };
-}
 
 /** The person signs and sends one action on the TEST venue directly with their own wallet key, as from another device. */
 async function ownRun(walletKey, intent) {
@@ -117,6 +110,8 @@ async function restElsewhere(walletKey, tag) {
 
 const ticket = (page) => page.getByTestId('venue-ticket');
 const blotter = (page) => page.getByTestId('venue-blotter');
+/** A figure the page shows (`1,234.5 USDC`), in scaled units. */
+const shownUnits = (text) => toUnits(text.replace(/,/g, '').trim().split(/\s+/)[0]);
 const rowOf = (page, cloid) => page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${cloid}"]`);
 
 async function ordersTab(page) {
@@ -154,7 +149,7 @@ async function restFromDesk(page, owner, size, price, label = '', side = 'long')
   return placed[0].venueClientOrderId;
 }
 
-/** TEST setup, not a step (the Starts line), made at the start of #3: a verified account, its wallet, TEST USDC, 5x. */
+/** TEST setup, not a step (the Starts line), made at the start of #1: a verified account, its wallet, TEST USDC, leverage set. */
 async function startsLine(browser) {
   const page = await browser.newPage();
   try {
@@ -163,8 +158,12 @@ async function startsLine(browser) {
     const walletKey = testWalletKey();
     const owner = privateKeyToAccount(walletKey).address.toLowerCase();
     expect(await testDeposit(owner, 'USDC', START_USDC, `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-    for (const symbol of [PERP, TRIGGER_PERP])
-      expect(await ownRun(walletKey, { kind: 'update_leverage', symbol, leverageBps: 50_000, marginMode: 'isolated' })).toMatchObject({
+    for (const [symbol, leverageBps] of [
+      [PERP, 50_000],
+      [TRIGGER_PERP, 50_000],
+      [LIQ_PERP, 100_000],
+    ])
+      expect(await ownRun(walletKey, { kind: 'update_leverage', symbol, leverageBps, marginMode: 'isolated' })).toMatchObject({
         accepted: true,
       });
     run.reset({ account, walletKey, ledger: await ledgerView(account) });
@@ -173,16 +172,276 @@ async function startsLine(browser) {
   }
 }
 
-async function ledgerUntouched(s) {
-  expect(await ledgerView(s.account)).toEqual(s.ledger);
-}
+const fact = (page, label) =>
+  page
+    .getByTestId('venue-order-facts')
+    .getByTestId('venue-order-row')
+    .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) })
+    .locator('dd');
+
+test(`${J} #1 opens /trade/orders: open orders, history, user trades and executions with the same status words and each order's venue named`, async ({
+  page,
+  browser,
+  stepPicture,
+}) => {
+  test.setTimeout(480_000);
+  await startsLine(browser);
+  const s = state();
+  const { displayName: venueName } = await venueInfo();
+
+  // An execution to read on the venue: a TEST market long of 0.001 BTC-PERP, filled against the TEST makers' asks.
+  const opened = await ownRun(s.walletKey, {
+    kind: 'place_order',
+    symbol: PERP,
+    side: 'buy',
+    type: 'market',
+    amount: '0.001',
+    price: '62000',
+    timeInForce: 'IOC',
+    reduceOnly: false,
+    clientOrderKey: `order:${J.toLowerCase()}:s1-open:${randomBytes(4).toString('hex')}`,
+    builderFee: null,
+  });
+  expect(opened, JSON.stringify(opened).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'filled' } });
+  const openedId = opened.order.venueClientOrderId;
+
+  // From the futures desk: rest a labelled TEST limit buy under the book, and verify the desk's status word and tag.
+  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
+  const restingId = await restFromDesk(page, s.owner, '0.001', REST, LABEL);
+  await ordersTab(page);
+  await expect(rowOf(page, restingId)).toBeVisible({ timeout: 20_000 });
+  await expect(rowOf(page, restingId).locator('[data-cell=status]')).toHaveText('Open');
+  await expect(rowOf(page, restingId).locator('[data-cell=tag]')).toHaveText(LABEL);
+  expect(await venueOrder(s.owner, restingId)).toMatchObject({ status: 'open', origin: 'user', label: LABEL });
+
+  // Opens /trade/orders and switches to the Venue account half: Open orders shows the resting order with venue named
+  // and the same status word ("Open") as the desk.
+  await page.goto('/trade/orders');
+  await page.getByRole('group', { name: 'Which orders', exact: true }).getByRole('button', { name: 'Venue account', exact: true }).click();
+  await expect(page).toHaveURL(/product=venue/);
+  await page.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: 'Open orders', exact: true }).click();
+  await expect(page).toHaveURL(/view=open/);
+  const openRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${restingId}"]`);
+  await expect(openRow).toBeVisible({ timeout: 20_000 });
+  await expect(openRow.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(openRow.locator('[data-cell=status]')).toHaveText('Open');
+  await expect(openRow.locator('[data-cell=origin]')).toContainText('You');
+  await expect(openRow.locator('[data-cell=label]')).toHaveText(LABEL);
+
+  // Cancel from the orders room: signed once, lock released to 0, removed from Open orders, and shown as Cancelled in
+  // Order history with the same status word as on its detail page.
+  await openRow.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await continueInWallet(page);
+  await expect.poll(async () => (await venueOrder(s.owner, restingId)).status, { timeout: 20_000 }).toBe('canceled');
+  expect((await venueOrder(s.owner, restingId)).locked).toBe('0');
+  await expect(page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${restingId}"]`)).toHaveCount(0, {
+    timeout: 20_000,
+  });
+
+  // Order history: both the cancelled limit order (with label and venue) and the filled market open, same status words.
+  await page.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: 'Order history', exact: true }).click();
+  const historyCancelled = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${restingId}"]`);
+  await expect(historyCancelled).toBeVisible({ timeout: 20_000 });
+  await expect(historyCancelled.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(historyCancelled.locator('[data-cell=status]')).toHaveText('Cancelled');
+  await expect(historyCancelled.locator('[data-cell=origin]')).toContainText('You');
+  await expect(historyCancelled.locator('[data-cell=label]')).toHaveText(LABEL);
+  const historyFilled = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${openedId}"]`);
+  await expect(historyFilled.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(historyFilled.locator('[data-cell=status]')).toHaveText('Filled');
+
+  // Trades and executions: the opening fill with venue, market, side, taker role and exact figures from the venue.
+  await page.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: 'Trades and executions', exact: true }).click();
+  await expect(page).toHaveURL(/view=executions/);
+  const fills = (await venueRecord(s.owner, '/fills', { since: new Date(0).toISOString() })).value.filter(
+    (f) => f.venueClientOrderId === openedId,
+  );
+  expect(fills.length).toBeGreaterThan(0);
+  const fillRow = page.getByTestId('venue-executions').locator(`tr[data-fill="${fills[0].fillId}"]`);
+  await expect(fillRow).toBeVisible({ timeout: 20_000 });
+  await expect(fillRow.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(fillRow).toContainText(PERP);
+  await expect(fillRow).toContainText('Buy');
+  await expect(fillRow.locator('[data-cell=role]')).toHaveText('Taker');
+  await stepPicture(page);
+
+  // Close the TEST long from another device so later steps start flat with nothing resting.
+  const closed = await ownRun(s.walletKey, {
+    kind: 'place_order',
+    symbol: PERP,
+    side: 'sell',
+    type: 'market',
+    amount: '0.001',
+    price: '58000',
+    timeInForce: 'IOC',
+    reduceOnly: true,
+    clientOrderKey: `order:${J.toLowerCase()}:s1-close:${randomBytes(4).toString('hex')}`,
+    builderFee: null,
+  });
+  expect(closed).toMatchObject({ accepted: true });
+  expect(await venueOpen(s.owner)).toEqual([]);
+  run.write({ cancelledId: restingId });
+  await ledgerUntouched(s);
+});
+
+test(`${J} #2 opens an order that came from a stop, and one made by a liquidation: the origin named (stop, liquidation), and any label`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(480_000);
+  const s = state();
+  const { displayName: venueName } = await venueInfo();
+  const me = await api(s.account);
+
+  // Part 1: an order that came from a stop on ETH-PERP (trigger source: mark).
+  let stopId;
+  try {
+    await testVenue('/test/set-mark', { symbol: TRIGGER_PERP, price: '3000' });
+    await testVenue('/test/ladder-mid', { symbol: TRIGGER_PERP, price: '3000' });
+    const entry = await ownRun(s.walletKey, {
+      kind: 'place_order',
+      symbol: TRIGGER_PERP,
+      side: 'buy',
+      type: 'market',
+      amount: '0.1',
+      price: '3100',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${J.toLowerCase()}:s2-eth-long:${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(entry, JSON.stringify(entry).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    // Arm a stop-loss via the futures desk's Exit orders dialog.
+    await openVenueDesk(page, s.account, TRIGGER_DESK, s.walletKey);
+    await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(TRIGGER_PERP, { timeout: 20_000 });
+    const posRow = page.getByTestId('venue-positions').locator(`tr[data-symbol="${TRIGGER_PERP}"]`);
+    await expect(posRow).toBeVisible({ timeout: 20_000 });
+    await posRow.getByRole('button', { name: `Exit orders ${TRIGGER_PERP}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: `Exit orders for ${TRIGGER_PERP}`, exact: true });
+    await dialog.getByRole('button', { name: 'Stop loss', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
+    await dialog.getByRole('textbox', { name: 'Size to close', exact: true }).fill('0.1');
+    await dialog.getByRole('textbox', { name: 'Trigger price', exact: true }).fill('2900');
+    const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/venue/protections') && r.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Arm exit order', exact: true }).click();
+    const createdRes = await created;
+    expect(createdRes.status(), await createdRes.text()).toBe(200);
+    stopId = (await createdRes.json()).prepared.venueClientOrderId;
+    await continueInWallet(page);
+    await expect(dialog.getByTestId('protection-outcome')).toHaveText('Armed on the venue.', { timeout: 15_000 });
+
+    // Lower ETH-PERP's TEST ladder and mark below the stop trigger so the stop fires and fills against the bids.
+    await testVenue('/test/ladder-mid', { symbol: TRIGGER_PERP, price: '2850' });
+    await testVenue('/test/set-mark', { symbol: TRIGGER_PERP, price: '2850' });
+    await expect.poll(async () => (await venueOrder(s.owner, stopId)).status, { timeout: 20_000 }).toBe('filled');
+    expect(await venueOrder(s.owner, stopId)).toMatchObject({ origin: 'stop', status: 'filled', reduceOnly: true });
+  } finally {
+    await testVenue('/test/set-mark', { symbol: TRIGGER_PERP, price: '3000' }).catch(() => undefined);
+    await testVenue('/test/ladder-mid', { symbol: TRIGGER_PERP, price: '3000' }).catch(() => undefined);
+  }
+
+  // Filter order history by origin=stop and open the stop order's detail page.
+  await page.goto('/trade/orders?product=venue&origin=stop');
+  const stopRow = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${stopId}"]`);
+  await expect(stopRow).toBeVisible({ timeout: 20_000 });
+  await expect(stopRow.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(stopRow.locator('[data-cell=origin]')).toHaveText('Stop');
+  await expect(stopRow.locator('[data-cell=status]')).toHaveText('Filled');
+  await stopRow.getByTestId('venue-order-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/orders/${stopId}$`));
+  await expect(fact(page, 'Venue')).toHaveText(venueName);
+  await expect(fact(page, 'Origin')).toHaveText('Stop');
+  await expect(fact(page, 'Label')).toHaveText('None');
+  await expect(fact(page, 'Why it triggered')).toContainText('2,900 USDC');
+  await expect(page.getByTestId('venue-order-fill')).not.toHaveCount(0);
+
+  // Part 2: filter by label from /trade/orders, then open the labelled order from #1 to verify its origin ("You") and label ("grid-7").
+  await page.goto('/trade/orders?product=venue');
+  await page.getByRole('textbox', { name: 'Label', exact: true }).fill(LABEL);
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`label=${LABEL}`));
+  const labelledRows = page.getByTestId('venue-history').locator('tbody tr');
+  await expect(labelledRows).toHaveCount(1, { timeout: 20_000 });
+  await expect(labelledRows.first().locator('[data-cell=label]')).toHaveText(LABEL);
+  const byLabel = await me.get(`/api/v1/venue/orders/history?owner=${s.owner}&label=${LABEL}`);
+  expect(byLabel.status).toBe(200);
+  expect(byLabel.body.orders.map((r) => r.order.venueClientOrderId)).toEqual([s.cancelledId]);
+  // An invalid label is refused in words before applying and by the service.
+  await page.getByRole('textbox', { name: 'Label', exact: true }).fill('two words');
+  await expect(page.getByText('A label is up to 36 letters, digits and . _ : - with no spaces.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
+  const badLabel = await me.get(`/api/v1/venue/orders/history?owner=${s.owner}&label=${encodeURIComponent('two words')}`);
+  expect(badLabel.status).toBe(400);
+  expect(badLabel.body.intafacedCode).toBe('trade.order_label_invalid');
+  // Open the labelled order from the filtered table.
+  await labelledRows.first().getByTestId('venue-order-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/orders/${s.cancelledId}$`));
+  await expect(fact(page, 'Venue')).toHaveText(venueName, { timeout: 20_000 });
+  await expect(fact(page, 'Origin')).toHaveText('You');
+  await expect(fact(page, 'Label')).toHaveText(LABEL);
+
+  // Part 3: an order made by a liquidation on XLIQ-PERP (the TEST venue's liquidation perpetual).
+  let liqOrder;
+  try {
+    await testVenue('/test/set-mark', { symbol: LIQ_PERP, price: '100' });
+    await testVenue('/test/ladder-mid', { symbol: LIQ_PERP, price: '100' });
+    const opened = await ownRun(s.walletKey, {
+      kind: 'place_order',
+      symbol: LIQ_PERP,
+      side: 'buy',
+      type: 'market',
+      amount: '1',
+      price: '105',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${J.toLowerCase()}:s2-liq-long:${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(opened, JSON.stringify(opened).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    const pos = (await venueRecord(s.owner, '/positions')).value.find((p) => p.symbol === LIQ_PERP);
+    expect(pos?.liquidationPrice?.known).toBe(true);
+    const liqPx = toUnits(pos.liquidationPrice.value);
+    const step1 = fromUnits((liqPx / toUnits('1')) * toUnits('1'));
+    const step2 = fromUnits((liqPx / toUnits('1') - 1n) * toUnits('1'));
+    // Two marks finish the TEST venue's two-part liquidation cleanly so no open position or in-progress liquidation stays.
+    await testVenue('/test/set-mark', { symbol: LIQ_PERP, price: step1 });
+    await testVenue('/test/set-mark', { symbol: LIQ_PERP, price: step2 });
+    const liqHistory = (await venueRecord(s.owner, '/order-history')).value.filter(
+      (r) => r.order.origin === 'liquidation' && r.order.symbol === LIQ_PERP,
+    );
+    expect(liqHistory.length).toBeGreaterThan(0);
+    liqOrder = liqHistory[0].order;
+    expect(liqOrder).toMatchObject({ origin: 'liquidation', side: 'sell', reduceOnly: true, status: 'filled', label: null });
+    expect(liqOrder.originRef).toMatch(/^liq-\d+-\d+$/);
+  } finally {
+    await testVenue('/test/set-mark', { symbol: LIQ_PERP, price: '100' }).catch(() => undefined);
+    await testVenue('/test/ladder-mid', { symbol: LIQ_PERP, price: '100' }).catch(() => undefined);
+  }
+
+  // Filter order history by origin=liquidation and open the liquidation order's detail page.
+  await page.goto('/trade/orders?product=venue&origin=liquidation');
+  const liqRow = page.getByTestId('venue-history').locator(`tr[data-client-order-id="${liqOrder.venueClientOrderId}"]`);
+  await expect(liqRow).toBeVisible({ timeout: 20_000 });
+  await expect(liqRow.locator('[data-cell=venue]')).toHaveText(venueName);
+  await expect(liqRow.locator('[data-cell=origin]')).toHaveText('Liquidation');
+  await expect(liqRow.locator('[data-cell=status]')).toHaveText('Filled');
+  await liqRow.getByTestId('venue-order-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/orders/${liqOrder.venueClientOrderId}$`));
+  await expect(fact(page, 'Venue')).toHaveText(venueName);
+  await expect(fact(page, 'Origin')).toHaveText('Liquidation');
+  await expect(fact(page, 'Placed by')).toHaveText(`Liquidation step ${liqOrder.originRef}`);
+  await expect(fact(page, 'Label')).toHaveText('None');
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+  await stepPicture(page);
+  await ledgerUntouched(s);
+});
 
 test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or a reviewed cancel-and-replace where it can't; nothing changes until confirmed`, async ({
   page,
   browser,
 }) => {
   test.setTimeout(600_000);
-  await startsLine(browser);
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
@@ -218,6 +477,11 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   expect(toUnits(amended.locked)).toBeLessThan(toUnits(before.locked));
   expect(door.of('prepare').at(-1).body.intent).toMatchObject({ kind: 'amend_order', symbol: PERP, venueClientOrderId: a });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  // The row reads the amended order before it is edited again, as the person sees it: Edit opens on the order the row
+  // shows, so pressed before the desk re-reads, it would offer the old amount.
+  await expect
+    .poll(async () => shownUnits(await rowOf(page, a).locator('[data-cell=locked]').innerText()), { timeout: 20_000 })
+    .toBe(toUnits(amended.locked));
 
   // A new price is a reviewed cancel-and-replace: reviewed first with nothing sent, then one signature for both.
   await rowOf(page, a)

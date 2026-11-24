@@ -22,11 +22,12 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
   ];
   return (
     <>
-      <dl aria-label={t('Market rules')}>
+      <dl className="lt-kv" aria-label={t('Market rules')}>
         {rows.map(([name, value]) => (
           <div key={name}>
             <dt>{name}</dt>
-            <dd className="if-num">{value}</dd>
+            {/* A rule's value is often a sentence ("Limit prices within 95% of …"): it wraps in the narrow ticket column. */}
+            <dd>{value}</dd>
           </div>
         ))}
       </dl>
@@ -42,8 +43,8 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
 export function TicketRules({ market }: { market: DeskMarket }) {
   const { t } = deskCopy.useCopy();
   return (
-    <details data-testid="dk-rules" className="dk-rules">
-      <summary className="dk-rules-summary">{t('Ticket rules', { pair: market.symbol })}</summary>
+    <details data-testid="dk-rules" className="lt-stack-tight lt-tight">
+      <summary className="lt-note">{t('Ticket rules', { pair: market.symbol })}</summary>
       <MarketRulesList market={market} />
     </details>
   );
