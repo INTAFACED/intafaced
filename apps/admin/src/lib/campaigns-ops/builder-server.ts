@@ -19,9 +19,10 @@ import {
   type Campaign,
   type CampaignAction,
   type CampaignDefinitionInput,
+  type RuleLibrarySaveInput,
+  type RuleTestInput,
 } from '@intafaced/contracts/campaigns-catalogue';
 import {
-  founderCall,
   founderRecordCall,
   parseWith,
   type FounderCallContext,
@@ -30,8 +31,19 @@ import {
   type Part,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
+import {
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+} from '@intafaced/contracts/campaigns-ops-procedures';
 
 /**
  * The campaigns desk as the signed-in founder. svc-campaigns holds every campaign (`ops.campaigns.*`: `campaigns:ops` and
@@ -50,7 +62,7 @@ const readCampaign = parseWith(campaignSchema);
 
 export async function loadCampaignsDesk(ctx: FounderCallContext): Promise<CampaignsDeskView> {
   const [list, calendar] = await Promise.all([
-    founderCall(ctx, 'campaigns', 'ops.campaigns.list', 'GET', undefined, readList),
+    founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_LIST, undefined, readList),
     founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR, undefined),
   ]);
   return {
@@ -63,7 +75,7 @@ export async function loadCampaignsDesk(ctx: FounderCallContext): Promise<Campai
 /** One campaign by id (at any age), with the gate's answer for its stored revision and the platform time zone. */
 export async function loadCampaignDetail(ctx: FounderCallContext, id: string): Promise<CampaignDetailView> {
   const [got, gate, platformTimeZone] = await Promise.all([
-    founderCall(ctx, 'campaigns', 'ops.campaigns.get', 'GET', { id }, readCampaign),
+    founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_GET, { id }, readCampaign),
     founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_VALIDATE, { id }),
     loadPlatformTimeZone(ctx),
   ]);
@@ -134,15 +146,15 @@ type UpdateInput = { id: string; revision: number; definition: CampaignDefinitio
 type MoveInput = { id: string; action: CampaignAction; revision: number };
 
 export async function createCampaign(ctx: FounderCallContext, input: CampaignDefinitionInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.create', 'POST', input, readCampaign), 'created');
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CREATE, input, readCampaign), 'created');
 }
 
 export async function updateCampaign(ctx: FounderCallContext, input: UpdateInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.update', 'POST', input, readCampaign), 'saved');
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_UPDATE, input, readCampaign), 'saved');
 }
 
 export async function moveCampaign(ctx: FounderCallContext, input: MoveInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.transition', 'POST', input, readCampaign), input.action);
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION, input, readCampaign), input.action);
 }
 
 // ── Rule library (CM-eligibility-rules-02, J-campaigns-16 #4) ──────────────────────────────────────────────────────
@@ -175,16 +187,16 @@ export function ruleReply<T>(result: FounderCallResult<T>): { status: number; re
   };
 }
 
-export async function testRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.test', 'GET', input, readRuleTest));
+export async function testRule(ctx: FounderCallContext, input: RuleTestInput) {
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_TEST, input, readRuleTest));
 }
 
-export async function saveRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.save', 'POST', input, readRuleEntry));
+export async function saveRule(ctx: FounderCallContext, input: RuleLibrarySaveInput) {
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_SAVE, input, readRuleEntry));
 }
 
 export async function listRules(ctx: FounderCallContext) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.list', 'GET', undefined, readRuleList));
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_LIST, undefined, readRuleList));
 }
 
 // ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3; J-campaigns-16 #9) ────────────────────────────────

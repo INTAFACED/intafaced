@@ -16,9 +16,9 @@ import {
   adminSessionErrorResponse,
   AdminSessionError,
   authorizeAdminRequest,
-  founderEdgeCall,
   founderEdgeRecordCall,
   type AdminSessionConfig,
+  founderEdgeRecordRead,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
 import {
@@ -26,6 +26,10 @@ import {
   OPS_OUTREACH_ASSIGN,
   OPS_OUTREACH_OWNERS,
   OPS_OUTREACH_UPDATE_NEXT_ACTION,
+  OPS_OUTREACH_CHANGE_STAGE,
+  OPS_OUTREACH_GET_OPPORTUNITY,
+  OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+  OPS_OUTREACH_LIST_OPPORTUNITIES,
 } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +64,7 @@ function writeOf(action: unknown, raw: unknown, config: AdminSessionConfig, acce
   if (action === 'addNote')
     return via(OPS_OUTREACH_ADD_NOTE.input, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_ADD_NOTE, input, accessToken));
   if (action === 'changeStage')
-    return via(crmStageChangeInputSchema, (input) => founderEdgeCall(config, 'ops', 'outreach.changeStage', 'POST', input, accessToken));
+    return via(crmStageChangeInputSchema, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_CHANGE_STAGE, input, accessToken));
   return null;
 }
 function detailResponse(data: unknown, id: string) {
@@ -153,16 +157,14 @@ export async function GET(request: Request) {
     let data: unknown;
     if (id !== null) {
       if (!uuid.test(id) || [...params.keys()].some((key) => key !== 'opportunityId')) throw new AdminSessionError('admin.crm_input', 400);
-      data = await founderEdgeCall(config, 'ops', 'outreach.getOpportunity', 'GET', { opportunityId: id }, session.accessToken);
+      data = await founderEdgeRecordCall(config, OPS_OUTREACH_GET_OPPORTUNITY, { opportunityId: id }, session.accessToken);
       const detail = detailResponse(data, id.toLowerCase());
       data = detail;
       if (detail) {
         const provenance = crmContactProvenanceSchema.safeParse(
-          await founderEdgeCall(
+          await founderEdgeRecordRead(
             config,
-            'ops',
-            'outreach.getContactProvenance',
-            'GET',
+            OPS_OUTREACH_GET_CONTACT_PROVENANCE,
             { contactId: detail.submission.contactId },
             session.accessToken,
           ),
@@ -181,7 +183,7 @@ export async function GET(request: Request) {
       if ('limit' in raw) raw.limit = Number(raw.limit);
       const parsed = crmListInputSchema.safeParse(raw);
       if (!parsed.success) throw new AdminSessionError('admin.crm_input', 400);
-      data = await founderEdgeCall(config, 'ops', 'outreach.listOpportunities', 'GET', parsed.data, session.accessToken);
+      data = await founderEdgeRecordCall(config, OPS_OUTREACH_LIST_OPPORTUNITIES, parsed.data, session.accessToken);
       const page = crmOpportunityPageSchema.safeParse(data);
       if (!page.success) throw new AdminSessionError('admin.upstream_invalid', 502);
       data = page.data;
