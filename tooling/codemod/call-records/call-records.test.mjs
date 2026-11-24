@@ -3422,3 +3422,19 @@ test('a founder call whose answer goes to .safeParse() is read softly: it stays 
     [true, true, false],
   );
 });
+
+test('a const with only query that the test hands on as `api` (a mocked useSession) gets a call too', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'm.test.tsx');
+  // The past miss (identity's membership.offer): `useSession: () => ({ userId, api })`, the double a const of its own.
+  writeFileSync(
+    file,
+    [
+      'const api = { query: async () => 1 };',
+      'const other = { query: async () => 2 };',
+      "vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));",
+      '',
+    ].join('\n'),
+  );
+  assert.equal(doublesIn(file).out.length, 1, 'only the const handed on as api');
+});
