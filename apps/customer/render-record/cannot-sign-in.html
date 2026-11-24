@@ -31,11 +31,18 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page">
-<header class="pub-heading">
-<p class="eyebrow">ACCOUNT RECOVERY</p>
-<h1>Locked out? A person answers</h1>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Locked out? A person answers</h1>
+<p class="lt-description">ACCOUNT RECOVERY</p>
+</div>
 </header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack">
 <p class="lt-muted">If you lost your authenticator app and your recovery codes, and the reset on the sign-in page cannot help, Support can recover your account.</p>
 <h2>How it works</h2>
 <ol>
@@ -44,9 +51,14 @@
 <li>A one-time recovery link is then sent to the email address proved on your account. Nobody at Support ever sees the link, and it works once.</li>
 <li>The link removes your authenticator app and recovery codes and signs you out everywhere. You then sign in with your password and set up a new authenticator app.</li>
 </ol>
-<p class="pub-notice" role="note">Support never asks for your password, a code or the link itself.</p>
+<p class="lt-note" role="note">Support never asks for your password, a code or the link itself.</p>
 <p>Still know your password? Try the reset on the sign-in page first: <a class="lt-link" href="/login">Back to sign in</a>
 </p>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="help">
 <aside data-testid="contact-card" class="lt-stack" aria-labelledby="contact-title">
 <h2 id="contact-title">Locked out? A person can help</h2>
 <p class="lt-hint">If the reset above says it isn’t switched on, a person has to help. Support requests need a sign-in, so email us instead.</p>
@@ -64,6 +76,10 @@
 <p role="note">Never write your password, recovery codes or one-time codes. We will never ask for them.</p>
 <p role="status" data-testid="support-contact-unread">The published contact details could not be read just now, so only what this page was built with is shown.</p>
 </aside>
+</section>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">
