@@ -3,7 +3,7 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   eyebrow: 'Money',
   title: 'Supported assets and networks',
-  lead: 'The one list Deposit and Withdraw read: each asset, its networks, how many decimal places it is counted to and what it can be used for. A retired asset stays here, so your history with it still makes sense.',
+  lead: 'Every asset you can deposit, withdraw or trade, the networks it moves on and the smallest amount it can be split into. An asset we no longer support stays here, so your history with it still makes sense.',
   linkLabel: 'Supported assets and networks',
   toDeposit: 'Deposit',
   toWithdraw: 'Withdraw',
@@ -34,7 +34,7 @@ const en = {
 const es = {
   eyebrow: 'Dinero',
   title: 'Activos y redes admitidos',
-  lead: 'La única lista que leen Depositar y Retirar: cada activo, sus redes, con cuántos decimales se cuenta y para qué se puede usar. Un activo retirado sigue aquí, para que tu historial con él siga teniendo sentido.',
+  lead: 'Cada activo que puedes depositar, retirar u operar, las redes por las que se mueve y en cuántos decimales se puede dividir. Un activo que ya no admitimos sigue aquí, para que tu historial con él siga teniendo sentido.',
   linkLabel: 'Activos y redes admitidos',
   toDeposit: 'Depositar',
   toWithdraw: 'Retirar',
@@ -65,7 +65,7 @@ const es = {
 const fr = {
   eyebrow: 'Argent',
   title: 'Actifs et réseaux pris en charge',
-  lead: 'La seule liste que lisent Dépôt et Retrait : chaque actif, ses réseaux, le nombre de décimales avec lequel il est compté et ce à quoi il peut servir. Un actif retiré reste ici, pour que votre historique avec lui garde son sens.',
+  lead: 'Chaque actif que vous pouvez déposer, retirer ou échanger, les réseaux sur lesquels il circule et en combien de décimales il se divise. Un actif que nous ne prenons plus en charge reste ici, pour que votre historique avec lui garde son sens.',
   linkLabel: 'Actifs et réseaux pris en charge',
   toDeposit: 'Dépôt',
   toWithdraw: 'Retrait',

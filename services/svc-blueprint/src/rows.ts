@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { blueprintProfileSchema, guardrailsSchema, visibilitySchema } from '@intafaced/contracts/blueprint';
+import { blueprintProfileSchema, cardSizeSchema, guardrailsSchema, visibilitySchema } from '@intafaced/contracts/blueprint';
 
 /**
  * The rows `BlueprintService` checks as it reads them. Their own file so the Rust port's recorder
@@ -25,3 +25,11 @@ export const BlueprintRow = z.object({
 });
 
 export const MentorMatchRow = z.object({ student_id: z.string(), mentor_id: z.string(), fit_score: z.number(), status: z.string() });
+
+export const ShareRow = z.object({
+  id: z.string(),
+  owner_user_id: z.string(),
+  size: cardSizeSchema,
+  created_at: z.date(),
+  revoked_at: z.date().nullable(),
+});
