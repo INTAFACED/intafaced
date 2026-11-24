@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from './journey.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
+import { settledAction } from './header-action.mjs';
 import { FAIL_FAST } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -342,11 +343,7 @@ export async function everyRoomOpens(page) {
       await expect(block, `${room}: the state says something`).not.toHaveText(/^\s*$/);
     if (MONEY_ROOMS.includes(room)) {
       // The room's own money action, as drawn: a live link and where it goes, or switched off with its reason.
-      const head = page.getByTestId('plo-heading');
-      const off = head.locator('.pfo-action-off');
-      states.action = (await off.count())
-        ? { off: await off.locator('small').innerText() }
-        : { on: await head.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href'))) };
+      states.action = await settledAction(page.getByTestId('plo-heading'));
     }
     visited.set(room, states);
     for (const next of await navRooms(page)) if (!visited.has(next)) queue.push(next);
