@@ -15,6 +15,7 @@ import {
   PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE,
   PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY,
   PAY_MERCHANT_OPS_ACTIVITY_LIST,
+  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import {
   PAY_SUBSCRIPTION_PRODUCT_READY,
@@ -23,7 +24,9 @@ import {
   PAY_SUBSCRIPTION_GET,
   PAY_SUBSCRIPTION_LIST_EXECUTIONS,
 } from '@intafaced/contracts/pay-subscription-procedures';
-import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_LIST_LINKS, PAY_MERCHANT_CHECKOUT_SETTINGS_GET } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MANDATE_LIST, PAY_MANDATE_GET } from '@intafaced/contracts/pay-mandate-procedures';
+import { PAY_MERCHANT_CONTROL_TIERS_LIST } from '@intafaced/contracts/pay-merchant-control-procedures';
 
 const REFUND_PAGES = 5;
 
@@ -55,12 +58,15 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord, qu
       signal,
     ),
   mandates: (merchantId: string, signal?: AbortSignal) =>
-    query('mandate.list', { merchantId, limit: 200 }, p.page(mandateSchema.refine((row) => row.merchantId === merchantId)), signal).then(
-      listed,
-    ),
+    queryRecordAs(
+      PAY_MANDATE_LIST,
+      { merchantId, limit: 200 },
+      p.page(mandateSchema.refine((row) => row.merchantId === merchantId)),
+      signal,
+    ).then(listed),
   mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
-    query(
-      'mandate.get',
+    queryRecordAs(
+      PAY_MANDATE_GET,
       { mandateId },
       mandateSchema.refine((row) => row.merchantId === merchantId && row.id === mandateId),
       signal,
@@ -96,7 +102,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord, qu
     contentBase64: string;
     sha256: string;
     note?: string;
-  }) => mutate('merchantOps.disputes.uploadEvidence', input, p.evidenceSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE, input),
   evidenceFile: (evidenceId: string) => queryRecord(PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE, { evidenceId }),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
@@ -171,9 +177,8 @@ export const paymentsApi = ({ query, mutate, list, queryRecord, mutateRecord, qu
   },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_OPS_ACTIVITY_LIST, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
-  checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
-    query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
-  ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),
+  checkoutSettings: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CHECKOUT_SETTINGS_GET, { merchantId }, signal),
+  ownTier: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TIERS_LIST, { merchantId }, signal),
   invoices: (
     filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
     cursor: string | undefined,

@@ -29,7 +29,7 @@ import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-opt
 import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
 import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
 import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
-import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { isInteractivePrincipal, resolveMerchantCaller } from './roles.js';
 import { MerchantSecurity } from './security.js';
 import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
@@ -78,6 +78,14 @@ import {
   PAY_MERCHANT_OPS_PAYOUTS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_LIST,
   PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST,
+  note,
+  PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
+  PAY_MERCHANT_OPS_TEAM_INVITE,
+  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
+  PAY_MERCHANT_OPS_TEAM_REMOVE,
+  PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
@@ -127,8 +135,6 @@ export interface MerchantOpsDeps {
    */
   readonly receiptPlaces?: ReceiptAssetPlaces;
 }
-
-const note = z.string().trim().min(1).max(2000);
 
 function makeParts(deps: MerchantOpsDeps) {
   const sql = deps.sql;
@@ -242,22 +248,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().disputes.addEvidence(await callerOf(ctx), input))),
-        uploadEvidence: memberWrite
-          .input(
-            z.object({
-              disputeId: z.string().trim().min(1).max(200),
-              kind: z.enum(EVIDENCE_KINDS),
-              fileName: z.string().trim().min(1).max(255),
-              contentType: z.string().trim().min(1).max(127),
-              contentBase64: z.string().min(1).max(1_400_000),
-              sha256: z
-                .string()
-                .regex(/^[0-9a-fA-F]{64}$/)
-                .optional(),
-              note: note.optional(),
-            }),
-          )
-          .mutation(({ ctx, input }) => wrapOps(async () => need().disputes.uploadEvidence(await callerOf(ctx), input))),
+        uploadEvidence: mountRecord(
+          PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE,
+          ({ ctx, input }) => wrapOps(async () => need().disputes.uploadEvidence(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         getEvidence: mountRecord(
           PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE,
           ({ ctx, input }) => wrapOps(async () => need().disputes.getEvidence(await callerOf(ctx), input.evidenceId)),
@@ -392,22 +387,21 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             }),
           payRefusal,
         ),
-        invite: memberWrite
-          .input(
-            z.object({
-              userId: z.string().trim().min(1).max(128).optional(),
-              email: z.string().trim().min(1).max(254).optional(),
-              role: z.enum(TEAM_ROLES),
-              label: z.string().trim().min(1).max(120).optional(),
-            }),
-          )
-          .mutation(({ ctx, input }) => wrapOps(async () => need().team.invite(await callerOf(ctx), input))),
-        changeRole: memberWrite
-          .input(z.object({ memberId: id, role: z.enum(TEAM_ROLES) }))
-          .mutation(({ ctx, input }) => wrapOps(async () => need().team.changeRole(await callerOf(ctx), input))),
-        remove: memberWrite
-          .input(z.object({ memberId: id }))
-          .mutation(({ ctx, input }) => wrapOps(async () => need().team.remove(await callerOf(ctx), input))),
+        invite: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_INVITE,
+          ({ ctx, input }) => wrapOps(async () => need().team.invite(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        changeRole: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
+          ({ ctx, input }) => wrapOps(async () => need().team.changeRole(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        remove: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_REMOVE,
+          ({ ctx, input }) => wrapOps(async () => need().team.remove(await callerOf(ctx), input)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         leave: exit.input(z.object({}).strict()).mutation(({ ctx }) => wrapOps(async () => need().team.leave(await callerOf(ctx)))),
         myInvitations: mountRecord(
           PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS,
@@ -436,11 +430,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
 
       /** M-plat-org-03: the built-in roles and what each can do, read from the role table. Built-in roles have no write. */
       permissions: router({
-        catalogue: read.input(z.object({}).strict()).query(({ ctx }) =>
-          wrapOps(async () => {
-            await callerOf(ctx);
-            return permissionCatalogue();
-          }),
+        catalogue: mountRecord(
+          PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,
+          ({ ctx }) =>
+            wrapOps(async () => {
+              await callerOf(ctx);
+              return permissionCatalogue();
+            }),
+          payRefusal,
         ),
         /** Mounted on the read scope on purpose: a read-only caller gets the named refusal too, not a scope error. It never writes. */
         updateRole: read.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
@@ -612,12 +609,16 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           ({ ctx }) => wrapOps(async () => need().notifications.unreadCount(await callerOf(ctx))),
           payRefusal,
         ),
-        markRead: memberWrite
-          .input(z.object({ notificationIds: z.array(id).min(1).max(200) }))
-          .mutation(({ ctx, input }) => wrapOps(async () => need().notifications.markRead(await callerOf(ctx), input.notificationIds))),
-        markAllRead: memberWrite
-          .input(z.object({}).strict())
-          .mutation(({ ctx }) => wrapOps(async () => need().notifications.markAllRead(await callerOf(ctx)))),
+        markRead: mountRecord(
+          PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
+          ({ ctx, input }) => wrapOps(async () => need().notifications.markRead(await callerOf(ctx), input.notificationIds)),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
+        markAllRead: mountRecord(
+          PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
+          ({ ctx }) => wrapOps(async () => need().notifications.markAllRead(await callerOf(ctx))),
+          { refusalOf: payRefusal, checks: { teamMember } },
+        ),
         preferences: router({
           list: mountRecord(
             PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_LIST,

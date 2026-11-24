@@ -28,10 +28,16 @@ import {
   PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
   PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
   PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
+  PAY_MERCHANT_OPS_TEAM_INVITE,
+  PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE,
+  PAY_MERCHANT_OPS_TEAM_REMOVE,
+  PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /** A filter is the page's text, sent as before: the service checks it against its own list and refuses any other. */
-const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord, mutateRecord, listRecord }: PortalTools) => ({
+const baseSettingsApi = ({ mutate, confirmDestinationStepUp, queryRecord, mutateRecord, listRecord }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
   createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
     mutate(
@@ -72,11 +78,11 @@ const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord,
     listRecord(PAY_MERCHANT_OPS_TEAM_HISTORY, { ...(cursor ? { cursor } : {}) }, signal),
   myInvitations: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS, {}, signal),
   invite: (input: { userId?: string; email?: string; role: p.TeamRole; label?: string }) =>
-    mutate('merchantOps.team.invite', input, p.memberSchema),
-  changeRole: (memberId: string, role: p.TeamRole) => mutate('merchantOps.team.changeRole', { memberId, role }, p.memberSchema),
-  removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
+    mutateRecord(PAY_MERCHANT_OPS_TEAM_INVITE, input),
+  changeRole: (memberId: string, role: p.TeamRole) => mutateRecord(PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE, { memberId, role }),
+  removeMember: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_REMOVE, { memberId }),
   acceptInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE, { memberId }),
-  permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
+  permissionCatalogue: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, {}, signal),
   declineInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE, { memberId }),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
     listRecord(
@@ -105,8 +111,8 @@ const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord,
       signal,
     ),
   unreadCount: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_UNREAD_COUNT, {}, signal),
-  markRead: (notificationIds: string[]) => mutate('merchantOps.notifications.markRead', { notificationIds }, p.markedSchema),
-  markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
+  markRead: (notificationIds: string[]) => mutateRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ, { notificationIds }),
+  markAllRead: () => mutateRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ, {}),
   preferences: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_LIST, {}, signal),
   preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     listRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY, { ...(cursor ? { cursor } : {}) }, signal),

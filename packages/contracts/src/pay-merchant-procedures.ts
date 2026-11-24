@@ -32,6 +32,8 @@ import {
   payDestinationCancelHoldInputSchema,
   payDestinationCancelHoldOutputSchema,
   payDestinationRemoveOutputSchema,
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
 } from './pay-portal-reads.js';
 import { payPageSchema } from './pay-merchant-reads.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
@@ -502,6 +504,21 @@ export const PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL = defineProcedure
   output: merchantProfileSecondApprovalResultSchema,
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', enabled: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CHECKOUT_SETTINGS_GET = defineProcedure({
+  ...base,
+  name: 'pay.merchant.checkoutSettings.get',
+  kind: 'query',
+  path: 'merchant.checkoutSettings.get',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: payCheckoutSettingsGetInputSchema,
+  output: payCheckoutSettingsSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

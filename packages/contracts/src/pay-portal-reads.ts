@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
 import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
 import { payListCursorSchema, payListSearchSchema, payMerchantFailureSchema, payPageSchema } from './pay-merchant-reads.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * Merchant portal reads that main did not expose: destination inventory,
@@ -21,7 +22,7 @@ const pageLimitSchema = z.number().int().min(1).max(200).optional();
  * including an empty object or an empty domain list. This read does not fill
  * a fee, a domain, or a brand. `feeRouting` is null when hidden for this role.
  */
-const checkoutSettingsRecordSchema = z.record(z.string(), z.unknown());
+const checkoutSettingsRecordSchema = z.record(z.string(), jsonValueSchema);
 
 export const payCheckoutSettingsGetInputSchema = z
   .object({
