@@ -16,6 +16,7 @@ import { SandboxNotFound, SandboxPage, useSandbox } from './SandboxRoom';
 import { BaseUrl, Refused, type Refusal, type T } from './sandbox-parts';
 import { KEY_PRESETS, createSandbox, createSandboxKey, readSandboxes, sandboxRoute, type KeyPreset } from './sandbox-api';
 import '../apps/apps.css';
+import { leaveTo } from '../../../app/location';
 
 const day = (iso: string) => <time dateTime={iso}>{iso.slice(0, 10)}</time>;
 
@@ -201,7 +202,7 @@ function ShownOnce({ made, sandboxId, t }: { made: Made; sandboxId: string; t: T
       <label>
         <input type="checkbox" checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} /> {t('stored')}
       </label>
-      <Button tone="primary" disabled={!stored} onClick={() => window.location.assign(`/developers/sandbox/${sandboxId}`)}>
+      <Button tone="primary" disabled={!stored} onClick={() => leaveTo(`/developers/sandbox/${sandboxId}`)}>
         {t('done')}
       </Button>
     </section>

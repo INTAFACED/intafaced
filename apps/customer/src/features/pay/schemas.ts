@@ -292,19 +292,6 @@ export const subscriptionPostureSchema = z.object({
   preChargeNotify: z.object({ status: z.literal('unwired'), notified: z.literal(false), merchantReadable: z.string() }),
   card: z.object({ status: z.literal('refuse_closed'), code: z.literal('pay.mandate_rail_absent') }),
 });
-export const permissionEventSchema = z.object({
-  id,
-  seq: z.string(),
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  action: z.enum(['grant', 'revoke']),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  actorScope: z.string(),
-  createdAt: z.string(),
-});
 export const webhookSchema = z.object({
   id,
   merchantId: id,

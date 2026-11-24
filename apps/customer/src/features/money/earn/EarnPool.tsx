@@ -24,6 +24,7 @@ import {
   BANK_EARN_POSITIONS,
   BANK_EARN_RISK_DISCLOSURE,
 } from '@intafaced/contracts/bank-earn-procedures';
+import { shownCode } from '../../../shared/reference';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type History = z.infer<typeof rateHistorySchema>;
@@ -42,7 +43,7 @@ function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
     <div role="alert" className="lt-refusal" data-refusal="refused" data-code={failure.code ?? ''}>
       <p className="lt-refusal-body">
         {words}
-        {failure.code ? ` ${t('reference', { code: failure.code })}` : ''}
+        {shownCode(failure.code) ? ` ${t('reference', { code: failure.code! })}` : ''}
       </p>
       <Button tone="quiet" onClick={retry}>
         {t('retry')}

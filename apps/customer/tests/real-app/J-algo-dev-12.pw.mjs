@@ -4,6 +4,7 @@ import { api, journeyState, restartWithSetting } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { userIdOf } from './copy.mjs';
+import { grouped, inWords } from './quant-words.mjs';
 
 // J-algo-dev-12, in the running app (docs/roadmap/journeys.json): a founder sets plan quotas and sandbox limits with a
 // reason, and reads what developers see. One test per step, titled "J-algo-dev-12 #<n>", run in order. The founder is the
@@ -221,7 +222,7 @@ test(`${J} #3 leaves a sandbox limit (wall-clock, memory, output) unset: the str
   await signIn(page, dev);
   await sandboxRun(page);
   await expect(page.getByTestId('failure')).toContainText(
-    'Nothing ran: the memory per run (bytes of text held) limit of your plan is not set, so no run starts.',
+    'Nothing ran: the memory per run limit of your plan is not set, so no run starts.',
   );
   await expect(page.getByText('Paper — not live performance', { exact: true })).toHaveCount(0);
   // Before it runs: the service names the limit, and no run was recorded.
@@ -261,18 +262,19 @@ test(`${J} #4 opens the developer limits page: every limit with its current valu
   const read = await limitsOf(dev);
   expect(read.profile).toBe(plan);
   const shown = [
-    ['wall_clock_ms', 'Wall-clock time per run (milliseconds)', '5000'],
-    ['memory_bytes', 'Memory per run (bytes of text held)', '1000000'],
-    ['output_bytes', 'Log output per run (bytes)', '200000'],
-    ['max_ops', 'Operations per run (every plan)', read.ceilings.maxOps],
-    ['max_source', 'Source length (characters, every plan)', read.ceilings.maxSource],
+    // Each value in plain words, as the developer will hit it: 5000 ms is 5 seconds, 1000000 bytes 1 MB.
+    ['wall_clock_ms', 'Time per run', '5000', '5 seconds'],
+    ['memory_bytes', 'Memory per run', '1000000', '1 MB'],
+    ['output_bytes', 'Log output per run', '200000', '200 KB'],
+    ['max_ops', 'Steps per run (every plan)', read.ceilings.maxOps, grouped(read.ceilings.maxOps)],
+    ['max_source', 'Code length (every plan)', read.ceilings.maxSource, `${grouped(read.ceilings.maxSource)} characters`],
   ];
-  for (const [limit, label, value] of shown) {
+  for (const [limit, label, value, words] of shown) {
     expect(value, `${limit} has a value on the stack`).toMatch(/^\d+$/);
     const row = limits.locator(`tr[data-limit="${limit}"]`);
     await expect(row).toHaveAttribute('data-value', value);
     await expect(row.getByRole('rowheader')).toHaveText(label);
-    await expect(row.getByRole('cell')).toHaveText(value);
+    await expect(row.getByRole('cell')).toHaveText(words);
   }
   // The values on the page are the ones the sandbox applies: the plan's sandbox limits as svc-quant reads them.
   expect(read.sandbox).toEqual([
@@ -283,28 +285,31 @@ test(`${J} #4 opens the developer limits page: every limit with its current valu
   // The plan's quotas are on the same page, as the usage view counts them.
   // Every quota of the plan, each with the value #2 set or "not set", and its use as svc-quant counts it.
   const usage = page.getByTestId('quant-usage');
+  // [row name, stored limit, the limit in words]: storage reads in MB, every other resource as a count.
   const PLAN_QUOTAS = {
-    strategies: ['Saved strategies', '3'],
-    versions: ['Versions on one strategy (the most)', null],
-    concurrent_runs: ['Concurrent runs', '2'],
-    paper_runs: ['Paper runs', null],
-    runs: ['Stored runs', '5'],
-    log_lines: ['Stored log lines', null],
-    storage: ['Source and result storage (bytes)', '10000000'],
-    collaborators: ['Collaborators per strategy', '2'],
-    notifications: ['Notifications per day', null],
+    strategies: ['Saved strategies', '3', '3'],
+    versions: ['Versions on one strategy (the most)', null, 'not set'],
+    concurrent_runs: ['Concurrent runs', '2', '2'],
+    paper_runs: ['Paper runs', null, 'not set'],
+    runs: ['Stored runs', '5', '5'],
+    log_lines: ['Stored log lines', null, 'not set'],
+    storage: ['Code and result storage', '10000000', '10 MB'],
+    collaborators: ['Collaborators per strategy', '2', '2'],
+    notifications: ['Notifications per day', null, 'not set'],
   };
   const counted = await usageOf(dev);
   expect(counted.resources.map((r) => r.resource).sort()).toEqual(Object.keys(PLAN_QUOTAS).sort());
   await expect(usage.locator('tr[data-resource]')).toHaveCount(Object.keys(PLAN_QUOTAS).length);
-  for (const [resource, [label, limit]] of Object.entries(PLAN_QUOTAS)) {
+  for (const [resource, [label, limit, limitWords]] of Object.entries(PLAN_QUOTAS)) {
     const row = usage.locator(`tr[data-resource="${resource}"]`);
     const used = counted.resources.find((r) => r.resource === resource).used;
     expect(counted.resources.find((r) => r.resource === resource).limit, resource).toBe(limit);
     await expect(row, resource).toHaveAttribute('data-limit', limit ?? '');
     await expect(row.getByRole('rowheader'), resource).toHaveText(label);
-    await expect(row.getByRole('cell').nth(0), resource).toHaveText(used);
-    await expect(row.getByRole('cell').nth(1), resource).toHaveText(limit ?? 'not set');
+    // The use as svc-quant counts it, in the same words: storage's bytes in KB or MB, every other count as it is.
+    await expect(row, resource).toHaveAttribute('data-used', used);
+    await expect(row.getByRole('cell').nth(0), resource).toHaveText(inWords(used, resource === 'storage' ? 'bytes' : 'count'));
+    await expect(row.getByRole('cell').nth(1), resource).toHaveText(limitWords);
   }
 
   // As the developer will hit them: with every limit set the run starts now, and a log over the output limit ends it by name.

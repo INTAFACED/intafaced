@@ -367,7 +367,7 @@ export function VenueSpotDesk({
               {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
               {type === 'limit' && tif === 'GTD' ? (
                 <label className="dk-tif dk-expiry">
-                  <span className="dk-tif-label">{t('Expires')}</span>
+                  <span className="lt-hint lt-nowrap">{t('Expires')}</span>
                   <DateInput
                     type="datetime-local"
                     className="dk-expiry-input"

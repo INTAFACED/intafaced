@@ -2551,6 +2551,42 @@
         270, 287, 290, 298, 304, 554, 558, 561, 564, 570, 572, 575, 581, 584, 586, 589, 592, 595, 602, 605, 608, 610, 613, 619, 623, 626,
         628, 630, 633, 638
       ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 },
+        { "k": "regex", "src": "/\\S/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 },
+        { "k": "regex", "src": "/\\S/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["originalTxId", 615],
+        ["ordinal", 275],
+        ["reason", 640],
+        ["caseRef", 641]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^ops:reversal:[0-9a-f-]{36}:[1-9][0-9]{0,18}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["txId", 274],
+        ["idempotencyKey", 643],
+        ["postedAt", 17],
+        ["reverses", 274]
+      ]
     }
   ],
   "inputs": {
@@ -2607,6 +2643,8 @@
     "controlDefine": 490,
     "controlUpdate": 508,
     "controlRunInput": 530,
-    "controlRuns": 537
+    "controlRuns": 537,
+    "operatorReverse": 642,
+    "operatorReverseReply": 644
   }
 }

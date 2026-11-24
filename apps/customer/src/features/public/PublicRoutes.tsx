@@ -33,6 +33,16 @@ import { RulebookRoom } from './rulebook/RulebookRoom';
 import { StatusRoom } from './status-room/StatusRoom';
 import { StatusSubscriptionPage } from './StatusSubscription';
 import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
+import { isHiddenPath } from '../../app/feature-registry';
+
+/** The public footer's links; the beta's build drops each one its menus leave out (app/beta-volt.ts). */
+const FOOTER = [
+  ['/help', 'Help'],
+  ['/status', 'Status'],
+  ['/fees', 'Fees'],
+  ['/notice', 'Notices'],
+  ['/partner', 'Partners'],
+] as const;
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
@@ -184,11 +194,11 @@ export function PublicRoutes({
       <footer className="public-footer">
         <Brand footer />
         <div>
-          <a href="/help">{t('Help')}</a>
-          <a href="/status">{t('Status')}</a>
-          <a href="/fees">{t('Fees')}</a>
-          <a href="/notice">{t('Notices')}</a>
-          <a href="/partner">{t('Partners')}</a>
+          {FOOTER.filter(([href]) => !isHiddenPath(href)).map(([href, label]) => (
+            <a key={href} href={href}>
+              {t(label)}
+            </a>
+          ))}
         </div>
         <p>{t('Your money. Your decisions.')}</p>
       </footer>

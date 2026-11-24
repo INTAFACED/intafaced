@@ -204,6 +204,7 @@ test(`${J} #4 chooses FIFO, LIFO, HIFO or average cost for the account or one co
 
 test(`${J} #5 picks the lot for one sale and sets a method for one day: that sale uses that lot, the other keeps its method`, async ({
   page,
+  stepPicture,
 }) => {
   const who = account();
   const buys = run.read().buys.map((b) => ({ cost: toUnits(b.cost), qty: toUnits(b.qty) }));
@@ -242,6 +243,8 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
   // The newest sale keeps its picked lot whatever the day's method: the older lot, unless HIFO's first sale drew on it.
   const left0 = hifoCost === share(buys[0].cost, buys[0].qty, take) ? { cost: buys[0].cost - hifoCost, qty: buys[0].qty - take } : buys[0];
   await expect(newest.locator('td').nth(2)).toHaveText(usd(share(left0.cost, left0.qty, take)));
+  // The step's picture: the picked lot and the day's method both on screen, before the choices are put back for the steps after.
+  await stepPicture();
 
   // Back to FIFO with no pick and no day method: both sales oldest first, as the standard method does.
   await choices.getByRole('list', { name: 'Saved day methods' }).getByRole('button', { name: 'Remove' }).click();

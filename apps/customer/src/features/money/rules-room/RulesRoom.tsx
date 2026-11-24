@@ -14,6 +14,8 @@ import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Failure, Loading, Panel, useRoomRefusal } from '../bank-settings/parts';
 import { choiceWords } from '../Rules';
 import { rulesCopy } from '../rules-copy';
+import { RefusalCode } from '../../../shared/RefusalCode';
+import { withCode } from '../../../shared/reference';
 
 /**
  * `/bank/rules` (J-bank-06 #6, BK-acct-10): the person's payment reminder rule (how long before each standing order
@@ -73,7 +75,7 @@ function ReminderPanel({
           : answer.code === 'bank.reminder_lead_invalid'
             ? t('remindInvalid')
             : answer.message;
-      setSaid({ kind: 'error', words: answer.code ? `${words} ${t('reference', { code: answer.code })}` : words });
+      setSaid({ kind: 'error', words: withCode(words, answer.code, (code) => t('reference', { code })) });
       if (answer.code === 'bank.reminder_revision_conflict') onSaved();
       return;
     }
@@ -199,7 +201,7 @@ function MoneyRulePanel({ code }: { code: string }) {
     setBusy(false);
     if (answer.ok) return;
     const words = answer.code === 'bank.rule_terms_unset' ? t('moneyRefused') : answer.message;
-    setSaid(answer.code ? `${words} ${t('reference', { code: answer.code })}` : words);
+    setSaid(withCode(words, answer.code, (code) => t('reference', { code })));
   }
 
   const options = spaces.resource.status === 'ready' ? spaces.resource.data : [];
@@ -210,7 +212,7 @@ function MoneyRulePanel({ code }: { code: string }) {
   return (
     <Panel id="rules-money" title={t('moneyTitle')} lead={t('moneyLead')}>
       <p role="note" data-testid="rules-money-not-set">
-        {t('moneyNotSet')} <small className="lt-hint">{t('reference', { code })}</small>
+        {t('moneyNotSet')} <RefusalCode className="lt-hint" code={code} line={(code) => t('reference', { code })} />
       </p>
       {spaces.resource.status === 'failed' && <Failure result={spaces.resource.failure} retry={spaces.reload} />}
       <form onSubmit={(event) => void save(event)} noValidate data-testid="rules-money">

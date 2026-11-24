@@ -298,12 +298,15 @@ const header = (page, name) => passes(page).getByRole('columnheader', { name, ex
 
 test(`${J} #6 opens the optimiser, filters loss-making passes and clicks a performance header: narrows locally, no sort, a note; Pass sorts`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   await page.goto('/quant/optimise');
   await expect(page.getByRole('heading', { name: 'Optimiser', level: 1 })).toBeVisible();
   await previewRoom(page, 'optimise');
   await expect(passes(page)).toContainText('TEST');
+  // The sample table is the person's to read: it sits in no blurred engine panel.
+  await expect(passes(page).locator('xpath=ancestor-or-self::*[@data-blurred]')).toHaveCount(0);
   const all = await bodyRows(page).count();
   expect(all).toBeGreaterThan(0);
   const profitsAll = await column(page, 'Profit');
@@ -350,6 +353,7 @@ test(`${J} #6 opens the optimiser, filters loss-making passes and clicks a perfo
     expect(flipped).toEqual(first === 'ascending' ? [...asc].reverse() : asc);
   });
   expect(writes, 'no write reaches a server').toEqual([]);
+  await stepPicture();
 });
 
 const windows = (page) =>

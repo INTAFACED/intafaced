@@ -73,6 +73,8 @@ const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<V
   place_orders: { kind: 'place_orders', orders: [ORDER], actionKey: 'action:owner:1' },
   spot_perps_transfer: { kind: 'spot_perps_transfer', direction: 'perps_to_spot', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:3' },
   set_account_mode: { kind: 'set_account_mode', mode: 'unified', changeKey: 'change:owner:2' },
+  set_position_mode: { kind: 'set_position_mode', symbol: 'ETH-PERP', mode: 'hedge', changeKey: 'change:owner:3' },
+  move_position: { kind: 'move_position', subAccount: SUB, direction: 'into_sub_account', symbol: 'ETH-PERP', moveKey: 'move:owner:7' },
   vault_transfer: { kind: 'vault_transfer', vault: SUB, direction: 'deposit', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:4' },
   staking_transfer: { kind: 'staking_transfer', direction: 'to_staking', asset: 'HYPE', amount: a('1'), moveKey: 'move:owner:5' },
   staking_delegate: {
