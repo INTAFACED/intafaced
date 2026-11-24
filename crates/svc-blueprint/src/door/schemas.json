@@ -684,7 +684,33 @@
     { "t": "string" },
     { "t": "string" },
     { "t": "number" },
-    { "t": "string" }
+    { "t": "string" },
+    { "t": "array", "el": 175 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 176],
+        ["owner_user_id", 177],
+        ["size", 2],
+        ["created_at", 178],
+        ["revoked_at", 179]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    { "t": "date" },
+    { "t": "nullable", "in": 180 },
+    { "t": "date" },
+    { "t": "array", "el": 182 },
+    {
+      "t": "object",
+      "shape": [
+        ["url", 183],
+        ["bytes", 184]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "url" }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] }
   ],
   "inputs": { "card": 0, "cardOf": 3, "onboard": 9, "setVisibility": 27, "shares.create": 28, "shares.openers": 29, "shares.revoke": 29 },
   "outputs": {
@@ -702,5 +728,5 @@
     "shares.openers": 156,
     "shares.revoke": 154
   },
-  "rows": { "BlueprintRow": 157, "MentorMatchRow": 168 }
+  "rows": { "BlueprintRow": 157, "MentorMatchRow": 168, "ShareRow": 174, "RendererResponse": 181 }
 }
