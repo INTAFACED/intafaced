@@ -32,6 +32,7 @@ services:
   svc-edge:
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
     environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
       EDGE_KILL_STATE_PATH: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/edge-kill-state.json
     volumes:
       - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
@@ -40,6 +41,14 @@ services:
     ports: ['127.0.0.1:4001:4001']
   svc-trade:
     ports: ['127.0.0.1:4004:4004']
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+  svc-pay:
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+  svc-ws:
+    environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
   svc-matching:
     ports: ['127.0.0.1:4005:4005']
 
@@ -56,6 +65,13 @@ services:
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
     environment:
       LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+      # The keys identity answers each caller's authority and admission questions with, one per caller, as
+      # docker-compose.outreach.yml and `pnpm local:stack` pass them; compose-env fills them from this stack's secrets.
+      # Without the edge's, the edge cannot confirm a session is live, so every signed-in call is refused.
+      IDENTITY_EDGE_AUTHORITY_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_WS_AUTHORITY_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_PAY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_TRADE_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?run local-test-compose-env.mjs}
       IDENTITY_LOCAL_MAIL_OUTBOX: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/email-outbox.log
     volumes:
       - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
