@@ -47,7 +47,7 @@ const ENTERED = '50000';
 const BUY_PRICE = '77';
 const BOUGHT = '20';
 const SELL_PRICE = '133';
-/** TEST: the other trader's two-sided quote #2 reads the price now from (its middle is 120), around neither trade price. */
+/** TEST: the other trader's two-sided quote #2 reads the price now from (a sale now gets its bid, 100), around neither trade price. */
 const QUOTE_BID = '100';
 const QUOTE_ASK = '140';
 /** TEST USDC in the person's venue account, enough for #1's buy and #7's. */
@@ -307,7 +307,7 @@ test(`${J} #2 reads unrealised profit and loss for the coin, as an amount and a 
   test.setTimeout(300_000);
   const s = trader();
   const { symbol, base, qty, cost } = trades.read();
-  // Another TEST trader quotes the coin on both sides of the book, so the venue has a price now: the middle, 120.
+  // Another TEST trader quotes the coin on both sides of the book, so the venue has a price now: what a sale gets, its bid, 100.
   const quoter = await otherTrader(s.owner, 'quote', base, '10');
   await testDeposit(otherTraderKey(quoter).address, 'USDC', '10000', `seed:${quoter}:USDC`);
   await rest(quoter, symbol, 'buy', '1', QUOTE_BID, 'pf2-quote-bid');
@@ -317,9 +317,9 @@ test(`${J} #2 reads unrealised profit and loss for the coin, as an amount and a 
   await openVenueDesk(page, s.account, `/trade/spot/${symbol}`, s.walletKey);
   const main = await pnl(page);
   const row = await venueRow(main, s.owner, base);
-  // By hand: worth now is the open coins at the venue's middle price (half-up at 18 places), less the lot's cost.
-  const mid = (book.bid + book.ask) / 2n;
-  const worth = (toUnits(qty) * mid + ONE / 2n) / ONE;
+  // By hand: worth now is the open coins at what selling them there would get, the venue's best bid (half-up at 18
+  // places), less the lot's cost.
+  const worth = (toUnits(qty) * book.bid + ONE / 2n) / ONE;
   const unrealised = worth - toUnits(cost);
   await expect(row.locator('[data-col="unrealised"]')).toHaveText(`${usd(unrealised, true)} (${pct(unrealised, toUnits(cost))})`, {
     timeout: 30_000,

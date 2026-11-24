@@ -66,6 +66,8 @@ fn serve() -> BlueprintDoor {
         now,
         // The recording's database: a stub that refuses any call with its own name.
         store: Store::Down("replay stub: sql".to_owned()),
+        // The recording's renderer is a stub too; no call reaches it past the refusing database.
+        renderer: Box::new(svc_blueprint::card::renderer::Unconfigured),
     })
     .unwrap()
 }

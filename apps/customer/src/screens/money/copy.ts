@@ -232,10 +232,10 @@ const messages = {
   'View last': 'Last trade',
   'View day': '24 hours',
   'View all rule':
-    'All time is realised plus unrealised: what your sales locked in and what what is still open would make at today’s price.',
+    'All time is realised plus unrealised: what your sales locked in and what what is still open would make if sold now, at the best bid.',
   'View realised rule': 'What your sales locked in: what each sale received less the cost of the lots it used.',
-  'View unrealised rule': 'What what is still open would make at today’s price, less what it cost.',
-  'View last rule': 'How your newest trade did: a sale’s result, or what a buy still open would make at today’s price.',
+  'View unrealised rule': 'What what is still open would make if sold now, at the best bid, less what it cost.',
+  'View last rule': 'How your newest trade did: a sale’s result, or what a buy still open would make if sold now, at the best bid.',
   'View day rule':
     'How what is open now moved in the last 24 hours. A coin bought inside the 24 hours counts from what it cost, not from the price a day ago.',
   'Figure cost unknown': 'Not known: some cost is not known',
@@ -348,7 +348,7 @@ const messages = {
     'The result of your sales: what you received, after fees, less the cost of the lots they used. Not known as soon as any sale has no cost.',
   'How realised is worked out': 'How realised is worked out',
   'Unrealised rule':
-    'What the coins you bought are worth now at today’s price, less what they cost. Not known as soon as any coin has no cost or no price.',
+    'What the coins you bought would get if sold now, at the best bid, less what they cost. Not known as soon as any coin has no cost or no price.',
   'How unrealised is worked out': 'How unrealised is worked out',
   'Not known': 'Not known',
   'Cost unknown': 'Cost unknown',

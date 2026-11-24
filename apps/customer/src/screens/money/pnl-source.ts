@@ -13,7 +13,7 @@ import {
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_SET_LOT_METHOD,
 } from '@intafaced/contracts/tax-procedures';
-import { LOT_METHODS, venueMid, type LotBook, type LotMethod, type MissingBasis, type VenuePrices } from './pnl-model';
+import { LOT_METHODS, venueSellPrice, type LotBook, type LotMethod, type MissingBasis, type VenuePrices } from './pnl-model';
 import type { Decimal } from '../../data';
 import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade';
@@ -220,9 +220,9 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
 const DOLLAR_QUOTES = new Set(['USDC', 'USDT']);
 
 /**
- * The venue's own price now for each coin held in a venue account (J-portfolio-02 #2): the middle of the venue's best bid
- * and ask on the coin's dollar spot market. A coin with no such market, or a book with an empty side, gets no price, so
- * its unrealised result stays not known; nothing is read when no venue coin is held.
+ * The venue's own price now for each coin held in a venue account (J-portfolio-02 #2): what selling it there would get,
+ * the venue's best bid on the coin's dollar spot market. A coin with no such market, or no bid, gets no price, so its
+ * unrealised result stays not known; nothing is read when no venue coin is held.
  */
 export function useVenuePrices(assets: readonly string[]): VenuePrices {
   const venue = useVenueApi();
@@ -236,8 +236,8 @@ export function useVenuePrices(assets: readonly string[]): VenuePrices {
       const market = markets.data.value.find((m) => m.kind === 'spot' && m.baseAsset === asset && DOLLAR_QUOTES.has(m.quoteAsset));
       if (!market) continue;
       const best = await venue.bestPrices(market.symbol, signal);
-      const mid = best.ok ? venueMid(best.data.value.bid, best.data.value.ask) : null;
-      if (mid !== null) prices.set(asset, mid);
+      const price = best.ok ? venueSellPrice(best.data.value.bid) : null;
+      if (price !== null) prices.set(asset, price);
     }
     return { ok: true, data: prices };
   }, `pnl-venue-prices:${key}`);

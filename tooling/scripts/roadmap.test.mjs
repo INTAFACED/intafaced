@@ -264,6 +264,16 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 1 journey and 2 steps\./);
 });
 
+test('DEFERRED in brackets defers only the slices it names; the step stays live', () => {
+  const text = JOURNEY.replace(
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01 (history: SP-lifecycle-history-01, DEFERRED until launch prep) | none |',
+  );
+  const step = parseJourneys(text, 'cex-spot')[0].steps[1];
+  assert.equal(step.deferred, undefined, 'the step is still counted');
+  assert.deepEqual(step.slices, ['SP-order-entry-01']);
+});
+
 test('a parked journey or step stays in the map, leaves the count and the slice order, and comes back unparked (OWNER 183)', () => {
   const text = JOURNEY.replace('- Order: 2', '- Order: 2\n- Parked: until after launch (OWNER 183 (2): the mining pool)').replace(
     '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',

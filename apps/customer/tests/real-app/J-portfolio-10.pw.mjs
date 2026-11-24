@@ -86,6 +86,8 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   await expect
     .poll(() => page.getByTestId('price').evaluate((node) => node.querySelector('[role="img"]')?.getAttribute('aria-label') ?? null))
     .toMatch(/^\$[\d,]+\.\d{2}$/);
+  // The big number says which price it is: the last trade, not a buy or sell quote.
+  await expect(page.getByTestId('price-label')).toHaveText('Last trade price');
   await expect(page.getByTestId('chart-area').getByTestId('coin-chart')).toBeVisible();
   // The range pills: all six, in order, the default 1D the one pressed.
   const pills = page.getByTestId('coin-ranges').locator('button');
@@ -370,6 +372,20 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(review).toContainText('Review your buy');
     await expect(review.getByTestId('review-get')).toContainText(/BTC/);
     await expect(review).toContainText(/per BTC/);
+    // The review shows the book's best bid and best ask, the spread between them, and the fee in dollars beside
+    // its own unit. A buy is priced at the ask, so the price per BTC is the ask shown.
+    const bidText = await review.getByTestId('review-bid').innerText();
+    const askText = await review.getByTestId('review-ask').innerText();
+    expect(bidText).toMatch(/^\$[\d,]+\.\d{2}$/);
+    expect(askText).toMatch(/^\$[\d,]+\.\d{2}$/);
+    expect(dollars(askText)).toBeGreaterThanOrEqual(dollars(bidText));
+    await expect(review).toContainText(`${askText} per BTC`);
+    const spreadText = await review.getByTestId('review-spread').innerText();
+    expect(spreadText).toMatch(/^\$[\d,]+\.\d{2} \(\d+\.\d{3}%\)$/);
+    // The spread is the ask less the bid, to the cent.
+    expect(Math.round(dollars(spreadText.split(' ')[0]) * 100)).toBe(Math.round((dollars(askText) - dollars(bidText)) * 100));
+    await expect(review.getByTestId('review-fee')).toHaveText(/^[\d.]+ (BTC|USDT)$/);
+    await expect(review.getByTestId('review-fee-usd')).toHaveText(/^ ?\(about \$[\d,.]+\)$/);
     // The step's picture: the coin room's own Buy card, BTC chosen, at its review (the Pro half below ends on the desk).
     await stepPicture(page);
     // Leaving the review places nothing.

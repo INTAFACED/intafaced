@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
+  atSellPrice,
   coinMethod,
   lotAccountFromQuery,
   lotAccounts,
@@ -16,7 +17,7 @@ import {
   spaceOf,
   viewFromQuery,
   unknownShareOf,
-  venueMid,
+  venueSellPrice,
   type LotBook,
   type LotBookLot,
   type LotBookSale,
@@ -49,6 +50,37 @@ const row = (asset: string, amount: string, usdValue: string | null): MoneyRow =
   share: null,
   priceSymbol: null,
   priceUsd: null,
+});
+
+describe('atSellPrice (#10702: unrealised is what selling now would return)', () => {
+  const priced = (asset: string, amount: string, usdValue: string, priceSymbol: string): MoneyRow => ({
+    ...row(asset, amount, usdValue),
+    priceSymbol,
+    priceUsd: null,
+  });
+  it('values a coin at its best bid, not the last trade: 1 BTC bought for 200, last 250, bid 240, is +40', () => {
+    const rows = atSellPrice([priced('BTC', '1', '250', 'BTC-USDT')], { 'BTC/USDT': { bid: '240' } });
+    expect(rows).toEqual([{ ...priced('BTC', '1', '250', 'BTC-USDT'), usdValue: '240', priceUsd: '240' }]);
+    expect(pnlView(book(), rows).unrealisedUsd).toBe('40');
+  });
+  it('right after a buy at the ask, unrealised is the spread and the fee, not the fee alone', () => {
+    // The walk: 0.00153846 BTC for 99.90 at the ask; the last trade is that fill (64,871.11), the bid is 64,683.23.
+    const bought = book({
+      assets: [{ assetId: asAssetId('BTC'), openQty: '0.00153846', openCostUsd: '99.9', held: '0.00153846', uncountedQty: '0' }],
+    });
+    const atLast = [priced('BTC', '0.00153846', '99.80063668', 'BTC/USDT')];
+    expect(pnlView(bought, atLast).unrealisedUsd).toBe('-0.09936332');
+    // 0.00153846 * 64,683.23 = 99.5125620258, less 99.90
+    const atBid = atSellPrice(atLast, { 'BTC/USDT': { bid: '64683.23' } });
+    expect(pnlView(bought, atBid).unrealisedUsd).toBe('-0.3874379742');
+  });
+  it('keeps the row when its market has no bid, or it has no price at all', () => {
+    const rows = [priced('BTC', '1', '250', 'BTC-USDT'), row('USDT', '10', '10'), row('XAU', '1', null)];
+    expect(atSellPrice(rows, { 'BTC/USDT': { bid: null } })).toEqual(rows);
+    expect(atSellPrice(rows, {})).toEqual(rows);
+    expect(atSellPrice(rows, null)).toEqual(rows);
+    expect(atSellPrice(null, {})).toBeNull();
+  });
 });
 
 describe('pnlView', () => {
@@ -543,7 +575,7 @@ describe('venue account lots', () => {
     expect(view.unrealisedUsd).toBeNull();
   });
 
-  it('values the venue coins at the venue’s own price now, never ours: 0.00999 BTC at a 60,100 mid less 600 is +0.399', () => {
+  it('values the venue coins at the venue’s own price now, never ours: 0.00999 BTC at a 60,100 bid less 600 is +0.399', () => {
     // TEST, by hand: 0.00999 × 60,100 = 600.399; less the 600 cost is +0.399, a ratio of 0.000665 to the cost.
     const view = pnlView(withVenue, [row('BTC', '1', '150')], new Map([['BTC', '60100']]));
     expect(view.assets.map((a) => [a.venueAccount, a.valueUsd, a.unrealisedUsd, a.unrealisedRatio, a.reason])).toEqual([
@@ -553,11 +585,11 @@ describe('venue account lots', () => {
     expect(view.unrealisedUsd).toBe('50.399');
   });
 
-  it('the venue mid is the middle of its best bid and ask, and not known with either side empty', () => {
-    expect(venueMid('60000', '60200')).toBe('60100');
-    expect(venueMid('0.5', '0.6')).toBe('0.55');
-    expect(venueMid(null, '60200')).toBeNull();
-    expect(venueMid('60000', null)).toBeNull();
+  it('the venue price is what a sale gets now, its best bid, and not known with no bid', () => {
+    expect(venueSellPrice('60100')).toBe('60100');
+    expect(venueSellPrice('0.55')).toBe('0.55');
+    expect(venueSellPrice(null)).toBeNull();
+    expect(venueSellPrice('0')).toBeNull();
   });
 
   it('a venue sale picks only among its own account’s lots, and a ledger sale never a venue lot', () => {

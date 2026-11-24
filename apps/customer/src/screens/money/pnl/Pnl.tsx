@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Button, Field, InfoTip, Select, Switch } from '@intafaced/ui/lit';
 import { MonitorTemplate, Skeleton } from '@intafaced/ui/lit/templates';
 import { moneyCopy } from '../copy';
-import { fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy } from '../deps';
+import { fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, useTickers } from '../deps';
 import { MissingCost, basisRefusalWords } from './MissingCost';
 import { Amount, EmptyNote, ErrorNote, Pressed, RefusedNote } from './parts';
 import {
@@ -20,6 +20,7 @@ import {
   methodFromQuery,
   pickableLots,
   pnlFigures,
+  atSellPrice,
   pnlView,
   saleFeesUsd,
   viewFromQuery,
@@ -981,7 +982,13 @@ export default function Pnl({ search = '' }: { search?: string }) {
   // The switch shows the method on screen: the previewed one, else the account's saved (or default) method.
   const method = ask !== 'saved' ? ask : book.status === 'ready' ? book.data.method : null;
   const portfolio = useMoneyPortfolio();
-  const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
+  const tickers = useTickers();
+  // Open coins count at what selling them now would get (their best bid), so Unrealised is what a sale would make.
+  const rows = useMemo(
+    () => atSellPrice(portfolio.status === 'ready' ? portfolio.data.rows : null, tickers.status === 'ready' ? tickers.data : null),
+    [portfolio, tickers],
+  );
+  // A venue account's coins count the same way, at the venue's own best bid.
   const venuePrices = useVenuePrices(
     book.status === 'ready' ? book.data.assets.filter((a) => a.venueAccount !== undefined).map((a) => a.assetId) : [],
   );
