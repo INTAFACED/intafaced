@@ -1169,10 +1169,9 @@ describe('TEST venue simulator: market state guards & book sequence (J-cex-spot-
       session: {
         homeMarket: 'TEST Hours',
         offHoursMode: 'closed',
-        offHoursBand: a('0.05'),
-        offHoursMaxLeverageBps: null,
+        offHoursBand: '5%',
         reopensAfterMs: 3_600_000,
-        offHoursRule: 'Orders are not queued while closed',
+        closedRule: 'Orders are not queued while closed',
       },
     });
     w.sim.setSession('SES-USDC', 'closed');

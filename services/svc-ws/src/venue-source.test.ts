@@ -90,8 +90,8 @@ describe('svc-ws venue-source (J-cex-spot-14 #8)', () => {
         quoteVolume: '1000',
         change24h: '0',
         changePct24h: '0',
-        high24h: '101',
-        low24h: '99',
+        high: '101',
+        low: '99',
       },
     ];
     const tickerEngine: TickerSource = { fetch: vi.fn(async () => engTickers) };
