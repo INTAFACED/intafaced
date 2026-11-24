@@ -137,6 +137,7 @@
     "/trade/copy",
     "/trade/futures",
     "/trade/margin",
+    "/trade/markets/downloads",
     "/trade/news",
     "/trade/options",
     "/trade/orders",

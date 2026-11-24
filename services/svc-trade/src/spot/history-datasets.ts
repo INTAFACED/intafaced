@@ -389,8 +389,8 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
         ${market.symbol},
         ${depth.sequence},
         ${capturedAt},
-        ${JSON.stringify(depth.bids)}::jsonb,
-        ${JSON.stringify(depth.asks)}::jsonb
+        ${JSON.stringify(depth.bids)}::text::jsonb,
+        ${JSON.stringify(depth.asks)}::text::jsonb
       )
       ON CONFLICT (market_id, sequence, captured_at) DO NOTHING
     `;
@@ -770,7 +770,7 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
           ${input.stats.firstSequence},
           ${input.stats.lastSequence},
           ${input.stats.completenessPct}::numeric,
-          ${JSON.stringify(input.stats.gaps)}::jsonb,
+          ${JSON.stringify(input.stats.gaps)}::text::jsonb,
           ${HISTORY_PROVENANCE},
           ${encoded.payloadGzip}
         )
