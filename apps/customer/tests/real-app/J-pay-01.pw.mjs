@@ -220,6 +220,13 @@ test.afterAll(() => {
   if (run.read().lastStepRan) ownerRules(false);
 });
 
+/** Sets A's TEST partner switches through A's own kept session (setPartner signs in afresh, which spends a code). */
+async function aPartner(change) {
+  const res = await (await session(people().sender)).post('/api/bank/trpc/testPartner.set', change);
+  if (res.status !== 200) throw new Error(`testPartner.set refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
+  return res.body.result.data;
+}
+
 /** Every move out of A to another person on the TEST partner's own book. */
 async function movesOut() {
   const { senderId } = run.read();
@@ -618,7 +625,7 @@ async function statusPage(page) {
   await expect(page).toHaveURL(/\/money\/activity\/[^/?]+/);
 }
 
-test(`${J} #6 reads the payment status page: Completed for both parties, no Cancel button and a pointer to refund; a held send reads In review with the reason class`, async ({
+test(`${J} #6 reads the payment status page: Confirming, then Completed for both parties with the partner reference, no Cancel button and a pointer to refund; a held send reads In review with the reason class`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -688,6 +695,62 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
   expect(await usdt(sender)).toBe(before.sender);
   expect(await usdt(recipient)).toBe(before.recipient);
   expect(await sentOf(held)).toEqual([]);
+
+  // Confirming, then Completed: A sends TEST 2 USDT, and the partner makes the move but its answer to the bank is lost
+  // (the TEST partner's switch), so the bank cannot yet say it went through and Send waits on it. While the partner does
+  // not answer (its TEST switch), the payment's status page reads Confirming; once it answers, the same page reads
+  // Completed under the partner's one move, and Send stops waiting.
+  const confirming = '2';
+  const start = { sender: await usdt(sender), recipient: await usdt(recipient) };
+  await aPartner({ nextReply: 'lost' });
+  await sendForm(page, { amount: confirming, note: null, signedIn: true });
+  await page.getByTestId('pay-review').click();
+  await page.getByTestId('pay-send').click();
+  await expect(stepUp).toBeVisible();
+  await stepUp.getByLabel('Authenticator code', { exact: true }).fill(await aCode());
+  await page.getByTestId('pay-step-up-confirm').click();
+  const waiting = page.getByTestId('pay-waiting');
+  await expect(waiting).toContainText('We’re still confirming your last payment.');
+  await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
+  // The partner made the move once, under the bank's key for this send.
+  const made = await sentOf(confirming);
+  expect(made).toHaveLength(1);
+  const transferId = made[0].key.match(/^bank\.transfer\.p2p:(.+):0$/)?.[1];
+  expect(transferId, 'the partner’s move carries the bank’s key for the send').toBeTruthy();
+  await aPartner({ down: true });
+  try {
+    await waiting.getByTestId('pay-waiting-status').click();
+    await expect(page).toHaveURL(new RegExp(`/pay/history/${transferId}$`));
+    const status = page.getByTestId('payment-status');
+    await expect(status).toHaveText('Confirming');
+    await expect(status).toHaveAttribute('data-status', 'confirming');
+    await expect(page.getByTestId('payment-sent-note')).toHaveText(
+      'We’re confirming this payment with the bank that holds your money. It is sent at most once; check again in a moment.',
+    );
+    await expect(page.getByTestId('payment-partner-reference')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  } finally {
+    await aPartner({ down: false });
+  }
+  await page.getByRole('button', { name: 'Check again', exact: true }).click();
+  const status = page.getByTestId('payment-status');
+  await expect(status).toHaveText('Completed');
+  await expect(status).toHaveAttribute('data-status', 'completed');
+  await expect(page.getByTestId('payment-sent-note')).toHaveText('This payment is complete.');
+  await expect(page.getByTestId('payment-partner-reference')).toHaveText(made[0].id);
+  await expect(page.getByText(`${PARTNER_BANK} reference`, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  // The money moved once: one partner move, each balance by exactly 2, the ledger untouched; and Send waits no more.
+  expect(await sentOf(confirming)).toEqual(made);
+  expect(toUnits(start.sender) - toUnits(await usdt(sender))).toBe(toUnits(confirming));
+  expect(toUnits(await usdt(recipient)) - toUnits(start.recipient)).toBe(toUnits(confirming));
+  expect(toUnits(start.sender) - toUnits(await book(sender))).toBe(toUnits(confirming));
+  expect({ sender: await ledgerUsdt(sender), recipient: await ledgerUsdt(recipient) }).toEqual({ sender: '0', recipient: '0' });
+  run.write({ confirming });
+  await page.goto('/pay');
+  await expect(page.getByTestId('send-panel')).toBeVisible();
+  await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
 });
 
 /**
@@ -788,10 +851,11 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
   test.setTimeout(180_000);
   const { sender, recipient } = people();
   run.write({ lastStepRan: true });
-  const { reference, before, second, fees } = run.read();
+  const { reference, before, second, confirming, fees } = run.read();
   if (!fees) throw new Error(`${J} #4 kept no quote, so there are no fees to read`);
   if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
-  const moved = toUnits(AMOUNT) + toUnits(second);
+  if (!confirming) throw new Error(`${J} #6 sent no confirming payment, so the balance this run moved is not known`);
+  const moved = toUnits(AMOUNT) + toUnits(second) + toUnits(confirming);
   for (const side of [
     { who: sender, signIn: () => signInA(page), expected: toUnits(before.sender) - moved, direction: 'out' },
     { who: recipient, signIn: () => signIn(page, recipient), expected: toUnits(before.recipient) + moved, direction: 'in' },

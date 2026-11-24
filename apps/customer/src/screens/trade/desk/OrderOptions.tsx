@@ -1,34 +1,49 @@
 import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
-import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
+import { Menu } from '@intafaced/ui/lit';
+import { Select } from '@intafaced/ui/lit/templates';
+import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import type { OrderType } from './order-math';
-import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
-
-const TYPE_KEY = REFUSED_TAB_KEY;
+import type { TypeReasonKey } from './order-type-access';
+import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, TYPE_TAB_KEY, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
 /**
- * The order kinds the market does not take (trailing stop), listed in the strip's last slot but disabled: each row is
- * greyed and one line says why.
+ * The order kinds the ticket does not offer here, listed in the strip's last slot but disabled (J-cex-spot-04 #1): the
+ * ticket types this market, its state or this account's mode refuses (`refusedTypes`), then the kinds the service
+ * never takes (trailing stop). Each row is greyed and names its own reason.
  */
-export function MoreOrderTypes() {
+export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, TypeReasonKey> }) {
   const { t } = deskCopy.useCopy();
   return (
-    <Menu>
-      <MenuTrigger className="dk-type-more" aria-label={t('More order types label')}>
-        {t('More order types')}
-        <ChevronDown size={14} aria-hidden="true" />
-      </MenuTrigger>
-      <MenuContent align="start" className="dk-type-menu">
-        <p className="dk-type-reason" role="note">
-          {t('Order type unavailable')}
-        </p>
-        {UNSUPPORTED_TYPES.map((kind) => (
-          <MenuItem key={kind} disabled className="dk-type-item">
-            {t(TYPE_KEY[kind])}
-          </MenuItem>
-        ))}
-      </MenuContent>
-    </Menu>
+    <Menu
+      size="sm"
+      align="start"
+      triggerLabel={t('More order types label')}
+      label={
+        <>
+          {t('More order types')}
+          <ChevronDown size={14} aria-hidden="true" />
+        </>
+      }
+      items={[
+        ...SPOT_TICKET_ORDER_TYPES.flatMap((kind) => {
+          const reason = refused.get(kind);
+          return reason === undefined ? [] : [{ kind, name: t(TYPE_TAB_KEY[kind]), reason: t(reason) }];
+        }),
+        ...UNSUPPORTED_TYPES.map((kind) => ({ kind, name: t(REFUSED_TAB_KEY[kind]), reason: t('Type reason trailing stop') })),
+      ].map(({ kind, name, reason }) => ({
+        key: kind,
+        testId: `dk-type-off-${kind}`,
+        label: (
+          <>
+            <span data-testid="dk-type-name">{name}</span>
+            <span data-testid="dk-type-reason">{reason}</span>
+          </>
+        ),
+        disabled: true,
+        onSelect: () => undefined,
+      }))}
+    />
   );
 }
 
@@ -42,36 +57,26 @@ const SELF_TRADE = [
 /** What an order does when it would match one of the person's own resting orders. Picked once for both tickets. */
 export function SelfTradeSelect() {
   const { t } = deskCopy.useCopy();
-  const items = Object.fromEntries(SELF_TRADE.map(([mode, key]) => [mode, t(key)]));
   return (
-    <div className="dk-tif dk-opt">
-      <span className="lt-hint lt-nowrap" id="dk-stp-label">
+    <div className="lt-field">
+      <span className="lt-label" id="dk-stp-label">
         {t('Self trade')}
       </span>
-      <Select items={items} value="cancel_maker">
-        <SelectTrigger
-          size={32}
-          className="dk-tif-trigger"
-          aria-labelledby="dk-stp-label"
-          aria-describedby="dk-stp-note"
-          title={t('Self trade cancel maker help')}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start">
-          {SELF_TRADE.map(([mode, key]) => (
-            <SelectItem
-              key={mode}
-              value={mode}
-              disabled={mode !== 'cancel_maker'}
-              title={mode === 'cancel_maker' ? t('Self trade cancel maker help') : t('Self trade unavailable')}
-            >
-              {t(key)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <span className="dk-opt-note" id="dk-stp-note">
+      <Select
+        size="sm"
+        className="lt-grow"
+        labelledBy="dk-stp-label"
+        describedBy="dk-stp-note"
+        title={t('Self trade cancel maker help')}
+        value="cancel_maker"
+        options={SELF_TRADE.map(([mode, key]) => ({
+          value: mode,
+          label: t(key),
+          disabled: mode !== 'cancel_maker',
+          title: mode === 'cancel_maker' ? t('Self trade cancel maker help') : t('Self trade unavailable'),
+        }))}
+      />
+      <span className="lt-note" id="dk-stp-note">
         {t('Self trade unavailable')}
       </span>
     </div>
@@ -82,11 +87,11 @@ export function SelfTradeSelect() {
 export function TagField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const { t } = deskCopy.useCopy();
   return (
-    <label className="dk-tif dk-opt" title={t('Order tag help')}>
-      <span className="lt-hint lt-nowrap">{t('Order tag')}</span>
+    <label className="lt-field" title={t('Order tag help')}>
+      <span className="lt-label">{t('Order tag')}</span>
       <input
         type="text"
-        className="dk-expiry-input dk-tag-input"
+        className="lt-grow"
         value={value}
         maxLength={16}
         placeholder={t('Order tag placeholder')}
@@ -101,25 +106,25 @@ export function TagField({ value, onChange }: { value: string; onChange: (next: 
 export function TifSelect({ type, tif, onTif }: { type: OrderType; tif: Tif; onTif: (tif: Tif) => void }) {
   const { t } = deskCopy.useCopy();
   const options = tifsFor(type);
-  const items = Object.fromEntries(options.map((option) => [option, t(tifLabelKey(type, option))]));
   const help = t(`${tifLabelKey(type, tif)} help` as TifHelpKey);
   return (
-    <div className="dk-tif">
-      <span className="lt-hint lt-nowrap" id="dk-tif-label">
+    <div className="lt-field">
+      <span className="lt-label" id="lt-label">
         {t('Time in force')}
       </span>
-      <Select items={items} value={tif} onValueChange={(next) => (next && next !== tif ? onTif(next as Tif) : undefined)}>
-        <SelectTrigger size={32} className="dk-tif-trigger" aria-labelledby="dk-tif-label" title={help}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          {options.map((option) => (
-            <SelectItem key={option} value={option} title={t(`${tifLabelKey(type, option)} help` as TifHelpKey)}>
-              {items[option]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Select
+        size="sm"
+        className="lt-grow"
+        labelledBy="lt-label"
+        title={help}
+        value={tif}
+        onChange={(next) => (next !== tif ? onTif(next as Tif) : undefined)}
+        options={options.map((option) => ({
+          value: option,
+          label: t(tifLabelKey(type, option)),
+          title: t(`${tifLabelKey(type, option)} help` as TifHelpKey),
+        }))}
+      />
     </div>
   );
 }

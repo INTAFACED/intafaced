@@ -181,6 +181,8 @@ const RUST_READS = new Set([
   'packages/config/src/jurisdiction.ts',
   'tooling/profiles/test-owner-values/bank.json',
   'packages/contracts/procedures/svc-bank.schema.json',
+  // crates/svc-blueprint/src/card/compose.rs: the share card's colours and font stacks, the design system's own.
+  'packages/ui/src/tokens.ts',
 ]);
 /** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
 const RUST_READS_UNDER = ['packages/ledger-client/src/'];

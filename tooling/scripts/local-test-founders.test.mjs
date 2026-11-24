@@ -104,6 +104,21 @@ test('guard: refuses without the local test stack marker, and refuses the Docker
     const ok = assertLocalTestFounderTarget({ marker: marker(), stateDir, edgeUrl: 'http://127.0.0.1:14500' });
     assert.equal(ok.vaultPath, join(stateDir, 'founders.json'));
     assert.equal(ok.edgeUrl, 'http://127.0.0.1:14500');
+    const composeOk = assertLocalTestFounderTarget({
+      marker: { ...marker(Number(DOCKER_EDGE_PORT)), runtime: 'compose' },
+      stateDir,
+      edgeUrl: 'http://127.0.0.1:4000',
+    });
+    assert.equal(composeOk.edgeUrl, 'http://127.0.0.1:4000');
+    refuses(
+      () =>
+        assertLocalTestFounderTarget({
+          marker: { ...marker(Number(DOCKER_EDGE_PORT)), runtime: 'compose' },
+          stateDir,
+          edgeUrl: 'http://127.0.0.1:4001',
+        }),
+      /edge must be/,
+    );
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }

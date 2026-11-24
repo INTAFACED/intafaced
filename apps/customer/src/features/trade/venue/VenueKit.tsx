@@ -1,6 +1,6 @@
 import { useCallback, useRef, type ReactNode } from 'react';
-import { Badge, Checkbox } from '@intafaced/ui';
-import { Button, DataTable } from '../../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
@@ -34,9 +34,9 @@ export function TestMark({ test }: { test: boolean }) {
   const { t } = venueCopy.useCopy();
   if (!test) return null;
   return (
-    <Badge tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
+    <Tag tone="warn" data-testid="venue-test" title={t('Venue TEST note')}>
       {t('TEST')}
-    </Badge>
+    </Tag>
   );
 }
 
@@ -50,7 +50,7 @@ export function AsOfLine({ asOf }: { asOf: string | null }) {
   const text = useAsOfText();
   if (!asOf) return null;
   return (
-    <p className="lt-muted" data-testid="venue-as-of">
+    <p className="lt-quiet" data-testid="venue-as-of">
       {text(asOf)}
     </p>
   );
@@ -73,8 +73,8 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
-      <h1 className="dk-tab-title">
+    <header className="lt-panel" data-testid="venue-header" aria-label={t('Venue')}>
+      <h1 className="lt-panel-title">
         {title} <TestMark test={status.test} />
       </h1>
       <p data-testid="venue-name">
@@ -350,38 +350,44 @@ export function ReadProblem({ failure, venueName }: { failure: { message: string
   if (!failure) return null;
   const down = failure.code === 'trade.venue.venue_down';
   return (
-    <p className="lt-refusal" role="alert" data-testid="venue-read-problem">
+    <p className="lt-note lt-note-bad" role="alert" data-testid="venue-read-problem">
       {down ? t('Venue down', { venue: venueName, detail: failure.message }) : t('Read failed', { detail: failure.message })}
     </p>
+  );
+}
+
+/** Free, used and total per asset, as the venue reads them; each row and figure marked for the room's tests. */
+export function BalanceTable({ label, rows }: { label: string; rows: readonly VenueBalance[] }) {
+  const { t } = venueCopy.useCopy();
+  return (
+    <Table
+      caption={label}
+      dense
+      scroll
+      columns={[
+        { key: 'asset', label: t('Asset'), cell: (b) => b.asset },
+        { key: 'free', label: t('Free'), align: 'end', cell: (b) => displayAmount(b.free), cellMarks: () => ({ 'data-cell': 'free' }) },
+        { key: 'used', label: t('Used'), align: 'end', cell: (b) => displayAmount(b.locked), cellMarks: () => ({ 'data-cell': 'used' }) },
+        { key: 'total', label: t('Total'), align: 'end', cell: (b) => displayAmount(b.total), cellMarks: () => ({ 'data-cell': 'total' }) },
+      ]}
+      rows={rows}
+      rowKey={(b) => b.asset}
+      rowMarks={(b) => ({ 'data-asset': b.asset })}
+    />
   );
 }
 
 export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[]> | null; test: boolean }) {
   const { t } = venueCopy.useCopy();
   return (
-    <section className="dk-panel" aria-label={t('Balances')} data-testid="venue-balances">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Balances')} data-testid="venue-balances">
+      <h2 className="lt-panel-title">
         {t('Balances')} <TestMark test={test} />
       </h2>
       {balances && balances.value.length > 0 ? (
-        <DataTable label={t('Balances')} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {balances.value.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="lt-num" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="lt-num" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="lt-num" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <BalanceTable label={t('Balances')} rows={balances.value} />
       ) : balances ? (
-        <p className="lt-muted">{t('No balances')}</p>
+        <p className="lt-quiet">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={balances?.asOf ?? null} />
     </section>
@@ -410,56 +416,79 @@ export function FillsTable({
     <div data-testid="venue-fills">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="lt-muted">{t('No fills')}</p>
+        <p className="lt-quiet">{t('No fills')}</p>
       ) : (
-        <DataTable
-          label={t('Trade history')}
-          headers={[
-            t('Time'),
-            t('Market'),
-            t('Side'),
-            t('Price'),
-            t('Amount'),
-            ...(withTotal ? [t('Total')] : []),
-            t('Role'),
-            t('Venue fee'),
-            t('Our builder fee'),
-            t('Fee asset'),
-            t('Realised result'),
-            ...(tagOf ? [t('Tag')] : []),
+        <Table
+          caption={t('Trade history')}
+          dense
+          scroll
+          columns={[
+            { key: 'time', label: t('Time'), cell: (f: VenueFill) => asOfText(f.filledAt) },
+            { key: 'market', label: t('Market'), cell: (f) => f.symbol },
+            { key: 'side', label: t('Side'), cell: (f) => word(t, 'side', f.side) },
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (f) => displayAmount(f.price),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (f) => displayAmount(f.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            ...(withTotal
+              ? [
+                  {
+                    key: 'total',
+                    label: t('Total'),
+                    align: 'end',
+                    cell: (f) => `${displayAmount(fillTotal(f))} ${f.symbol.split('-')[1] ?? ''}`,
+                    cellMarks: () => ({ 'data-cell': 'total' }),
+                  } satisfies Column<VenueFill>,
+                ]
+              : []),
+            { key: 'role', label: t('Role'), cell: (f) => word(t, 'role', f.role), cellMarks: () => ({ 'data-cell': 'role' }) },
+            {
+              key: 'venue-fee',
+              label: t('Venue fee'),
+              align: 'end',
+              cell: (f) => <VenueFeeCell amount={f.venueFee} />,
+              cellMarks: () => ({ 'data-cell': 'venue-fee' }),
+            },
+            {
+              key: 'builder-fee',
+              label: t('Our builder fee'),
+              align: 'end',
+              cell: (f) => f.builderFee,
+              cellMarks: () => ({ 'data-cell': 'builder-fee' }),
+            },
+            { key: 'fee-asset', label: t('Fee asset'), cell: (f) => f.feeAsset },
+            {
+              key: 'realised',
+              label: t('Realised result'),
+              align: 'end',
+              cell: (f) => (f.realisedPnl === null ? t('Not known') : f.realisedPnl),
+              cellMarks: () => ({ 'data-cell': 'realised' }),
+            },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (f) => (f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''),
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<VenueFill>,
+                ]
+              : []),
           ]}
-        >
-          {rows.map((f) => (
-            <tr key={f.fillId} data-fill={f.fillId} data-client-order-id={f.venueClientOrderId ?? ''}>
-              <td>{asOfText(f.filledAt)}</td>
-              <td>{f.symbol}</td>
-              <td>{word(t, 'side', f.side)}</td>
-              <td className="lt-num" data-cell="price">
-                {displayAmount(f.price)}
-              </td>
-              <td className="lt-num" data-cell="amount">
-                {displayAmount(f.amount)}
-              </td>
-              {withTotal ? (
-                <td className="lt-num" data-cell="total">
-                  {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
-                </td>
-              ) : null}
-              <td data-cell="role">{word(t, 'role', f.role)}</td>
-              <td className="lt-num" data-cell="venue-fee">
-                <VenueFeeCell amount={f.venueFee} />
-              </td>
-              <td className="lt-num" data-cell="builder-fee">
-                {f.builderFee}
-              </td>
-              <td>{f.feeAsset}</td>
-              <td className="lt-num" data-cell="realised">
-                {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
-              </td>
-              {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
-            </tr>
-          ))}
-        </DataTable>
+          rows={rows}
+          rowKey={(f) => f.fillId}
+          rowMarks={(f) => ({ 'data-fill': f.fillId, 'data-client-order-id': f.venueClientOrderId ?? '' })}
+        />
       )}
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
@@ -524,81 +553,114 @@ export function OrdersTable({
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="lt-muted">{t('No open orders')}</p>
+        <p className="lt-quiet">{t('No open orders')}</p>
       ) : (
-        <DataTable
-          label={t('Open orders')}
-          headers={[
-            ...(select ? [select.header] : []),
-            t('Market'),
-            t('Side'),
-            t('Type'),
-            t('Time in force'),
-            t('Price'),
-            t('Amount'),
-            t('Filled'),
-            t('Locked'),
-            t('Status'),
-            ...(tagOf ? [t('Tag')] : []),
-            '',
-          ]}
-        >
-          {rows.map((o) => (
-            <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
-              {select ? (
-                <td data-cell="select">
-                  {o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
-                    <Checkbox
-                      aria-label={select.label(o.venueClientOrderId)}
-                      checked={select.selected.has(o.venueClientOrderId)}
-                      onCheckedChange={() => select.onToggle(o.venueClientOrderId!)}
-                    />
-                  ) : null}
-                </td>
-              ) : null}
-              <td>
-                {o.venueClientOrderId ? (
+        <Table
+          caption={t('Open orders')}
+          dense
+          scroll
+          columns={[
+            ...(select
+              ? [
+                  {
+                    key: 'select',
+                    label: select.header,
+                    cell: (o) =>
+                      o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                        <Checkbox
+                          label={<span className="lt-sr">{select.label(o.venueClientOrderId)}</span>}
+                          checked={select.selected.has(o.venueClientOrderId)}
+                          onChange={() => select.onToggle(o.venueClientOrderId!)}
+                        />
+                      ) : null,
+                    cellMarks: () => ({ 'data-cell': 'select' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'market',
+              label: t('Market'),
+              cell: (o: VenueOrder) =>
+                o.venueClientOrderId ? (
                   <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
                     {o.symbol}
                   </a>
                 ) : (
                   o.symbol
-                )}
-              </td>
-              <td>{word(t, 'side', o.side)}</td>
-              <td>{word(t, 'type', o.type)}</td>
-              <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>
-              <td className="lt-num" data-cell="price">
-                {displayAmount(o.price)}
-              </td>
-              <td className="lt-num" data-cell="amount">
-                {displayAmount(o.amount)}
-              </td>
-              <td className="lt-num" data-cell="filled">
-                {displayAmount(o.filled)}
-              </td>
-              <td className="lt-num" data-cell="locked">
-                {displayAmount(o.locked)} {o.lockedAsset}
-              </td>
-              <td data-cell="status">{word(t, 'status', o.status)}</td>
-              {tagOf ? <td data-cell="tag">{o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''}</td> : null}
-              <td>
-                {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
-                  <>
-                    <Button variant="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
-                      {t('Edit')}
-                    </Button>{' '}
-                  </>
-                ) : null}
-                {o.venueClientOrderId && o.status !== 'filled' ? (
-                  <Button variant="secondary" onClick={() => onCancel(o)}>
-                    {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
-                  </Button>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+                ),
+            },
+            { key: 'side', label: t('Side'), cell: (o) => word(t, 'side', o.side) },
+            { key: 'type', label: t('Type'), cell: (o) => word(t, 'type', o.type) },
+            {
+              key: 'tif',
+              label: t('Time in force'),
+              cell: (o) => word(t, 'tif', o.timeInForce),
+              cellMarks: () => ({ 'data-cell': 'tif' }),
+            },
+            {
+              key: 'price',
+              label: t('Price'),
+              align: 'end',
+              cell: (o) => displayAmount(o.price),
+              cellMarks: () => ({ 'data-cell': 'price' }),
+            },
+            {
+              key: 'amount',
+              label: t('Amount'),
+              align: 'end',
+              cell: (o) => displayAmount(o.amount),
+              cellMarks: () => ({ 'data-cell': 'amount' }),
+            },
+            {
+              key: 'filled',
+              label: t('Filled'),
+              align: 'end',
+              cell: (o) => displayAmount(o.filled),
+              cellMarks: () => ({ 'data-cell': 'filled' }),
+            },
+            {
+              key: 'locked',
+              label: t('Locked'),
+              align: 'end',
+              cell: (o) => `${displayAmount(o.locked)} ${o.lockedAsset}`,
+              cellMarks: () => ({ 'data-cell': 'locked' }),
+            },
+            { key: 'status', label: t('Status'), cell: (o) => word(t, 'status', o.status), cellMarks: () => ({ 'data-cell': 'status' }) },
+            ...(tagOf
+              ? [
+                  {
+                    key: 'tag',
+                    label: t('Tag'),
+                    cell: (o) => (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
+                    cellMarks: () => ({ 'data-cell': 'tag' }),
+                  } satisfies Column<VenueOrder>,
+                ]
+              : []),
+            {
+              key: 'actions',
+              label: '',
+              cell: (o) => (
+                <>
+                  {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                    <>
+                      <Button tone="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
+                        {t('Edit')}
+                      </Button>{' '}
+                    </>
+                  ) : null}
+                  {o.venueClientOrderId && o.status !== 'filled' ? (
+                    <Button tone="secondary" onClick={() => onCancel(o)}>
+                      {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
+                    </Button>
+                  ) : null}
+                </>
+              ),
+            },
+          ]}
+          rows={rows}
+          rowKey={(o) => o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`}
+          rowMarks={(o) => ({ 'data-client-order-id': o.venueClientOrderId ?? '' })}
+        />
       )}
       <AsOfLine asOf={orders?.asOf ?? null} />
     </div>

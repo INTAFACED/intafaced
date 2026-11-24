@@ -24,6 +24,7 @@ use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
 use service_kit::time::Instant;
+use svc_blueprint::db::Store;
 use svc_blueprint::door::{self, BlueprintDoor, DoorConfig, Slice};
 
 const GOLDEN: &str = include_str!("../../../services/svc-blueprint/src/wire-replay.golden.json");
@@ -63,6 +64,10 @@ fn serve() -> BlueprintDoor {
         edge_secret: SECRET.to_owned(),
         env,
         now,
+        // The recording's database: a stub that refuses any call with its own name.
+        store: Store::Down("replay stub: sql".to_owned()),
+        // The recording's renderer is a stub too; no call reaches it past the refusing database.
+        renderer: Box::new(svc_blueprint::card::renderer::Unconfigured),
     })
     .unwrap()
 }

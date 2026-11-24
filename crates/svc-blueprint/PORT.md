@@ -3,21 +3,27 @@
 `services/svc-blueprint` is the Identity Blueprint: one onboarding session sent to the Neural Engine, the profile it
 returns, crew placement, a mentor shortlist, the share card, and export and hard delete. It holds no balance and posts
 nothing to the ledger. This crate is its Rust port, one slice at a time; until the switch the TypeScript service is the
-one that runs, and nothing is served from here.
+one that runs, and nothing is served from here (the binary only runs `svc-blueprint migrate [--down]`).
 
-## What is here already (the shell)
+## What is here already
 
 - `src/door/`: every call of svc-blueprint's records, read from their published schema
   (`packages/contracts/procedures/svc-blueprint.schema.json`), so a new record is served with no edit. The checks run
   in the TypeScript's order: route and method, then sign-in, scope and the `blueprint` module's region (minimum tier
   `none`), then the record's zod input (`inputs.rs`, `schemas.json`, the refine in `src/refines.rs`). Past those, a call
-  is its slice's: `handle` in `door/mod.rs` answers `health` and says every other slice is not ported.
+  is its slice's (`handle` in `door/mod.rs`), and what it returns is parsed by the record's output schema, as tRPC
+  does. `schemas.json` also holds the row schemas (`BlueprintRow`, `MentorMatchRow`) a handler checks rows with as read.
+- The store: `migrations/` (the `drizzle` files, held identical by a test until the switch), `src/migrate.rs` with the
+  `migrate` binary (`src/main.rs`), and the pool (`src/db.rs`). `tests/support` gives each database test a copy of a
+  migrated template.
 - `src/env.rs`: `env.ts` field by field, its engine refine and `assertProdEngine`.
 - `src/errors.rs`: `BlueprintError` and `AttestationSurfaceError` codes and both ways the router answers a refusal:
   `mapped` (`toTrpcError`) and `unmapped` (`me`, `mentors`, `export` send whatever they throw as a 500, bug included).
 - `scripts/record-door.mjs` writes `schemas.json` and the fixtures from the TypeScript; `--check` fails when one is
   stale. `tests/`: the wire replay (`services/svc-blueprint/src/wire-replay.golden.json`), input, env and refusal
-  parity, and `port_notes.rs`, which holds the `## Slices` list below to `door::Slice::of`.
+  parity, and `port_notes.rs`, which holds the `## Slices` list below to `door::Slice::of`. The recorder also writes
+  `tests/fixtures/card.golden.json`: the cards `composeCard` drew, the zero-PII bar's verdicts and what
+  `HttpCardRenderer` sent and returned (`tests/card_parity.rs`).
 
 A slice replaces `Err(not_ported(..))` for its calls in `door/mod.rs` with its handlers, and passes
 `WIRE_REPLAY_STRICT=<slice>` (the replay's stubs make every handler reach a dependency that refuses, so its owed answers
@@ -33,9 +39,7 @@ are each call's first dependency and its unset-setting refusals). Each slice add
   `published*` in `blueprint-service.ts`. A refusal is a 412 with its code; never a default.
 - **The store.** Postgres schema `blueprint`, search path `blueprint,public`; writes that decide placement run
   `serializable` with up to five attempts (`transaction` from `@intafaced/db`, which retries a serialization failure). The two migrations are
-  `services/svc-blueprint/drizzle/0000_blueprint_init.sql` and `0001_card_shares.sql`; the first slice copies them into
-  `migrations/` (a test keeps the copies identical until the switch), with the pool and a `migrate` binary, as
-  `crates/svc-academy` did.
+  `services/svc-blueprint/drizzle/0000_blueprint_init.sql` and `0001_card_shares.sql`, copied into `migrations/`.
 - **Rows are checked as read** (`BlueprintRow`, `ShareRow`, `OpenerRow`, `CrewRow`, ...): a row that fails its schema is
   a 500, not a guess.
 - **The profile never leaves except to its owner**: not on an event, a span, an error message or a log line.
@@ -77,9 +81,12 @@ are each call's first dependency and its unset-setting refusals). Each slice add
 
 ## Slices
 
-- `profile`: `me`, `setVisibility`, `mentors`; brings the migrations, the pool and the migrate binary.
+- `profile` (ported: `src/profile.rs`, `tests/profile_db.rs`): `me`, `setVisibility`, `mentors`; brought the
+  migrations, the pool and the migrate binary.
 - `onboard` (after `profile`): `onboard`; the engine client (HTTP and mock), crew and mentor matching, and the event bus.
-- `card` (after `profile`): `card`, `cardOf`; the card's SVG, the renderer client, visibility and the share-link open.
+- `card` (ported: `src/card/`, `src/zero_pii.rs`, `tests/card_db.rs`, `tests/card_parity.rs`): `card`, `cardOf`; the
+  card's SVG, the renderer client (`card::renderer::from_env` picks it as `index.ts` does), visibility, the zero-PII bar
+  and the share-link open.
 - `shares` (after `card`): `shares.create`, `shares.list`, `shares.revoke`, `shares.openers`.
 - `privacy` (after `onboard`, `shares`): `export`, `erase`.
 

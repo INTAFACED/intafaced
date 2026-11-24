@@ -1,9 +1,18 @@
 import { useRef, useState } from 'react';
-import { Button, DataTable } from '../../../shared/ui';
-import { displayAmount } from '../../../shared/money';
+import { Button } from '@intafaced/ui/lit';
 import { usePolled } from '../../protocol';
 import { canonicalDecimal, draftId, keys, type AsOf, type VenueBalance } from '../venue-api';
-import { AsOfLine, OutcomeLine, TestMark, VENUE_POLL_MS, keepsDraft, useVenueApi, type ActionResult, type RunAction } from './VenueKit';
+import {
+  AsOfLine,
+  BalanceTable,
+  OutcomeLine,
+  TestMark,
+  VENUE_POLL_MS,
+  keepsDraft,
+  useVenueApi,
+  type ActionResult,
+  type RunAction,
+} from './VenueKit';
 import { venueCopy } from './venue-copy';
 
 /**
@@ -78,17 +87,17 @@ export function SubAccountsPanel({
 
   const list = subs.data?.value ?? [];
   return (
-    <section className="dk-panel form-stack" aria-label={t('Sub-accounts')} data-testid="venue-sub-accounts">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Sub-accounts')} data-testid="venue-sub-accounts">
+      <h2 className="lt-panel-title">
         {t('Sub-accounts')} <TestMark test={test} />
       </h2>
-      <p className="lt-muted">{t('Sub-accounts why')}</p>
+      <p className="lt-quiet">{t('Sub-accounts why')}</p>
       {subs.failure ? (
-        <p className="lt-refusal" role="alert" data-refusal={subs.failure.code}>
+        <p className="lt-note lt-note-bad" role="alert" data-refusal={subs.failure.code}>
           {t('Sub-accounts not offered', { detail: subs.failure.message })}
         </p>
       ) : null}
-      {subs.data && list.length === 0 ? <p className="lt-muted">{t('No sub-accounts')}</p> : null}
+      {subs.data && list.length === 0 ? <p className="lt-quiet">{t('No sub-accounts')}</p> : null}
       {list.map((s) => (
         <SubAccountBalances key={s.subAccount} owner={owner} subAccount={s.subAccount} name={s.name} />
       ))}
@@ -96,7 +105,7 @@ export function SubAccountsPanel({
         <span>{t('Sub-account name')}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} aria-label={t('Sub-account name')} />
       </label>
-      <Button variant="secondary" onClick={() => void open()}>
+      <Button tone="secondary" onClick={() => void open()}>
         {t('Open sub-account')}
       </Button>
       {list.length > 0 ? (
@@ -125,11 +134,13 @@ export function SubAccountsPanel({
             <span>{t('Move amount')}</span>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label={t('Move amount')} />
           </label>
-          <Button onClick={() => void move()}>{t('Move to sub-account')}</Button>
+          <Button tone="primary" onClick={() => void move()}>
+            {t('Move to sub-account')}
+          </Button>
         </>
       ) : null}
       {problem ? (
-        <p className="lt-refusal" role="alert">
+        <p className="lt-note lt-note-bad" role="alert">
           {problem}
         </p>
       ) : null}
@@ -147,24 +158,9 @@ function SubAccountBalances({ owner, subAccount, name }: { owner: string; subAcc
     <div data-testid="venue-sub-account" data-sub-account={subAccount}>
       <h3>{t('Sub-account balances', { name })}</h3>
       {rows.length > 0 ? (
-        <DataTable label={t('Sub-account balances', { name })} headers={[t('Asset'), t('Free'), t('Used'), t('Total')]}>
-          {rows.map((b) => (
-            <tr key={b.asset} data-asset={b.asset}>
-              <td>{b.asset}</td>
-              <td className="lt-num" data-cell="free">
-                {displayAmount(b.free)}
-              </td>
-              <td className="lt-num" data-cell="used">
-                {displayAmount(b.locked)}
-              </td>
-              <td className="lt-num" data-cell="total">
-                {displayAmount(b.total)}
-              </td>
-            </tr>
-          ))}
-        </DataTable>
+        <BalanceTable label={t('Sub-account balances', { name })} rows={rows} />
       ) : read.data ? (
-        <p className="lt-muted">{t('No balances')}</p>
+        <p className="lt-quiet">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={read.data?.asOf ?? null} />
     </div>

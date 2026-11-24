@@ -21,6 +21,8 @@ vi.mock('../../session/session', () => ({
     api: { rest: (path: string, _schema: unknown, options: never) => world.rest(path, options) },
   }),
 }));
+// The user-venue door is off: the room reads our own book (the venue room is J-home-ia-12's, in the running app).
+vi.mock('../use-venue-mode', () => ({ useVenueMode: () => ({ mode: 'off' }) }));
 vi.mock('../../../data/hooks', () => ({ useDataEnv: () => ({ poller: { recordExternalRequest: () => undefined } }) }));
 vi.mock('../../../screens/trade/futures/data', async (original) => {
   const real = await original<typeof import('../../../screens/trade/futures/data')>();

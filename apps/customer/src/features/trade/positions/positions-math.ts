@@ -109,3 +109,37 @@ export function leverageBpsOfTimes(text: string): number | null {
 export function percentOf(fraction: string): string {
   return str(num(fraction) * 100n);
 }
+
+/** What a pre-liquidation stop at a margin-ratio level comes to on one isolated position, or why there is none. */
+export type StopAt =
+  { readonly ok: true; readonly trigger: string } | { readonly ok: false; readonly why: 'level' | 'unpublished' | 'crossed' };
+
+/**
+ * A pre-liquidation stop (J-derivatives-06 #5): the venue's mark at which this isolated position's margin ratio, the
+ * venue's maintenance margin over the position's margin and its unrealised result, reaches `levelPercent`. The venue's
+ * maintenance requirement is taken as it reports it now; the margin moves with the mark by the size times the move from
+ * the entry (a long gains as the mark rises, a short as it falls), so the ratio is the level where
+ * margin + size × (mark − entry) = maintenance ÷ level (for a short, entry − mark). The mark is rounded to the venue's
+ * tick toward the price now, so the close order fires at the level or just before it, never after. `level` when the
+ * percent is not above 0 and below 100 (at 100% the venue liquidates); `unpublished` when the venue publishes no
+ * maintenance margin; `crossed` when the ratio already stands at the level, so the stop would fire at once.
+ */
+export function preLiquidationStop(p: VenuePosition, levelPercent: string, tickSize: string): StopAt {
+  const level = dec(levelPercent.trim());
+  if (level === null || level <= ZERO || level >= 100n * SCALE) return { ok: false, why: 'level' };
+  if (!p.maintenanceMargin?.known) return { ok: false, why: 'unpublished' };
+  const size = num(p.size);
+  const tick = num(tickSize);
+  if (size <= ZERO || tick <= ZERO) return { ok: false, why: 'unpublished' };
+  // The margin with its unrealised result at which the ratio is the level: maintenance ÷ (level ÷ 100).
+  const equityAt = ratio(times(num(p.maintenanceMargin.value), 100n * SCALE), level) ?? ZERO;
+  const move = ratio(sub(equityAt, num(p.margin)), size) ?? ZERO;
+  const exact = p.side === 'long' ? add(num(p.entryPrice), move) : sub(num(p.entryPrice), move);
+  // Toward the price now: up for a long's stop below the mark, down for a short's above it.
+  const whole = exact / tick;
+  const steps = p.side === 'long' && whole * tick < exact ? whole + 1n : whole;
+  const trigger = steps * tick;
+  const mark = num(p.markPrice);
+  if (trigger <= ZERO || (p.side === 'long' ? trigger >= mark : trigger <= mark)) return { ok: false, why: 'crossed' };
+  return { ok: true, trigger: str(trigger) };
+}

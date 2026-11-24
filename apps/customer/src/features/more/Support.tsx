@@ -1,7 +1,9 @@
 // volt-room: /support
+// volt-room: /support/tickets
+// volt-room: /support/tickets/:ticketId
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, Segmented, Tag } from '@intafaced/ui/lit';
-import { ReadingTemplate, SelectField, TextAreaField, TextField } from '@intafaced/ui/lit/templates';
+import { ReadingTemplate, RecordListTemplate, SelectField, TextAreaField, TextField } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { isHiddenPath } from '../../app/feature-registry';
@@ -210,14 +212,17 @@ export function Support({ path }: { path: string }) {
       {createAction.dialog}
     </div>
   );
-  return (
-    <ReadingTemplate
-      title={titleKey ? copy.t(titleKey) : copyText('moreroutes.support')}
-      description={copyText('moreroutes.help.requests.and.your.conversation.with.the')}
-      state={{ kind: 'ready' }}
-      body={body}
-    />
-  );
+  const frame = {
+    title: titleKey ? copy.t(titleKey) : copyText('moreroutes.support'),
+    description: copyText('moreroutes.help.requests.and.your.conversation.with.the'),
+    state: { kind: 'ready' as const },
+  };
+  // Your requests (/support/tickets) and one request (/support/tickets/:id) are records: the list on the record-list
+  // template, one request as its own record page. Help and a new request stay on the reading template.
+  if (route.view === 'requests') return <RecordListTemplate {...frame} list={body} />;
+  if (route.view === 'request' || route.view === 'badRequest')
+    return <RecordListTemplate {...frame} detailOnly list={null} detail={body} />;
+  return <ReadingTemplate {...frame} body={body} />;
 }
 
 export function RequestList({
