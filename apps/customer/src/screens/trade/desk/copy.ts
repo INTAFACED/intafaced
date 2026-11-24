@@ -290,7 +290,13 @@ const messages = {
   // Order types the market does not take, and time in force
   'More order types': 'More',
   'More order types label': 'Other order types (not available)',
-  'Order type unavailable': 'The service does not take this order type.',
+  'Move to band edge': 'Move my price to the band edge, {price} {asset}',
+  'Price adjusted': 'Adjusted: your price {from} was moved to the band edge, {to} {asset}.',
+  'Type reason trailing stop': 'Not offered: the exchange does not take trailing stops on any market.',
+  'Type reason opening window': 'This market takes limit orders only until its opening window ends.',
+  'Type reason zone': 'This market is in the higher-risk zone, which takes limit orders only.',
+  'Type reason limit only': 'This market is taking limit orders only right now.',
+  'Type reason lead': 'A lead trade needs a price. Turn Lead trade off to use this type.',
   'Order type stopLimit': 'Stop-limit',
   'Order type stopMarket': 'Stop-market',
   'Stop market note sell':
