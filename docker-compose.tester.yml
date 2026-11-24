@@ -9,9 +9,9 @@
 # from compose-env (LOCAL_STACK_STATE, the state folder the tester profile shares with the host, the host user that
 # owns it, and the stack id it wrote into the folder's compose marker), never a default: a missing one refuses by name.
 services:
-  # svc-identity, svc-edge, svc-ledger, svc-trade and svc-bank each read the rest of what their `pnpm local:stack`
-  # service runs with from an env file compose-env writes into the state folder (tester-<name>.env, mode 600):
-  # LOCAL TEST settings their compose block does not list. Compose's own `environment` wins over it.
+  # svc-identity reads the rest of what its `pnpm local:stack` service runs with (its email-confirm limits, for one)
+  # from an env file compose-env writes into the state folder (tester-identity.env, mode 600): LOCAL TEST settings no
+  # compose block lists. Compose's own `environment` wins over it.
   # Postgres starts with this stack's id as a server setting: the ownership proof the LOCAL TEST tools check against the
   # compose marker (local-test-state.mjs assertComposeOwnership). The other flags are docker-compose.yml's, repeated
   # because an overlay replaces the whole command.
@@ -33,10 +33,6 @@ services:
   # `pnpm local:stack` does: on a new volume it would halt every module until an operator wrote that. A file the edge or
   # an operator changed later is never overwritten. It runs as the folder's owner, so it can write its own switch.
   svc-edge:
-    env_file:
-      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
-      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-edge.env'
-        required: false
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
     environment:
       IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
@@ -45,16 +41,8 @@ services:
       - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
 
   svc-ledger:
-    env_file:
-      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
-      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-ledger.env'
-        required: false
     ports: ['127.0.0.1:4001:4001']
   svc-trade:
-    env_file:
-      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
-      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-trade.env'
-        required: false
     ports: ['127.0.0.1:4004:4004']
     environment:
       IDENTITY_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?run local-test-compose-env.mjs}
@@ -114,8 +102,3 @@ services:
       svc-ledger:
         condition: service_healthy
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
-  svc-bank:
-    env_file:
-      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
-      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-bank.env'
-        required: false

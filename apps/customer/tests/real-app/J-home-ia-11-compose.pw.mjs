@@ -48,7 +48,8 @@ function compose(args, env, { timeout = 120_000 } = {}) {
 }
 
 /**
- * The last log lines of every compose service that failed on its own: neither running healthy, nor exited 0, nor stopped
+ * The last log lines of every compose service that failed on its own or never turned healthy (a service compose gave up
+ * waiting on still reads `starting`): neither running healthy, nor exited 0, nor stopped
  * by compose's abort (137 or 143, the signals `--abort-on-container-exit` sends), so the red names the culprit.
  */
 function notHealthyLogs(env) {
@@ -59,7 +60,9 @@ function notHealthyLogs(env) {
     .map((line) => line.split('|'))
     .filter(
       ([svc, state, health, code]) =>
-        svc && !(state === 'running' && health !== 'unhealthy') && !(state === 'exited' && ['0', '137', '143'].includes(code)),
+        svc &&
+        !(state === 'running' && (health === '' || health === 'healthy')) &&
+        !(state === 'exited' && ['0', '137', '143'].includes(code)),
     )
     .map(([svc, state, health]) => ({ svc, state: health ? `${state}, ${health}` : state }));
   return bad
