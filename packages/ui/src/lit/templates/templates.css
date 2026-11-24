@@ -1275,6 +1275,9 @@ button.lt-tab {
 .lt-table-scroll {
   max-inline-size: 100%;
   overflow-x: auto;
+  /* The containing block of the table's positioned parts (a screen-reader label), so none reaches past the box and
+     widens the page. */
+  position: relative;
 }
 .lt-table-scroll:focus-visible {
   outline: 2px solid var(--lit-focus);
@@ -1498,9 +1501,16 @@ button.lt-tab {
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
     display: table-row-group;
   }
+  /* Words wrap even where an old room's styles hold a heading on one line, so the table stays on the phone. */
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
     display: table-cell;
+    white-space: normal;
     overflow-wrap: anywhere;
+  }
+  /* A figure breaks only between its words ("8,000 / characters"), never inside a number or a unit ("500 / 0"): the
+     naming column gives way instead. */
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td[data-align='end'] {
+    overflow-wrap: normal;
   }
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
     block-size: var(--lit-row-h);
