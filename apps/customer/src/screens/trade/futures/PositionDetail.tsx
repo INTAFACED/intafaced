@@ -1,5 +1,5 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, KeyValue, type KeyValueItem } from '@intafaced/ui';
+import { KeyValue, Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
@@ -9,6 +9,7 @@ import { PositionRowActions } from './PositionDialogs';
 import { positionsCopy } from './positions-copy';
 import { rowOf, signedAmount } from './positions-logic';
 import { futuresRefusal } from './refusals';
+import { kvRows, type KvItem } from './kv-rows';
 
 type T = ReturnType<typeof positionsCopy.useCopy>['t'];
 
@@ -20,18 +21,18 @@ function MarginCallPanel({ call, t }: { call: MarginCall | null | undefined; t: 
     return Number.isNaN(ms) ? iso : dayTime(ms, timeZone);
   };
   return (
-    <section aria-label={t('Detail margin call')} className="rounded-sm border border-line p-3 text-sm">
-      <h3 className="mb-1 text-sm font-medium">{t('Detail margin call')}</h3>
+    <section aria-label={t('Detail margin call')} className="lt-callout">
+      <h3 className="lt-strong">{t('Detail margin call')}</h3>
       {call === undefined ? (
-        <p className="lt-muted">{t('Detail margin call unchecked')}</p>
+        <p className="lt-quiet">{t('Detail margin call unchecked')}</p>
       ) : call === null ? (
-        <p className="lt-muted">{t('Detail margin call none')}</p>
+        <p className="lt-quiet">{t('Detail margin call none')}</p>
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+        <ul className="lt-list lt-tight">
           <li>{t('Detail margin call sequence', { sequence: String(call.sequence) })}</li>
           <li>{t('Detail margin call health', { pct: bpsToPct(call.healthBps) })}</li>
-          <li className="lt-muted">{t('Detail margin call called', { time: at(call.calledAt) })}</li>
-          <li className="lt-muted">{t('Detail margin call delivered', { time: at(call.deliveredAt) })}</li>
+          <li className="lt-quiet">{t('Detail margin call called', { time: at(call.calledAt) })}</li>
+          <li className="lt-quiet">{t('Detail margin call delivered', { time: at(call.deliveredAt) })}</li>
         </ul>
       )}
     </section>
@@ -65,7 +66,7 @@ export function PositionDetail({
   const amount = (value: string | null) => (value === null ? null : fmtAmount(value, { places: 8 }));
   const price = (value: string | null) => (value === null ? null : fmtPrice(value, null));
   const closingReason = position.closingReason ? futuresRefusal({ code: position.closingReason }) : null;
-  const items: KeyValueItem[] = [
+  const items: KvItem[] = [
     { key: 'id', label: t('KV id'), value: position.id, mono: true },
     { label: t('KV contract'), value: position.symbol },
     { label: t('KV side'), value: position.side === 'long' ? t('Side long') : t('Side short') },
@@ -107,27 +108,27 @@ export function PositionDetail({
     { label: t('KV updated'), value: dayTime(position.timestamp, timeZone) },
   ];
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent closeLabel={t('Dialog close')} className="max-h-[90vh] max-w-xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t('Detail title', { contract: position.symbol })}</DialogTitle>
-          <DialogDescription>{t('Detail description')}</DialogDescription>
-        </DialogHeader>
-        <div className="mt-3 flex flex-col gap-4">
-          <KeyValue items={items} density="dense" />
-          <MarginCallPanel call={marginCall} t={t} />
-          <section aria-label={t('Detail actions')}>
-            <PositionRowActions
-              position={position}
-              free={free}
-              leverageCap={leverageCap}
-              planeOff={planeOff}
-              onChanged={onChanged}
-              {...(onReverse ? { onReverse } : {})}
-            />
-          </section>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <Sheet
+      open
+      title={t('Detail title', { contract: position.symbol })}
+      description={t('Detail description')}
+      closeLabel={t('Dialog close')}
+      onClose={onClose}
+    >
+      <div className="lt-stack">
+        <KeyValue rows={kvRows(items)} />
+        <MarginCallPanel call={marginCall} t={t} />
+        <section aria-label={t('Detail actions')}>
+          <PositionRowActions
+            position={position}
+            free={free}
+            leverageCap={leverageCap}
+            planeOff={planeOff}
+            onChanged={onChanged}
+            {...(onReverse ? { onReverse } : {})}
+          />
+        </section>
+      </div>
+    </Sheet>
   );
 }
