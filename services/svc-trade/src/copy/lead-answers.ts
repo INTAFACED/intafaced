@@ -41,8 +41,8 @@ answerKeys<LeadTradesView>()(leadTradesAnswer);
 answerKeys<LeadCopierView[]>()(leadCopiersAnswer);
 
 /** `copy.setProfitShare` and `copy.setMaxRatio`: both always refuse, so neither ever answers. */
-export const refusedAlwaysAnswer = z.never();
-answerKeys<never>()(refusedAlwaysAnswer);
+export const refusedAlwaysAnswer = z.void();
+answerKeys<void>()(refusedAlwaysAnswer);
 
 answerKeys<PublicPauses>()(platformPausesAnswer);
 export {

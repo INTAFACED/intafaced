@@ -3697,9 +3697,21 @@ test('samples: distinct uuids, prefixed regex, multi-nullable object, duplicate 
   const prefixed = samplesFor({
     name: 'ops.save',
     path: 'ops.save',
-    input: z.object({ key: z.string().regex(/^announcement:[0-9a-f]{16,64}$/) }),
+    input: z.object({ id: z.string().regex(/^announcement:[0-9a-f]{16,64}$/), snapshot: z.string().regex(/^[a-f0-9]{64}$/) }),
   });
-  assert.match(prefixed, /"key":"announcement:[0-9a-f]{16}"/);
+  assert.match(prefixed, /"id":"announcement:[0-9a-f]{16}"/);
+  assert.match(prefixed, /"snapshot":"[a-f0-9]{64}"/);
+  // A credential-named `key` field whose pattern cannot carry a self-declaring placeholder gets no sample,
+  // so the codemod never writes a literal that trips tooling/ci/secret-scan.mjs.
+  assert.throws(
+    () =>
+      samplesFor({
+        name: 'ops.announcements.save',
+        path: 'announcements.save',
+        input: z.object({ key: z.string().regex(/^announcement:[0-9a-f]{16,64}$/) }),
+      }),
+    /no accepted input found/,
+  );
 
   const multiNullable = samplesFor({
     name: 'ops.stage',

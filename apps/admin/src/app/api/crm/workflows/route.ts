@@ -47,19 +47,36 @@ const reads: Record<string, Call> = {
   metrics: [
     crm.crmMetricsInputSchema,
     crm.crmMetricsSchema,
-    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.metrics', 'GET', input, accessToken),
+    (config, input, accessToken) =>
+      founderEdgeCall(config, 'ops', 'outreach.metrics', 'GET', input as Parameters<crm.CrmWorkflowsContract['metrics']>[0], accessToken),
   ],
   listCampaigns: viaRecord(OPS_OUTREACH_LIST_CAMPAIGNS),
   listSourceMappings: viaRecord(OPS_OUTREACH_LIST_SOURCE_MAPPINGS),
   listDuplicates: [
     crm.crmDuplicateListInputSchema,
     crm.crmDuplicatePageSchema,
-    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.listDuplicates', 'GET', input, accessToken),
+    (config, input, accessToken) =>
+      founderEdgeCall(
+        config,
+        'ops',
+        'outreach.listDuplicates',
+        'GET',
+        input as Parameters<crm.CrmWorkflowsContract['listDuplicates']>[0],
+        accessToken,
+      ),
   ],
   getContactProvenance: [
     crm.crmContactProvenanceInputSchema,
     crm.crmContactProvenanceSchema.nullable(),
-    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.getContactProvenance', 'GET', input, accessToken),
+    (config, input, accessToken) =>
+      founderEdgeCall(
+        config,
+        'ops',
+        'outreach.getContactProvenance',
+        'GET',
+        input as Parameters<crm.CrmWorkflowsContract['getContactProvenance']>[0],
+        accessToken,
+      ),
   ],
   listTasks: viaRecord(OPS_OUTREACH_LIST_TASKS),
   listMessages: viaRecord(OPS_OUTREACH_LIST_MESSAGES),
@@ -72,12 +89,28 @@ const writes: Record<string, Call> = {
   mergeContacts: [
     crm.crmMergeInputSchema,
     crm.crmMergeReceiptSchema,
-    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.mergeContacts', 'POST', input, accessToken),
+    (config, input, accessToken) =>
+      founderEdgeCall(
+        config,
+        'ops',
+        'outreach.mergeContacts',
+        'POST',
+        input as Parameters<crm.CrmWorkflowsContract['mergeContacts']>[0],
+        accessToken,
+      ),
   ],
   exportSubmissions: [
     crm.crmExportInputSchema,
     crm.crmExportPageSchema,
-    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.exportSubmissions', 'POST', input, accessToken),
+    (config, input, accessToken) =>
+      founderEdgeCall(
+        config,
+        'ops',
+        'outreach.exportSubmissions',
+        'POST',
+        input as Parameters<crm.CrmWorkflowsContract['exportSubmissions']>[0],
+        accessToken,
+      ),
   ],
   createTask: viaRecord(OPS_OUTREACH_CREATE_TASK),
   transitionTask: viaRecord(OPS_OUTREACH_TRANSITION_TASK),

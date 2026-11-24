@@ -48,11 +48,11 @@ const STRINGS = [
 
 /** Values a JSON Schema allows, most likely first (`depth` keeps nested objects small). */
 // A field named like a credential gets a value the secret scan reads as one (tooling/ci/secret-scan.mjs: /placeholder/i).
-const CREDENTIAL_KEY = /pass(word|phrase)?|token|secret|api[_-]?key|private|credential/i;
+const CREDENTIAL_KEY = /pass(word|phrase)?|token|secret|api[_-]?key|private|credential|(?:^|[._-])keys?$/i;
 
-/** A string matching an anchored `<literal>[<class>]{m,n}` / `+` / `*` pattern (e.g. `^announcement:[0-9a-f]{16,64}$`). */
+/** A string matching an anchored `[<prefix>][<class>]{m,n}` / `+` / `*` pattern (e.g. `^announcement:[0-9a-f]{16,64}$`, `^[a-f0-9]{64}$`). */
 function sampleFromPattern(pattern) {
-  const m = /^\^([A-Za-z0-9_.:/-]+)\[([^\]]+)\](?:\{(\d+)(?:,\d*)?\}|(\+)|(\*))?\$$/.exec(pattern);
+  const m = /^\^([A-Za-z0-9_.:/-]*)\[([^\]]+)\](?:\{(\d+)(?:,\d*)?\}|(\+)|(\*))?\$$/.exec(pattern);
   if (!m) return undefined;
   const [, prefix, cls, exact, plus] = m;
   const count = exact !== undefined ? Number(exact) : plus ? 1 : 0;
@@ -122,6 +122,9 @@ function candidates(schema, depth = 0, key = '') {
         const fake = `placeholder${'x'.repeat(Math.max(0, min - 11))}`;
         const fits = fake.length <= max && (!schema.pattern || new RegExp(schema.pattern, 'u').test(fake));
         if (fits) return [fake];
+        // A pattern that cannot carry a self-declaring placeholder (save an EVM address or <=2 chars, which
+        // secret-scan.mjs accepts) gets no sample, so a run never writes a credential-shaped literal.
+        return list.filter((s) => /^0x[0-9a-f]{40}$/i.test(s) || /^.{1,2}$/.test(s) || /placeholder|sample/i.test(s));
       }
       return list.slice(0, 6);
     }
