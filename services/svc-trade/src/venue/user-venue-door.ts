@@ -1170,7 +1170,11 @@ export class UserVenueDoor {
       this.deps.listings.shown(venue.venue.id, now),
       this.deps.maintenanceBoard ? this.deps.maintenanceBoard() : Promise.resolve(null),
     ]);
-    this.marketList = { at: now.getTime(), markets: new Map(read.value.map((m) => [m.symbol, m])) };
+    // Merge newly seen markets into the cached map without advancing `at`: a public `markets()` read (or svc-ws poll)
+    // must never reset the miss-reread window and cause a newly added market to fail `unknown_market` in `market()`.
+    if (this.marketList) {
+      for (const m of read.value) this.marketList.markets.set(m.symbol, m);
+    }
     const value: ListedVenueMarket[] = [];
     for (const m of read.value) {
       const listing = shown.get(m.symbol);

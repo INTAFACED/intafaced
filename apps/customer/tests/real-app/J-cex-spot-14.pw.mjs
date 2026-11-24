@@ -1310,7 +1310,9 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   const ownMkt = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === usd.symbol);
   expect(ownMkt?.quoteAsset).toBe('USD');
 
-  // No equity-class market is listed without a licence (neither on the venue list nor on svc-trade's markets catalogue).
+  // The equity class is parked until an equity licence is named (AGENTS.md floor 8: never fake an unlicensed equity
+  // listing): neither svc-trade's markets catalogue nor the venue read lists any equity-class row, and /trade surfaces
+  // `mkt-not-offered-equity` naming the real licence blocker.
   const ownMarkets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
   expect(ownMarkets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
   const venueListed = (await marketStates()).value.markets;
@@ -1324,7 +1326,10 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   await page.goto('/trade');
   await page.getByRole('textbox', { name: 'Search markets', exact: true }).fill(usd.base);
   const listGrid = page.getByRole('grid', { name: 'Markets', exact: true });
-  const usdRow = listGrid.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
+  const usdRow = listGrid
+    .getByRole('row')
+    .filter({ hasText: usd.base })
+    .filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
   await expect(usdRow.first()).toBeVisible();
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Not available: licence not named');
