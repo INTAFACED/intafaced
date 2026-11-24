@@ -87,3 +87,22 @@ describe('a spot ticket takes no order against a rule the venue does not publish
     expect(ticketProblem(buy, { ...BARE, kind: 'perpetual' }, null)).toBeNull();
   });
 });
+
+describe('orders below the venue’s smallest order value are refused before preview (J-cex-spot-04 #3)', () => {
+  it('returns below_min and builds no intent when a limit order is below minOrderNotional, and admits one at the minimum', () => {
+    const tooSmall: TicketFields = { side: 'buy', type: 'limit', price: '20', amount: '0.001' };
+    expect(ticketProblem(tooSmall, MARKET, null)).toBe('below_min');
+    expect(intentOf(tooSmall, MARKET, null, 'order:0xowner:rul-usdc:small', true)).toBeNull();
+    const atMin: TicketFields = { side: 'buy', type: 'limit', price: '20', amount: '0.5' };
+    expect(ticketProblem(atMin, MARKET, null)).toBeNull();
+    expect(intentOf(atMin, MARKET, null, 'order:0xowner:rul-usdc:min', true)).toMatchObject({ amount: '0.5', price: '20' });
+  });
+
+  it('refuses a market buy whose worst value is below minOrderNotional, and leaves a market sell to the venue’s book price', () => {
+    const smallBuy: TicketFields = { side: 'buy', type: 'market', price: '', amount: '0.001' };
+    expect(ticketProblem(smallBuy, MARKET, '20', true)).toBe('below_min');
+    expect(intentOf(smallBuy, MARKET, '20', 'order:0xowner:rul-usdc:mb', true)).toBeNull();
+    const lowBoundSell: TicketFields = { side: 'sell', type: 'market', price: '', amount: '0.75' };
+    expect(ticketProblem(lowBoundSell, MARKET, '0.1', true)).toBeNull();
+  });
+});
