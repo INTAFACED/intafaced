@@ -211,7 +211,7 @@ function accessOf(body, module) {
     const ownM = take(/\bown_session: (?:None|Some\("([^"]+)"\)),?/);
     if (!scope || !person || rest.trim() !== '' || (flag !== undefined && regionM)) return odd;
     const tier = tierM?.[1];
-    const region = regionM && !/^region: None/.test(regionM[0]);
+    const region = regionM && !regionM[0].startsWith('region: None');
     // `kyc: None` is the door's mark that the call's own tier already asks what the module asks: without a tier, it names
     // a region checked with no tier rule, which no record names.
     if (region && regionM[1] === undefined && !tier) return odd;
