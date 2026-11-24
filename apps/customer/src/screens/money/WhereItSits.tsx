@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { PartnerHolds } from '../../features/money';
 import { displayAmount, parseAmount } from '../../shared/money';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
@@ -44,9 +47,31 @@ export function WhereItSits({ status }: { status: VenueUp }) {
 function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
   const { t } = whereCopy.useCopy();
   const owner = useOwner();
+  const [withdrawOpen, setWithdrawOpen] = useState(() => new URLSearchParams(location.search).get('withdraw') === 'partner');
+  const openWithdraw = () => {
+    setWithdrawOpen(true);
+    navigate('/money?withdraw=partner');
+  };
+  const closeWithdraw = () => {
+    setWithdrawOpen(false);
+    navigate('/money');
+  };
   return (
     <div data-testid="assets-by-source">
-      {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <BeforeWallet t={t} />}
+      {owner ? (
+        <Read owner={owner} status={status} chainId={chainId} t={t} onWithdraw={openWithdraw} />
+      ) : (
+        <BeforeWallet t={t} onWithdraw={openWithdraw} />
+      )}
+      <Sheet
+        open={withdrawOpen}
+        title={t('Partner withdraw')}
+        onClose={closeWithdraw}
+        closeLabel={t('Partner withdraw close')}
+        testId="partner-withdraw-sheet"
+      >
+        <PartnerHolds />
+      </Sheet>
     </div>
   );
 }
@@ -56,7 +81,7 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
  * holds for this person is listed with its total, each figure as the partner reports it with its time, exactly as Home
  * shows it. The wallet and the venue account join once a wallet is connected, and the line under the total says so.
  */
-function BeforeWallet({ t }: { t: T }) {
+function BeforeWallet({ t, onWithdraw }: { t: T; onWithdraw: () => void }) {
   const { displayCurrency, hideBalances } = usePreferences();
   const { partner, standing, pricesFailed, valued } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   const held = partner.state === 'read' || partner.state === 'unread';
@@ -86,7 +111,7 @@ function BeforeWallet({ t }: { t: T }) {
       sections={
         partner.state === 'none' ? undefined : (
           <div className="lt-stack">
-            <PartnerSource read={partner} valued={valued} t={t} />
+            <PartnerSource read={partner} valued={valued} t={t} onWithdraw={onWithdraw} />
           </div>
         )
       }
@@ -95,7 +120,19 @@ function BeforeWallet({ t }: { t: T }) {
   );
 }
 
-function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; chainId: number; t: T }) {
+function Read({
+  owner,
+  status,
+  chainId,
+  t,
+  onWithdraw,
+}: {
+  owner: string;
+  status: VenueUp;
+  chainId: number;
+  t: T;
+  onWithdraw: () => void;
+}) {
   const { displayCurrency, hideBalances, timeZone } = usePreferences();
   const money = moneyCopy.useCopy();
   const network = networkLabel(chainId).name;
@@ -135,7 +172,7 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
           {standing.totalUsd !== null ? <WhereAllocation standing={standing} venueRows={venue.data?.rows ?? []} /> : null}
           <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
           <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
-          {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
+          {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} onWithdraw={onWithdraw} />}
           {valuation && standing.prices ? (
             <ValuationNote
               view={valuation}
@@ -556,11 +593,13 @@ function PartnerSource({
   valued,
   t,
   entriesHref,
+  onWithdraw,
 }: {
   read: Exclude<PartnerRead, { state: 'none' }>;
   valued: ValuedPart | undefined;
   t: T;
   entriesHref?: (asset: string) => string;
+  onWithdraw?: () => void;
 }) {
   const title = read.state === 'read' ? t('Partner title', { partner: read.label }) : t('Partner title unnamed');
   return (
@@ -569,6 +608,13 @@ function PartnerSource({
         <p>
           {t('Partner source')} {read.state === 'read' ? <AsOf iso={read.asOf} /> : null}
         </p>
+        {onWithdraw && read.state === 'read' ? (
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={onWithdraw}>
+              {t('Partner withdraw')}
+            </Button>
+          </div>
+        ) : null}
         {read.state === 'reading' ? (
           <p className="lt-hint">{t('Reading')}</p>
         ) : read.state === 'unread' ? (

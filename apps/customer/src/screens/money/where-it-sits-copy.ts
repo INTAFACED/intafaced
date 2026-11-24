@@ -61,6 +61,10 @@ export const whereCopy = defineCopy('money.where', {
   Trade: 'Trade',
   'Fund venue': 'Fund your venue account',
   Activity: 'Activity',
+  'Add money': 'Add money',
+  'Supported assets': 'Supported assets and networks',
+  'Partner withdraw': 'Withdraw',
+  'Partner withdraw close': 'Close',
   'Records title': 'What makes your {asset}',
   'Records title source': 'What makes your {asset} on {source}',
   'Records intro':

@@ -70,6 +70,20 @@ describe("the beta's menus", () => {
     expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
   });
 
+  it('shows Add money (/bank/ramps/new), Supported assets (/uc/assets) and Balance entries (/money/balance/:asset) on the beta (J-wallet-01)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/bank/ramps/new', '/bank/ramps/new'],
+      ['/uc/assets', '/uc/assets'],
+      ['/money/balance/:asset', '/money/balance/USDT'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);
