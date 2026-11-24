@@ -97,19 +97,14 @@
 <main id="main" tabindex="-1">
 <div class="if-business">
 <div lang="en" style="display: contents;">
-<div data-slot="page" data-width="content" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 mx-auto max-w-(--if-container-max)">
-<header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
-<div data-slot="page-header-breadcrumbs">
-<p class="m-0 text-sm font-medium text-fg-2">Personal Pay</p>
-</div>
-<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-<div class="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-<h1 data-slot="page-header-title" class="m-0 text-xl font-semibold text-fg">Edit offer</h1>
-<p data-slot="page-header-description" class="m-0 text-fg-2 text-base">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
-</div>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Edit offer</h1>
+<p class="lt-description">Buy and sell crypto directly with other people. Crypto stays in escrow until payment is confirmed.</p>
 </div>
 </header>
-<div data-slot="page-body" data-density="comfortable" class="flex min-w-0 flex-col gap-8 pt-4">
+<div class="lt-room-section">
 <div data-testid="p2p-rooms">
 <nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
 <a href="/p2p" class="lt-tab">Offers</a>
@@ -119,15 +114,23 @@
 <a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
 </div>
-<div class="p2p-form" lang="en" dir="ltr" data-testid="offer-pick">
-<div data-slot="empty-state">
-<div data-slot="state-block" data-kind="empty" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<h3 class="text-md font-medium text-fg">Pick an offer to edit</h3>
-<p class="text-base text-fg-2">Open one of your offers and choose Edit.</p>
 </div>
-<div class="mb-8 flex justify-center">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" lang="en" dir="ltr" data-testid="offer-pick">
+<div data-slot="empty-state" class="lt-empty">
+<h3 class="lt-empty-title">Pick an offer to edit</h3>
+<p class="lt-empty-body">Open one of your offers and choose Edit.</p>
+<div class="lt-actions">
 <a class="lt-button lt-button-primary" href="/uc/ad">Go to Your offers</a>
 </div>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
 </div>
 </div>
 </div>

@@ -1,22 +1,22 @@
+// volt-room: /pay/conversion/new
+// volt-room: portal:conversion-new
 import { useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
-import { EmptyState, Field } from '../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
-import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
-import { Facts, Gate, SelectField, TestTag } from '../components';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { useUnsavedForm } from '../useUnsavedForm';
 import type { Settlement } from '../schemas';
 import { DateTime } from '../ui/DateTime';
 import { formatMoney } from '../ui/format';
-import { MoneyText } from '../ui/MoneyText';
-import { PortalReview } from '../ui/PortalReview';
 import { useRequestId } from '../payments/invoice-model';
 import { uiCopy } from '../ui/copy';
-import { LinkButton, NamedBlocker } from './common';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, Facts, Gate, LinkButton, MoneyText, Section, SelectField, TestTag } from '../volt/parts';
+import { Review } from '../volt/Review';
+import { NamedBlocker } from './kit-parts';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
 import type { ConversionOrder, ConversionQuote } from '@intafaced/contracts/conversion';
@@ -36,7 +36,7 @@ const orderHref = (id: string) => `/pay/conversion/${encodeURIComponent(id)}`;
 function TestNotice() {
   const { t } = mc.useCopy();
   return (
-    <p className="pp-callout pp-callout--warn" role="note">
+    <p className="lt-callout lt-callout-warn" role="note">
       <TestTag /> <strong>{t('cvTestTitle')}</strong> {t('cvTestBody')}
     </p>
   );
@@ -51,8 +51,13 @@ function Off() {
   );
 }
 
+/** `/pay/conversion/new` on the flow template: requires `payout.approve`. */
+export function ConversionNewRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="payout.approve">{({ merchantId }) => <ConversionNew portal={portal} merchantId={merchantId} />}</FlowRoom>;
+}
+
 /** `/pay/conversion/new`: pick a settlement and an amount, read the quote, then convert. A quote is good for a short time. */
-export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function ConversionNew({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const { can } = useMerchantAccess();
@@ -91,11 +96,11 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
           <Gate resource={settlements.resource} retry={settlements.reload} rows={2}>
             {() =>
               usd.length === 0 ? (
-                <EmptyState title={t('cvNoUsdTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
+                <Empty title={t('cvNoUsdTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
                   {t('cvNoUsdBody')}
-                </EmptyState>
+                </Empty>
               ) : (
-                <PaySection title={t('cvStep1')} description={t('cvStep1Body')}>
+                <Section title={t('cvStep1')} description={t('cvStep1Body')}>
                   <form data-testid="form-stack" className="lt-stack" noValidate onSubmit={(e) => e.preventDefault()}>
                     <SelectField
                       label={t('pnSettlement')}
@@ -123,7 +128,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                       error={tried && amount.trim() && (!valid || over) ? (over ? t('cvAmountOver') : t('cvAmountInvalid')) : undefined}
                       hint={settlement ? t('cvAmountMax', { max: settlement.net }) : undefined}
                     />
-                    <p className="muted pp-note">{t('cvPair')}</p>
+                    <p className="lt-hint">{t('cvPair')}</p>
                     <Button
                       tone="secondary"
                       disabled={problem !== null || busy || !may}
@@ -146,20 +151,20 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                     >
                       {busy ? t('cvQuoting') : t('cvGetQuote')}
                     </Button>
-                    {!may && <p className="muted pp-note">{t('cvNotAllowed')}</p>}
-                    {problem && <p className="muted pp-note">{problem}</p>}
+                    {!may && <p className="lt-hint">{t('cvNotAllowed')}</p>}
+                    {problem && <p className="lt-hint">{problem}</p>}
                     {refusal && !refusal.off && refusal.message && (
-                      <p role="alert" className="error-text">
+                      <p role="alert" className="lt-error">
                         {refusal.message}
                       </p>
                     )}
                   </form>
-                </PaySection>
+                </Section>
               )
             }
           </Gate>
           {quote && (
-            <PaySection title={t('cvStep2')} description={expired ? t('cvExpired') : t('cvStep2Body')}>
+            <Section title={t('cvStep2')} description={expired ? t('cvExpired') : t('cvStep2Body')}>
               <Facts
                 items={[
                   [t('cvYouConvert'), <MoneyText value={quote.q.fromAmount} asset={quote.q.fromAsset} test />],
@@ -171,7 +176,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                   [t('cvQuoteExpires'), <DateTime value={quote.q.expiresAt} />],
                 ]}
               />
-              <PortalReview<ConversionOrder>
+              <Review<ConversionOrder>
                 stepUp="payout"
                 title={t('cvConvert')}
                 variant="primary"
@@ -179,38 +184,15 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 disabled={expired || !may || stepReason !== null}
                 disabledReason={expired ? t('cvExpired') : !may ? t('cvNotAllowed') : (stepReason ?? undefined)}
                 review={
-                  <dl data-testid="pp-facts" className="pp-facts">
-                    <div>
-                      <dt>{t('cvYouConvert')}</dt>
-                      <dd>
-                        <MoneyText value={quote.q.fromAmount} asset={quote.q.fromAsset} test />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('cvExpected')}</dt>
-                      <dd>
-                        <MoneyText value={quote.q.expectedOutput} asset={quote.q.toAsset} test />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('cvMinimum')}</dt>
-                      <dd>
-                        <MoneyText value={quote.q.minimumOutput} asset={quote.q.toAsset} test />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('cvFee')}</dt>
-                      <dd>
-                        <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test sign="minus" />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t('cvSpread')}</dt>
-                      <dd>
-                        <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test sign="minus" />
-                      </dd>
-                    </div>
-                  </dl>
+                  <Facts
+                    items={[
+                      [t('cvYouConvert'), <MoneyText value={quote.q.fromAmount} asset={quote.q.fromAsset} test />],
+                      [t('cvExpected'), <MoneyText value={quote.q.expectedOutput} asset={quote.q.toAsset} test />],
+                      [t('cvMinimum'), <MoneyText value={quote.q.minimumOutput} asset={quote.q.toAsset} test />],
+                      [t('cvFee'), <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test sign="minus" />],
+                      [t('cvSpread'), <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test sign="minus" />],
+                    ]}
+                  />
                 }
                 perform={async () => {
                   const sent = await portal.conversionExecute({ requestId: request.id, quoteId: quote.q.quoteId });
@@ -220,7 +202,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 }}
                 onConfirmed={(o) => leaveTo(orderHref(o.conversionId))}
               />
-            </PaySection>
+            </Section>
           )}
         </>
       )}
