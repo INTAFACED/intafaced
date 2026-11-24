@@ -50,7 +50,6 @@ import {
   notificationSchema,
   preferenceChangeSchema,
   permissionCatalogueSchema,
-  markedSchema,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export { paymentEventSchema };
@@ -240,7 +239,6 @@ export {
   evidenceSchema,
   customerSummarySchema,
   kybCurrentSchema,
-  memberSchema,
   notificationKinds,
   preferenceSchema,
 };
