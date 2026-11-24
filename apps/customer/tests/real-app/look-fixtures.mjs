@@ -172,6 +172,17 @@ export const REST = {
   }),
 };
 
+/**
+ * The REST reads the TEST account's deployment refuses, each with its typed answer: the venue door is off here, so the
+ * venue's market states refuse as off and the Markets list and /status read their own markets (J-cex-spot-14 #1 #2).
+ */
+export const REST_REFUSED = {
+  'venue/market-states': {
+    status: 404,
+    json: { code: 'NotFound', message: 'the user-venue door is off on this deployment', intafacedCode: 'trade.user_venue_off' },
+  },
+};
+
 /** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */
 function venueConnection() {
   const now = Date.now();

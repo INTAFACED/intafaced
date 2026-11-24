@@ -38,7 +38,15 @@ import {
   type UnknownReason,
   unknownShareOf,
 } from '../pnl-model';
-import { useBasisOverride, useLotBook, useMissingBasis, useSaveLotChoice, type BasisOutcome, type LotChoice } from '../pnl-source';
+import {
+  useBasisOverride,
+  useLotBook,
+  useMissingBasis,
+  useSaveLotChoice,
+  useVenuePrices,
+  type BasisOutcome,
+  type LotChoice,
+} from '../pnl-source';
 import { PnlOverTimeCards } from './PnlOverTime';
 import { firstActivity } from '../pnl-time-model';
 import { ValueOverTimeCards } from './ValueOverTime';
@@ -980,8 +988,15 @@ export default function Pnl({ search = '' }: { search?: string }) {
     () => atSellPrice(portfolio.status === 'ready' ? portfolio.data.rows : null, tickers.status === 'ready' ? tickers.data : null),
     [portfolio, tickers],
   );
-  const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
-  const figures = useMemo(() => (book.status === 'ready' ? pnlFigures(book.data, rows, Date.now()) : null), [book, rows]);
+  // A venue account's coins count the same way, at the venue's own best bid.
+  const venuePrices = useVenuePrices(
+    book.status === 'ready' ? book.data.assets.filter((a) => a.venueAccount !== undefined).map((a) => a.assetId) : [],
+  );
+  const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows, venuePrices) : null), [book, rows, venuePrices]);
+  const figures = useMemo(
+    () => (book.status === 'ready' ? pnlFigures(book.data, rows, Date.now(), venuePrices) : null),
+    [book, rows, venuePrices],
+  );
 
   let body;
   // What follows the value cards; they keep one place on the page, so a book that loads never re-mounts them.
