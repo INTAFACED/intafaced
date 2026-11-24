@@ -121,7 +121,10 @@ function handlesIn(file, text, moved) {
     const names = handles.get(path) ?? new Set([node.name]);
     for (let n = parents.get(node); n; n = parents.get(n)) {
       const name = declaredName(n, parents);
-      if (name) names.add(name);
+      if (name) {
+        names.add(name);
+        break;
+      }
     }
     handles.set(path, names);
   }

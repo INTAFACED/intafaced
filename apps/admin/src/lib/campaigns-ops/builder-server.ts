@@ -19,6 +19,8 @@ import {
   type Campaign,
   type CampaignAction,
   type CampaignDefinitionInput,
+  type RuleLibrarySaveInput,
+  type RuleTestInput,
 } from '@intafaced/contracts/campaigns-catalogue';
 import {
   founderCall,
@@ -175,11 +177,11 @@ export function ruleReply<T>(result: FounderCallResult<T>): { status: number; re
   };
 }
 
-export async function testRule(ctx: FounderCallContext, input: unknown) {
+export async function testRule(ctx: FounderCallContext, input: RuleTestInput) {
   return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.test', 'GET', input, readRuleTest));
 }
 
-export async function saveRule(ctx: FounderCallContext, input: unknown) {
+export async function saveRule(ctx: FounderCallContext, input: RuleLibrarySaveInput) {
   return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.save', 'POST', input, readRuleEntry));
 }
 
