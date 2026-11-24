@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDeskRequest } from '@/lib/desk/approval-packet';
+import { readDeskRequest } from '@/lib/desk';
 import { readKeyState, removalIds, rotationCandidates } from './keys-model';
 
 const state = {

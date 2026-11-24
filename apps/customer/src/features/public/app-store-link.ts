@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
-import { outreachPublicProblem, outreachPublicSettingsSchema } from '@intafaced/contracts/outreach-public';
-import { contractProcedure, readContract } from '../../shared/contract-call';
-import { useApi } from '../session/session';
-
-const publicSettings = contractProcedure('ops', 'outreach.publicSettings', { output: outreachPublicSettingsSchema });
+import { outreachPublicProblem } from '@intafaced/contracts/outreach-public';
+import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
+import { useApi } from '../session';
 
 /**
  * The store link /app shows (SP-pages-03): the founders' https store address from the outreach desk, or `null` when none is
@@ -21,7 +19,8 @@ export function useAppStoreLink(): string | null {
   const [href, setHref] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void readContract(api, publicSettings, undefined, { signal: controller.signal })
+    void api
+      .call(OPS_OUTREACH_PUBLIC_SETTINGS, undefined, { signal: controller.signal })
       .then((answer) => {
         if (!controller.signal.aborted)
           setHref(appStoreHref(answer.ok ? { ok: true, appStoreUrl: answer.data.appStoreUrl } : { ok: false }));

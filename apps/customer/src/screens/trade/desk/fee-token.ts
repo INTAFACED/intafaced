@@ -1,4 +1,3 @@
-// hand-declared-ok: svc-trade /fees/published and svc-token accessOf and feeDiscount.get have no schema in packages/contracts
 /**
  * Paying a spot fee in the platform token (J-cex-spot-10 #9). Three reads, all the service's own figures:
  *
@@ -11,24 +10,16 @@
  * Nothing here prices a fee: the order check and the fill do. A plain market or limit order is the only one that can
  * carry the choice (the service refuses it on a stop, an OCO, a bracket or an OTO), so the others are not offered.
  */
-import { z } from 'zod';
+import { feeDiscountLadderSchema, tokenAccessSchema } from '@intafaced/contracts/token-fee-discount';
+import { TOKEN_ACCESS_OF, TOKEN_FEE_DISCOUNT_GET } from '@intafaced/contracts/token-procedures';
+import { feeTokenTermsSchema, publishedFeeTokenSchema } from '@intafaced/contracts/trade-desk-reads';
+import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import type { Fetcher } from '../../../data/poll';
 import type { Loadable } from '../../../data/types';
-import { decimalSchema } from '../../../shared/money';
 import type { OrderType } from './order-math';
 
-const termsSchema = z.object({
-  asset: z.string().min(1),
-  perUnit: z.record(z.string(), decimalSchema),
-});
-const publishedSchema = z.object({ feeToken: termsSchema.nullable().optional() });
-const accessSchema = z.object({ staked: decimalSchema, feeDiscountBps: z.number().int().min(0).max(9999) });
-const ladderSchema = z.object({
-  schedule: z.object({ tiers: z.array(z.object({ minStake: decimalSchema, discountBps: z.number().int().min(0).max(9999) })) }).nullable(),
-});
-
-export type FeeTokenTerms = z.infer<typeof termsSchema>;
+export type FeeTokenTerms = z.infer<typeof feeTokenTermsSchema>;
 export interface FeeToken {
   readonly terms: FeeTokenTerms | null;
   /** The person's stake and its discount, or null when svc-token refused (`accessRefused` says why) or no one is signed in. */
@@ -44,13 +35,13 @@ const FEE_SCHEDULE_BLANK = 'trade.fee_schedule_blank';
 export const feeTokenFetcher =
   (api: ApiClient, signedIn: boolean): Fetcher<FeeToken> =>
   async (signal): Promise<ApiResult<FeeToken>> => {
-    const published = await api.rest('/fees/published', publishedSchema, { signal });
+    const published = await api.rest('/fees/published', publishedFeeTokenSchema, { signal });
     if (!published.ok && published.code !== FEE_SCHEDULE_BLANK) return published;
     const terms = published.ok ? (published.data.feeToken ?? null) : null;
     if (!terms || !signedIn) return { ok: true, data: { terms, access: null, accessRefused: null, ladder: null } };
     const [access, ladder] = await Promise.all([
-      api.query('token', 'accessOf', undefined, accessSchema, { signal }),
-      api.query('token', 'feeDiscount.get', undefined, ladderSchema, { signal }),
+      api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => tokenAccessSchema.safeParse(access).success }),
+      api.call(TOKEN_FEE_DISCOUNT_GET, undefined, { signal, accept: (row) => feeDiscountLadderSchema.safeParse(row).success }),
     ]);
     return {
       ok: true,
@@ -58,7 +49,8 @@ export const feeTokenFetcher =
         terms,
         access: access.ok ? { staked: access.data.staked, discountBps: access.data.feeDiscountBps } : null,
         accessRefused: access.ok ? null : (access.code ?? 'unavailable'),
-        ladder: ladder.ok ? (ladder.data.schedule?.tiers ?? null) : null,
+        // The record keeps the stored row's own shape; this desk reads it as the ladder its check above accepted.
+        ladder: ladder.ok ? (feeDiscountLadderSchema.parse(ladder.data).schedule?.tiers ?? null) : null,
       },
     };
   };

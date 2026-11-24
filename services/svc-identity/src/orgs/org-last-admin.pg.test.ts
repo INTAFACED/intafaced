@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { createTestDb } from '../fixture-truncate.testkit.js';
@@ -58,6 +58,22 @@ if (!available) {
   afterAll(async () => {
     await db.drop();
   });
+
+  /** Waits until `waiting` sessions queue behind the lock `holder` holds, directly or behind another waiter. */
+  const untilQueuedBehind = (holder: number, waiting: number): Promise<void> =>
+    vi.waitFor(
+      async () => {
+        const [row] = await db.sql<Array<{ n: number }>>`
+          WITH RECURSIVE queue(pid) AS (
+            SELECT ${holder}::int
+            UNION
+            SELECT a.pid FROM pg_stat_activity a JOIN queue q ON q.pid = ANY(pg_blocking_pids(a.pid))
+          )
+          SELECT (count(*) - 1)::int AS n FROM queue`;
+        expect(row?.n).toBeGreaterThanOrEqual(waiting);
+      },
+      { timeout: 5_000 },
+    );
 
   describe('grantOrgRole never leaves an organization without an admin', () => {
     it('refuses demoting the last admin with org.last_admin and keeps the seat', async () => {
@@ -129,16 +145,19 @@ if (!available) {
       }
       let release!: () => void;
       const gate = new Promise<void>((r) => (release = r));
+      let locked!: (pid: number) => void;
+      const lockHolder = new Promise<number>((r) => (locked = r));
       // Hold the admin lock so both calls queue on it: A's demotion of B first, then B's demotion of C.
       const holder = db.sql.begin(async (tx) => {
         await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
+        locked((await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
         await gate;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      const holderPid = await lockHolder;
       const aDemotesB = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader');
-      await new Promise((r) => setTimeout(r, 150));
+      await untilQueuedBehind(holderPid, 1);
       const bDemotesC = grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader');
-      await new Promise((r) => setTimeout(r, 150));
+      await untilQueuedBehind(holderPid, 2);
       release();
       await holder;
       await expect(aDemotesB).resolves.toEqual({ orgId: org.id, userId: b.userId, role: 'trader' });
@@ -156,14 +175,17 @@ if (!available) {
       await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
       let release!: () => void;
       const gate = new Promise<void>((r) => (release = r));
+      let locked!: (pid: number) => void;
+      const lockHolder = new Promise<number>((r) => (locked = r));
       const other = db.sql.begin(async (tx) => {
         await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
         await tx`UPDATE organization_members SET role = 'trader' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        locked((await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
         await gate;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      const holderPid = await lockHolder;
       const change = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'auditor');
-      await new Promise((r) => setTimeout(r, 200));
+      await untilQueuedBehind(holderPid, 1);
       release();
       await other;
       await expect(change).resolves.toEqual({ orgId: org.id, userId: b.userId, role: 'auditor' });
@@ -183,16 +205,19 @@ if (!available) {
       }
       let release!: () => void;
       const gate = new Promise<void>((r) => (release = r));
+      let locked!: (pid: number) => void;
+      const lockHolder = new Promise<number>((r) => (locked = r));
       // Another session locks the admin seats and demotes B, but has not committed yet.
       const other = db.sql.begin(async (tx) => {
         await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
         await tx`UPDATE organization_members SET role = 'trader' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        locked((await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
         await gate;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      const holderPid = await lockHolder;
       // B still reads as admin outside the lock, then waits on it.
       const stale = grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader');
-      await new Promise((r) => setTimeout(r, 200));
+      await untilQueuedBehind(holderPid, 1);
       release();
       await other;
       await expect(stale).rejects.toMatchObject({ code: 'org.not_admin' });
@@ -209,14 +234,17 @@ if (!available) {
       await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
       let release!: () => void;
       const gate = new Promise<void>((r) => (release = r));
+      let locked!: (pid: number) => void;
+      const lockHolder = new Promise<number>((r) => (locked = r));
       const other = db.sql.begin(async (tx) => {
         await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
         await tx`DELETE FROM organization_members WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        locked((await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
         await gate;
       });
-      await new Promise((r) => setTimeout(r, 100));
+      const holderPid = await lockHolder;
       const late = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader');
-      await new Promise((r) => setTimeout(r, 200));
+      await untilQueuedBehind(holderPid, 1);
       release();
       await other;
       await expect(late).rejects.toMatchObject({ code: 'org.member_not_found' });

@@ -1,9 +1,6 @@
 /** Browser hop for the notify health desk (read-only). Same-origin BFF only. */
 import type { NotifyView } from './model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchNotify(signal?: AbortSignal): Promise<NotifyView | null> {
   try {

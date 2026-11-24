@@ -47,8 +47,7 @@ const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
  * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts /trpc. It is
  * not a custody key and grants nothing on-chain: it only lets this service tell
  * a principal the edge vouched for from one a caller typed. Most of the surface
- * is permissionless; the registry procedures are not, and they are the reason
- * (docs/decisions/mount-boundary.md).
+ * is permissionless; the registry procedures are not, and they are the reason.
  */
 const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({
@@ -195,10 +194,21 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
+     * The sovereign P2P escrow (RC-p2p-01): the SovereignEscrow contract on PROTOCOL_CHAIN_ID that holds a seller's tokens
+     * for one P2P order. NO DEFAULT: zero refuses `protocol.escrow_not_deployed` and the contract escrow is not offered.
+     * On a mainnet chain every escrow call refuses `audit.external` whatever this says.
+     */
+    PROTOCOL_P2P_ESCROW_ADDRESS: evmAddressDefaultZero,
+    /**
      * The trading venue (D-bridge-chain-04): the SovereignVenue contract on PROTOCOL_CHAIN_ID that a wallet deposits its own
      * tokens into and withdraws them from. NO DEFAULT: zero refuses `protocol.venue_unset` and nothing is built.
      */
     PROTOCOL_VENUE_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The isolated lending market (D-portfolio-wallet-04): the IsolatedLendingMarket contract on PROTOCOL_CHAIN_ID whose
+     * collateral and debt a wallet's positions list reads. NO DEFAULT: zero refuses `protocol.lending_market_unset`.
+     */
+    PROTOCOL_LENDING_MARKET_ADDRESS: evmAddressDefaultZero,
     /**
      * Router v2 swaps (D-swap-03, D-swap-intents-01, -02): the SovereignRouterV2 contract, the SovereignPermit contract it
      * pulls standing allowances through, and the wrapped native token it wraps around a swap. NO DEFAULTS: any one zero
@@ -258,7 +268,7 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
 
     /**
      * Public ERC-4337 bundler. Optional: without it the service still builds
-     * and verifies operations, and the user submits them. A missing bundler
+     * operations, and the user submits them. A missing bundler
      * degrades convenience, never access — that is what permissionless means.
      */
     PROTOCOL_BUNDLER_URL: z.string().url().optional(),
@@ -270,31 +280,6 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     INDEXER_URL: blankIsUnset(z.string().url().optional()),
     DEX_URL: blankIsUnset(z.string().url().optional()),
     PROTOCOL_PEER_TIMEOUT_MS: blankIsUnset(z.coerce.number().int().min(100).max(30_000).optional()),
-
-    /**
-     * Founding badge Drop phase I window (RC-more-catalogue-04), founder setting. Both ISO instants or the badge
-     * refuses `badge.window_unset`; no default window.
-     */
-    PROTOCOL_BADGE_WINDOW_OPENS_AT: blankIsUnset(z.string().datetime().optional()),
-    PROTOCOL_BADGE_WINDOW_CLOSES_AT: blankIsUnset(z.string().datetime().optional()),
-    /**
-     * Owner-set age (seconds) after which a founding-badge mint slot counts as stuck and an operator may clear it.
-     * No default: blank refuses the clear with `badge.stuck_age_unset`.
-     */
-    PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
-    /**
-     * svc-identity action approval (four-eyes) for the stuck-mint clear, shared-secret (dual) mode. Either blank:
-     * the clear refuses `badge.stuck_approval_unwired`. svc-protocol has no S2S key (service-keys.ts), so a
-     * keypair-only identity refuses this call: it fails closed.
-     */
-    IDENTITY_URL: blankIsUnset(z.string().url().optional()),
-    INTERNAL_SERVICE_SECRET: blankIsUnset(z.string().min(32).optional()),
-
-    /**
-     * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics
-     * read with `owner.decision` unless the caller names a window.
-     */
-    PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /**
      * The sanctions representation a wallet signs once before its first signing action (D-developer-compliance-03).
@@ -339,6 +324,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_EMBEDDED_WALLET_PROVIDER: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_EMBEDDED_WALLET_TEST_URL: blankIsUnset(z.string().max(200).optional()),
     /**
+     * Who pays the network fee of a person's own deposit when their wallet holds none of the chain's gas token
+     * (J-wallet-24 #2). The owner's setting, NO DEFAULT: sponsoring gas is INTAFACED's spending, so blank is unset and
+     * no sponsored deposit is offered (`wallet.gas_sponsor_unset`). This build pays no one's gas, so any value refuses
+     * to boot (src/embedded-wallet/gas-sponsor.ts).
+     */
+    PROTOCOL_GAS_SPONSOR: blankIsUnset(z.string().max(64).optional()),
+    /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
      * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
      */
@@ -350,6 +342,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
      */
     PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
+
+    /**
+     * LOCAL TEST only: `TEST:<absolute path>` of a TEST network registry `networks.list` serves instead of the owner's
+     * `deployments/networks.json` (J-dex-protocol-01 #6, #7). Blank serves the owner's file; a TEST value refuses to boot
+     * outside APP_ENV dev or test (`networksRegistryPathFromSetting`).
+     */
+    PROTOCOL_TEST_NETWORKS_REGISTRY: z.string().default(''),
 
     /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.

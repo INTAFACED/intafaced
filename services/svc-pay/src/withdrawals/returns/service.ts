@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { DEFINITE_POST_REFUSAL_CODES, LedgerError, parseAmount, recipes, type LedgerClient } from '@intafaced/ledger-client';
 import { postPayLedger } from '../../ledger-receipt.js';
 import { INTERNAL_RAIL } from '../internal.js';
@@ -50,7 +50,7 @@ const WITHDRAW_RETURN_UNBOUND = 'ledger.withdraw_return_unbound';
  * One SELECT for get, list and recredit. `last_failure` is the ledger's code from the newest failed credit, so a credit
  * that is approved and not booked names what stops it.
  */
-const rowColumns = (q: Sql) => q`
+const rowColumns = (q: Queryable) => q`
   r.withdrawal_id, r.return_ref, w.user_id, r.asset_id, r.amount::text AS amount, r.reason, r.reason_code, r.blocker,
   r.recorded_by, r.recorded_at, c.approved_by, c.approved_at, c.ledger_withdrawal_id, p.ledger_tx_id, p.posted_at,
   (SELECT e.detail->>'code' FROM pay.withdrawal_return_events e
@@ -232,7 +232,7 @@ export class WithdrawalReturnService {
     return this.get(input.withdrawalId);
   }
 
-  private rows(q: Sql, withdrawalId: string): Promise<ReturnRow[]> {
+  private rows(q: Queryable, withdrawalId: string): Promise<ReturnRow[]> {
     return q<ReturnRow[]>`
       SELECT ${rowColumns(q)}
         FROM pay.withdrawal_returns r

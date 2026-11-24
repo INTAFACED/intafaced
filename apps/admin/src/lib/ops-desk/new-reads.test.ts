@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DESKS, allReads } from './catalog';
-import { cellOfRow, formatCell, readData } from './model';
+import { cellOfRow } from '@/lib/cell-of-row';
+import { formatCell, readData } from './model';
 
 /** The token and protocol reads, each fed what the owning service's output schema says it returns, and then what it must never be trusted to say. */
 
@@ -71,6 +72,8 @@ describe('protocol reads', () => {
     tokenFactoryDeployed: false,
     refusalCode: null,
     reason: null,
+    expectedChainId: null,
+    actualChainId: null,
     usable: true,
     launchUsable: false,
   };
@@ -174,7 +177,14 @@ describe('protocol reads', () => {
   });
   it('protocol health: reads relay and factory flags and tolerates the optional vault flag it does not show', () => {
     expect(
-      readData(read('protocol.health'), { ok: true, relayEnabled: false, factoryConfigured: false, venueVaultConfigured: true }),
+      readData(read('protocol.health'), {
+        ok: true,
+        service: 'svc-protocol',
+        relayEnabled: false,
+        factoryConfigured: false,
+        venueVaultConfigured: true,
+        chain: { status: 'unprobed', code: 'protocol.chain_unprobed', observedChainId: null },
+      }),
     ).toMatchObject({
       shape: 'record',
     });

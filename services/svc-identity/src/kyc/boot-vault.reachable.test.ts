@@ -100,7 +100,7 @@ function fakeSql(): Sql {
     }
     return [];
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 /** Exact production fragment: helper + spread. Omitting the spread is the silent-dark store. */

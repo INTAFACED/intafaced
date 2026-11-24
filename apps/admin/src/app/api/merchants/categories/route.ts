@@ -1,4 +1,3 @@
-import { actionApprovalSchema } from '@intafaced/contracts';
 import {
   businessCategorySchema,
   categoryPolicyPreviewInputSchema,
@@ -8,8 +7,13 @@ import {
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext, payRecordCall } from '@/lib/merchants/pay-call';
 import { moduleDisabledResponse } from '@/lib/modules';
+import {
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+} from '@intafaced/contracts/identity-action-approval-records';
 
 /**
  * Merchants panel BFF: the business category table (RC-merchant-08, J-merchant-02 step 7).
@@ -63,14 +67,7 @@ export async function POST(request: Request) {
     const body = await readAdminJson(request);
 
     if (body.action === 'reject') {
-      const result = await payCall(
-        ctx,
-        'actionApproval.reject',
-        'POST',
-        { approvalId: approvalIdOf(body.approvalId) },
-        parseWith(actionApprovalSchema),
-        'identity',
-      );
+      const result = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_REJECT, { approvalId: approvalIdOf(body.approvalId) });
       if (result.kind !== 'ok') return fromFailure(result);
       return json({ ok: true, approval: { approvalId: result.data.approvalId, status: result.data.status } });
     }
@@ -86,21 +83,14 @@ export async function POST(request: Request) {
     if (body.action === 'preview') return json({ ok: true, preview: preview.data });
 
     if (body.action === 'propose') {
-      const proposed = await payCall(
-        ctx,
-        'actionApproval.propose',
-        'POST',
-        {
-          actionType: preview.data.actionType,
-          targetService: 'svc-pay',
-          targetId: preview.data.actionType,
-          expectedVersion: '1',
-          payloadHash: preview.data.payloadHash,
-          policyVersion: 'v1',
-        },
-        parseWith(actionApprovalSchema),
-        'identity',
-      );
+      const proposed = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_PROPOSE, {
+        actionType: preview.data.actionType,
+        targetService: 'svc-pay',
+        targetId: preview.data.actionType,
+        expectedVersion: '1',
+        payloadHash: preview.data.payloadHash,
+        policyVersion: 'v1',
+      });
       if (proposed.kind !== 'ok') return fromFailure(proposed);
       const a = proposed.data;
       return json({
@@ -117,14 +107,10 @@ export async function POST(request: Request) {
 
     if (body.action === 'approve') {
       // Bound to the change this founder just reviewed: identity refuses unless its stored hash equals this one.
-      const approved = await payCall(
-        ctx,
-        'actionApproval.approve',
-        'POST',
-        { approvalId, expectedPayloadHash: preview.data.payloadHash },
-        parseWith(actionApprovalSchema),
-        'identity',
-      );
+      const approved = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_APPROVE, {
+        approvalId,
+        expectedPayloadHash: preview.data.payloadHash,
+      });
       if (approved.kind !== 'ok') return fromFailure(approved);
       const a = approved.data;
       return json({

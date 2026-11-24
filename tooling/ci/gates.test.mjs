@@ -4,11 +4,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { GATES, gatesToRun, changedSinceMain } from './gates.mjs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { GATES, NOT_GATES, gateAnnotation, gatesToRun, changedSinceMain } from './gates.mjs';
 
 const ids = (gates) => gates.map((g) => g.id);
 const allButTooling = ids(GATES).filter((id) => id !== 'tooling-tests');
@@ -104,4 +105,42 @@ test('an unreadable diff (no origin/main, or not a repo) is null, so every gate 
   } finally {
     rmSync(plain, { recursive: true, force: true });
   }
+});
+
+// The real runner on a planted root: every gate a stub, so the manifest check holds and only the planted reds fail.
+function stubRoot(stub) {
+  const dir = mkdtempSync(join(tmpdir(), 'gates-stub-'));
+  mkdirSync(join(dir, 'tooling', 'ci'), { recursive: true });
+  copyFileSync(join(dirname(fileURLToPath(import.meta.url)), 'gates.mjs'), join(dir, 'tooling', 'ci', 'gates.mjs'));
+  for (const file of Object.keys(NOT_GATES)) if (file !== 'gates.mjs') writeFileSync(join(dir, 'tooling', 'ci', file), '');
+  for (const gate of GATES) {
+    mkdirSync(dirname(join(dir, gate.script)), { recursive: true });
+    writeFileSync(join(dir, gate.script), stub(gate.id));
+  }
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'GITHUB_ACTIONS'));
+  const run = (...args) => spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8', env });
+  const onActions = (...args) =>
+    spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8', env: { ...env, GITHUB_ACTIONS: 'true' } });
+  return { run, onActions, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+// J-cex-spot-10's red Doctrine gates run (17 Nov) carried no annotation of its own, only the exit code and a runner
+// notice, so a reader of annotations could say "a gate" and never which: each red gate now annotates by its id.
+test('on GitHub Actions each red gate is an error annotation titled by its id; a green gate and a laptop run make none', () => {
+  const r = stubRoot((id) => (id === 'lint-ratchet' ? "console.error('rose');\nprocess.exitCode = 1;\n" : "console.log('clean');\n"));
+  try {
+    const ci = r.onActions();
+    assert.equal(ci.status, 1, `${ci.stdout}${ci.stderr}`);
+    const lines = ci.stdout.split('\n').filter((l) => l.startsWith('::error'));
+    const ratchet = GATES.find((g) => g.id === 'lint-ratchet');
+    assert.deepEqual(lines, [`::error title=lint-ratchet::Doctrine gate lint-ratchet failed: ${ratchet.doctrine}`]);
+    assert.equal(lines[0], gateAnnotation(ratchet));
+    assert.doesNotMatch(r.run().stdout, /::error/);
+  } finally {
+    r.done();
+  }
+});
+
+test("a gate annotation escapes what would end GitHub's title or message early", () => {
+  assert.equal(gateAnnotation({ id: 'a:b,c', doctrine: '100% \n x' }), '::error title=a%3Ab%2Cc::Doctrine gate a:b,c failed: 100%25 %0A x');
 });

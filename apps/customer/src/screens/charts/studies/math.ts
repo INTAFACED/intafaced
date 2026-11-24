@@ -8,6 +8,7 @@
  * `null` means "no value here": too few bars, a flat series, a bucket with no volume or no prints. It is never zero.
  */
 import type { Candle } from '../../../data/types';
+import { chartValue } from '../../../shared/chart-value';
 
 export type Maybe = number | null;
 export const DAY_MS = 86_400_000;
@@ -17,10 +18,10 @@ export type SourceName = (typeof SOURCES)[number];
 
 /** The price a study reads from one bar. median = (H+L)/2; typical = (H+L+C)/3; weighted = (H+L+2C)/4. */
 export function sourceValue(candle: Candle, source: SourceName): number {
-  const o = Number(candle.o);
-  const h = Number(candle.h);
-  const l = Number(candle.l);
-  const c = Number(candle.c);
+  const o = chartValue(candle.o);
+  const h = chartValue(candle.h);
+  const l = chartValue(candle.l);
+  const c = chartValue(candle.c);
   const pick: Record<SourceName, number> = {
     close: c,
     open: o,
@@ -151,11 +152,11 @@ export function stochastic(bars: readonly Candle[], k: number, d: number): { k: 
     let high = -Infinity;
     let low = Infinity;
     for (let j = i - k + 1; j <= i; j += 1) {
-      high = Math.max(high, Number(bars[j]!.h));
-      low = Math.min(low, Number(bars[j]!.l));
+      high = Math.max(high, chartValue(bars[j]!.h));
+      low = Math.min(low, chartValue(bars[j]!.l));
     }
     const range = high - low;
-    return range === 0 ? null : ((Number(bars[i]!.c) - low) / range) * 100;
+    return range === 0 ? null : ((chartValue(bars[i]!.c) - low) / range) * 100;
   });
   return { k: kLine, d: sma(kLine, d) };
 }
@@ -187,7 +188,7 @@ export function bollinger(values: readonly number[], period: number, multiplier:
 /** The volume of one bar, or null when the bar carries none (a filled bar or a zero volume: no volume data, not zero). */
 export function volumeOf(candle: Candle): Maybe {
   if (candle.filled) return null;
-  const v = Number(candle.v);
+  const v = chartValue(candle.v);
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
@@ -208,7 +209,7 @@ export function sessionVwap(bars: readonly Candle[]): Maybe[] {
     }
     const v = volumeOf(bar);
     if (v !== null) {
-      const typical = (Number(bar.h) + Number(bar.l) + Number(bar.c)) / 3;
+      const typical = (chartValue(bar.h) + chartValue(bar.l) + chartValue(bar.c)) / 3;
       sumPV += typical * v;
       sumV += v;
     }
@@ -223,8 +224,8 @@ export function midpoint(bars: readonly Candle[], n: number): Maybe[] {
     let high = -Infinity;
     let low = Infinity;
     for (let j = i - n + 1; j <= i; j += 1) {
-      high = Math.max(high, Number(bars[j]!.h));
-      low = Math.min(low, Number(bars[j]!.l));
+      high = Math.max(high, chartValue(bars[j]!.h));
+      low = Math.min(low, chartValue(bars[j]!.l));
     }
     return (high + low) / 2;
   });
@@ -251,7 +252,7 @@ export function ichimoku(bars: readonly Candle[], tenkan: number, kijun: number,
   const t = midpoint(bars, tenkan);
   const k = midpoint(bars, kijun);
   const a: Maybe[] = bars.map((_, i) => (t[i] == null || k[i] == null ? null : (t[i]! + k[i]!) / 2));
-  return { tenkan: t, kijun: k, spanA: a, spanB: midpoint(bars, senkou), lagging: bars.map((bar) => Number(bar.c)) };
+  return { tenkan: t, kijun: k, spanA: a, spanB: midpoint(bars, senkou), lagging: bars.map((bar) => chartValue(bar.c)) };
 }
 
 export interface PriorDay {
@@ -269,11 +270,11 @@ export function priorDayFor(bars: readonly Candle[], stepMs: number): Array<Prio
   const days = new Map<number, { first: number; last: number; high: number; low: number; close: number }>();
   for (const bar of bars) {
     const key = Math.floor(bar.t / DAY_MS);
-    const high = Number(bar.h);
-    const low = Number(bar.l);
+    const high = chartValue(bar.h);
+    const low = chartValue(bar.l);
     const cur = days.get(key);
     if (!cur) {
-      days.set(key, { first: bar.t, last: bar.t, high, low, close: Number(bar.c) });
+      days.set(key, { first: bar.t, last: bar.t, high, low, close: chartValue(bar.c) });
       continue;
     }
     cur.high = Math.max(cur.high, high);
@@ -281,7 +282,7 @@ export function priorDayFor(bars: readonly Candle[], stepMs: number): Array<Prio
     cur.first = Math.min(cur.first, bar.t);
     if (bar.t >= cur.last) {
       cur.last = bar.t;
-      cur.close = Number(bar.c);
+      cur.close = chartValue(bar.c);
     }
   }
   const whole = (key: number): boolean => {
@@ -347,7 +348,7 @@ export interface RatingCounts {
  * below 20 is a buy and above 80 a sell; MACD(12, 26, 9) is a buy when its line is above the signal line.
  */
 export function ratingSignals(bars: readonly Candle[]): RatingSignal[] {
-  const closes = bars.map((bar) => Number(bar.c));
+  const closes = bars.map((bar) => chartValue(bar.c));
   const last = closes.length - 1;
   const at = (series: readonly Maybe[]): Maybe => (last < 0 ? null : (series[last] ?? null));
   // Floating point: an average of a flat series can sit a rounding error above or below the close. Within that error the
@@ -433,8 +434,8 @@ export function volumeDelta(bars: readonly Candle[], prints: readonly Print[], s
     const i = index.get(Math.floor(print.t / stepMs) * stepMs);
     if (i === undefined) continue;
     seen[i] = true;
-    if (print.side === 'buy') buy[i] = buy[i]! + Number(print.amount);
-    else sell[i] = sell[i]! + Number(print.amount);
+    if (print.side === 'buy') buy[i] = buy[i]! + chartValue(print.amount);
+    else sell[i] = sell[i]! + chartValue(print.amount);
   }
   return bars.map((bar, i) => {
     if (!seen[i] || coveredFrom === null || bar.t < coveredFrom) return null;
@@ -470,7 +471,7 @@ export interface Profile {
  */
 export function volumeProfile(prints: readonly Print[], count: number): Profile | null {
   if (prints.length === 0 || count < 1) return null;
-  const prices = prints.map((p) => Number(p.price));
+  const prices = prints.map((p) => chartValue(p.price));
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
   const width = (hi - lo) / count;
@@ -483,8 +484,8 @@ export function volumeProfile(prints: readonly Print[], count: number): Profile 
   prints.forEach((print, n) => {
     const raw = width === 0 ? 0 : Math.floor((prices[n]! - lo) / width);
     const bin = bins[Math.min(Math.max(raw, 0), count - 1)]!;
-    if (print.side === 'buy') bin.buy += Number(print.amount);
-    else bin.sell += Number(print.amount);
+    if (print.side === 'buy') bin.buy += chartValue(print.amount);
+    else bin.sell += chartValue(print.amount);
   });
   let poc: number | null = null;
   let best = -1;

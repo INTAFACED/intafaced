@@ -19,7 +19,7 @@ export function DetailHeader({
 }) {
   return (
     <header className="pp-detail-head">
-      <a className="text-link" href={back.href}>
+      <a className="lt-link" href={back.href}>
         {back.label}
       </a>
       <div className="pp-detail-title">
@@ -28,7 +28,7 @@ export function DetailHeader({
             {title}
             {status && <> {status}</>}
           </h2>
-          {subtitle && <p className="muted">{subtitle}</p>}
+          {subtitle && <p className="lt-muted">{subtitle}</p>}
         </div>
         {action}
       </div>

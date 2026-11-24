@@ -102,7 +102,7 @@ describe("the TEST chain's own records of what it sent (crypto-native)", () => {
     });
     expect(await after.queryPayout('pay.payout:w-1')).toEqual({ status: 'unknown' });
     await expect(after.payout({ ...settlement, destination: { kind: 'crypto', ref: '0xabc' } })).rejects.toThrow(RailOutcomeUnknownError);
-    expect(await memory.lookupSend('pay.payout:w-1')).toEqual({ state: 'not_sent' });
+    expect(await memory.lookupSend('pay.payout:w-1')).toMatchObject({ state: 'not_sent' });
     expect(lines(dir).map((line) => line.key)).toEqual(['send:pay.payout:w-1']);
   });
 
@@ -114,7 +114,7 @@ describe("the TEST chain's own records of what it sent (crypto-native)", () => {
     await first.send(request);
     const memory = new MemoryChain();
     await expect(recordingChainFor(memory, dev(dir)).send(request)).rejects.toThrow(/not sent again/);
-    expect(await memory.lookupSend(request.idempotencyKey)).toEqual({ state: 'not_sent' });
+    expect(await memory.lookupSend(request.idempotencyKey)).toMatchObject({ state: 'not_sent' });
     expect(lines(dir).map(({ key, direction, amount }) => [key, direction, amount])).toEqual([['send:pay.refund:p-1:r-1', 'out', '3']]);
   });
 });

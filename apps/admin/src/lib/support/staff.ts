@@ -24,55 +24,9 @@ export interface StaffPolicyView {
   readonly heartbeatWindowSeconds: number | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
-const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
-const isTime = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
-const nullableTime = (v: unknown): v is string | null => v === null || isTime(v);
-
-/** One roster row, or null. A row that is not exactly this shape is never guessed at. */
-export function readStaffMember(raw: unknown): StaffMemberView | null {
-  if (!isRecord(raw)) return null;
-  const { userId, role, appointedBy, appointedAt, availability, availabilitySetAt, lastHeartbeatAt } = raw;
-  if (!isText(userId) || !isText(appointedBy) || !isTime(appointedAt)) return null;
-  if (role !== 'agent' && role !== 'lead') return null;
-  if (typeof availability !== 'string' || !AVAILABILITIES.includes(availability as Availability)) return null;
-  if (!nullableTime(availabilitySetAt) || !nullableTime(lastHeartbeatAt)) return null;
-  return { userId, role, appointedBy, appointedAt, availability: availability as Availability, availabilitySetAt, lastHeartbeatAt };
-}
-
 /** A `staffList` row: the member and the desk groups (teams) they belong to, as svc-support lists them. */
 export interface StaffDirectoryRow extends StaffMemberView {
   readonly groups: readonly { readonly id: string; readonly name: string }[];
-}
-
-/** `staffList`: every row must read, groups included, or the whole answer is null (never a shorter roster). */
-export function readStaffRoster(raw: unknown): StaffDirectoryRow[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: StaffDirectoryRow[] = [];
-  for (const row of raw) {
-    const member = readStaffMember(row);
-    if (!member || !isRecord(row) || !Array.isArray(row.groups)) return null;
-    const groups: { id: string; name: string }[] = [];
-    for (const g of row.groups) {
-      if (!isRecord(g) || !isText(g.id) || !isText(g.name)) return null;
-      groups.push({ id: g.id, name: g.name });
-    }
-    out.push({ ...member, groups });
-  }
-  return out;
-}
-
-export function readStaffPolicy(raw: unknown): StaffPolicyView | null {
-  if (!isRecord(raw)) return null;
-  const { automaticOffline, heartbeatWindowSeconds } = raw;
-  if (automaticOffline !== 'set' && automaticOffline !== 'not_set') return null;
-  if (
-    heartbeatWindowSeconds !== null &&
-    !(typeof heartbeatWindowSeconds === 'number' && Number.isInteger(heartbeatWindowSeconds) && heartbeatWindowSeconds > 0)
-  )
-    return null;
-  if ((automaticOffline === 'set') !== (heartbeatWindowSeconds !== null)) return null;
-  return { automaticOffline, heartbeatWindowSeconds };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

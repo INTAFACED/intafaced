@@ -1,30 +1,88 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import * as crm from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+  type AdminSessionConfig,
+} from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { NO_INPUT, type ProcedureInput } from '@intafaced/contracts/procedure';
+import {
+  OPS_OUTREACH_CREATE_TASK,
+  OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS,
+  OPS_OUTREACH_LIST_CAMPAIGNS,
+  OPS_OUTREACH_LIST_MESSAGES,
+  OPS_OUTREACH_LIST_SOURCE_MAPPINGS,
+  OPS_OUTREACH_LIST_TASKS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+  OPS_OUTREACH_QUEUE_MESSAGE,
+  OPS_OUTREACH_RECORD_INTERACTION,
+  OPS_OUTREACH_TRANSITION_TASK,
+  OPS_OUTREACH_UPSERT_CAMPAIGN,
+  OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 type Schema = { safeParse(value: unknown): { success: true; data: unknown } | { success: false } };
-const reads: Record<string, [Schema | null, Schema]> = {
-  metrics: [crm.crmMetricsInputSchema, crm.crmMetricsSchema],
-  listCampaigns: [crm.crmCampaignListInputSchema, crm.crmCampaignPageSchema],
-  listSourceMappings: [crm.crmSourceMappingListInputSchema, crm.crmSourceMappingPageSchema],
-  listDuplicates: [crm.crmDuplicateListInputSchema, crm.crmDuplicatePageSchema],
-  getContactProvenance: [crm.crmContactProvenanceInputSchema, crm.crmContactProvenanceSchema.nullable()],
-  listTasks: [crm.crmTaskListInputSchema, crm.crmTaskPageSchema],
-  listMessages: [crm.crmMessageListInputSchema, crm.crmMessagePageSchema],
-  listWorkflowAudit: [crm.crmWorkflowAuditListInputSchema, crm.crmWorkflowAuditPageSchema],
-  documentProviderStatus: [null, crm.crmDocumentProviderStatusSchema],
+type Send = (config: AdminSessionConfig, input: unknown, accessToken: string) => Promise<unknown>;
+/** One call: the input it takes (null: none), the answer it gives, and how it is sent. */
+type Call = [Schema | null, Schema, Send];
+type EdgeRecord = Parameters<typeof founderEdgeRecordCall>[1];
+/** A call sent through its record: the record's own input and answer, the input already checked against it here. */
+function viaRecord<R extends EdgeRecord>(record: R): Call {
+  const takesNone = record.input === NO_INPUT;
+  return [
+    takesNone ? null : record.input,
+    record.output,
+    (config, input, accessToken) =>
+      founderEdgeRecordCall(config, record, (takesNone ? undefined : input) as ProcedureInput<R>, accessToken),
+  ];
+}
+// The calls still by name are those whose record the codemod can't write yet: an answer with a `.refine` the record's
+// export refuses (duplicates, provenance, exports), or an input check no sample shows (metrics, merges).
+const reads: Record<string, Call> = {
+  metrics: [
+    crm.crmMetricsInputSchema,
+    crm.crmMetricsSchema,
+    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.metrics', 'GET', input, accessToken),
+  ],
+  listCampaigns: viaRecord(OPS_OUTREACH_LIST_CAMPAIGNS),
+  listSourceMappings: viaRecord(OPS_OUTREACH_LIST_SOURCE_MAPPINGS),
+  listDuplicates: [
+    crm.crmDuplicateListInputSchema,
+    crm.crmDuplicatePageSchema,
+    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.listDuplicates', 'GET', input, accessToken),
+  ],
+  getContactProvenance: [
+    crm.crmContactProvenanceInputSchema,
+    crm.crmContactProvenanceSchema.nullable(),
+    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.getContactProvenance', 'GET', input, accessToken),
+  ],
+  listTasks: viaRecord(OPS_OUTREACH_LIST_TASKS),
+  listMessages: viaRecord(OPS_OUTREACH_LIST_MESSAGES),
+  listWorkflowAudit: viaRecord(OPS_OUTREACH_LIST_WORKFLOW_AUDIT),
+  documentProviderStatus: viaRecord(OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS),
 };
-const writes: Record<string, [Schema, Schema]> = {
-  upsertCampaign: [crm.crmCampaignWriteInputSchema, crm.crmCampaignSchema],
-  upsertSourceMapping: [crm.crmSourceMappingWriteInputSchema, crm.crmSourceMappingSchema],
-  mergeContacts: [crm.crmMergeInputSchema, crm.crmMergeReceiptSchema],
-  exportSubmissions: [crm.crmExportInputSchema, crm.crmExportPageSchema],
-  createTask: [crm.crmTaskCreateInputSchema, crm.crmTaskMutationReceiptSchema],
-  transitionTask: [crm.crmTaskTransitionInputSchema, crm.crmTaskMutationReceiptSchema],
-  recordInteraction: [crm.crmInteractionInputSchema, crm.crmInteractionReceiptSchema],
-  queueMessage: [crm.crmQueueMessageInputSchema, crm.crmQueueMessageReceiptSchema],
+const writes: Record<string, Call> = {
+  upsertCampaign: viaRecord(OPS_OUTREACH_UPSERT_CAMPAIGN),
+  upsertSourceMapping: viaRecord(OPS_OUTREACH_UPSERT_SOURCE_MAPPING),
+  mergeContacts: [
+    crm.crmMergeInputSchema,
+    crm.crmMergeReceiptSchema,
+    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.mergeContacts', 'POST', input, accessToken),
+  ],
+  exportSubmissions: [
+    crm.crmExportInputSchema,
+    crm.crmExportPageSchema,
+    (config, input, accessToken) => founderEdgeCall(config, 'ops', 'outreach.exportSubmissions', 'POST', input, accessToken),
+  ],
+  createTask: viaRecord(OPS_OUTREACH_CREATE_TASK),
+  transitionTask: viaRecord(OPS_OUTREACH_TRANSITION_TASK),
+  recordInteraction: viaRecord(OPS_OUTREACH_RECORD_INTERACTION),
+  queueMessage: viaRecord(OPS_OUTREACH_QUEUE_MESSAGE),
 };
 function parse(schema: Schema, value: unknown, upstream = false): unknown {
   const parsed = schema.safeParse(value);
@@ -71,12 +129,12 @@ export async function GET(request: Request) {
       action = params.get('view') ?? '';
     if (!Object.hasOwn(reads, action) || new Set(params.keys()).size !== [...params.keys()].length)
       throw new AdminSessionError('admin.crm_input', 400);
-    const [inputSchema, outputSchema] = reads[action]!;
+    const [inputSchema, outputSchema, send] = reads[action]!;
     const raw: Record<string, unknown> = Object.fromEntries([...params.entries()].filter(([key]) => key !== 'view'));
     if ('limit' in raw) raw.limit = Number(raw.limit);
     if (!inputSchema && Object.keys(raw).length) throw new AdminSessionError('admin.crm_input', 400);
     const input = inputSchema ? parse(inputSchema, raw) : {};
-    const result = parse(outputSchema, await founderEdgeCall(config, 'ops', `outreach.${action}`, 'GET', input, session.accessToken), true);
+    const result = parse(outputSchema, await send(config, input, session.accessToken), true);
     bindRead(action, row(input), result);
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
@@ -92,11 +150,10 @@ export async function POST(request: Request) {
       action = typeof body.action === 'string' ? body.action : '';
     if (Object.keys(body).some((key) => !['action', 'input'].includes(key)) || !Object.hasOwn(writes, action))
       throw new AdminSessionError('admin.crm_input', 400);
-    const [inputSchema, outputSchema] = writes[action]!;
+    const [inputSchema, outputSchema, send] = writes[action]!;
+    if (!inputSchema) throw new AdminSessionError('admin.crm_input', 400);
     const input = row(parse(inputSchema, body.input));
-    const result = row(
-      parse(outputSchema, await founderEdgeCall(config, 'ops', `outreach.${action}`, 'POST', input, session.accessToken), true),
-    );
+    const result = row(parse(outputSchema, await send(config, input, session.accessToken), true));
     if (action === 'queueMessage') {
       const opportunity = row(result.opportunity),
         message = row(result.message),
@@ -117,7 +174,7 @@ export async function POST(request: Request) {
         throw new AdminSessionError('admin.upstream_invalid', 502);
       return Response.json(result, { headers: { 'cache-control': 'no-store' } });
     }
-    let subjectType: string, subjectId: unknown, kind: string;
+    let subjectType: (typeof crm.crmWorkflowAuditListInputSchema)['_output']['subjectType'], subjectId: unknown, kind: string;
     switch (action) {
       case 'upsertCampaign':
         for (const key of ['id', 'name', 'channel', 'status', 'documentRef', 'providerLinkId']) equal(result[key], input[key]);
@@ -198,12 +255,10 @@ export async function POST(request: Request) {
     }
     // Receipts without actor fields are verified against the protected immutable audit.
     const audit = crm.crmWorkflowAuditPageSchema.safeParse(
-      await founderEdgeCall(
+      await founderEdgeRecordCall(
         config,
-        'ops',
-        'outreach.listWorkflowAudit',
-        'GET',
-        { subjectType, subjectId, limit: 100 },
+        OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+        { subjectType, subjectId: String(subjectId), limit: 100 },
         session.accessToken,
       ),
     );

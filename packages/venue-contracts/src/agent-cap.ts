@@ -2,7 +2,6 @@ import { add, compare, div, formatAmount, isNegative, mul, parseAmount, sub, sum
 import {
   assertSignatureMatches,
   assertSignerMaySign,
-  venueClientOrderId,
   VenueRefusalError,
   type AsOf,
   type MaybeKnown,
@@ -290,7 +289,7 @@ export function checkAgentOrderWithinCap(
   }
   assertSignerMaySign(account, signer, intent);
 
-  if (intent.kind === 'cancel_order') return NOTHING;
+  if (intent.kind === 'cancel_order' || intent.kind === 'cancel_orders') return NOTHING;
 
   if (cap.revokedAt !== null)
     refuse(account, 'agent_cap_inactive', `the person revoked this agent at ${cap.revokedAt.toISOString()}; only cancels are allowed`);
@@ -340,7 +339,7 @@ export function checkAgentOrderWithinCap(
   let commitment = ZERO;
   let replaced: UserVenueOrder | null = null;
   if (intent.kind === 'amend_order') {
-    const cloid = venueClientOrderId(account.venueId, intent.clientOrderKey);
+    const cloid = intent.venueClientOrderId;
     replaced = snapshot.openOrders.find((o) => o.venueClientOrderId === cloid) ?? null;
     if (!replaced) refuse(account, 'unknown_order', `no resting order with client id ${cloid} on this account`);
     if (replaced.symbol !== intent.symbol)
@@ -476,7 +475,7 @@ export function checkAgentOrderWithinBounds(
   side: 'buy' | 'sell' | null,
 ): void {
   const { intent, account } = prepared;
-  if (intent.kind === 'cancel_order') return;
+  if (intent.kind === 'cancel_order' || intent.kind === 'cancel_orders') return;
   if (intent.kind !== 'place_order' && intent.kind !== 'amend_order' && intent.kind !== 'update_leverage') return;
   if (bounds.markets === null) {
     throw new AgentCapError(

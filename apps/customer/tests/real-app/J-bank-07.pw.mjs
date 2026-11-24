@@ -5,11 +5,32 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
+import {
+  DEVICE_KEY,
+  EDGE,
+  ORIGIN,
+  ROOT,
+  api as ledgerApi,
+  fromUnits,
+  fund,
+  journeyState,
+  json,
+  signOutBrowser,
+  toUnits,
+} from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { withPartner } from './partner.mjs';
+import { partnerBookAccounts, partnerBookMoves, withPartner } from './partner.mjs';
+import { agePast } from './test-age.mjs';
+import { bankPerson, close, local, spacesOf, staffDoors } from './bank-desk.mjs';
 
-// J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
+// J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account.
+// The person's bank money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch
+// model, OWNER 226), funded there with TEST 100 USDT (`testPartner.fund`, the partner's figure, no ledger post): steps 1,
+// 2, 3 and 6 run on it, every move between spaces and into the shared pot is one partner move, and the ledger posts
+// nothing for it. Step 4 (the sorter, from a payment by another person, and the bills pot's bill to another person) and
+// step 5 (instant-access savings) are not yet made at the partner (a send to a person and a savings deposit refuse there,
+// `bank.partner_path_not_built`), so they still run on a second TEST person whose money is on the ledger. The TEST card
+// partner holds card money in USDC only, so step 3's card and round-up are in USDC, into a USDC pot at the partner. Steps 1
 // and 2 (BK-pots-02): a space with a goal whose progress is exact, rounded down and capped, changed and cleared on the
 // space's own page; then a lock that refuses every debit by name, a standing order that records the lock as its reason,
 // and an early unlock that waits out the bank's window. Step 3 (BK-pots-02): a standing order and a card round-up made on
@@ -37,8 +58,12 @@ const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
 const SAVINGS = 'Rainy day TEST';
+const CHANGE = 'Spare change TEST';
 const WAIT_HOURS = 24;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const { person } = bankPerson({ run, J });
+const spaces = spacesOf(bank);
+const PARTNER_BANK = 'TEST partner bank';
 
 test.describe.configure({ mode: 'default' });
 
@@ -113,47 +138,62 @@ async function runDue() {
   }
 }
 
-let staffDoor;
-async function founders() {
-  staffDoor ??= (async () => {
-    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-    const ctx = await gates.makeContext({ log: () => {} });
-    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
-  })();
-  return staffDoor;
-}
-/** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
-async function cardEvent(actionType, procedure, fields) {
-  const { gates, ctx, sessions } = await founders();
-  const approval = await gates.twoPerson(ctx, sessions, {
-    actionType,
-    targetService: 'svc-bank',
-    targetId: actionType,
-    expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
-    policyVersion: gates.MARKERS.policyVersion,
-  });
-  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  return res.json.result.data;
-}
+const { cardEvent, treasury } = staffDoors();
 
-function person() {
-  const { who } = run.read();
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
-  return who;
-}
-async function spaces(who) {
-  const res = await (await bank(who)).query('spaces.list', { limit: 50 });
-  if (!res.ok) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.data;
-}
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
-/** A `datetime-local` value, in the browser's (and this process's) local time. */
-function local(at) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+
+/**
+ * The person's start at the TEST partner bank: their bank money held there (`custody: 'off'`) and `amount` USDT paid in
+ * there under one fund id, the partner's figure and no ledger post. Within one svc-bank process the same fund id pays in
+ * once.
+ */
+async function atPartner(who, amount, fundId) {
+  const own = await bank(who);
+  const held = await own.mutate('testPartner.set', { custody: 'off' });
+  expect(held, JSON.stringify(held.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  const funded = await own.mutate('testPartner.fund', { fundId: fundId.slice(0, 64), assetId: 'USDT', amount });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  expect(main(await spaces(who))).toMatchObject({ ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+}
+/** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
+async function ledgerUsdt(who) {
+  const row = (await (await ledgerApi(who)).balances()).USDT;
+  return row ? { free: toUnits(row.free), used: toUnits(row.used), total: toUnits(row.total) } : null;
+}
+/** The ledger figures `who` started with are still the ledger's figures: nothing of this journey's money posted there. */
+async function ledgerUnchanged(who, start) {
+  expect(await ledgerUsdt(who), `${who.email}: the ledger posted for money the partner holds`).toEqual(start);
+}
+/** The moves the partner's book lists for the person after the `before` it listed earlier, pay-ins left out. */
+async function partnerMovesSince(userId, before) {
+  const seen = new Set(before.map((m) => m.id));
+  return (await partnerBookMoves(userId)).filter((m) => !seen.has(m.id) && m.from.owner !== 'partner:incoming-payments');
+}
+/**
+ * The app's figure for each of the person's own spaces held at the partner is what the partner's own book holds in that
+ * account, and the book holds nothing the app does not show. Answers the book: `<asset>:<space id, or main>` -> units.
+ */
+async function sameAsPartner(who, userId) {
+  const book = new Map((await partnerBookAccounts(userId)).map((a) => [`${a.asset}:${a.spaceId ?? 'main'}`, toUnits(a.amount)]));
+  const held = (await spaces(who)).filter((s) => s.heldAt?.label === PARTNER_BANK);
+  expect(held.length, `${who.email} holds nothing at the partner`).toBeGreaterThan(0);
+  const shown = new Map(held.map((s) => [`${s.assetId}:${s.kind === 'primary' ? 'main' : s.id}`, toUnits(s.balance)]));
+  for (const [key, units] of book)
+    if (units !== 0n) expect(shown.get(key), `${who.email} ${key}: the partner holds it, the app does not show it`).toBe(units);
+  for (const [key, units] of shown) expect(book.get(key) ?? 0n, `${who.email} ${key}: the app's figure is not the partner's`).toBe(units);
+  return book;
+}
+
+/** The second TEST person of steps 4 and 5, whose money is on the ledger (the partner paths are not built yet). */
+async function ledgerPerson(page) {
+  const kept = run.read().onLedger;
+  if (kept) return kept;
+  const who = await signUp(page, 'jb07l');
+  await verify(page, who);
+  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  run.write({ onLedger: who });
+  return who;
 }
 
 /** One action of the selected space's page, through its review, to the bank's own confirmation. */
@@ -169,10 +209,6 @@ async function confirm(dialog, submit = 'Confirm') {
   await dialog.getByRole('button', { name: submit }).click();
   await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
 }
-async function close(page) {
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-}
 
 test(`${J} #1 opens a space with a goal: progress is exact, rounded down and capped, and no bar is drawn without a goal`, async ({
   page,
@@ -180,8 +216,10 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   test.setTimeout(180_000);
   const who = await signUp(page, 'jb07');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  // The person's bank money is held at the TEST partner bank and paid in there: nothing is posted to the ledger.
+  await atPartner(who, '100', `jb07-${who.email}`);
+  expect(main(await spaces(who)).balance).toBe('100');
+  run.reset({ who, ledger: await ledgerUsdt(who) });
 
   // The space is made in the app with a goal of 50.
   await signIn(page, who);
@@ -194,7 +232,7 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   await dialog.getByRole('button', { name: 'Review' }).click();
   await confirm(dialog);
   const pot = named(await spaces(who), POT);
-  expect(pot).toMatchObject({ goalTarget: '50', lockedUntil: null, unlocksAt: null });
+  expect(pot).toMatchObject({ goalTarget: '50', lockedUntil: null, unlocksAt: null, ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
 
   // 20 moves in through the person's own API, so the bar has a balance to measure.
   const api = await bank(who);
@@ -205,6 +243,8 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
     amount: '20',
   });
   expect(moved.ok, JSON.stringify(moved.body ?? {}).slice(0, 300)).toBe(true);
+  // One partner move, nothing on the ledger.
+  expect(moved.data).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
 
   await page.goto(`/bank/spaces?space=${pot.id}`);
   const selected = page.getByTestId('money-selected-space');
@@ -233,6 +273,8 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   const after = named(await spaces(who), POT);
   expect(after).toMatchObject({ goalTarget: null });
   expect(toUnits(after.balance)).toBe(toUnits('20'));
+  expect(after.heldAt).toMatchObject({ label: PARTNER_BANK });
+  await ledgerUnchanged(who, run.read().ledger);
   run.write({ pot: pot.id });
 });
 
@@ -245,6 +287,9 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   if (!pot) throw new Error(`${J} #1 made no space, so this step has nothing to lock`);
   const api = await bank(who);
   const mainId = main(await spaces(who)).id;
+  // The partner's own book before the lock: what it lists now is all it lists at the end of this step.
+  const movesAtStart = await partnerBookMoves(api.userId);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot}`);
@@ -266,6 +311,9 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   });
   expect(refused).toMatchObject({ ok: false, code: 'bank.space_locked' });
   expect(toUnits(named(await spaces(who), POT).balance)).toBe(toUnits('20'));
+  // Nothing moved at the partner either: its own book lists no new move and still holds 20 in the pot.
+  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   // A lock can only get longer here: an earlier date is refused, to be asked for as an early unlock.
   const shorter = await api.mutate('spaces.setLock', { spaceId: pot, lockedUntil: new Date(Date.now() + 24 * 3600_000).toISOString() });
@@ -336,6 +384,11 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
     expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
     expect(named(await spaces(who), POT)).toMatchObject({ lockedUntil: before.lockedUntil, unlocksAt: before.unlocksAt });
   });
+  // Every refusal of this step, the standing order's included, moved nothing at the partner: its book lists no new move,
+  // and the pot still holds 20 there, the figure the app shows.
+  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
+  await ledgerUnchanged(who, run.read().ledger);
 });
 
 test(`${J} #3 money flows into the space on its own: a standing order and a card round-up land once each, and the space's statement lists them`, async ({
@@ -346,6 +399,7 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   const { pot } = run.read();
   if (!pot) throw new Error(`${J} #1 made no space, so this step has nowhere to save into`);
   const api = await bank(who);
+  const movesAtStart = await partnerBookMoves(api.userId);
   const before = named(await spaces(who), POT);
   const mainBefore = main(await spaces(who)).balance;
 
@@ -373,23 +427,45 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   await expect(order).toContainText('5 USDT, every week');
   const orderId = await order.getAttribute('data-id');
 
-  // A card round-up to the next TEST 1, into this space, made on the same page.
+  // The TEST card spends from the person's USDC account at the partner bank, so the card and its round-up are in
+  // USDC: TEST 10 USDC paid in at the partner bank, a USDC pot for the spare change, and a round-up to the next TEST 1
+  // into it, made on that pot's own page.
+  const usdc = await api.mutate('testPartner.fund', { fundId: `jb07-usdc-${who.email}`.slice(0, 64), assetId: 'USDC', amount: '10' });
+  expect(usdc, JSON.stringify(usdc.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  if (!named(await spaces(who), CHANGE)) {
+    const made = await api.mutate('spaces.create', { assetId: 'USDC', name: CHANGE });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+  }
+  const change = named(await spaces(who), CHANGE);
+  expect(change).toMatchObject({ assetId: 'USDC', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  const usdcMain = () => spaces(who).then((rows) => rows.find((r) => r.kind === 'primary' && r.assetId === 'USDC'));
+  const changeBefore = change.balance;
+  const usdcBefore = (await usdcMain()).balance;
+  await page.goto(`/bank/spaces?space=${change.id}`);
+  await expect(inflows).toContainText('No card round-up goes into this space.');
   await confirm(await act(page, 'Add round-up', (d) => d.getByLabel(/^Round up to the next/).fill('1')));
   await close(page);
   const roundUp = inflows.getByTestId('space-inflow-roundup');
   await expect(roundUp).toHaveCount(1);
-  await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDT');
+  await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDC');
   await expect(roundUp).toContainText('Active');
 
-  // A TEST card payment of 4.30: authorised, then captured. The spare 0.70 moves into the space with the capture.
+  // A TEST card payment of 4.30 USDC at the TEST card partner, from the person's USDC account at the partner bank:
+  // authorised, then captured. The spare 0.70 moves into the pot with the capture, as one partner bank move.
   const cardId = randomUUID();
-  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDT', perAuthorizationLimit: '50', cardType: 'virtual' });
+  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDC', perAuthorizationLimit: '50' });
   expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
   const payment = { cardId, authorizationRef: `jb07-${randomUUID()}`, amount: '4.3' };
   const held = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', payment);
   expect(held).toMatchObject({ decision: 'approved', declineCode: null });
   const captured = await cardEvent('bank.card_capture', 'ops.cardCapture', payment);
-  expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: pot });
+  expect(captured).toMatchObject({ heldBy: 'partner', captureLedgerTxId: null });
+  expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: change.id });
+  expect(captured.roundUp.ledgerTxId).toBeUndefined();
+  expect(captured.roundUp.partnerMoveId).toBeTruthy();
+  // Landed once: the pot gained 0.7 from the USDC account at the partner bank, which the 4.30 card payment left too.
+  expect(toUnits(named(await spaces(who), CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
+  expect(toUnits((await usdcMain()).balance)).toBe(toUnits(usdcBefore) - toUnits('4.3') - toUnits('0.7'));
 
   // The standing order's first run, once its time has come.
   await expect
@@ -402,35 +478,92 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
       { timeout: 200_000, intervals: [10_000] },
     )
     .toEqual(['settled']);
+  // The order's run is one partner move, nothing on the ledger.
+  const [orderRun] = (await api.query('transfers.executions', { scheduleId: orderId, limit: 50 })).data;
+  expect(orderRun).toMatchObject({ status: 'settled', ledgerTxId: null });
+  expect(orderRun.partnerMoveId).toBeTruthy();
 
-  // Each landed once: the space gained 5.7, the account paid the card 4.3 and the space 5.7.
+  // The order landed once: the space gained 5 from the account at the partner bank, and the round-up's 0.7 stayed in
+  // its own pot.
   const after = await spaces(who);
-  expect(toUnits(named(after, POT).balance)).toBe(toUnits(before.balance) + toUnits('5.7'));
-  expect(toUnits(main(after).balance)).toBe(toUnits(mainBefore) - toUnits('10'));
+  expect(toUnits(named(after, POT).balance)).toBe(toUnits(before.balance) + toUnits('5'));
+  expect(toUnits(main(after).balance)).toBe(toUnits(mainBefore) - toUnits('5'));
+  expect(toUnits(named(after, CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
+  await ledgerUnchanged(who, run.read().ledger);
 
-  // The space's own statement, this month so far: the order's run and the round-up, once each, and nothing else's lines.
-  await page.goto(`/bank/spaces?space=${pot}`);
-  const statement = selected.getByRole('form', { name: 'Space statement' });
-  await expect(statement.getByLabel('Format')).toHaveValue('csv');
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    statement.getByRole('button', { name: 'Download space statement' }).click(),
+  // The partner's own book: beside the card payment's hold, one move from the USDC account into the partner's card
+  // holds, the round-up and the order's run are its only two moves of this step, each once, between the person's own
+  // accounts there; the figures the app shows for every space are the partner's.
+  const all = await partnerMovesSince(api.userId, movesAtStart);
+  const cardMoves = all.filter((m) => m.key.startsWith('card.partner.'));
+  expect(cardMoves).toMatchObject([
+    { from: { owner: api.userId, assetId: 'USDC', spaceId: null }, to: { owner: 'partner:card-holds' }, amount: '4.3' },
   ]);
-  const csv = readFileSync(await download.path(), 'utf8').replace(/^\uFEFF/, '');
-  const [header, ...lines] = csv.trim().split('\r\n');
-  expect(header.split(',')[4]).toBe('Amount');
-  const amounts = lines.map((line) => line.split(','));
-  expect(amounts.every((cells) => cells[6] === POT)).toBe(true);
-  expect(amounts.filter((cells) => cells[4] === '5')).toHaveLength(1);
-  expect(amounts.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
-  await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+  const made = all.filter((m) => !m.key.startsWith('card.partner.'));
+  expect(made.map((m) => m.id).sort()).toEqual([captured.roundUp.partnerMoveId, orderRun.partnerMoveId].sort());
+  const roundUpMove = made.find((m) => m.id === captured.roundUp.partnerMoveId);
+  expect(roundUpMove).toMatchObject({
+    from: { owner: api.userId, assetId: 'USDC', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDC', spaceId: change.id },
+    amount: '0.7',
+  });
+  const orderMove = made.find((m) => m.id === orderRun.partnerMoveId);
+  expect(orderMove).toMatchObject({
+    from: { owner: api.userId, assetId: 'USDT', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDT', spaceId: pot },
+    amount: '5',
+  });
+  const book = await sameAsPartner(who, api.userId);
+  expect(book.get(`USDT:${pot}`)).toBe(toUnits(before.balance) + toUnits('5'));
+  expect(book.get(`USDC:${change.id}`)).toBe(toUnits(changeBefore) + toUnits('0.7'));
+
+  // Each pot's own statement, this month so far: the order's run in the space, the round-up in the spare-change pot, once
+  // each, and nothing else's lines.
+  const statementOf = async (spaceId, name) => {
+    await page.goto(`/bank/spaces?space=${spaceId}`);
+    const statement = selected.getByRole('form', { name: 'Space statement' });
+    await expect(statement.getByLabel('Format')).toHaveValue('csv');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      statement.getByRole('button', { name: 'Download space statement' }).click(),
+    ]);
+    const csv = readFileSync(await download.path(), 'utf8').replace(/^\uFEFF/, '');
+    const [header, ...lines] = csv.trim().split('\r\n');
+    expect(header.split(',')[4]).toBe('Amount');
+    const cells = lines.map((line) => line.split(','));
+    expect(cells.every((row) => row[6] === name)).toBe(true);
+    await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+    return cells;
+  };
+  const potLines = await statementOf(pot, POT);
+  expect(potLines.filter((cells) => cells[4] === '5')).toHaveLength(1);
+  const changeLines = await statementOf(change.id, CHANGE);
+  expect(changeLines.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
+
+  // Where the partner has no pots (the TEST partner switched to offer none): a round-up into the space reads "not
+  // offered by the partner", and no rule is stored.
+  await withPartner(who, { notOffered: ['pots'] }, async () => {
+    await page.goto(`/bank/spaces?space=${pot}`);
+    const dialog = await act(page, 'Add round-up', (d) => d.getByLabel(/^Round up to the next/).fill('1'));
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await api.mutate('autoInvest.createRoundUp', { assetId: 'USDT', granularity: '1', targetSpaceId: pot });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    const rules = await api.query('autoInvest.list', { limit: 50, targetSpaceId: pot });
+    expect(rules).toMatchObject({ ok: true, data: [] });
+  });
+  // The refused round-up moved nothing at the partner: its book still lists only the step's moves, the card hold's and
+  // the two above.
+  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(all.map((m) => m.id).sort());
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
-  const who = person();
+  // Not yet at the partner: a payment from another person into money the partner holds refuses
+  // (`bank.partner_path_not_built`), so this step runs on the TEST person whose money is on the ledger.
+  const who = await ledgerPerson(page);
   const api = await bank(who);
   // A second TEST person who pays, holding TEST 100 USDT.
   const payer = await signUp(page, 'jb07p');
@@ -510,7 +643,8 @@ test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refuse
   page,
 }) => {
   test.setTimeout(480_000);
-  const who = person();
+  // Not yet at the partner (a bill paid to another person), so on the TEST person whose money is on the ledger.
+  const who = await ledgerPerson(page);
   const api = await bank(who);
   // The bill's payee: another TEST person.
   const payee = await signUp(page, 'jb07l');
@@ -615,39 +749,12 @@ async function accrue(poolId, at) {
   return answer.result.data.results[0];
 }
 
-/**
- * One treasury door of the bank, approved by the stack's two TEST founders as an owner's change would be. The approval
- * is bound to `fields`, the door's canonical strings; `input` is what the door is sent.
- */
-async function treasury(actionType, procedure, input, fields) {
-  const { gates, ctx, sessions } = await founders();
-  const approval = await gates.twoPerson(ctx, sessions, {
-    actionType,
-    targetService: 'svc-bank',
-    targetId: actionType,
-    expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
-    policyVersion: gates.MARKERS.policyVersion,
-  });
-  const res = await ctx.edge.mutate('bank', procedure, { ...input, ...approval }, await sessions.a.treasuryToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  return res.json.result.data;
-}
-/** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
-function seed(...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, LOCAL_TEST: '1' },
-    timeout: 60_000,
-  });
-}
-
 test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three days of interest that add up to what the account was paid, then taken back`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
-  const who = person();
+  // Not yet at the partner (savings pay from our own book), so on the TEST person whose money is on the ledger.
+  const who = await ledgerPerson(page);
   const api = await bank(who);
   expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
   // A TEST instant-access pool of this run's own, opened through the treasury door and below the seeded pool's rate. The
@@ -772,7 +879,9 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await verify(page, viewer);
   const third = await signUp(page, 'jb07t');
   await signOutBrowser(page.context());
-  for (const p of [partner, viewer]) expect(fund(p.email, 'USDT', '20').tx).toBeTruthy();
+  // Both hold their bank money at the same TEST partner bank, TEST 20 each: the pot's money moves between them there.
+  for (const p of [partner, viewer]) await atPartner(p, '20', `jb07-${p.email}`);
+  const partnerLedger = await ledgerUsdt(partner);
   const partnerApi = await bank(partner);
   const viewerApi = await bank(viewer);
   const potBalance = async () => toUnits(named(await spaces(who), POT).balance);
@@ -796,7 +905,6 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
     await close(page);
   };
   await invite(viewer, 'viewer');
-  const firstInviteAt = Date.now();
   await invite(partner, 'contributor');
   // Two open invites fill the TEST cap: a third is refused by name, and nothing is stored for it.
   const full = await api.mutate('sharedPots.invite', { inviteId: randomUUID(), spaceId: pot.id, handle: third.handle, role: 'viewer' });
@@ -819,6 +927,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await expect(asPartner).toHaveAttribute('data-role', 'contributor');
   const before = await potBalance();
   const partnerBefore = await mainOf(partner);
+  const partnerMovesBefore = await partnerBookMoves(partnerApi.userId);
   await expect(asPartner.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(before));
   await asPartner.getByRole('button', { name: 'Add money', exact: true }).click();
   const add = page.getByRole('dialog');
@@ -828,9 +937,27 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await close(page);
   expect(await potBalance()).toBe(before + toUnits('5'));
   expect(await mainOf(partner)).toBe(partnerBefore - toUnits('5'));
+  await ledgerUnchanged(partner, partnerLedger);
+  // The partner's own book: one move of 5, once, from the contributor's account there into the owner's pot; the pot and
+  // the contributor's account hold there what the app shows.
+  const added = await partnerMovesSince(partnerApi.userId, partnerMovesBefore);
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatchObject({
+    from: { owner: partnerApi.userId, assetId: 'USDT', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDT', spaceId: pot.id },
+    amount: '5',
+  });
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot.id}`)).toBe(before + toUnits('5'));
+  expect((await sameAsPartner(partner, partnerApi.userId)).get('USDT:main')).toBe(partnerBefore - toUnits('5'));
 
-  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name.
-  await page.waitForTimeout(Math.max(0, firstInviteAt + 2 * 60_000 + 5_000 - Date.now()));
+  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name. The
+  // TEST age door makes that one invite two minutes older instead of waiting them out; no clock moves.
+  const viewerInvites = (await viewerApi.query('sharedPots.list', { limit: 50 })).data.invites.filter((i) => i.spaceId === pot.id);
+  expect(viewerInvites).toHaveLength(1);
+  const [toViewer] = viewerInvites;
+  expect(toViewer.expired).toBe(false);
+  expect(Date.parse(toViewer.expiresAt) - Date.parse(toViewer.createdAt)).toBe(2 * 60_000);
+  await agePast('bank', 'shared-pot-invite', toViewer.inviteId, toViewer.expiresAt);
   await signOutBrowser(page.context());
   await signIn(page, viewer);
   await page.goto('/bank/spaces');
@@ -842,6 +969,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await refusedDialog.getByRole('button', { name: 'Accept', exact: true }).click();
   await expect(refusedDialog).toContainText('This invite has ended. Ask the pot’s owner for a new one.');
   const expiredId = await ended.getAttribute('data-invite');
+  expect(expiredId).toBe(toViewer.inviteId);
   expect(await viewerApi.mutate('sharedPots.accept', { inviteId: expiredId })).toMatchObject({ ok: false, code: 'bank.invite_expired' });
   expect((await viewerApi.query('sharedPots.list', { limit: 50 })).data.shared).toEqual([]);
 
@@ -858,6 +986,8 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await expect(asViewer).toHaveAttribute('data-role', 'viewer');
   const held = await potBalance();
   const viewerHeld = await mainOf(viewer);
+  const viewerMovesBefore = await partnerBookMoves(viewerApi.userId);
+  const ownerMovesBefore = await partnerBookMoves(api.userId);
   await expect(asViewer.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(held));
   await asViewer.getByRole('button', { name: 'Add money', exact: true }).click();
   const tried = page.getByRole('dialog');
@@ -882,6 +1012,11 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   expect(out).toMatchObject({ ok: false, code: 'bank.space_forbidden' });
   expect(await potBalance()).toBe(held);
   expect(await mainOf(viewer)).toBe(viewerHeld);
+  // Nor at the partner: neither the viewer's record nor the owner's lists a new move, and both hold what the app shows.
+  expect(await partnerMovesSince(viewerApi.userId, viewerMovesBefore)).toEqual([]);
+  expect(await partnerMovesSince(api.userId, ownerMovesBefore)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot.id}`)).toBe(held);
+  expect((await sameAsPartner(viewer, viewerApi.userId)).get('USDT:main')).toBe(viewerHeld);
 
   // The owner links a TEST card to the pot from the Spaces page, so the pot's holders can freeze it.
   const cardId = randomUUID();
@@ -964,4 +1099,18 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
     expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
     expect((await api.query('sharedPots.activity', { spaceId: pot.id, limit: 50 })).data).toHaveLength(7);
   });
+  await ledgerUnchanged(who, run.read().ledger);
 });
+
+/**
+ * One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. It stays a copy here:
+ * only a journey file may name the seed script (local-test-seed.test.mjs), so no helper can hold it.
+ */
+function seed(...args) {
+  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, LOCAL_TEST: '1' },
+    timeout: 60_000,
+  });
+}

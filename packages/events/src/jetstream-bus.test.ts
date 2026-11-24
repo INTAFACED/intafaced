@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { connect } from 'nats';
 import { recordInfraProbe } from '@intafaced/db';
-import { afterAll, describe, expect, it } from 'vitest';
-import { ACK_WAIT_NS, JetStreamEventBus, nakBackoffMs } from './jetstream-bus.js';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { ACK_WAIT_NS, BUS_DELIVERED, JetStreamEventBus, nakBackoffMs } from './jetstream-bus.js';
+import { streamName } from './subject.js';
 
 /**
  * `JetStreamEventBus` against a real NATS server.
@@ -67,18 +68,37 @@ async function bus(): Promise<JetStreamEventBus> {
   return b;
 }
 
+/** The broker's own count for one durable: messages it has not delivered, delivered and not acked, and open pulls. */
+async function brokerHolds(durable: string): Promise<{ undelivered: number; unacked: number; pulls: number }> {
+  const nc = await connect({ servers: URL });
+  try {
+    const info = await (await nc.jetstreamManager()).consumers.info(streamName('identity', PREFIX), durable);
+    return { undelivered: info.num_pending, unacked: info.num_ack_pending, pulls: info.num_waiting };
+  } finally {
+    await nc.close();
+  }
+}
+
+/** Waits until the broker holds nothing more for this durable: whatever was going to be delivered has been. */
+async function untilBrokerDone(durable: string, timeoutMs = 20_000): Promise<void> {
+  await vi.waitFor(async () => expect(await brokerHolds(durable)).toMatchObject({ undelivered: 0, unacked: 0 }), {
+    timeout: timeoutMs,
+    interval: 50,
+  });
+}
+
 function user() {
   return { userId: randomUUID(), handle: `h-${randomUUID().slice(0, 8)}` };
 }
 
-/** Poll rather than sleep a fixed amount — a fixed sleep is a flaky test. */
+/** Wait for the outcome rather than a fixed amount — a fixed sleep is a flaky test. */
 async function until(predicate: () => boolean, timeoutMs = 8_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return true;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  return predicate();
+  return vi
+    .waitFor(() => expect(predicate()).toBe(true), { timeout: timeoutMs, interval: 25 })
+    .then(
+      () => true,
+      () => predicate(),
+    );
 }
 
 afterAll(async () => {
@@ -130,6 +150,7 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
     const payload = user();
     let attempts = 0;
 
+    const durable = `d-${randomUUID().slice(0, 8)}`;
     await b.subscribe(
       'userCreated',
       async (p) => {
@@ -137,14 +158,14 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
         attempts += 1;
         if (attempts < 2) throw new Error('transient — nak me');
       },
-      { durable: `d-${randomUUID().slice(0, 8)}`, maxDeliver: 5 },
+      { durable, maxDeliver: 5 },
     );
 
     await b.publish('userCreated', payload);
 
     expect(await until(() => attempts >= 2)).toBe(true);
     // Settle: it must not keep coming back once the handler stopped throwing.
-    await new Promise((r) => setTimeout(r, 500));
+    await untilBrokerDone(durable);
     expect(attempts).toBe(2);
   });
 
@@ -179,6 +200,7 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
     const payload = user();
     let attempts = 0;
 
+    const durable = `d-${randomUUID().slice(0, 8)}`;
     await b.subscribe(
       'userCreated',
       async (p) => {
@@ -186,16 +208,67 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
         attempts += 1;
         throw new Error('permanently broken');
       },
-      { durable: `d-${randomUUID().slice(0, 8)}`, maxDeliver: 3 },
+      { durable, maxDeliver: 3 },
     );
 
     await b.publish('userCreated', payload);
 
     expect(await until(() => attempts >= 3)).toBe(true);
-    await new Promise((r) => setTimeout(r, 500));
+    await untilBrokerDone(durable);
     // Stopped, not spinning. A bus that retried forever would keep a broken
     // handler hot and hide the failure.
     expect(attempts).toBe(3);
+  });
+
+  it('writes one timed line per delivery, in the consuming process, holding no payload (#8657)', async () => {
+    // The journey recorder ties a service to the journey running when its log
+    // has a line with a `time`; a handler that logs nothing was recorded nowhere.
+    const b = await bus();
+    const payload = user();
+    const durable = `d-${randomUUID().slice(0, 8)}`;
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(String(args[0]));
+    };
+    try {
+      // A new durable starts from the stream's first message (DeliverPolicy.All),
+      // so it also receives what earlier tests published: one line per call.
+      let calls = 0;
+      let handled = false;
+      await b.subscribe(
+        'userCreated',
+        async (p) => {
+          calls += 1;
+          if (p.userId === payload.userId) handled = true;
+        },
+        { durable },
+      );
+      const before = Date.now();
+      await b.publish('userCreated', payload);
+      const delivered = () =>
+        lines
+          .map((line) => {
+            try {
+              return JSON.parse(line) as Record<string, unknown>;
+            } catch {
+              return null;
+            }
+          })
+          .filter((entry) => entry?.event === BUS_DELIVERED && entry?.durable === durable);
+      // The line is written before the handler runs: once ours is handled, every call has its line.
+      expect(await until(() => handled)).toBe(true);
+      const mine = delivered();
+      expect(mine).toHaveLength(calls);
+      for (const line of mine) {
+        expect(line).toMatchObject({ level: 30, subject: 'intafaced.identity.user.created', attempt: 1, msg: 'bus delivered' });
+        expect(Object.keys(line ?? {}).sort()).toEqual(['attempt', 'durable', 'event', 'level', 'msg', 'subject', 'time']);
+      }
+      expect(mine.at(-1)!.time as number).toBeGreaterThanOrEqual(before);
+      expect(lines.join('\n')).not.toContain(payload.userId);
+    } finally {
+      console.log = realLog;
+    }
   });
 
   it('says so, once, when it gives up — the message is otherwise abandoned in silence', async () => {
@@ -214,6 +287,7 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
 
     try {
       let attempts = 0;
+      const durable = `d-${randomUUID().slice(0, 8)}`;
       await b.subscribe(
         'userCreated',
         async (p) => {
@@ -221,14 +295,14 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
           attempts += 1;
           throw new Error('permanently broken');
         },
-        { durable: `d-${randomUUID().slice(0, 8)}`, maxDeliver: 2 },
+        { durable, maxDeliver: 2 },
       );
 
       await b.publish('userCreated', payload, { idempotencyKey: key });
       expect(await until(() => attempts >= 2)).toBe(true);
-      // Long enough for a third delivery to arrive if the budget were not spent,
-      // so a second announcement would be caught rather than raced past.
-      await new Promise((r) => setTimeout(r, 1_500));
+      // Until the broker has given up on the message, so a third delivery or a second announcement
+      // would be caught rather than raced past.
+      await untilBrokerDone(durable);
 
       const announced = lines
         .map((line) => {
@@ -293,19 +367,20 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
     const seen: string[] = [];
     const key = `dedupe-${randomUUID()}`;
 
+    const durable = `d-${randomUUID().slice(0, 8)}`;
     await b.subscribe(
       'userCreated',
       async (p, env) => {
         if (p.userId === payload.userId) seen.push(env.idempotencyKey);
       },
-      { durable: `d-${randomUUID().slice(0, 8)}` },
+      { durable },
     );
 
     await b.publish('userCreated', payload, { idempotencyKey: key });
     await b.publish('userCreated', payload, { idempotencyKey: key });
 
     expect(await until(() => seen.length >= 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 500));
+    await untilBrokerDone(durable);
     // Two publishes, one message: `msgID` is what makes a retried producer safe.
     expect(seen).toHaveLength(1);
   });
@@ -340,18 +415,27 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
     const b = await bus();
     const seen: string[] = [];
 
+    const durable = `d-${randomUUID().slice(0, 8)}`;
     const sub = await b.subscribe(
       'userCreated',
       async (p) => {
         seen.push(p.userId);
       },
-      { durable: `d-${randomUUID().slice(0, 8)}` },
+      { durable },
     );
     await sub.unsubscribe();
+    // No pull left open, so the broker has nobody to hand a message to.
+    await vi.waitFor(async () => expect((await brokerHolds(durable)).pulls).toBe(0), { timeout: 10_000, interval: 50 });
+
+    const before = await brokerHolds(durable);
 
     const after = user();
     await b.publish('userCreated', after);
-    await new Promise((r) => setTimeout(r, 500));
+    // The message is stored and waits undelivered, with nothing more handed out.
+    await vi.waitFor(async () => expect(await brokerHolds(durable)).toEqual({ ...before, undelivered: before.undelivered + 1 }), {
+      timeout: 10_000,
+      interval: 50,
+    });
 
     expect(seen).not.toContain(after.userId);
   });

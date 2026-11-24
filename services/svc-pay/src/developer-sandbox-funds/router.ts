@@ -1,16 +1,14 @@
-import { TRPCError, router, scopedProcedure } from '@intafaced/contracts';
-import {
-  sandboxBalanceInputSchema,
-  sandboxBalanceOutputSchema,
-  sandboxFundInputSchema,
-  sandboxFundOutputSchema,
-  sandboxResetInputSchema,
-  sandboxResetOutputSchema,
-  type SandboxFundRefusal,
-} from '@intafaced/contracts/developer-sandboxes';
+import { TRPCError, router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { type SandboxFundRefusal } from '@intafaced/contracts/developer-sandboxes';
 import type { Sql } from 'postgres';
 import type { SandboxFundSettings } from './settings.js';
 import { SandboxFundError, SandboxStore } from './store.js';
+import {
+  PAY_SANDBOX_FUNDS_BALANCE,
+  PAY_SANDBOX_FUNDS_FUND,
+  PAY_SANDBOX_FUNDS_RESET,
+} from '@intafaced/contracts/pay-sandbox-funds-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 
 /**
  * `sandboxFunds.*` (DV-sandbox-02, J-developer-02 #4, #5, #8): a person's developer sandbox TEST balance, Fund and
@@ -24,6 +22,10 @@ const STATUS: Record<SandboxFundRefusal, TRPCError['code']> = {
   'pay.sandbox_reset_cap_reached': 'TOO_MANY_REQUESTS',
   'pay.sandbox_request_conflict': 'CONFLICT',
 };
+
+/** The sandbox's own refusal reader: svc-pay's (`record-refusal.ts`) reaches the payment service and so the ledger, which this store never imports. */
+const sandboxRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof SandboxFundError ? { code: err.cause.code, error: err } : undefined;
 
 async function guarded<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -42,22 +44,21 @@ export function createSandboxFundsRouter(deps: { readonly sql: Sql; readonly set
   const write = scopedProcedure('trade:write', { person: true });
   return router({
     sandboxFunds: router({
-      balance: read
-        .input(sandboxBalanceInputSchema)
-        .output(sandboxBalanceOutputSchema)
-        .query(({ ctx, input }) => guarded(() => store.balance({ userId: ctx.principal.userId, sandboxId: input.sandboxId }))),
-      fund: write
-        .input(sandboxFundInputSchema)
-        .output(sandboxFundOutputSchema)
-        .mutation(({ ctx, input }) =>
-          guarded(() => store.fund({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        ),
-      reset: write
-        .input(sandboxResetInputSchema)
-        .output(sandboxResetOutputSchema)
-        .mutation(({ ctx, input }) =>
-          guarded(() => store.reset({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        ),
+      balance: mountRecord(
+        PAY_SANDBOX_FUNDS_BALANCE,
+        ({ ctx, input }) => guarded(() => store.balance({ userId: ctx.principal.userId, sandboxId: input.sandboxId })),
+        sandboxRefusal,
+      ),
+      fund: mountRecord(
+        PAY_SANDBOX_FUNDS_FUND,
+        ({ ctx, input }) => guarded(() => store.fund({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
+        sandboxRefusal,
+      ),
+      reset: mountRecord(
+        PAY_SANDBOX_FUNDS_RESET,
+        ({ ctx, input }) => guarded(() => store.reset({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
+        sandboxRefusal,
+      ),
     }),
   });
 }

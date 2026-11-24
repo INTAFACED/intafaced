@@ -1,5 +1,5 @@
 import type { AcademyCourseRelease } from '@intafaced/contracts/academy-course-release';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * A course's pacing and its sections' release rules on the founder console (AC-release-access-01). Pure, so the server

@@ -1,0 +1,1309 @@
+{
+  "cases": [
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_URL: Invalid input: expected string, received undefined\n  - AGENTS_FEE_ASSET_ID: Invalid input: expected string, received undefined\n  - AGENTS_USAGE_WINDOW_MINUTES: Invalid input: expected number, received NaN\n  - AGENTS_METERING_ENABLED: agents.metering_enabled_unset"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "",
+        "AGENTS_FEE_ASSET_ID": "   ",
+        "AGENTS_USAGE_WINDOW_MINUTES": "",
+        "AGENTS_METERING_ENABLED": "  "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_URL: Invalid URL\n  - AGENTS_FEE_ASSET_ID: Too small: expected string to have >=1 characters\n  - AGENTS_USAGE_WINDOW_MINUTES: Too small: expected number to be >=1\n  - AGENTS_USAGE_WINDOW_MINUTES: must divide 1440 so a billing window never straddles midnight\n  - AGENTS_METERING_ENABLED: agents.metering_enabled_unset"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "not a url",
+        "AGENTS_FEE_ASSET_ID": "  IFC  ",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "7",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_USAGE_WINDOW_MINUTES: must divide 1440 so a billing window never straddles midnight"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "0",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_USAGE_WINDOW_MINUTES: Too small: expected number to be >=1\n  - AGENTS_USAGE_WINDOW_MINUTES: must divide 1440 so a billing window never straddles midnight"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "1441",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_USAGE_WINDOW_MINUTES: Too big: expected number to be <=1440\n  - AGENTS_USAGE_WINDOW_MINUTES: must divide 1440 so a billing window never straddles midnight"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "1.5",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_USAGE_WINDOW_MINUTES: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "hourly",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_USAGE_WINDOW_MINUTES: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "1440",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 1440,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": " OFF "
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": false,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "yes"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "0"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": false,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "garbage"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_METERING_ENABLED: Invalid input"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "false "
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": false,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "IDENTITY_URL": "http://localhost:4002",
+        "ACADEMY_URL": " ",
+        "SUPPORT_URL": "",
+        "TRADE_URL": "http://localhost:4004",
+        "PAY_URL": "http://localhost:4007",
+        "BANK_URL": "http://localhost:4005"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "IDENTITY_URL": "http://localhost:4002",
+          "TRADE_URL": "http://localhost:4004",
+          "PAY_URL": "http://localhost:4007",
+          "BANK_URL": "http://localhost:4005",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "IDENTITY_URL": "identity",
+        "TRADE_URL": "ftp:/x",
+        "BANK_URL": "nope"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - IDENTITY_URL: Invalid URL\n  - BANK_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "PORTFOLIO_QUOTE_ASSET": " USDC ",
+        "LIVE_TRADE_COPY_LEADER_PLANE_OPEN": "true",
+        "LIVE_TRADE_COPY_LEADER_IDS": "a,b"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "PORTFOLIO_QUOTE_ASSET": "USDC",
+          "LIVE_TRADE_COPY_LEADER_PLANE_OPEN": "true",
+          "LIVE_TRADE_COPY_LEADER_IDS": "a,b",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "PORTFOLIO_QUOTE_ASSET": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "LIVE_TRADE_COPY_LEADER_PLANE_OPEN": "yes",
+        "LIVE_TRADE_COPY_LEADER_IDS": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - PORTFOLIO_QUOTE_ASSET: Too big: expected string to have <=32 characters\n  - LIVE_TRADE_COPY_LEADER_PLANE_OPEN: Invalid input: expected \"true\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_OVERAGE_GRACE": " 0.5 ",
+        "AGENTS_PROVIDER": "upstream",
+        "AGENTS_MOCK_DELAY_MS": "250"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_OVERAGE_GRACE": "0.5",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "upstream",
+          "AGENTS_MOCK_DELAY_MS": 250,
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_OVERAGE_GRACE": "1e3",
+        "AGENTS_PROVIDER": "vendor",
+        "AGENTS_MOCK_DELAY_MS": "10001"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_OVERAGE_GRACE: a decimal amount, such as 0.5\n  - AGENTS_PROVIDER: Invalid option: expected one of \"mock\"|\"upstream\"\n  - AGENTS_MOCK_DELAY_MS: Too big: expected number to be <=10000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_OVERAGE_GRACE": "",
+        "AGENTS_MOCK_DELAY_MS": "",
+        "AGENTS_MOCK_HOLD_FILE": "  "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_MOCK_HOLD_FILE: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_MOCK_HOLD_FILE": " /tmp/hold ",
+        "AGENTS_MOCK_DELAY_MS": "-1"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_MOCK_DELAY_MS: Too small: expected number to be >=0"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_UPSTREAM_BASE_URL": "https://engine.example",
+        "AGENTS_UPSTREAM_API_KEY": "placeholder-upstream-key",
+        "AGENTS_UPSTREAM_AUTH_HEADER": "authorization",
+        "AGENTS_UPSTREAM_AUTH_PREFIX": "Bearer ",
+        "AGENTS_UPSTREAM_HEADERS": "{\"x-version\":\"1\",\"b\":\"2\"}",
+        "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v2/complete",
+        "AGENTS_UPSTREAM_EMBEDDINGS_PATH": "/v2/embed",
+        "AGENTS_UPSTREAM_MODELS": "{\"fast\":\"model-a\"}",
+        "AGENTS_UPSTREAM_TIMEOUT_MS": "5000"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_BASE_URL": "https://engine.example",
+          "AGENTS_UPSTREAM_API_KEY": "placeholder-upstream-key",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "authorization",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "Bearer ",
+          "AGENTS_UPSTREAM_HEADERS": {
+            "x-version": "1",
+            "b": "2"
+          },
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v2/complete",
+          "AGENTS_UPSTREAM_EMBEDDINGS_PATH": "/v2/embed",
+          "AGENTS_UPSTREAM_MODELS": {
+            "fast": "model-a"
+          },
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 5000
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_UPSTREAM_BASE_URL": "",
+        "AGENTS_UPSTREAM_API_KEY": "",
+        "AGENTS_UPSTREAM_TIMEOUT_MS": "999"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_UPSTREAM_BASE_URL: Invalid URL\n  - AGENTS_UPSTREAM_API_KEY: Too small: expected string to have >=1 characters\n  - AGENTS_UPSTREAM_TIMEOUT_MS: Too small: expected number to be >=1000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_UPSTREAM_HEADERS": "[]",
+        "AGENTS_UPSTREAM_MODELS": "{\"a\":1}"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_UPSTREAM_HEADERS: AGENTS_UPSTREAM_HEADERS must be a JSON object of string values: not an object\n  - AGENTS_UPSTREAM_MODELS: AGENTS_UPSTREAM_MODELS must be a JSON object of string values: value for \"a\" is not a string"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_UPSTREAM_HEADERS": "null",
+        "AGENTS_UPSTREAM_MODELS": "\"text\"",
+        "AGENTS_UPSTREAM_TIMEOUT_MS": "600001"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_UPSTREAM_HEADERS: AGENTS_UPSTREAM_HEADERS must be a JSON object of string values: not an object\n  - AGENTS_UPSTREAM_MODELS: AGENTS_UPSTREAM_MODELS must be a JSON object of string values: not an object\n  - AGENTS_UPSTREAM_TIMEOUT_MS: Too big: expected number to be <=600000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_UPSTREAM_HEADERS": "",
+        "AGENTS_UPSTREAM_MODELS": "{}"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_UPSTREAM_HEADERS: AGENTS_UPSTREAM_HEADERS must be a JSON object of string values: Unexpected end of JSON input"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_ROUTING_TABLE": "{\"routes\":[]}",
+        "AGENTS_TIER_LAWS": "",
+        "AGENTS_OWN_TEMPLATES": " ",
+        "AGENTS_POLICY_BASELINE": "{}"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000,
+          "AGENTS_ROUTING_TABLE": "{\"routes\":[]}",
+          "AGENTS_TIER_LAWS": "",
+          "AGENTS_POLICY_BASELINE": "{}"
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_OWN_TOKEN_LIFETIME_MINUTES": "525600",
+        "AGENTS_OWN_ASSISTANT_MODEL": "test-engine",
+        "AGENTS_REVIEWER_MODEL": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_REVIEWER_MODEL: Too big: expected string to have <=200 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_OWN_TOKEN_LIFETIME_MINUTES": "0",
+        "AGENTS_APPROVAL_TTL_SECONDS": "604801",
+        "AGENTS_OWN_ASSISTANT_MODEL": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_OWN_TOKEN_LIFETIME_MINUTES: Too small: expected number to be >=1\n  - AGENTS_APPROVAL_TTL_SECONDS: Too big: expected number to be <=604800"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_RETENTION_ACTION_LOG_DAYS": "30",
+        "AGENTS_RETENTION_MEMORY_DAYS": "36501",
+        "AGENTS_RETENTION_TRANSCRIPTS_DAYS": " ",
+        "AGENTS_RETENTION_APPROVALS_DAYS": "1.5",
+        "AGENTS_RETENTION_USAGE_DAYS": "week"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_RETENTION_MEMORY_DAYS: Too big: expected number to be <=36500\n  - AGENTS_RETENTION_APPROVALS_DAYS: Invalid input: expected int, received number\n  - AGENTS_RETENTION_USAGE_DAYS: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_NAVIGATOR_ONCHAIN_SIGNER": " 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ",
+        "AGENTS_NAVIGATOR_ONCHAIN_RPC_URL": "http://rpc.example"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000,
+          "AGENTS_NAVIGATOR_ONCHAIN_SIGNER": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "AGENTS_NAVIGATOR_ONCHAIN_RPC_URL": "http://rpc.example"
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_NAVIGATOR_ONCHAIN_SIGNER": "0x12",
+        "AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL": "nope",
+        "AGENTS_NAVIGATOR_ONCHAIN_MARKET": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_NAVIGATOR_ONCHAIN_SIGNER: a 0x address\n  - AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL: Invalid URL\n  - AGENTS_NAVIGATOR_ONCHAIN_MARKET: Too big: expected string to have <=4000 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_LOG_READ_REASONS": "audit,complaint",
+        "AGENTS_OPS_ACTIONS_LIMIT": "500",
+        "AGENTS_REGISTRY_LIST_LIMIT": "501"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_REGISTRY_LIST_LIMIT: Too big: expected number to be <=500"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_BACKGROUND_TEST_STEPS": "10000",
+        "AGENTS_BACKGROUND_STEP_MS": "199",
+        "AGENTS_SESSION_RUN_MAX_STEPS": "1001"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_BACKGROUND_STEP_MS: Too small: expected number to be >=200\n  - AGENTS_SESSION_RUN_MAX_STEPS: Too big: expected number to be <=1000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES": "15",
+        "AGENTS_SCHEDULE_DAILY_LIMIT": "10001",
+        "AGENTS_SCHEDULE_TICK_MS": "499",
+        "AGENTS_SCHEDULE_WORKERS": "8"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_SCHEDULE_DAILY_LIMIT: Too big: expected number to be <=10000\n  - AGENTS_SCHEDULE_TICK_MS: Too small: expected number to be >=500"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_RESEARCH_UNCERTAINTY_SCALE": " low,high ",
+        "AGENTS_TRANSCRIPT_RETENTION_DAYS": "0"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000,
+          "AGENTS_RESEARCH_UNCERTAINTY_SCALE": "low,high",
+          "AGENTS_TRANSCRIPT_RETENTION_DAYS": 0
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_RESEARCH_UNCERTAINTY_SCALE": "   ",
+        "AGENTS_TRANSCRIPT_RETENTION_DAYS": "3651"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_TRANSCRIPT_RETENTION_DAYS: Too big: expected number to be <=3650"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_PAYMENT_RPC_URL": "http://chain.example",
+        "AGENTS_PAYMENT_CHAIN_ID": "8453",
+        "AGENTS_PAYMENT_TOKEN_ADDRESS": " 0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB ",
+        "AGENTS_PAYMENT_TOKEN_DECIMALS": "6"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-agents",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4008,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "LEDGER_URL": "http://localhost:4001",
+          "AGENTS_FEE_ASSET_ID": "IFC",
+          "AGENTS_USAGE_WINDOW_MINUTES": 60,
+          "AGENTS_METERING_ENABLED": true,
+          "AGENTS_PROVIDER": "mock",
+          "AGENTS_UPSTREAM_AUTH_HEADER": "x-api-key",
+          "AGENTS_UPSTREAM_AUTH_PREFIX": "",
+          "AGENTS_UPSTREAM_HEADERS": {},
+          "AGENTS_UPSTREAM_COMPLETIONS_PATH": "/v1/messages",
+          "AGENTS_UPSTREAM_MODELS": {},
+          "AGENTS_UPSTREAM_TIMEOUT_MS": 60000,
+          "AGENTS_PAYMENT_RPC_URL": "http://chain.example",
+          "AGENTS_PAYMENT_CHAIN_ID": 8453,
+          "AGENTS_PAYMENT_TOKEN_ADDRESS": "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          "AGENTS_PAYMENT_TOKEN_DECIMALS": 6
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "AGENTS_PAYMENT_CHAIN_ID": "0",
+        "AGENTS_PAYMENT_TOKEN_ADDRESS": "nope",
+        "AGENTS_PAYMENT_TOKEN_DECIMALS": "37"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - AGENTS_PAYMENT_CHAIN_ID: Too small: expected number to be >=1\n  - AGENTS_PAYMENT_TOKEN_ADDRESS: a 0x token address\n  - AGENTS_PAYMENT_TOKEN_DECIMALS: Too big: expected number to be <=36"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "HTTP_PORT": "4100",
+        "SERVICE_NAME": "svc-agents-2",
+        "LOG_LEVEL": "loud"
+      },
+      "answer": {
+        "refused": "Invalid environment for svc-agents-2:\n  - LOG_LEVEL: Invalid option: expected one of \"fatal\"|\"error\"|\"warn\"|\"info\"|\"debug\"|\"trace\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "HTTP_PORT": "1.5",
+        "NODE_ENV": "staging"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - NODE_ENV: Invalid option: expected one of \"development\"|\"test\"|\"production\"\n  - HTTP_PORT: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_SECRET: Too small: expected string to have >=32 characters\n  - INTERNAL_SERVICE_SECRET: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_POOL_MAX": "201",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "DATABASE_SSL": "YES",
+        "NATS_URL": "  "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_URL: Invalid input: expected string, received undefined\n  - DATABASE_POOL_MAX: Too big: expected number to be <=200\n  - NATS_URL: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "S2S_AUTH_MODE": "dual",
+        "S2S_SIGNING_KID": "ab",
+        "INTERNAL_SERVICE_BODY_BIND": "require"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - S2S_SIGNING_KID: Too small: expected string to have >=3 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-agents-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-agents-env-parity-internal-secret",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://agents:agents@localhost:5432/agents_test",
+        "DATABASE_POOL_MAX": "4",
+        "LEDGER_URL": "http://localhost:4001",
+        "AGENTS_FEE_ASSET_ID": "IFC",
+        "AGENTS_USAGE_WINDOW_MINUTES": "60",
+        "AGENTS_METERING_ENABLED": "true",
+        "NODE_ENV": "production"
+      },
+      "answer": {
+        "refused": "DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (APP_ENV=prod, config.dev_material_in_production_posture). Refusing to start.\nOnly APP_ENV exactly \"dev\" or \"test\" may run on dev keys, the Anvil chain or published passwords.\n  - DATABASE_URL uses a connection password that is published in this repo (or equals the user name)\n  - INTERNAL_SERVICE_BODY_BIND must be exactly \"require\" where INTERNAL_SERVICE_SECRET is set: any other value (or none) leaves signed service calls replayable against any body for 300 seconds. Fix: set INTERNAL_SERVICE_BODY_BIND=require (docs/decisions/s2s-body-bind.md)"
+      }
+    }
+  ]
+}

@@ -2,10 +2,11 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError, type AmendOrderOutcome, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput, type PlaceOrderInput } from './trade-service.js';
-import { installNativeQtyUpAmend } from './qty-up-amend.js';
+import { installNativeQtyUpAmend, type OptionEngineFields } from './qty-up-amend.js';
 import type { EngineAmendRequest, EngineCancellation, EngineFill, EngineSubmitRequest, MatchingClient } from './matching-client.js';
 import type { Market } from './types.js';
 import { carriedPlacementBody } from './placement-extras.js';
+import type { CancelEvidence } from './trade-service/holds.js';
 
 /**
  * Place an option through the matching door that landed in #3484.
@@ -214,7 +215,12 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
     toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
     settleOutcome: (market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]) => Promise<void>;
-    finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected', reason?: string | null) => Promise<void>;
+    finalize: (
+      orderId: string,
+      status: 'cancelled' | 'expired',
+      reason: string | null | undefined,
+      evidence: CancelEvidence,
+    ) => Promise<void>;
     [FLAG]?: true;
   };
   if (proto[FLAG]) return;
@@ -355,7 +361,13 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     }
     await origSettle.call(this, market, fills, rest);
     for (const c of expired) {
-      await proto.finalize.call(this, c.orderId, 'expired', c.reason);
+      // The engine's remainder says how much it executed first (#8560): an order another submission partly matched
+      // may still have that fill on its way, and `finalize` then refuses; the engine's cancel event closes it later.
+      try {
+        await proto.finalize.call(this, c.orderId, 'expired', c.reason, { engineLeftQty: parseAmount(c.remainingQty) });
+      } catch (err) {
+        if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+      }
     }
   };
 }
@@ -363,7 +375,12 @@ export function installOptionPlace(ctor: typeof TradeService): void {
 export function installOptionAmend(ctor: typeof TradeService): void {
   installNativeQtyUpAmend(ctor);
   const proto = ctor.prototype as unknown as {
-    amendOrder: (principal: Principal, orderId: string, input: AmendOrderInput) => Promise<AmendOrderOutcome>;
+    amendOrder: (
+      principal: Principal,
+      orderId: string,
+      input: AmendOrderInput,
+      option?: OptionEngineFields | null,
+    ) => Promise<AmendOrderOutcome>;
     [AMEND_FLAG]?: true;
   };
   if (proto[AMEND_FLAG]) return;
@@ -405,60 +422,51 @@ export function installOptionAmend(ctor: typeof TradeService): void {
         priority: string | null,
       ) => AmendOrderOutcome;
     };
-    const origMatchingAmend = host.matching.amend.bind(host.matching);
-    host.matching.amend = (marketId, oid, req) => {
-      const { mark: _mark, ...rest } = req as EngineAmendRequest & { mark?: string | null };
-      return origMatchingAmend(marketId, oid, {
-        ...rest,
-        ...(extra.qty !== undefined && extra.qty != null ? { qty: formatAmount(extra.qty) } : {}),
-        ...(priceGiven ? { price: formatAmount(extra.price as Amount) } : {}),
-        ...(replacing ? { replace: true } : {}),
-        strike: extra.strike == null ? null : formatAmount(extra.strike),
-        expiry: extra.expiry ?? null,
-      } as EngineAmendRequest);
+    // The option's own fields ride on the one call that sends this order's amend, never on the shared client (#8579).
+    const option: OptionEngineFields = {
+      strike: extra.strike == null ? null : formatAmount(extra.strike),
+      expiry: extra.expiry ?? null,
     };
-    try {
-      if (replacing || (priceGiven && extra.qty === undefined)) {
-        requireScope(principal, 'trade:write');
-        const order = await host.findOrder(orderId);
-        if (!order || order.userId !== principal.userId) {
-          throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-        }
-        const market = await host.marketById(order.marketId);
-        if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
-        const lifecycleProof = await host.assertLifecycleAction(market, 'AMEND');
-        const listed = await host.matching.listOrders(order.marketId, order.id);
-        const live = listed.orders.find((candidate) => candidate.orderId === order.id);
-        if (!live) {
-          return host.amendOutcome(order as OrderRecord, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-        }
-        const result = await host.matching.amend(order.marketId, order.id, {
-          expectedVersion: live.version ?? 1,
-          ...(priceGiven ? { price: formatAmount(extra.price as Amount) } : {}),
-          ...(extra.qty !== undefined && extra.qty != null ? { qty: formatAmount(extra.qty) } : {}),
-          lifecycleProof,
-        } as EngineAmendRequest);
-        if (!result.accepted) {
-          const code = result.rejected?.code === 'version_mismatch' ? 'VERSION_MISMATCH' : 'ENGINE_REFUSED';
-          return host.amendOutcome(order as OrderRecord, code, result.rejected?.code ?? 'refused', false, false, null);
-        }
-        const nextPrice = priceGiven ? formatAmount(extra.price as Amount) : formatAmount(order.price ?? (0n as Amount));
-        const nextQty = extra.qty !== undefined && extra.qty != null ? formatAmount(extra.qty) : formatAmount(order.qty);
-        await host.sql`
-          UPDATE trade.orders
-             SET price = ${nextPrice}::numeric,
-                 qty = ${nextQty}::numeric,
-                 updated_at = now()
-           WHERE id = ${order.id}
-        `;
-        const settled = (await host.findOrder(orderId)) ?? order;
-        return host.amendOutcome(settled as OrderRecord, 'AMENDED', null, false, false, result.priority);
+    if (replacing || (priceGiven && extra.qty === undefined)) {
+      requireScope(principal, 'trade:write');
+      const order = await host.findOrder(orderId);
+      if (!order || order.userId !== principal.userId) {
+        throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
       }
-      const { price: _droppedPrice, ...withoutPrice } = extra;
-      return await origAmend.call(this, principal, orderId, withoutPrice as AmendOrderInput);
-    } finally {
-      host.matching.amend = origMatchingAmend;
+      const market = await host.marketById(order.marketId);
+      if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
+      const lifecycleProof = await host.assertLifecycleAction(market, 'AMEND');
+      const listed = await host.matching.listOrders(order.marketId, order.id);
+      const live = listed.orders.find((candidate) => candidate.orderId === order.id);
+      if (!live) {
+        return host.amendOutcome(order as OrderRecord, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
+      }
+      const result = await host.matching.amend(order.marketId, order.id, {
+        expectedVersion: live.version ?? 1,
+        ...(priceGiven ? { price: formatAmount(extra.price as Amount) } : {}),
+        ...(extra.qty !== undefined && extra.qty != null ? { qty: formatAmount(extra.qty) } : {}),
+        ...(replacing ? { replace: true } : {}),
+        ...option,
+        lifecycleProof,
+      } as EngineAmendRequest);
+      if (!result.accepted) {
+        const code = result.rejected?.code === 'version_mismatch' ? 'VERSION_MISMATCH' : 'ENGINE_REFUSED';
+        return host.amendOutcome(order as OrderRecord, code, result.rejected?.code ?? 'refused', false, false, null);
+      }
+      const nextPrice = priceGiven ? formatAmount(extra.price as Amount) : formatAmount(order.price ?? (0n as Amount));
+      const nextQty = extra.qty !== undefined && extra.qty != null ? formatAmount(extra.qty) : formatAmount(order.qty);
+      await host.sql`
+        UPDATE trade.orders
+           SET price = ${nextPrice}::numeric,
+               qty = ${nextQty}::numeric,
+               updated_at = now()
+         WHERE id = ${order.id}
+      `;
+      const settled = (await host.findOrder(orderId)) ?? order;
+      return host.amendOutcome(settled as OrderRecord, 'AMENDED', null, false, false, result.priority);
     }
+    const { price: _droppedPrice, ...withoutPrice } = extra;
+    return await origAmend.call(this, principal, orderId, withoutPrice as AmendOrderInput, option);
   };
 }
 

@@ -1,7 +1,8 @@
+import { betaHides, betaRooms, type BetaRooms } from '../../app/beta-volt';
 import { matchPath } from '../../app/path-match';
 
 /**
- * The Web3 route table (IA-SPEC 2.8). Pure data: navigation.ts reads it to register the rooms and ProtocolRoutes.tsx
+ * The Web3 route table (IA-SPEC 2.8). Pure data: app/rooms/web3.ts reads it to register the rooms and ProtocolRoutes.tsx
  * reads it to mount one component per route. A route with `pending` has its full layout but no data source yet; it names
  * the blocker instead of showing a blank.
  */
@@ -31,6 +32,10 @@ export const WALLET_SECTIONS = {
   embedded: '/wallet/embedded',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
+/** The wallet's sections this build shows, in order: in the beta, a section whose room it hides gets no tab (beta-volt.ts). */
+export function walletSections(list: BetaRooms | undefined = betaRooms()): WalletSection[] {
+  return (Object.keys(WALLET_SECTIONS) as WalletSection[]).filter((id) => !betaHides(WALLET_SECTIONS[id], list));
+}
 
 export interface Web3Route {
   path: string;
@@ -88,6 +93,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/tokens', room: 'dex', tokens: 'list' },
   { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
+  { path: '/dex/lend', room: 'dex', tab: 'lend' },
   { path: '/dex/orders', room: 'dex', orders: true },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },

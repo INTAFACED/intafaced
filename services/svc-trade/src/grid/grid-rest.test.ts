@@ -5,7 +5,7 @@ import { GridError } from './errors.js';
 import { attachGridRestRoutes } from './grid-rest.js';
 import type { GridBotView, GridService } from './grid-service.js';
 
-const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 
 function bot(over: Partial<GridBotView> = {}): GridBotView {
   return { botId: 'bot-1', clientRequestId: 'grid-req-0001', symbol: 'BTC/USDT', status: 'running', ...over } as GridBotView;
@@ -188,7 +188,7 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
 
   it('a key without trade:write is refused scope.denied, and a read from a region that may not trade is refused, as in the web', async () => {
     const { grid, calls } = fakeGrid();
-    await mount(grid, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
+    await mount(grid, { principal: { ...OWNER, scopes: ['trade:read'] } as Principal });
     const write = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/stop', payload: { settlement: 'keep' } });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });

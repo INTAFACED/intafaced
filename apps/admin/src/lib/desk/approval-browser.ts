@@ -1,8 +1,8 @@
 /** Browser hop for the two-founder desks. It talks only to the same-origin BFF; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { DeskRequest } from './approval-packet';
-import { readStepReply, type StepName, type StepReply } from './approval-types';
-import { explainRefusal } from './refusal-copy';
+import { readStepReply, type StepName, type StepReply } from '../approval-types';
+import { explainRefusal } from '../refusal-copy';
 
 export type ApprovalEndpoint =
   | '/api/kill-switch'
@@ -14,6 +14,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/archive'
   | '/api/accounts/documents'
   | '/api/accounts/selfies'
+  | '/api/accounts/kyc-approve'
   | '/api/accounts/tier'
   | '/api/accounts/limits'
   | '/api/accounts/holds'
@@ -22,6 +23,7 @@ export type ApprovalEndpoint =
   | '/api/ledger-reconciliation/lifecycle'
   | '/api/ledger-reconciliation/alerts/accept'
   | '/api/ledger-metadata/delete'
+  | '/api/ledger-reversals/approve'
   | '/api/academy-ops'
   | '/api/more-ops'
   | '/api/protocol-ops'

@@ -16,6 +16,7 @@ import {
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { createLedgerClient } from './ledger-client.js';
 import { PayError } from './payment-service.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SECRET = 'capture-reconcile-test-secret-0123456789abcdef';
@@ -394,7 +395,7 @@ describe('wiring', () => {
   it('the flag defaults off in env and in the svc-pay compose block', () => {
     const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-    const block = compose.match(/^  svc-pay:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m)?.[0] ?? '';
+    const block = composeServiceBlock(compose, 'svc-pay');
     expect(envTs).toMatch(/PAY_CAPTURE_RECONCILE:\s*z\.enum\(\['off', 'required'\]\)\.default\('off'\)/);
     expect(block).toMatch(/PAY_CAPTURE_RECONCILE:\s*\$\{PAY_CAPTURE_RECONCILE:-off\}/);
   });

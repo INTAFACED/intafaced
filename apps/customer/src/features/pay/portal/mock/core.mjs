@@ -329,7 +329,7 @@ export function createCoreMock(ctx) {
             { id: 'card-sandbox', capabilities: ['authorize'], mode: 'sandbox', usable: true, healthy: true, latencyMs: 9 },
           ]);
         case 'merchantMetrics.snapshot':
-          return ok(route, snapshot(input.window?.preset ?? 'today'));
+          return ok(route, { ...snapshot(input.window?.preset ?? 'today'), window: input.window ?? { kind: 'preset', preset: 'today' } });
         case 'merchantMetrics.series':
           return ok(route, series(input));
         case 'merchantMetrics.settlementAssets':

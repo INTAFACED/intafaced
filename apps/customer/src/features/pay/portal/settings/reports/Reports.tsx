@@ -1,16 +1,27 @@
-import { PaySection } from '../../../components';
-import { Gate } from '../../components';
+// volt-room: /pay/reports
+// volt-room: portal:reports
+import { FinePrint } from '@intafaced/ui/lit';
 import { DateTime } from '../../ui/DateTime';
-import { EntityList } from '../../ui/EntityList';
+import { EntityList, Gate, Section } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
 import { useResource } from '../../../../../shared/resource';
-import type { SettingsBApi } from '../b-client';
+import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { reportsCopy as c } from './copy';
 import { Covers } from './Exports';
 import { columnsFor, hasDateRange, statusesFor } from './model';
 import { exportKinds, type ExportJob, type ExportKind } from './schemas';
 
+/** `/pay/reports` on the record-list template: the report catalog, for the account the access resolved. */
+export function ReportsRoom() {
+  return <RecordListRoom>{({ role }) => ({ list: <LiveReports role={role} /> })}</RecordListRoom>;
+}
+
+function LiveReports({ role }: { role: string }) {
+  return <Reports api={useSettingsBApi()} role={role} />;
+}
+
 /** Every report INTAFACED can build for this account, what is in it, and when you last made one. */
-export function Reports({ api, role }: { api: SettingsBApi; role: string | null }) {
+function Reports({ api, role }: { api: SettingsBApi; role: string | null }) {
   const jobs = useResource((signal) => api.reportJobs(undefined, {}, signal), 'reports:catalog');
   return (
     <Gate resource={jobs.resource} retry={jobs.reload}>
@@ -23,8 +34,8 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
   const { t } = c.useCopy();
   const latest = (kind: ExportKind) => jobs.find((j) => j.kind === kind && j.status === 'ready');
   return (
-    <div className="stack">
-      <PaySection title={t('catalogTitle')} description={t('catalogBody')}>
+    <div className="lt-stack">
+      <Section title={t('catalogTitle')} description={t('catalogBody')}>
         <EntityList
           label={t('catalogTitle')}
           rows={exportKinds}
@@ -43,30 +54,27 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
                   <>
                     <Covers job={job} />
                     {job.generatedAt && (
-                      <small className="pay-cell-note">
+                      <small className="lt-hint">
                         {t('generated')} <DateTime value={job.generatedAt} />
                       </small>
                     )}
                     {job.asOf && (
-                      <small className="pay-cell-note">
+                      <small className="lt-hint">
                         {t('asOf')} <DateTime value={job.asOf} />
                       </small>
                     )}
                   </>
                 ) : (
-                  <span className="muted">{hasMore ? t('notInNewest') : t('neverRequested')}</span>
+                  <span className="lt-muted">{hasMore ? t('notInNewest') : t('neverRequested')}</span>
                 );
               },
             },
           ]}
-          card={(k) => ({
-            title: t(`kind_${k}`),
-            time: t(`kindHint_${k}`),
-            amount: t('columnCount', { n: columnsFor(k, role).length }),
-          })}
         />
-        <p className="muted">{t('catalogNote')}</p>
-      </PaySection>
+        <p>
+          <FinePrint>{t('catalogNote')}</FinePrint>
+        </p>
+      </Section>
     </div>
   );
 }

@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 import type { Resource } from '../../../../shared/resource';
-import { MoneyText } from '../ui/MoneyText';
+import { MoneyText } from '../volt/parts';
 import { refusalText } from '../refusal';
 import { mc } from './copy';
 import { bpsPercent } from './model';
 import type { PartnerTerms } from './partner-terms-api';
 
 /**
- * The acquiring partner's own terms, as lines a room shows (CUSTODY-DELTA §1.3 "Unknown, never zero"; OWNER 226). Each
+ * The acquiring partner's own terms, as lines a room shows: a term the partner has not given is unknown, never zero. Each
  * reads the partner's answer, "not known" when the partner has not given one, or "not offered by the partner" when it
  * has said it does not offer it. A term that cannot be read says so; nothing here ever writes a zero for it.
  */
@@ -93,7 +93,7 @@ export function PartnerCurrencyNotes({ terms, assets }: { terms: Terms; assets: 
   const missing = assets.filter((a) => !offered.has(a));
   if (missing.length === 0) return null;
   return (
-    <ul className="muted" aria-label={t('partnerCurrenciesLabel')}>
+    <ul className="lt-hint" aria-label={t('partnerCurrenciesLabel')}>
       {missing.map((a) => (
         <li key={a} data-testid="partner-currency-not-offered">
           {a}: {t('partnerNotOffered')}

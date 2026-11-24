@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Dialog } from '../../../shared/ui';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
+import { draftId, keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
 import { AsOfLine, Known, OutcomeLine, TestMark, word, type ActionResult, type RunAction, type VenueAccount } from './VenueKit';
 import { venueCopy } from './venue-copy';
 
@@ -56,6 +56,7 @@ export function ReviewDialog({
   run,
   confirmLabel,
   extra,
+  after,
   result,
   onConfirm,
   onClose,
@@ -69,6 +70,8 @@ export function ReviewDialog({
   run: RunAction;
   confirmLabel: string;
   extra?: ReactNode;
+  /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
+  after?: ReactNode;
   result: ActionResult | null;
   onConfirm: () => void;
   onClose: () => void;
@@ -78,6 +81,8 @@ export function ReviewDialog({
   const carries = carriesBuilderFee(p.builderFee);
   const approved = carries ? builderApproved(account, status) : true;
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  // The draft this review's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [busy, setBusy] = useState(false);
   const feeBps = status.builder?.feeBps ?? '';
 
@@ -86,7 +91,7 @@ export function ReviewDialog({
     setBusy(true);
     const answer = await run(
       { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps) },
+      { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
     );
     setBusy(false);
     setApproving(answer);
@@ -95,25 +100,25 @@ export function ReviewDialog({
 
   return (
     <Dialog title={title} onClose={onClose}>
-      <div data-testid="venue-review" className="form-stack">
+      <div data-testid="venue-review" className="lt-stack">
         <TestMark test={status.test} />
         <dl className="protocol-facts">
           <div>
             <dt>{t('Venue locks')}</dt>
-            <dd className="numeric" data-line="lock">
+            <dd className="lt-num" data-line="lock">
               {displayAmount(p.lock.amount)} {p.lock.asset}
             </dd>
           </div>
           <div>
             <dt>{t('Venue fee')}</dt>
-            <dd className="numeric" data-line="venue-fee">
+            <dd className="lt-num" data-line="venue-fee">
               <Known value={p.venueFee.known ? { known: true, value: p.venueFee.value.amount } : { known: false }} />{' '}
               {p.venueFee.known ? p.venueFee.value.asset : ''}
             </dd>
           </div>
           <div>
             <dt>{t('Our builder fee')}</dt>
-            <dd className="numeric" data-line="builder-fee">
+            <dd className="lt-num" data-line="builder-fee">
               {!carries ? (
                 t('Builder none spot buy')
               ) : status.builder ? (
@@ -129,7 +134,7 @@ export function ReviewDialog({
           {carries && p.feeDiscount ? (
             <div>
               <dt>{t('Builder fee discount')}</dt>
-              <dd className="numeric" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
+              <dd className="lt-num" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
                 {p.feeDiscount.source === 'coupon'
                   ? t('Builder discount coupon', { code: p.feeDiscount.code, pct: bpsPercent(p.feeDiscount.bps) })
                   : t('Builder discount rank', { pct: bpsPercent(p.feeDiscount.bps) })}
@@ -146,7 +151,7 @@ export function ReviewDialog({
           </div>
           <div>
             <dt>{t('Client id held')}</dt>
-            <dd className="numeric" data-line="client-id">
+            <dd className="lt-num" data-line="client-id">
               {intent.clientOrderKey}
             </dd>
           </div>
@@ -173,6 +178,7 @@ export function ReviewDialog({
           {t('Close review')}
         </Button>
         <OutcomeLine result={result} owner={owner} />
+        {after}
       </div>
     </Dialog>
   );

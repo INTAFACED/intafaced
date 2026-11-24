@@ -25,42 +25,7 @@ export const GROUP_NAME_MAX = 80;
 export const KEY_MIN = 8;
 export const KEY_MAX = 200;
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
-const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
-
-export function readGroup(raw: unknown): DeskGroupView | null {
-  if (!isRecord(raw)) return null;
-  const { id, name, createdBy, createdAt, memberIds } = raw;
-  if (!isText(id) || !isText(name) || !isText(createdBy)) return null;
-  if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
-  if (!Array.isArray(memberIds) || !memberIds.every(isText)) return null;
-  return { id, name, createdBy, createdAt, memberIds: memberIds as string[] };
-}
-
-/** Every group must read, or the answer is null, never a shorter list. */
-export function readGroups(raw: unknown): DeskGroupView[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: DeskGroupView[] = [];
-  for (const row of raw) {
-    const g = readGroup(row);
-    if (!g) return null;
-    out.push(g);
-  }
-  return out;
-}
-
-export function readDeskScope(raw: unknown): DeskScopeView | null {
-  if (!isRecord(raw)) return null;
-  const { restricted, groups, seesAllGroups } = raw;
-  if (typeof restricted !== 'boolean' || typeof seesAllGroups !== 'boolean' || !Array.isArray(groups)) return null;
-  const out: { id: string; name: string }[] = [];
-  for (const g of groups) {
-    if (!isRecord(g) || !isText(g.id) || !isText(g.name)) return null;
-    out.push({ id: g.id, name: g.name });
-  }
-  return { restricted, groups: out, seesAllGroups };
-}
 
 export type GroupActionRequest =
   | { readonly action: 'group_save'; readonly groupId?: string; readonly name: string; readonly idempotencyKey: string }

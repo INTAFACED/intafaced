@@ -5,7 +5,8 @@
  * token is not a session and is not a factor.
  */
 import { z } from 'zod';
-import { SAME_PERSON_ACTION_TYPES, protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { SAME_PERSON_ACTION_TYPES } from '@intafaced/contracts/action-approval';
+import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from './auth/auth-service.js';
 import { CustomerStepUpService, StepUpError } from './auth/customer-step-up.js';
 import { userCopy } from './user-copy.js';

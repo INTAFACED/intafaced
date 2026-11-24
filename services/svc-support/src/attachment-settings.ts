@@ -8,7 +8,8 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { supportAttachmentSetKey, type SupportAttachmentSetting, type SupportAttachmentSettingsSetInput } from '@intafaced/contracts';
+import type { SupportAttachmentSetting, SupportAttachmentSettingsSetInput } from '@intafaced/contracts';
+import { supportAttachmentSetKey } from '@intafaced/contracts/support-attachments';
 
 export interface AttachmentLimitValues {
   readonly maxBytes: number | null;

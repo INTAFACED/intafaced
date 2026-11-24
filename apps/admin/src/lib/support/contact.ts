@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The support contact channels as svc-support returns them (`contactChannels`), and the form's pure rules. Hand-written strict
  * readers: a shape that is not exactly this makes the whole read invalid, so the desk never prints a guess.
@@ -29,10 +30,6 @@ export interface ContactChannels {
 }
 
 export type ContactDrafts = Readonly<Record<ContactSetting, string>>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const channel = (v: unknown): v is string | null => v === null || (typeof v === 'string' && v.length > 0);
 

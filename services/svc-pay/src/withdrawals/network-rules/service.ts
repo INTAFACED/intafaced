@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError, payAmountStringSchema } from '@intafaced/contracts';
+import { payAmountStringSchema } from '@intafaced/contracts/merchant-control';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
@@ -67,7 +68,7 @@ export function withdrawalNetworkRuleToTrpcError(error: unknown): unknown {
   return error;
 }
 
-export const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
+const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 const versionSchema = z.number().int().min(1).max(2_147_483_647);
 export const tagRuleSchema = z.enum(['none', 'required']);
 
@@ -90,7 +91,7 @@ export const withdrawalNetworkRuleSaveInputSchema = z
 export type WithdrawalNetworkRuleSaveInput = z.infer<typeof withdrawalNetworkRuleSaveInputSchema>;
 
 /** What a customer reads: the rules only, never who set them. */
-export const withdrawalNetworkRulesSchema = z
+const withdrawalNetworkRulesSchema = z
   .object({ assetId: z.string(), networkId: z.string(), minimum: z.string(), maximum: z.string(), step: z.string(), tag: tagRuleSchema })
   .strict();
 export type WithdrawalNetworkRules = z.infer<typeof withdrawalNetworkRulesSchema>;

@@ -45,8 +45,8 @@ export function RoutingTab() {
   ];
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="lt-stack">
+      <div className="lt-toolbar">
         {ready && spine.status === 'ready' ? <Freshness asOf={spine.asOf} /> : null}
         <Button variant="secondary" size={32} nativeButton={false} render={<a href="/quant/studio" />}>
           {t('Open Quant Studio')}
@@ -54,11 +54,11 @@ export function RoutingTab() {
       </div>
       <Table label={t('Capabilities')} density="dense" columns={capColumns} rows={rows} minWidth={720} getRowId={(c) => c.id} />
       {spine.status === 'refused' && spine.code === 'scope.denied' ? (
-        <div className="flex flex-col gap-1">
-          <p role="note" className="m-0 text-sm text-fg-2">
+        <div className="lt-stack">
+          <p role="note" className="lt-hint">
             {t('Routing staff only')}
           </p>
-          <span className="text-xs text-fg-2">{refusalSupportCode(spine.code)}</span>
+          <span className="lt-hint">{refusalSupportCode(spine.code)}</span>
         </div>
       ) : (
         <Gate load={spine}>

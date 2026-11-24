@@ -21,7 +21,7 @@ export const STATUS_MS = 20_000;
 export const MIN_START_MS = 60_000;
 
 /** `node tooling/scripts/local-test-stack.mjs <args>`: its exit code (null when it timed out or could not run) and output. */
-export function stackTool(args, timeout, env = process.env) {
+function stackTool(args, timeout, env = process.env) {
   return new Promise((resolve) => {
     execFile(
       process.execPath,

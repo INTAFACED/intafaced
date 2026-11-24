@@ -147,8 +147,8 @@ across two, a crash leaves a suspended vendor holding every slot), or **they sto
 counting** because capacity is re-derived on read.
 
 That last one is the honest mechanism for unstaking. svc-market never learns that
-somebody unstaked: there is no accepted bus subject for it, `event-wiring.mjs`
-correctly reds on a subject with no publisher, and polling svc-token on a timer
+somebody unstaked: there is no accepted bus subject for it, a subject with no
+publisher would be dark, and polling svc-token on a timer
 would be a second source of truth that is wrong between ticks. So `slots` reports
 `usable = min(held, capacity)`, and `0` for anyone not `approved`. A vendor who
 drops to Base reads `usable: 0` immediately, which is what makes "under-staked
@@ -249,6 +249,19 @@ A page can come back shorter than `limit`, because the entitlement filter runs
 after it. Back-filling would mean paging svc-token until the page was full, which
 turns one slow lookup into an unbounded number of them.
 
+## Signals (J-copy-bots-otc-22)
+
+`signals.*` (src/signals/signal-publisher.ts, tables `market.signals` and `market.signal_vettings`): a provider publishes a
+trade signal, free or for a monthly fee. Before the first publish the provider is vetted once against the owner's criteria,
+`MARKET_SIGNAL_PROVIDER_MIN_TIER` (verification tier, from the signed principal) and `MARKET_SIGNAL_PROVIDER_MIN_FILLS`
+(fills of their own orders, read from svc-trade `GET /internal/track-record/:userId` at `TRADE_URL`); either blank refuses
+`market.provider_criteria_not_set`, an unreadable record refuses `market.provider_record_unavailable`. A retried
+`publishKey` answers the first signal. A monthly fee signal is one subscription listing in the shop (it takes a slot and
+is bought through `purchase`); a free one has no listing. A profit share refuses `market.strategy_profit_share_forbidden`
+and an automatic recurring subscription `market.subscription_recurring_not_built`. `signals.archive` withdraws the signal
+and its listing; buyers keep the period they paid for. `signals.earnings` is `myEarnings` cut to signal listings, per
+asset, settled at sale, with no profit-share figure. Nothing here posts to the ledger.
+
 ## Events
 
 **None published, none consumed.** No accepted bus subject exists for vendor
@@ -258,7 +271,7 @@ eligibility re-reads svc-token live instead.
 
 ## Service keys (S2S v3)
 
-With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-market's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The calls to identity and token still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-market's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The calls to identity and token still use the shared secret and move in their own PRs. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Ledger
 

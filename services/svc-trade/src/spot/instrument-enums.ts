@@ -1,4 +1,5 @@
-import { ASSET_CLASSES, isAssetClass, SCHEDULE_KEYS, TRADING_SCHEDULES, type TradingSchedule } from '@intafaced/contracts';
+import type { TradingSchedule } from '@intafaced/contracts';
+import { ASSET_CLASSES, isAssetClass, SCHEDULE_KEYS, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
 import { TradeError, type Market } from './types.js';
 
 /**

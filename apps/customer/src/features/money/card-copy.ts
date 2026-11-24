@@ -1,6 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
+  sectionsLabel: 'On this page',
+  explain:
+    'Your cards spend from your own balance through the card issuer. Each decision and decline is the issuer’s record, shown as it reported it; limits, channels and blocks you set here apply to the next payment.',
   selected: 'Selected card',
   reference: 'Card reference',
   records: 'Your card records',
@@ -60,6 +63,9 @@ const en = {
   simClose: 'This closes the simulation record for good and it cannot be reopened. No real card or money is involved.',
 } as const;
 const es = {
+  sectionsLabel: 'En esta página',
+  explain:
+    'Tus tarjetas gastan de tu propio saldo a través del emisor de la tarjeta. Cada decisión y rechazo es el registro del emisor, mostrado tal como lo comunicó; los límites, canales y bloqueos que fijes aquí se aplican al siguiente pago.',
   selected: 'Tarjeta seleccionada',
   reference: 'Referencia de la tarjeta',
   records: 'Tus registros de tarjetas',
@@ -120,6 +126,9 @@ const es = {
     'Esto cierra el registro de simulación de forma definitiva y no se puede reabrir. No interviene ninguna tarjeta real ni dinero.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  sectionsLabel: 'Sur cette page',
+  explain:
+    'Vos cartes dépensent votre propre solde via l’émetteur de la carte. Chaque décision et chaque refus est l’enregistrement de l’émetteur, montré tel qu’il l’a transmis ; les plafonds, canaux et blocages fixés ici s’appliquent au paiement suivant.',
   selected: 'Carte sélectionnée',
   reference: 'Référence de la carte',
   records: 'Vos enregistrements de cartes',

@@ -26,7 +26,7 @@ export function MarginCallsTab({ positions, calls }: { positions: Loadable<Posit
       numeric: true,
       cell: (p) => {
         const call = callOf(p);
-        return call ? String(call.sequence) : <span className="text-fg-2">{none(p)}</span>;
+        return call ? String(call.sequence) : <span className="lt-muted">{none(p)}</span>;
       },
     },
     {

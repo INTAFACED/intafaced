@@ -1,16 +1,22 @@
-// World: book
+// World: book, restart
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, userIdOf } from './copy.mjs';
+import { venueForThisFile } from './venue.mjs';
+import { ledgerTrace, myCopyFees, onVenue, venueCopiedSell } from './copy-venue.mjs';
 
 // J-copy-bots-otc-11, in the running app (docs/roadmap/journeys.json): check that profit settlement and broker rebates
 // match the ledger. One test per step, titled "J-copy-bots-otc-11 #<n>", run in order, as the stack's TEST founder on the
 // founder console (the finance view). #1 makes the journey's start: a TEST lead listed by the founder, a verified follower
 // who follows it on screen, one copied buy (the lead's own fill on the TEST book), and the follower's fee share on that
 // copy settled through svc-trade's settle door under the stack's TEST copy fee share. The copy filled on the TEST book,
-// not at a venue, so no venue reports a builder fee for it: its share is "Held" for that reason, with its key.
+// not at a venue, so no venue reports a builder fee for it: its share is "Held" for that reason, with its key. Then the
+// same follower copies a second lead on the stack's TEST venue (copy-venue.mjs `venueCopiedSell`, as J-copy-bots-otc-06
+// #1 does), where the copy of the lead's sell carries our builder fee: its share is "Held", with its key and the missing
+// ledger post, until the venue pays us the fee, and "Settled" once it is owed and the ledger post and the builder fee
+// the venue reports for that fill agree with it. svc-trade's user-venue door is on for this file (venueForThisFile).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #5: the console has no /trade-ops/broker room.
 const J = 'J-copy-bots-otc-11';
@@ -21,6 +27,7 @@ const VENUE_NOT_REPORTED = 'The venue reports no builder fee for this fill.';
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
 test.use({ actionTimeout: 15_000 });
+venueForThisFile(test);
 
 function state(key) {
   const value = run.read()[key];
@@ -64,7 +71,7 @@ const cell = (row, n) => row.locator(`td:nth-child(${n})`);
 test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and the venue's builder fee match, "Held" with its key and reason otherwise`, async ({
   page,
 }) => {
-  test.setTimeout(360_000);
+  test.setTimeout(720_000);
   const tag = Date.now().toString(36);
   const leader = await fundedTrader(page, 'jcl11', '2000');
   const leaderName = `Journey Settle ${tag}`;
@@ -197,10 +204,57 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
       await expect(cell(row, 10)).toHaveText('');
     }
     if (status === 'Held') {
-      await expect(cell(row, 9)).toHaveText(/^reward:copy-leader-share:\S+:\S+$/);
+      // Its key: the TEST book's payout, or for a copy filled on the venue the share owed to the lead (J-copy-bots-otc-06).
+      await expect(cell(row, 9)).toHaveText(/^(reward:copy-leader-share:\S+:\S+|fee-share:builder-fee:\S+:lead-trader:\S+)$/);
       await expect(cell(row, 10)).not.toHaveText('');
     }
   }
+
+  // The venue: the follower's copy of a second lead's sell, filled on the TEST venue with our builder fee on it.
+  let vLeaderId;
+  const venueRow = (t) => t.locator('tbody tr').filter({ has: page.locator('td:nth-child(9)', { hasText: `:lead-trader:${vLeaderId}` }) });
+  const v = await venueCopiedSell(page, {
+    J,
+    tag,
+    follower,
+    code: 'JS11',
+    traderPrefix: 'jcv11',
+    leaderName: `Journey Settle Venue ${tag}`,
+    // Recorded and not owed yet, as the venue has not paid us the fee: "Held", with its key and the missing ledger post.
+    beforeClaim: async (made) => {
+      vLeaderId = await userIdOf(made.leader);
+      const t = await settlements(page);
+      const held = venueRow(t);
+      await expect(held).toHaveCount(1);
+      await expect(cell(held, 1)).toHaveText('Held');
+      await expect(cell(held, 9)).toHaveText(new RegExp(`^fee-share:builder-fee:\\S+:${made.sellFill}:lead-trader:${vLeaderId}$`));
+      await expect(cell(held, 7)).toHaveText('None');
+      await expect(cell(held, 10)).toHaveText('The ledger has no post under the key.');
+    },
+  });
+  // Owed: the ledger post under its key, and the builder fee the venue itself reports for that fill.
+  const share = (await myCopyFees(follower)).rows.find((r) => r.fillId === v.sellFill);
+  expect(share.feeShare).toMatchObject({ state: 'owed' });
+  const venueFill = (await onVenue('/fills', v.owner, v.sub, { since: new Date(0).toISOString() })).find((f) => f.fillId === v.sellFill);
+  expect(venueFill, 'the venue reports the copied fill on the sub-account').toBeTruthy();
+  expect(toUnits(venueFill.builderFee)).toBeGreaterThan(0n);
+  const trace = await ledgerTrace(share.feeShare.ledgerKey);
+  expect(trace).toMatchObject({ found: true, reason: 'trade.fee_share.owed' });
+  const posted = trace.postings.find((p) => p.direction === 'debit');
+  expect(toUnits(posted.amount)).toBe(toUnits(share.feeShare.share.amount));
+
+  const t = await settlements(page);
+  const settledRow = venueRow(t);
+  await expect(settledRow).toHaveCount(1);
+  await expect(cell(settledRow, 1)).toHaveText('Settled');
+  await expect(cell(settledRow, 9)).toHaveText(share.feeShare.ledgerKey);
+  await expect(cell(settledRow, 10)).toHaveText('');
+  // The share it owes, the ledger's post under its key, and the fee it is a share of against the venue's own report.
+  const amountIn = (n) => async () => toUnits((await cell(settledRow, n).innerText()).split(' ')[0]);
+  await expect.poll(amountIn(5)).toBe(toUnits(posted.amount));
+  await expect.poll(amountIn(7)).toBe(toUnits(posted.amount));
+  await expect.poll(amountIn(6)).toBe(toUnits(venueFill.builderFee));
+  await expect.poll(amountIn(8)).toBe(toUnits(venueFill.builderFee));
 });
 
 test(`${J} #2 runs reconcile twice: the counts are the same both times`, async ({ page }) => {

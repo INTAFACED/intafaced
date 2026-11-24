@@ -1,10 +1,16 @@
 import { useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure } from './kit-parts';
 import { subAccountFeaturesCopy as copy } from './sub-account-features-copy';
-import { FEATURE_REFUSAL_KEYS, assetsView, featureResult, featuresView, type Feature } from './sub-account-features';
+import { FEATURE_REFUSAL_KEYS, type Feature } from './sub-account-features';
+import {
+  IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_ASSETS,
+  IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -22,14 +28,14 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
   const features = useResource(
     (signal) =>
       userId && shown
-        ? api.query('identity', 'subAccounts.getFeatures', { subAccountId }, featuresView, { signal })
+        ? api.call(IDENTITY_SUB_ACCOUNTS_GET_FEATURES, { subAccountId }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `subaccount-features:${userId}:${subAccountId}:${shown}`,
   );
   const assets = useResource(
     (signal) =>
       userId && shown
-        ? api.query('identity', 'subAccounts.assets', { subAccountId }, assetsView, { signal })
+        ? api.call(IDENTITY_SUB_ACCOUNTS_ASSETS, { subAccountId }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `subaccount-assets:${userId}:${subAccountId}:${shown}`,
   );
@@ -39,7 +45,7 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
     setBusy(feature);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'subAccounts.setFeatures', { subAccountId, feature, enabled }, featureResult);
+      const answer = await api.call(IDENTITY_SUB_ACCOUNTS_SET_FEATURES, { subAccountId, feature, enabled });
       if (!answer.ok) setFailure(answer);
       features.reload();
     } finally {
@@ -49,7 +55,7 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
 
   if (!shown) {
     return (
-      <Button variant="ghost" aria-label={`${t('title')} ${subAccountId}`} onClick={() => setShown(true)}>
+      <Button tone="quiet" aria-label={`${t('title')} ${subAccountId}`} onClick={() => setShown(true)}>
         {t('open')}
       </Button>
     );
@@ -58,14 +64,12 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
   const held = assets.resource.status === 'ready' ? assets.resource.data : null;
   const refusal = failure && failure.code ? FEATURE_REFUSAL_KEYS[failure.code] : undefined;
   return (
-    <div className="stack" role="group" aria-label={t('title')}>
+    <div role="group" aria-label={t('title')}>
       <h3>{t('balancesTitle')}</h3>
-      {assets.resource.status === 'loading' && <p className="muted">{t('loading')}</p>}
+      {assets.resource.status === 'loading' && <p className="lt-hint">{t('loading')}</p>}
       {assets.resource.status === 'failed' &&
         (assets.resource.failure.code === 'identity.sub_account_check_unavailable' ? (
-          <p className="notice" role="status">
-            {t('assetsUnavailable')}
-          </p>
+          <p role="status">{t('assetsUnavailable')}</p>
         ) : (
           <Failure result={assets.resource.failure} retry={assets.reload} />
         ))}
@@ -73,9 +77,9 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
         (held.balances.length === 0 ? (
           <p>{t('balancesEmpty')}</p>
         ) : (
-          <ul data-testid="security__rows" className="security__rows">
+          <ul data-testid="security__rows">
             {held.balances.map((balance) => (
-              <li key={balance.assetId} data-testid="security__row" className="security__row">
+              <li key={balance.assetId} data-testid="security__row">
                 {balance.amount} {balance.assetId}
               </li>
             ))}
@@ -83,17 +87,17 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
         ))}
       <h3>{t('featuresTitle')}</h3>
       <p>{t('featuresBody')}</p>
-      {features.resource.status === 'loading' && <p className="muted">{t('loading')}</p>}
+      {features.resource.status === 'loading' && <p className="lt-hint">{t('loading')}</p>}
       {features.resource.status === 'failed' && <Failure result={features.resource.failure} retry={features.reload} />}
       {view && (
         <>
-          {!view.published && <p className="notice">{t('unpublished')}</p>}
-          {view.frozen && <p className="notice">{t('frozenNote')}</p>}
-          <ul data-testid="security__rows" className="security__rows">
+          {!view.published && <p>{t('unpublished')}</p>}
+          {view.frozen && <p>{t('frozenNote')}</p>}
+          <ul data-testid="security__rows">
             {view.features.map((row) => {
               const name = t(`feature_${row.feature}` as 'feature_spot');
               return (
-                <li key={row.feature} data-testid="security__row" className="security__row">
+                <li key={row.feature} data-testid="security__row">
                   <span>
                     {name}: {row.enabled ? t('on') : t('off')}
                     {row.feature === 'futures' && !row.enabled && <> · {t('futuresParked')}</>}
@@ -101,7 +105,7 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
                   </span>
                   {row.enabled ? (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy !== null || view.frozen}
                       aria-label={t('turnOff', { feature: name })}
                       onClick={() => void flip(row.feature, false)}
@@ -110,7 +114,7 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
                     </Button>
                   ) : (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy !== null || view.frozen || !row.offered}
                       aria-label={t('turnOn', { feature: name })}
                       onClick={() => void flip(row.feature, true)}
@@ -124,16 +128,9 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
           </ul>
         </>
       )}
-      {failure &&
-        (refusal ? (
-          <p className="notice" role="alert">
-            {t(refusal as 'refusedUnset')}
-          </p>
-        ) : (
-          <Failure result={failure} />
-        ))}
-      <div className="actions">
-        <Button variant="ghost" disabled={busy !== null} onClick={() => setShown(false)}>
+      {failure && (refusal ? <p role="alert">{t(refusal as 'refusedUnset')}</p> : <Failure result={failure} />)}
+      <div className="lt-actions">
+        <Button tone="quiet" disabled={busy !== null} onClick={() => setShown(false)}>
           {t('close')}
         </Button>
       </div>

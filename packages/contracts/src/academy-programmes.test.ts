@@ -50,6 +50,7 @@ describe('academy programmes (AC-programmes-01)', () => {
         status: 'valid',
       },
     });
-    expect(read.certificate.state === 'earned' && read.certificate.grantedAt).toBeInstanceOf(Date);
+    // The answer keeps the server's ISO string, as every caller reads it.
+    expect(read.certificate.state === 'earned' && read.certificate.grantedAt).toBe('2026-10-24T12:00:00.000Z');
   });
 });

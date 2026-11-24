@@ -1,11 +1,11 @@
-import {
-  CHECKOUT_METHODS,
-  type CheckoutMethodConnection,
-  type CheckoutMethodId,
-  type CheckoutMethodNotice,
-  type CheckoutMethodOffer,
-  type CheckoutMethodRule,
+import type {
+  CheckoutMethodConnection,
+  CheckoutMethodId,
+  CheckoutMethodNotice,
+  CheckoutMethodOffer,
+  CheckoutMethodRule,
 } from '@intafaced/contracts';
+import { CHECKOUT_METHODS } from '@intafaced/contracts/merchant-checkout-methods';
 import { FIAT_CURRENCIES } from '@intafaced/config';
 import { parseAmount } from '@intafaced/ledger-client';
 import { assertRailMayAcceptPublicPayment, PUBLIC_CHECKOUT_CAPABILITIES, type ValueMovementPolicy } from '../rails/posture.js';

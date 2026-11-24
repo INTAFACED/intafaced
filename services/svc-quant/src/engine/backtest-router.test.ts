@@ -12,7 +12,17 @@ import { createMemoryRunRepository } from '../runs/memory-repository.js';
 import { trackRun } from '../runs/track.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
-import { HISTORY_BARS_BACK, tradeFeePort, tradeHistoryPort, type FeePort, type HistoryPort } from './ports.js';
+import {
+  HISTORY_BARS_BACK,
+  missingMarginRules,
+  tradeFeePort,
+  tradeHistoryPort,
+  tradeMarginRulesPort,
+  type FeePort,
+  type HistoryPort,
+  type MarginRulesPort,
+  type VenueMarginRules,
+} from './ports.js';
 import { NO_JUDGEMENT, prepareBacktest, runOnBars, type Judgement } from './run.js';
 import { parseAmount } from '@intafaced/ledger-client/money';
 
@@ -499,33 +509,64 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
   });
 });
 
-describe('simulated margin account (AL-backtest-02)', () => {
-  const RULES_SET = { mode: 'netting' as const, maxLeverage: '20', marginCallPercent: '80', stopOutPercent: '50' };
+describe('simulated margin account (AL-backtest-02, J-algo-dev-02 #5)', () => {
+  /** The venue's published rules for BTC (20x, 0.5 %), read through a stub of svc-trade's public route. */
+  const VENUE: VenueMarginRules = { venueMarket: 'BTC-PERP', maxLeverage: '20', maintenancePercent: '0.5', test: true };
+  const venueOf = (rules: Partial<VenueMarginRules> = {}): MarginRulesPort => ({
+    wired: true,
+    rules: async () => ({ ...VENUE, ...rules }),
+  });
+  const accountOf = (rules: Partial<VenueMarginRules> = {}, marginCallPercent: string | null = '80') => ({
+    ...NO_JUDGEMENT,
+    account: { marginCallPercent, venue: venueOf(rules) },
+  });
+  const RULES_SET = { mode: 'netting' as const, ...VENUE, marginCallPercent: '80' };
 
-  it('refuses a blank leverage, any blank owner rule by name, and a leverage over the maximum, storing nothing', async () => {
-    const { a, runs } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+  it('refuses a blank leverage, any rule the venue does not publish, our blank warning, and a leverage over the venue maximum, storing nothing', async () => {
+    const { a, runs } = setup({ judgement: accountOf() });
     const strategy = await saved(a);
     const margin = (leverage: string) => ({ ...request(strategy.id), simulatedAccount: { leverage } });
     await expect(a.backtest.start(margin(' '))).rejects.toThrow(/quant\.account_rule_unset — leverage — fill in the leverage/);
-    await expect(a.backtest.start(margin('21'))).rejects.toThrow(/leverage — must be from 1 up to the published maximum of 20/);
+    await expect(a.backtest.start(margin('21'))).rejects.toThrow(
+      /leverage — must be from 1 up to the venue's published maximum of 20 on BTC-PERP/,
+    );
     await expect(a.backtest.start(margin('0.5'))).rejects.toThrow(/quant\.account_rule_unset — leverage/);
-    for (const [rule, name] of [
-      ['maxLeverage', 'maximum leverage'],
-      ['marginCallPercent', 'margin call level'],
-      ['stopOutPercent', 'stop-out level'],
+    for (const [judgement, refusal] of [
+      [accountOf({ venueMarket: null }), /maximum leverage — the venue lists no perpetual on this asset/],
+      [accountOf({ maxLeverage: null }), /maximum leverage — the venue publishes none for BTC-PERP/],
+      [accountOf({ maintenancePercent: null }), /maintenance level — the venue publishes no single maintenance level for BTC-PERP/],
+      [accountOf({}, null), /margin call level — our warning level is not set/],
+      // At 20x the venue's 5 % maintenance closes at a margin level of 100 %: a warning at 80 % would never come first.
+      [accountOf({ maintenancePercent: '5' }), /margin call level — our warning at 80 % is at or under the venue's close at 100 % for 20x/],
     ] as const) {
-      const blank = setup({ judgement: { ...NO_JUDGEMENT, account: { ...RULES_SET, [rule]: null } } });
+      const blank = setup({ judgement });
       const theirs = await saved(blank.a);
-      await expect(blank.a.backtest.start({ ...request(theirs.id), simulatedAccount: { leverage: '5' } })).rejects.toThrow(
-        new RegExp(`quant\\.account_rule_unset — ${name} — the owner has not published it`),
-      );
+      await expect(blank.a.backtest.start({ ...request(theirs.id), simulatedAccount: { leverage: '20' } })).rejects.toThrow(refusal);
     }
     expect((await runs.history({ userId: ACCOUNT_A, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 10, cursor: null })).runs).toEqual([]);
-    expect(await a.backtest.accountRules()).toEqual(RULES_SET);
+    expect(await a.backtest.accountRules({ symbol: 'BTC/USDT' })).toEqual(RULES_SET);
   });
 
-  it('runs on margin under its own key, with the account and its events on the result; a cash run keeps its key', async () => {
-    const { a } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+  it('never reads the venue for a cash run, and refuses a margin run whose venue read does not answer', async () => {
+    let reads = 0;
+    const down: MarginRulesPort = {
+      wired: true,
+      rules: async () => {
+        reads += 1;
+        return missingMarginRules().rules('BTC/USDT');
+      },
+    };
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, account: { marginCallPercent: '80', venue: down } } });
+    const strategy = await saved(a);
+    expect((await a.backtest.start(request(strategy.id))).account).toBeNull();
+    expect(reads).toBe(0);
+    await expect(a.backtest.start({ ...request(strategy.id), simulatedAccount: { leverage: '5' } })).rejects.toThrow(
+      /quant\.account_rule_unset — maximum leverage — the venue's margin rules read is not wired/,
+    );
+  });
+
+  it('runs on margin under its own key, with the venue rules and our warning on the result; a cash run keeps its key', async () => {
+    const { a } = setup({ judgement: accountOf() });
     const strategy = await saved(a);
     const cash = await a.backtest.start(request(strategy.id));
     expect(cash.account).toBeNull();
@@ -536,5 +577,124 @@ describe('simulated margin account (AL-backtest-02)', () => {
     expect(Array.isArray(margin.marginEvents)).toBe(true);
     expect(margin.equity.some((point) => point.marginLevelPercent !== undefined)).toBe(true);
     expect(await a.backtest.result({ runId: margin.runId })).toEqual(margin);
+  });
+});
+
+describe("the venue's margin rules read (J-algo-dev-02 #5)", () => {
+  const port = (status: number, body: unknown, seen: string[] = []) =>
+    tradeMarginRulesPort({ tradeUrl: 'http://trade.test', fetch: fakeFetch({ '/api/v1/venue/margin-rules': { status, body } }, seen) });
+
+  it("reads the perpetual on the symbol's asset: its maximum leverage in times and its maintenance level in percent", async () => {
+    const seen: string[] = [];
+    const read = port(200, { symbol: 'BTC-PERP', maxLeverageBps: 200_000, maintenanceRate: '0.005', test: true }, seen);
+    expect(await read.rules('BTC/USDT')).toEqual({ venueMarket: 'BTC-PERP', maxLeverage: '20', maintenancePercent: '0.5', test: true });
+    expect(seen).toEqual(['http://trade.test/api/v1/venue/margin-rules?base=BTC']);
+  });
+
+  it('reads a rule the venue does not publish as null, and a venue that lists no perpetual on the asset as no market', async () => {
+    expect(await port(200, { symbol: 'BTC-PERP', maxLeverageBps: null, maintenanceRate: null, test: false }).rules('BTC/USDT')).toEqual({
+      venueMarket: 'BTC-PERP',
+      maxLeverage: null,
+      maintenancePercent: null,
+      test: false,
+    });
+    expect(await port(422, { intafacedCode: 'trade.venue.not_offered' }).rules('DOGE/USDT')).toEqual({
+      venueMarket: null,
+      maxLeverage: null,
+      maintenancePercent: null,
+      test: false,
+    });
+  });
+
+  it('refuses by name when the read fails or answers no rules; nothing is assumed', async () => {
+    await expect(port(503, { intafacedCode: 'trade.venue.venue_down' }).rules('BTC/USDT')).rejects.toThrow(
+      /quant\.account_rule_unset — maximum leverage — the venue's margin rules read answered 503 \(trade\.venue\.venue_down\)/,
+    );
+    await expect(port(200, { symbol: 'BTC-PERP', maxLeverageBps: 20, maintenanceRate: 5 }).rules('BTC/USDT')).rejects.toThrow(
+      /answered no rules; nothing is assumed/,
+    );
+  });
+});
+
+describe('risk screen (AL-risk-01)', () => {
+  const CAPS = { depositPercent: '10', maxPositionNotional: '500', maxDailyLoss: '50', equityFloor: '900' };
+
+  it('starts with every cap blank and trading off; a blank cap refuses the switch by name and it stays off', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const fresh = await a.risk.get({ strategyId: strategy.id });
+    expect(fresh).toMatchObject({
+      caps: { depositPercent: null, maxPositionNotional: null, maxDailyLoss: null, equityFloor: null },
+      floorPolicy: 'reduce_only',
+      unset: ['depositPercent', 'maxPositionNotional', 'maxDailyLoss', 'equityFloor'],
+      trading: { on: false, version: null, offByNewVersion: false },
+      latestVersion: 1,
+    });
+    await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, depositPercent: ' ' }, floorPolicy: '' });
+    await expect(a.risk.trading({ strategyId: strategy.id, on: true })).rejects.toThrow(
+      /^quant\.risk_cap_unset — trading stays off — still blank: Deposit-percentage cap$/,
+    );
+    expect((await a.risk.get({ strategyId: strategy.id })).trading.on).toBe(false);
+    await expect(b.risk.get({ strategyId: strategy.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(b.risk.trading({ strategyId: strategy.id, on: true })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses a cap that is not an amount above 0, a deposit share over 100 and an unknown policy, saving nothing', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    for (const caps of [
+      { ...CAPS, maxDailyLoss: '0' },
+      { ...CAPS, equityFloor: '-1' },
+      { ...CAPS, depositPercent: '100.01' },
+    ]) {
+      await expect(a.risk.set({ strategyId: strategy.id, caps, floorPolicy: '' })).rejects.toThrow(/^quant\.risk_cap_invalid/);
+    }
+    await expect(a.risk.set({ strategyId: strategy.id, caps: CAPS, floorPolicy: 'liquidate' })).rejects.toThrow(
+      /^quant\.risk_cap_invalid — floor policy/,
+    );
+    expect((await a.risk.get({ strategyId: strategy.id })).updatedAt).toBeNull();
+  });
+
+  it('turns on with every cap set, only for that version: a new version, or clearing a cap, turns it off again', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    await a.risk.set({ strategyId: strategy.id, caps: CAPS, floorPolicy: 'close_out' });
+    const on = await a.risk.trading({ strategyId: strategy.id, on: true });
+    expect(on.trading).toEqual({ on: true, version: 1, offByNewVersion: false });
+    expect(on).toMatchObject({ unset: [], floorPolicy: 'close_out', caps: CAPS });
+
+    await a.studio.update({
+      name: 'cross',
+      blocks: [],
+      modules: { ...RULES, signal: { ...RULES.signal, slow: '3' } },
+      risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
+      cash: '1000',
+      environment: 'paper',
+      id: strategy.id,
+      idempotencyKey: `studio.update:${strategy.id}:v2`,
+    });
+    const after = await a.risk.get({ strategyId: strategy.id });
+    expect(after.latestVersion).toBe(2);
+    expect(after.trading).toEqual({ on: false, version: 1, offByNewVersion: true });
+
+    expect((await a.risk.trading({ strategyId: strategy.id, on: true })).trading.on).toBe(true);
+    const cleared = await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, maxDailyLoss: '' }, floorPolicy: 'close_out' });
+    expect(cleared.trading.on).toBe(false);
+    expect(cleared.unset).toEqual(['maxDailyLoss']);
+  });
+
+  it("applies the strategy's equity-stop floor to its bar backtests, as part of the run key", async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    const plain = await a.backtest.start(request(strategy.id));
+    expect(plain.riskEvents).toEqual([]);
+    await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, equityFloor: '999.99' }, floorPolicy: 'close_out' });
+    const floored = await a.backtest.start(request(strategy.id));
+    expect(floored.runKey).not.toBe(plain.runKey);
+    expect(floored.riskEvents).toHaveLength(1);
+    expect(floored.riskEvents[0]).toMatchObject({ kind: 'equity_stop', mode: 'close_out', floor: '999.99' });
+    expect(floored.trades.filter((t) => t.reason === 'close_out')).toHaveLength(1);
+    expect(floored.totals.openQty).toBe('0');
+    expect(floored.assumptions).toContain('equity_stop_at_bar_low');
   });
 });

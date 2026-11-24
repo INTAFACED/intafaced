@@ -1,13 +1,23 @@
 import 'server-only';
-import { approvalPolicyRowsReadSchema, approvalPolicySetResultSchema, type ActionApprovalPolicyEntry } from '@intafaced/contracts';
-import { staffInviteResultSchema, staffListSchema, type StaffEntry } from '@intafaced/contracts/identity-staff';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { payloadHashFor } from '@/lib/desk/approval-hash';
-import { partFrom, type Part } from '@/lib/desk/part';
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type ActionApprovalPolicyEntry } from '@intafaced/contracts';
+import { staffInviteResultSchema, type StaffEntry } from '@intafaced/contracts/identity-staff';
+import {
+  codeInText,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  isKnownCode,
+  parseWith,
+  type Part,
+  partFrom,
+  payloadHashFor,
+  founderRecordCall,
+} from '@/lib/desk';
+import { IDENTITY_STAFF_LIST } from '@intafaced/contracts/identity-staff-procedures';
+import { IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET } from '@intafaced/contracts/identity-approval-policy-procedures';
 
 /**
  * The console's side of the staff directory and the approval policy rows (J-ops-console-09 #1, #2). Reads are the
@@ -23,7 +33,7 @@ export interface PolicyRowsView {
 }
 
 export async function loadPolicyRows(ctx: FounderCallContext): Promise<PolicyRowsView> {
-  const result = await founderCall(ctx, 'identity', 'approvalPolicy.rows', 'GET', undefined, parseWith(approvalPolicyRowsReadSchema));
+  const result = await founderRecordCall(ctx, IDENTITY_APPROVAL_POLICY_ROWS, undefined);
   return {
     asOf: new Date().toISOString(),
     policies: partFrom(result, (d) => d.policies, { service: 'svc-identity', forbiddenMessage: forbidden }),
@@ -36,7 +46,7 @@ export interface StaffView {
 }
 
 export async function loadStaff(ctx: FounderCallContext): Promise<StaffView> {
-  const result = await founderCall(ctx, 'identity', 'staff.list', 'GET', undefined, parseWith(staffListSchema));
+  const result = await founderRecordCall(ctx, IDENTITY_STAFF_LIST, undefined);
   return {
     asOf: new Date().toISOString(),
     staff: partFrom(result, (d) => d.staff, { service: 'svc-identity', forbiddenMessage: forbidden }),
@@ -58,22 +68,15 @@ function refusedReply(refusal: { code: string | null; message: string; status: n
 export function policySetExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.approval_policy.set') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'approvalPolicy.set',
-      'POST',
-      {
-        actionType: request.actionType,
-        requiredApprovals: request.requiredApprovals,
-        approverAudience: request.approverAudience,
-        applier: request.applier,
-        maxAgeSeconds: request.maxAgeSeconds,
-        expectedVersion: request.expectedVersion,
-        ...ids,
-      },
-      parseWith(approvalPolicySetResultSchema),
-    );
+    const result = await founderRecordCall(ctx, IDENTITY_APPROVAL_POLICY_SET, {
+      actionType: request.actionType,
+      requiredApprovals: request.requiredApprovals,
+      approverAudience: request.approverAudience,
+      applier: request.applier,
+      maxAgeSeconds: request.maxAgeSeconds,
+      expectedVersion: request.expectedVersion,
+      ...ids,
+    });
     if (result.kind === 'refused') return refusedReply(result.refusal);
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     const entry = result.data.entry;

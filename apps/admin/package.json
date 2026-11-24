@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3100",
-    "build": "next build",
+    "build": "next typegen && node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && next build",
     "start": "next start --port 3100",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:bff-harness": "node ./scripts/bff-harness.mjs",
@@ -20,7 +20,7 @@
     "@intafaced/contracts": "workspace:*",
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ui": "workspace:*",
-    "next": "^16.4.5",
+    "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "server-only": "^0.0.1"
@@ -28,12 +28,12 @@
   "devDependencies": {
     "@intafaced/db": "workspace:*",
     "@intafaced/events": "workspace:*",
-    "@tailwindcss/postcss": "4.3.4",
+    "@tailwindcss/postcss": "4.3.5",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "rimraf": "^6.1.4",
-    "tailwindcss": "4.3.4",
+    "tailwindcss": "4.3.5",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   }

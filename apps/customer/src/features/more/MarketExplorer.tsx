@@ -1,23 +1,22 @@
 import { useId, useState, type ReactNode } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import {
+  MARKET_LISTED,
+  MARKET_LISTING_CATEGORIES_READ,
+  MARKET_PROFILE,
+  MARKET_SUBSCRIPTION_ACCESS,
+  type MarketSubscriptionAccess,
+} from '@intafaced/contracts/market-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Field, Panel } from '../../shared/ui';
-import { Details, Read, Select } from './common';
+import { Button, Field, Radio, Select, Surface } from '@intafaced/ui/lit';
+import { Details } from './catalogue-parts';
+import { KitRead, Section } from './volt-parts';
 import { assetsOf, isFiltered, NO_FILTER, periodUnit, type ListingFilter, type ListingRow } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
 import type { ApiResult } from '../../shared/api';
-
-const sellerSchema = z.object({ id: z.string().guid(), displayName: z.string(), description: z.string(), createdAt: z.string() });
-const accessSchema = z.object({
-  granted: z.literal(true),
-  listingId: z.string().guid(),
-  buyerId: z.string().guid(),
-  accessUntil: z.string(),
-});
 
 /**
  * The Market's four doors to what the copy room runs (MC-market-01): spot and futures copy trading, the bot marketplace
@@ -34,22 +33,22 @@ export function MarketDoors() {
   const { t } = marketListingCopy.useCopy();
   return (
     <nav aria-label={t('doorsTitle')}>
-      <p className="muted">{t('doorsNote')}</p>
-      <ul className="market-doors">
+      <p className="lt-hint">{t('doorsNote')}</p>
+      <ul className="lt-doors">
         {MARKET_DOORS.map((door) => (
           <li key={door.key}>
-            <a className="text-link" href={door.href}>
-              {t(door.key)}
-            </a>
-            <small className="muted">{t(door.note)}</small>
+            <Surface material="raised" className="lt-stack">
+              <a className="lt-link" href={door.href}>
+                {t(door.key)}
+              </a>
+              <small className="lt-hint">{t(door.note)}</small>
+            </Surface>
           </li>
         ))}
       </ul>
     </nav>
   );
 }
-
-const categoriesSchema = z.object({ categories: z.array(z.string().min(1)) });
 
 /** A category's words: the known slugs are written in every language; an unknown one shows as the service names it. */
 export function useCategoryLabel() {
@@ -78,12 +77,9 @@ export function CategorySelect({ value, onChange, allLabel }: { value: string; o
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const label = useCategoryLabel();
-  const categories = useResource(
-    (signal) => api.query('market', 'listingCategories', undefined, categoriesSchema, { signal }),
-    'market-categories',
-  );
+  const categories = useResource((signal) => api.call(MARKET_LISTING_CATEGORIES_READ, undefined, { signal }), 'market-categories');
   return (
-    <Read resource={categories.resource} retry={categories.reload}>
+    <KitRead resource={categories.resource} retry={categories.reload}>
       {({ categories: slugs }) => (
         <Select
           label={t('category')}
@@ -92,7 +88,7 @@ export function CategorySelect({ value, onChange, allLabel }: { value: string; o
           options={[{ value: '', label: allLabel }, ...slugs.map((slug) => ({ value: slug, label: label(slug) }))]}
         />
       )}
-    </Read>
+    </KitRead>
   );
 }
 
@@ -110,10 +106,10 @@ export function MarketFilters({
   const { Copy, t } = marketExplorerCopy.useCopy();
   const typeName = useId();
   return (
-    <div className="more-grid">
-      <div className="depth-filters">
+    <div className="lt-stack">
+      <div className="lt-toolbar">
         <Field label={t('search')} value={filter.query} maxLength={64} onChange={(e) => onChange({ ...filter, query: e.target.value })} />
-        <fieldset className="market-listing-type" role="radiogroup">
+        <fieldset className="lt-actions" role="radiogroup">
           <legend>{t('offer')}</legend>
           {(
             [
@@ -122,16 +118,15 @@ export function MarketFilters({
               ['subscription', t('offerSubscription')],
             ] as const
           ).map(([value, label]) => (
-            <label key={value}>
-              <input
-                type="radio"
-                name={typeName}
-                value={value}
-                checked={filter.offer === value}
-                onChange={() => onChange({ ...filter, offer: value })}
-              />{' '}
+            <Radio
+              key={value}
+              name={typeName}
+              value={value}
+              checked={filter.offer === value}
+              onSelect={() => onChange({ ...filter, offer: value })}
+            >
               {label}
-            </label>
+            </Radio>
           ))}
         </fieldset>
         <Select
@@ -152,13 +147,13 @@ export function MarketFilters({
           ]}
         />
       </div>
-      <div data-testid="more-toolbar" className="more-toolbar">
-        <span className="muted" role="status">
+      <div data-testid="more-toolbar" className="lt-toolbar">
+        <span className="lt-muted" role="status">
           {t('showing', { shown, total: rows.length })}
           {filter.vendorId ? ` · ${t('sellerFilter')}` : ''}
         </span>
         {isFiltered(filter) ? (
-          <Button variant="ghost" onClick={() => onChange(NO_FILTER)}>
+          <Button tone="quiet" onClick={() => onChange(NO_FILTER)}>
             <Copy k="clear" />
           </Button>
         ) : null}
@@ -190,18 +185,15 @@ export function ListingDetail({
   const { Copy, t } = marketExplorerCopy.useCopy();
   const listingCopy = marketListingCopy.useCopy();
   const preferences = usePreferences();
-  const seller = useResource(
-    (signal) => api.query('market', 'profile', { vendorId: row.vendorId }, sellerSchema, { signal }),
-    `market-seller:${row.vendorId}`,
-  );
-  const [access, setAccess] = useState<ApiResult<z.infer<typeof accessSchema>> | null>(null);
+  const seller = useResource((signal) => api.call(MARKET_PROFILE, { vendorId: row.vendorId }, { signal }), `market-seller:${row.vendorId}`);
+  const [access, setAccess] = useState<ApiResult<MarketSubscriptionAccess> | null>(null);
   const when = (at: string) =>
     new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   const period = row.periodSeconds ? periodUnit(row.periodSeconds) : null;
   return (
-    <Panel title={t('detailTitle')}>
+    <Section title={t('detailTitle')} className="lt-stack">
       <h3 lang="und">{row.title}</h3>
-      <p data-testid="more-body" className="more-body" lang="und">
+      <p data-testid="more-body" className="lt-pre-wrap lt-wrap" lang="und">
         {row.description}
       </p>
       <Details
@@ -214,7 +206,7 @@ export function ListingDetail({
       />
       {children}
       {row.offerType === 'subscription' ? (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="recurringNote" />
         </p>
       ) : null}
@@ -222,11 +214,11 @@ export function ListingDetail({
         <Copy k="seller" />
       </h3>
       {seller.resource.status === 'failed' && seller.resource.failure.reason === 'not_mounted' ? (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           <Copy k="sellerNotListed" />
         </p>
       ) : (
-        <Read resource={seller.resource} retry={seller.reload}>
+        <KitRead resource={seller.resource} retry={seller.reload}>
           {(s) => (
             <>
               <strong lang="und">{s.displayName}</strong>
@@ -236,16 +228,16 @@ export function ListingDetail({
               </small>
             </>
           )}
-        </Read>
+        </KitRead>
       )}
-      <div className="depth-card-actions">
-        <a className="text-link" href={`/market/${encodeURIComponent(row.id)}`}>
+      <div className="lt-actions">
+        <a className="lt-link" href={`/market/${encodeURIComponent(row.id)}`}>
           {listingCopy.t('openPage')}
         </a>
-        <Button variant="secondary" onClick={() => onSeller(row.vendorId)}>
+        <Button tone="secondary" onClick={() => onSeller(row.vendorId)}>
           <Copy k="moreFromSeller" />
         </Button>
-        <Button variant="ghost" onClick={onClose}>
+        <Button tone="quiet" onClick={onClose}>
           <Copy k="closeDetails" />
         </Button>
       </div>
@@ -256,10 +248,7 @@ export function ListingDetail({
           </h3>
           {row.offerType === 'subscription' ? (
             <>
-              <Button
-                variant="secondary"
-                onClick={async () => setAccess(await api.query('market', 'subscriptionAccess', { listingId: row.id }, accessSchema))}
-              >
+              <Button tone="secondary" onClick={async () => setAccess(await api.call(MARKET_SUBSCRIPTION_ACCESS, { listingId: row.id }))}>
                 <Copy k="accessCheck" />
               </Button>
               {access?.ok ? (
@@ -273,35 +262,34 @@ export function ListingDetail({
               ) : null}
             </>
           ) : (
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="accessOneTime" />
             </p>
           )}
         </>
       ) : null}
-    </Panel>
+    </Section>
   );
 }
 
-const directorySchema = z.array(sellerSchema);
 export function SellerDirectory({ onSeller }: { onSeller: (vendorId: string) => void }) {
   const api = useApi();
   const { Copy, t } = marketExplorerCopy.useCopy();
-  const sellers = useResource((signal) => api.query('market', 'listed', { limit: 20 }, directorySchema, { signal }), 'market-sellers');
+  const sellers = useResource((signal) => api.call(MARKET_LISTED, { limit: 20 }, { signal }), 'market-sellers');
   return (
-    <Panel title={t('directoryTitle')}>
-      <p className="muted">
+    <Section title={t('directoryTitle')} className="lt-stack">
+      <p className="lt-hint">
         <Copy k="directoryNote" />
       </p>
-      <Read resource={sellers.resource} retry={sellers.reload} empty={t('directoryEmpty')}>
+      <KitRead resource={sellers.resource} retry={sellers.reload} empty={t('directoryEmpty')}>
         {(rows) => (
-          <div className="depth-cards">
+          <div className="lt-grid">
             {rows.map((s) => (
-              <article key={s.id} className="depth-card">
+              <article key={s.id} className="lt-stack">
                 <h3 lang="und">{s.displayName}</h3>
                 <p lang="und">{s.description}</p>
-                <div className="depth-card-actions">
-                  <Button variant="secondary" onClick={() => onSeller(s.id)}>
+                <div className="lt-actions">
+                  <Button tone="secondary" onClick={() => onSeller(s.id)}>
                     <Copy k="seeListings" />
                   </Button>
                 </div>
@@ -309,7 +297,7 @@ export function SellerDirectory({ onSeller }: { onSeller: (vendorId: string) => 
             ))}
           </div>
         )}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }

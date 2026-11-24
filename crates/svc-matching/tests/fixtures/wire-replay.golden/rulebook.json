@@ -1,0 +1,92 @@
+{
+  "blank GET /rulebook valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "blank GET /rulebook valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  },
+  "set GET /rulebook valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"published\":false,\"version\":null,\"rejected\":{\"code\":\"matching.rulebook_unpublished\",\"message\":\"matching.rulebook_unpublished\"},\"upcoming\":[]}"
+  }
+}

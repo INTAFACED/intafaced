@@ -94,6 +94,22 @@ describe('chargeEarn: the owner prices it', () => {
   });
 });
 
+describe('chargeEarn for a business that owes it (J-agents-11)', () => {
+  it('the business alone owes it, and the member whose use it was is named in the meta', async () => {
+    const post = earn({ userId: BOB, memberUserId: ALICE, units: 1n });
+    expect(post.meta).toMatchObject({ userId: BOB, memberUserId: ALICE });
+    await ledger.post(post);
+    expect(await bal(owedBy(BOB))).toBe('-2.5');
+    expect(await bal(owedBy(ALICE))).toBe('0');
+    // No member named: the meta names none.
+    expect(earn({ saleId: 'sale-2' }).meta).not.toHaveProperty('memberUserId');
+  });
+
+  it('refuses a member that is not an id as stored', () => {
+    expect(() => earn({ memberUserId: 'Alice' })).toThrow(InvalidEntryError);
+  });
+});
+
 describe('chargeCollect: only what is owed, only to our own place', () => {
   it('refuses a collect with nothing earned, and the book is unchanged', async () => {
     await expect(ledger.post(collect('1', '0xpay1'))).rejects.toBeInstanceOf(InsufficientFundsError);

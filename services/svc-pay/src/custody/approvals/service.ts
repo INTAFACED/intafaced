@@ -1,6 +1,7 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { CustodyApprovalError, CustodyTaskExecutionError } from './errors.js';
 import type {
   ApproverRole,
@@ -64,7 +65,7 @@ interface TaskRow {
   kind: TaskKind;
   scope: ConfigScope | null;
   title: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, JsonValue>;
   payload_hash: string;
   initiator: string;
   required_approvals: number;
@@ -256,7 +257,7 @@ export class CustodyApprovalService {
   async get(viewerId: string, taskId: string): Promise<TaskDetail> {
     const row = await this.byId(this.deps.sql, taskId);
     if (!row) throw notFound();
-    const timeline = await this.deps.sql<Array<{ kind: string; actor_id: string; detail: Record<string, unknown>; at: Date }>>`
+    const timeline = await this.deps.sql<Array<{ kind: string; actor_id: string; detail: Record<string, JsonValue>; at: Date }>>`
       SELECT kind, actor_id, detail, at FROM pay.custody_task_events WHERE task_id = ${taskId} ORDER BY seq`;
     return {
       ...(await this.view(viewerId, row)),
@@ -400,7 +401,7 @@ export class CustodyApprovalService {
     });
   }
 
-  private async close(tx: Sql, row: TaskRow, to: 'rejected' | 'canceled' | 'expired', actor: string): Promise<void> {
+  private async close(tx: Queryable, row: TaskRow, to: 'rejected' | 'canceled' | 'expired', actor: string): Promise<void> {
     const now = this.now();
     await tx`UPDATE pay.custody_tasks SET status = ${to}, decided_at = ${now}, updated_at = ${now} WHERE id = ${row.id}`;
     await this.event(tx, row.id, to, actor, {});
@@ -458,13 +459,13 @@ export class CustodyApprovalService {
     return row ?? null;
   }
 
-  private async lock(tx: Sql, id: string): Promise<TaskRow> {
+  private async lock(tx: Queryable, id: string): Promise<TaskRow> {
     const [row] = await tx<TaskRow[]>`SELECT ${tx.unsafe(COLUMNS)} FROM pay.custody_tasks WHERE id = ${id} FOR UPDATE`;
     if (!row) throw notFound();
     return row;
   }
 
-  private async event(q: Sql, taskId: string, kind: string, actor: string, detail: Record<string, unknown>): Promise<void> {
+  private async event(q: Queryable, taskId: string, kind: string, actor: string, detail: Record<string, unknown>): Promise<void> {
     await q`
       INSERT INTO pay.custody_task_events (task_id, kind, actor_id, detail)
       VALUES (${taskId}, ${kind}, ${actor}, ${q.json(detail as never)})`;
