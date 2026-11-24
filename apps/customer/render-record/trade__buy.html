@@ -95,28 +95,30 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-buy" class="lt-stack">
+<div data-testid="if-buy">
 <div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
-<div class="lt-room-bar" data-region="room-bar" data-testid="buy-crumbs">
-<nav class="lt-toolbar" aria-label="Buy crypto">
-<a class="lt-link" href="/trade">Trade</a>
-<span aria-hidden="true">›</span>
-<span aria-current="page">Buy crypto</span>
-</nav>
-<a data-testid="buy-crumbs__history" href="/money/activity?tab=orders" class="lt-button lt-button-secondary">Order history</a>
-</div>
 <header data-testid="buy-hero" class="lt-title-row">
 <div>
 <h1 class="lt-title">Buy crypto in a few steps</h1>
 <p class="lt-description">Bitcoin, Ether and more, paid from your USDT or USDC balance.</p>
 </div>
+<div class="lt-room-action">
+<a data-testid="buy-crumbs__history" href="/money/activity?tab=orders" class="lt-button lt-button-secondary">Order history</a>
+</div>
 </header>
+<div class="lt-room-section">
+<nav data-testid="buy-crumbs" class="lt-row" aria-label="Buy crypto">
+<a class="lt-link" href="/trade">Trade</a>
+<span aria-hidden="true">›</span>
+<span aria-current="page">Buy crypto</span>
+</nav>
+</div>
 <div class="lt-body">
 <div class="lt-grid lt-grid-flow">
 <div class="lt-col-main">
 <section class="lt-region" data-region="step" aria-label="This step">
 <div class="lt-stack">
-<section data-testid="buy-card" class="lt-stack" aria-label="Buy or sell">
+<section data-testid="buy-card" class="lt-region lt-stack" aria-label="Buy or sell">
 <div class="lt-stack">
 <div data-testid="buy-form__top">
 <div class="lit-segmented" role="group" aria-label="Buy or sell">
@@ -189,24 +191,29 @@
 </section>
 </div>
 <div class="lt-col-side">
-<section class="lt-region" data-region="summary" aria-label="Summary">
-<section class="lt-stack" aria-label="Your orders" data-testid="your-orders">
-<header class="lt-toolbar">
-<div class="lt-stack">
+</div>
+</div>
+</div>
+</div>
+<div class="lt-room">
+<section class="lt-panel lt-stack" aria-label="Your orders" data-testid="your-orders">
+<header class="lt-row lt-row-between">
+<div class="lt-stack lt-stack-tight">
 <h2>Your orders</h2>
 <p class="lt-hint">Open orders first, then your latest finished ones.</p>
 </div>
+<div class="lt-row">
 <span data-testid="orders-freshness">
-<span class="lt-chip" role="status" data-freshness="live">
-<span class="lt-chip-mark" aria-hidden="true">
-</span>
-<span>
+<span role="status" class="lit-tag" data-tone="up" data-freshness="live">
 <span data-part="word">Live</span>
+<span> <time datetime="2026-10-21T12:00:00.000Z" class="lt-num">12:00:00</time>
 </span>
 </span>
 </span>
 <a href="/money/activity?tab=orders" class="lt-button lt-button-secondary">Open in Activity</a>
+</div>
 </header>
+<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Your orders">
 <table class="lt-table lt-table-dense" data-mode="simple">
 <caption class="lt-sr">Your orders</caption>
 <thead>
@@ -278,8 +285,7 @@
 </bdi>
 </td>
 <td data-label="Cancel order" data-align="end">
-<bdi>
-</bdi>
+<bdi>—</bdi>
 </td>
 </tr>
 <tr data-row="">
@@ -308,17 +314,13 @@
 </bdi>
 </td>
 <td data-label="Cancel order" data-align="end">
-<bdi>
-</bdi>
+<bdi>—</bdi>
 </td>
 </tr>
 </tbody>
 </table>
+</div>
 </section>
-</section>
-</div>
-</div>
-</div>
 </div>
 </div>
 </main>

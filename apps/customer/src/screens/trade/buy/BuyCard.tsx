@@ -101,9 +101,8 @@ export function BuyCard({
   const coins = useMemo(() => (markets.status === 'ready' ? coinOptions(markets.data) : []), [markets]);
   const coin = coins.find((option) => option.base === base) ?? coins[0] ?? null;
 
-  const cardClass = compact ? 'lt-region lt-stack' : 'lt-stack';
   const frame = (children: React.ReactNode) => (
-    <section data-testid="buy-card" className={cardClass} data-compact={compact || undefined} aria-label={t('Buy or sell')}>
+    <section data-testid="buy-card" className="lt-region lt-stack" data-compact={compact || undefined} aria-label={t('Buy or sell')}>
       {children}
     </section>
   );
