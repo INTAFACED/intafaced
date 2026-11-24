@@ -794,6 +794,8 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     "export const a = payCall(ctx, 'payHalts.history', 'GET', { limit: 5 }, parseWith(historySchema));",
     "export const b = payCall(ctx, 'recipients.list', 'GET', {}, readRows, 'identity');",
     "export const c = founderEdgeCall(config, 'identity', 'recipients.add', 'POST', input, undefined, signIn);",
+    // The past miss (admin's staffTestStatus): its own .safeParse() reads an answer it can't read as "not staff".
+    "export const d = async () => staffSchema.safeParse(await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, token));",
   ]);
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -805,6 +807,7 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
     [
       ['founderEdgeCall', 'identity', 'recipients.add', 'mutation'],
+      ['founderEdgeCall', 'identity', 'staffTestStatus', 'query'],
       ['payCall', 'identity', 'recipients.list', 'query'],
       ['payCall', 'pay', 'payHalts.history', 'query'],
       ['useBankRead', 'bank', 'cards.list', 'query'],
@@ -839,6 +842,10 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     moved(of('founderEdgeCall', 'recipients.add'), 'IDENTITY_RECIPIENTS_ADD').code,
     /= founderEdgeRecordCall\(config, IDENTITY_RECIPIENTS_ADD, input, undefined, signIn\);$/m,
   );
+  // Read softly, it moves to the read that hands its own parse `undefined` for an answer the record refuses, never a 502.
+  const soft = moved(of('founderEdgeCall', 'staffTestStatus'), 'IDENTITY_STAFF_TEST_STATUS');
+  assert.match(soft.code, /staffSchema\.safeParse\(await founderEdgeRecordRead\(config, IDENTITY_STAFF_TEST_STATUS, \{\}, token\)\);$/m);
+  assert.deepEqual([...new Map(soft.imports).get('@/lib/founder-session')], ['founderEdgeRecordRead']);
 });
 
 test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
@@ -1316,7 +1323,7 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
   const bare = join(dir, 'bare.ts');
   writeFileSync(bare, "export const d = { module: 'bank', procedure: 'health' };\n");
   assert.deepEqual(deskReadSite(load(bare)), []);
-  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from the same place.
+  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from its home.
   const typed = join(dir, 'typed.ts');
   writeFileSync(
     typed,
@@ -1324,7 +1331,7 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
   );
   assert.deepEqual(
     deskReadSite(load(typed)).map((s) => s.helperFrom),
-    ['@/lib/ops-desk'],
+    ['@/lib/desk-read'],
   );
   // An operator tool beside `toolOf`: its kind is its own, and `edgeModule` and `kind` are what the record replaces.
   const tools = join(dir, 'tools.ts');
@@ -3376,6 +3383,101 @@ test("a run's new type error is owned by the moved call whose caller is in its f
   assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
 });
 
+test("a run's new type error leaves only the moved call the code around it names: in its caller's file the call it sits in, in a screen the api member it calls; with none named, every candidate", async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const api = 'apps/customer/src/features/pay/portal/money/api.ts';
+  const screen = 'apps/customer/src/features/pay/portal/money/Destinations.tsx';
+  const other = 'apps/customer/src/features/pay/portal/money/Other.tsx';
+  const moved = [
+    { path: 'settlement.list', record: 'PAY_SETTLEMENT_LIST', files: [api] },
+    { path: 'payment.list', record: 'PAY_PAYMENT_LIST', files: [api] },
+    { path: 'merchant.payoutDestinations.add', record: 'PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD', files: [api] },
+  ];
+  const sources = {
+    [api]: [
+      "import { PAY_SETTLEMENT_LIST, PAY_PAYMENT_LIST, PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD } from '@intafaced/contracts/pay';",
+      'export const moneyApi = ({ queryRecord, mutateRecord }) => ({',
+      '  settlements: (merchantId, status) => queryRecord(PAY_SETTLEMENT_LIST, { merchantId, ...(status ? { status } : {}) }),',
+      '  payments: async (merchantId) => {',
+      '    const page = await queryRecord(PAY_PAYMENT_LIST, { merchantId });',
+      '    return page;',
+      '  },',
+      '  destinationAdd: (input) => mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_ADD, input),',
+      '});',
+    ].join('\n'),
+    [screen]: [
+      "import { moneyApi } from './api';",
+      'export function Destinations({ portal, page }) {',
+      '  const shown = page.items;',
+      '  return <Review perform={() => portal.destinationAdd({ ref: shown })} />;',
+      '}',
+    ].join('\n'),
+    [other]: ["import { moneyApi } from './api';", 'export const x = (page) => page.kind;'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(api, 3, 80, 'error TS2345: Argument of type A'),
+      err(screen, 4, 23, 'error TS2322: Type B is not assignable to type C'),
+      err(other, 2, 27, 'error TS2339: Property D'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // The settlements line's own call, not the two below it in the same file.
+  assert.deepEqual([...owners.get(api).keys()], ['settlement.list']);
+  // The screen calls portal.destinationAdd; its local `page` is not the api's local `page`.
+  assert.deepEqual([...owners.get(screen).keys()], ['merchant.payoutDestinations.add']);
+  // Nothing around the error names a moved call: every candidate, as before.
+  assert.deepEqual([...owners.get(other).keys()], ['settlement.list', 'payment.list', 'merchant.payoutDestinations.add']);
+});
+
+test("a type error in the run's own service is owned by the record mounted around it, and one that names no record by none", async () => {
+  // The failure it prevents: on 24 Nov 2026 the svc-pay run typechecked only the apps, and shipped a service whose
+  // mountRecord(PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, ...) handler no longer fit its record (#10717's first head).
+  const { ownersOf } = await import('./run.mjs');
+  const router = 'services/svc-pay/src/merchant-ops/router.ts';
+  const audit = 'services/svc-pay/src/control/audit.ts';
+  const moved = [
+    { path: 'merchantOps.permissions.catalogue', record: 'PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE', files: ['apps/customer/src/a.ts'] },
+    { path: 'merchantOps.team.invite', record: 'PAY_MERCHANT_OPS_TEAM_INVITE', files: ['apps/customer/src/a.ts'] },
+  ];
+  const sources = {
+    [router]: [
+      "import { PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE, PAY_MERCHANT_OPS_TEAM_INVITE } from '@intafaced/contracts/pay';",
+      'export const merchantOpsRouter = router({',
+      '  invite: mountRecord(PAY_MERCHANT_OPS_TEAM_INVITE, ({ input }) => invite(input), payRefusal),',
+      '  catalogue: mountRecord(',
+      '    PAY_MERCHANT_OPS_PERMISSIONS_CATALOGUE,',
+      '    ({ ctx }) => catalogue(ctx),',
+      '    payRefusal,',
+      '  ),',
+      '  other: memberRead.query(() => 1),',
+      '});',
+    ].join('\n'),
+    [audit]: ['export const list = (rows) => rows.map((row) => ({ before: row.before }));'].join('\n'),
+  };
+  const err = (file, line, col, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(${line},${col}): ${msg}`, line, col });
+  const owners = ownersOf(
+    [
+      err(router, 6, 5, 'error TS2769: No overload matches this call.'),
+      err(router, 9, 10, 'error TS2322: Type A'),
+      err(audit, 1, 50, 'error TS2719: Type B'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  // Only the record whose mount the error sits in; the error outside any mount, and the one in audit.ts, are nobody's.
+  assert.deepEqual([...owners.get(router).keys()], ['merchantOps.permissions.catalogue']);
+  assert.equal(owners.has(audit), false);
+});
+
 test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
   const { z } = await contractsZod();
   assert.throws(
@@ -3509,29 +3611,21 @@ test('a const with only query that the test hands on as `api` (a mocked useSessi
   assert.equal(doublesIn(file).out.length, 1, 'only the const handed on as api');
 });
 
-test('a desk read whose helper would come from a server-only entry it takes only types from stays by name', async () => {
+test("a desk read imports readOf from its one home, never from the ops desk's server-only entry", async () => {
   const { deskReadSite } = await import('./sites.mjs');
-  const root = mkdtempSync(join(tmpdir(), 'call-records-server-only-'));
-  const app = join(root, 'apps/admin/src');
-  mkdirSync(join(app, 'lib/ops-desk'), { recursive: true });
-  mkdirSync(join(app, 'lib/account-search'), { recursive: true });
-  mkdirSync(join(app, 'lib/plain'), { recursive: true });
+  const root = mkdtempSync(join(tmpdir(), 'call-records-desk-read-'));
+  const dir = join(root, 'apps/admin/src/lib/account-search');
+  mkdirSync(dir, { recursive: true });
+  // The past mistake (admin's account search): `import type { ReadSpec } from '@/lib/ops-desk'`, read by a client
+  // component; a run that imported `readOf` from there pulled `import 'server-only'` into the browser bundle.
+  const f = join(dir, 'search.ts');
   writeFileSync(
-    join(app, 'lib/ops-desk/index.ts'),
-    "import 'server-only';\nexport const readOf = () => ({});\nexport type ReadSpec = {};\n",
+    f,
+    "import type { ReadSpec } from '@/lib/ops-desk';\nexport const s: ReadSpec = { module: 'identity', procedure: 'accountDirectory.search' };\n",
   );
-  writeFileSync(join(app, 'lib/plain/index.ts'), 'export const readOf = () => ({});\nexport type ReadSpec = {};\n');
-  // The past mistake (admin's account search): `import type { ReadSpec } from '@/lib/ops-desk'`, read by a client component.
-  const spec = (from, kind) =>
-    `import ${kind} { ReadSpec } from '${from}';\nexport const s: ReadSpec = { module: 'identity', procedure: 'accountDirectory.search' };\n`;
-  const site = (name, from, kind) => {
-    const f = join(app, 'lib/account-search', name);
-    writeFileSync(f, spec(from, kind));
-    return deskReadSite(load(f))[0];
-  };
-  assert.match(site('a.ts', '@/lib/ops-desk', 'type').problem, /server-only/);
-  assert.equal(site('b.ts', '@/lib/ops-desk', '').problem, undefined, 'a file that already takes values from it changes nothing');
-  assert.equal(site('c.ts', '@/lib/plain', 'type').problem, undefined, 'an entry that is not server-only moves');
+  const [site] = deskReadSite(load(f));
+  assert.equal(site.problem, undefined);
+  assert.equal(site.helperFrom, '@/lib/desk-read');
 });
 
 test('report --service: only the services it names, in order; an unknown or missing name is refused, naming the rest', async () => {

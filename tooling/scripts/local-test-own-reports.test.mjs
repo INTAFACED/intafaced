@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { OwnReportError, ownReport, recordOwnReport } from './local-test-own-reports.mjs';
-import { answerStatement } from './local-test-rail-statements.mjs';
+import { OWN_REPORTS_VENUE_ID, answerStatement, serveRailStatements } from './local-test-rail-statements.mjs';
 
 const fresh = () => mkdtempSync(path.join(tmpdir(), 'own-reports-'));
 const q = (reporter, place, asOf) => `/report?reporter=${reporter}&place=${place}&asOf=${asOf}`;
@@ -53,4 +53,101 @@ test('the same key twice writes once; other facts under it refuse; a bad query n
   assert.equal(answerStatement(state, 'GET', q('venue', 'V 1', '2026-11-24T10:00:00.000Z'))[0], 400);
   assert.equal(answerStatement(state, 'GET', q('venue', 'v1', 'soon'))[0], 400);
   assert.equal(answerStatement(state, 'GET', '/report?reporter=venue')[0], 400);
+});
+
+test('GET /venue and POST /report serve the same outside reports in the venueRecord shape', () => {
+  const state = fresh();
+  recordOwnReport(state, { reporter: 'venue', place: 'v1', key: 'f1', assetId: 'USDT', amount: '-5', at: '2026-11-24T10:00:00.000Z' });
+  const [vStatus, vBody] = answerStatement(state, 'GET', '/venue');
+  assert.equal(vStatus, 200);
+  assert.equal(vBody.label, 'TEST');
+  assert.equal(vBody.venue.id, OWN_REPORTS_VENUE_ID);
+
+  const account = { venueId: OWN_REPORTS_VENUE_ID, owner: 'v1', subAccount: null };
+  const [rStatus, rBody] = answerStatement(state, 'POST', '/report', {
+    account,
+    reporter: 'venue',
+    asOf: '2026-11-24T10:05:00.000Z',
+  });
+  assert.equal(rStatus, 200);
+  assert.deepEqual(rBody, {
+    label: 'TEST',
+    value: {
+      source: 'report',
+      reporter: 'venue',
+      place: 'v1',
+      asOf: '2026-11-24T10:00:00.000Z',
+      balances: [{ assetId: 'USDT', amount: '-5' }],
+    },
+  });
+  const [nrStatus, nrBody] = answerStatement(state, 'POST', '/report', {
+    account,
+    reporter: 'partner',
+    asOf: '2026-11-24T10:05:00.000Z',
+  });
+  assert.equal(nrStatus, 200);
+  assert.deepEqual(nrBody, { label: 'TEST', value: { source: 'report', reporter: 'partner', place: 'v1', reported: false } });
+
+  assert.equal(
+    answerStatement(state, 'POST', '/report', {
+      account: { ...account, venueId: 'other' },
+      reporter: 'venue',
+      asOf: '2026-11-24T10:05:00.000Z',
+    })[0],
+    400,
+  );
+  assert.equal(
+    answerStatement(state, 'POST', '/report', {
+      account: { ...account, subAccount: 'sub' },
+      reporter: 'venue',
+      asOf: '2026-11-24T10:05:00.000Z',
+    })[0],
+    400,
+  );
+});
+
+test('the loopback hold gate pauses one GET /report until released, reporting arrival before answering', async () => {
+  const state = fresh();
+  recordOwnReport(state, { reporter: 'venue', place: 'v-hold', key: 'k1', assetId: 'USDT', amount: '-4', at: '2026-11-24T10:00:00.000Z' });
+  let markArrived;
+  const arrived = new Promise((resolve) => {
+    markArrived = resolve;
+  });
+  const server = serveRailStatements({ host: '127.0.0.1', port: 0, stateDir: state, onHoldArrived: markArrived });
+  await new Promise((resolve) => server.once('listening', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const armed = await fetch(`${base}/test/hold-report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reporter: 'venue', place: 'v-hold' }),
+    });
+    assert.equal(armed.status, 200);
+
+    let done = false;
+    const inflight = fetch(`${base}/report?reporter=venue&place=v-hold&asOf=2026-11-24T10:05:00.000Z`).then(async (res) => {
+      done = true;
+      return { status: res.status, body: await res.json() };
+    });
+
+    await arrived;
+    const held = await (await fetch(`${base}/test/hold-report?reporter=venue&place=v-hold`)).json();
+    assert.deepEqual(held, { held: true, arrived: true, asOf: '2026-11-24T10:05:00.000Z' });
+    assert.equal(done, false, 'GET /report must stay held until released');
+
+    const released = await fetch(`${base}/test/release-report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reporter: 'venue', place: 'v-hold' }),
+    });
+    assert.equal(released.status, 200);
+    const answer = await inflight;
+    assert.equal(answer.status, 200);
+    assert.deepEqual(answer.body.balances, [{ assetId: 'USDT', amount: '-4' }]);
+
+    const after = await (await fetch(`${base}/test/hold-report?reporter=venue&place=v-hold`)).json();
+    assert.deepEqual(after, { held: false, arrived: false, asOf: null });
+  } finally {
+    server.close();
+  }
 });

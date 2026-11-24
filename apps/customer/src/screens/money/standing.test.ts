@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { shownUsd, standing, type PartInput } from './standing';
+import { moversOf } from './movers-model';
+import { quoteFromCandles, shownUsd, standing, type PartInput, type VenueMarketQuotes } from './standing';
 
 const PRICES = {
   published: true as const,
@@ -93,5 +94,177 @@ describe('where a person stands (J-home-ia-01 #1)', () => {
     expect(shownUsd('0.005')).toBe('0.01');
     expect(shownUsd('0.004999999999999999')).toBe('0.00');
     expect(shownUsd('1234.5')).toBe('1234.50');
+  });
+});
+
+describe('venue spot quotes, valuation note and movers (J-portfolio-01 #2 #7)', () => {
+  const AS_OF = '2026-11-24T12:00:00.000Z';
+
+  it('quoteFromCandles reads last trade and 24h open from hourly candles without guessing', () => {
+    expect(quoteFromCandles('BTC-USDC', [], AS_OF)).toEqual({
+      symbol: 'BTC-USDC',
+      last: null,
+      open: null,
+      windowStart: null,
+    });
+    expect(quoteFromCandles('BTC-USDC', [{ openAt: '2026-11-24T11:00:00.000Z', openPrice: '60100', closePrice: '60100' }], AS_OF)).toEqual({
+      symbol: 'BTC-USDC',
+      last: '60100',
+      open: '60100',
+      windowStart: Date.parse('2026-11-24T11:00:00.000Z'),
+    });
+    expect(
+      quoteFromCandles(
+        'UP-USDC',
+        [
+          { openAt: '2026-11-24T10:00:00.000Z', openPrice: '100', closePrice: '110' },
+          { openAt: '2026-11-24T11:00:00.000Z', openPrice: '110', closePrice: '120' },
+        ],
+        AS_OF,
+      ),
+    ).toEqual({
+      symbol: 'UP-USDC',
+      last: '120',
+      open: '100',
+      windowStart: Date.parse('2026-11-24T10:00:00.000Z'),
+    });
+    // Full 24h window: a candle before the 24h cutoff gives the 24h open price and windowStart is null.
+    expect(
+      quoteFromCandles(
+        'DOWN-USDC',
+        [
+          { openAt: '2026-11-23T10:00:00.000Z', openPrice: '210', closePrice: '200' },
+          { openAt: '2026-11-24T11:00:00.000Z', openPrice: '190', closePrice: '170' },
+        ],
+        AS_OF,
+      ),
+    ).toEqual({
+      symbol: 'DOWN-USDC',
+      last: '170',
+      open: '200',
+      windowStart: null,
+    });
+    // Only prints older than 24h: still priced at last trade, but no 24h move.
+    expect(quoteFromCandles('OLD-USDC', [{ openAt: '2026-11-20T10:00:00.000Z', openPrice: '50', closePrice: '55' }], AS_OF)).toEqual({
+      symbol: 'OLD-USDC',
+      last: '55',
+      open: null,
+      windowStart: null,
+    });
+  });
+
+  it('values venue-traded holdings from venue quotes, keeps unpriced coins with their reason, and feeds movers from the same valuation', () => {
+    const venueQuotes: VenueMarketQuotes = {
+      venueName: 'TEST venue simulator',
+      test: true,
+      asOf: AS_OF,
+      byAsset: new Map([
+        ['UP', { symbol: 'UP-USDC', last: '120', open: '100', windowStart: Date.parse('2026-11-24T11:00:00.000Z') }],
+        ['DOWN', { symbol: 'DOWN-USDC', last: '170', open: '200', windowStart: Date.parse('2026-11-24T11:00:00.000Z') }],
+        ['BTC', { symbol: 'BTC-USDC', last: '60100', open: '60100', windowStart: Date.parse('2026-11-24T11:00:00.000Z') }],
+        ['QUIET', { symbol: 'QUIET-USDC', last: null, open: null, windowStart: null }],
+        ['OLD', { symbol: 'OLD-USDC', last: '10', open: null, windowStart: null }],
+      ]),
+    };
+    const s = standing(
+      [
+        wallet({
+          state: 'read',
+          asOf: AS_OF,
+          rows: [
+            { asset: 'TESTUSD', amount: '90' },
+            { asset: 'QUIET', amount: '2' },
+          ],
+        }),
+        {
+          id: 'venue',
+          label: 'TEST venue simulator',
+          test: true,
+          read: {
+            state: 'read',
+            asOf: AS_OF,
+            rows: [
+              { asset: 'USDC', amount: '100' },
+              { asset: 'UP', amount: '0.5' },
+              { asset: 'DOWN', amount: '0.5' },
+              { asset: 'BTC', amount: '0.001' },
+              { asset: 'OLD', amount: '1' },
+            ],
+          },
+        },
+        partner,
+      ],
+      PRICES,
+      'USD',
+      venueQuotes,
+    );
+    // 100 USDC + 60 UP + 85 DOWN + 60.10 BTC + 10 OLD + 50 USDT = 365.10
+    expect(s.totalUsd).toBe('365.10');
+    expect(s.unpriced).toEqual(['TESTUSD', 'QUIET']);
+    expect(s.valuation).not.toBeNull();
+    expect(s.valuation!.unpricedReasons).toEqual({
+      TESTUSD: 'no_market',
+      QUIET: 'no_price_yet',
+    });
+    const byAsset = new Map(s.valuation!.rows.map((r) => [r.asset, r]));
+    expect(byAsset.get('USDC')).toMatchObject({ class: 'cash', priceUsd: '1', usdValue: '100', priceSymbol: null });
+    expect(byAsset.get('USDT')).toMatchObject({ class: 'cash', priceUsd: '1', usdValue: '50', priceSymbol: null });
+    expect(byAsset.get('UP')).toMatchObject({
+      class: 'crypto',
+      priceUsd: '120',
+      usdValue: '60',
+      usdChange24h: '10',
+      changeRatio: '0.2',
+      priceSymbol: 'UP-USDC',
+    });
+    expect(byAsset.get('DOWN')).toMatchObject({
+      class: 'crypto',
+      priceUsd: '170',
+      usdValue: '85',
+      usdChange24h: '-15',
+      changeRatio: '-0.15',
+      priceSymbol: 'DOWN-USDC',
+    });
+    expect(byAsset.get('TESTUSD')).toMatchObject({ priceUsd: null, usdValue: null, share: null });
+    expect(byAsset.get('QUIET')).toMatchObject({ priceUsd: null, usdValue: null, share: null });
+
+    const movers = moversOf(s.valuation!);
+    expect(movers.best.map((r) => r.asset)).toEqual(['UP']);
+    expect(movers.worst.map((r) => r.asset)).toEqual(['DOWN']);
+    expect(movers.flat.map((r) => r.asset)).toEqual(['BTC']);
+    expect(movers.unranked).toEqual(['OLD']);
+  });
+
+  it('ignores venue quotes when valuation.prices is unpublished (J-wallet-01 #4)', () => {
+    const venueQuotes: VenueMarketQuotes = {
+      venueName: 'TEST venue simulator',
+      test: true,
+      asOf: AS_OF,
+      byAsset: new Map([['BTC', { symbol: 'BTC-USDC', last: '60100', open: '60000', windowStart: null }]]),
+    };
+    const s = standing(
+      [
+        {
+          id: 'venue',
+          label: 'TEST venue simulator',
+          test: true,
+          read: {
+            state: 'read',
+            asOf: AS_OF,
+            rows: [
+              { asset: 'BTC', amount: '1' },
+              { asset: 'USDC', amount: '100' },
+            ],
+          },
+        },
+      ],
+      { published: false, code: 'valuation.prices_unset' },
+      'USD',
+      venueQuotes,
+    );
+    expect(s.totalUsd).toBeNull();
+    expect(s.prices).toBeNull();
+    expect(s.valuation).toBeNull();
+    expect(s.unpriced).toEqual(['BTC', 'USDC']);
   });
 });

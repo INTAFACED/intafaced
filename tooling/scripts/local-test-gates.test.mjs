@@ -70,6 +70,8 @@ import {
   isCancelOf,
   TRADE_CANCELS,
   gatesUsage,
+  personToken,
+  PERSON_TEST_PARTNER_SCOPES,
 } from './local-test-gates.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -1047,9 +1049,19 @@ for (const [args, usage] of [
   assert.ok(sql.includes("c.follow_id = 'follow-1' AND c.leader_id = f.leader"), "only that follow, and only of the fill's leader");
   assert.ok(sql.includes("date_trunc('milliseconds', created_at)"), "the driver's own millisecond order");
   assert.ok(sql.includes('p.id::text < f.id::text'), 'the cursor lands just before the fill, so the fill is tried again');
+  const venueFill = 'venue:0x1111111111111111111111111111111111111111:1795500000123:sim-fill-7';
+  const venueSql = copyCursorRewindSql('follow-1', venueFill);
+  assert.ok(
+    venueSql.includes("TIMESTAMPTZ 'epoch' + (1795500000123::bigint * INTERVAL '1 millisecond')"),
+    'venue fill rewinds to its exact ms',
+  );
+  assert.ok(venueSql.includes('copy_cursor_fill = NULL'), 'venue fill clears cursor fill so the fill at that ms is read again');
+  assert.ok(venueSql.includes("c.follow_id = 'follow-1' AND v.follow_id = c.follow_id"), 'only a venue-bound follow moves');
   for (const [followId, fillId] of [
     ["x'; DROP TABLE trade.copy_follows; --", fill],
     ['follow-1', "0b9f2c1e-4a5d-4e6f-8a7b-9c0d1e2f3a4b' OR '1'='1"],
+    ['follow-1', "venue:0x1111111111111111111111111111111111111111:1795500000123:x'; DROP TABLE trade.copy_follows; --"],
+    ['follow-1', 'venue:0xshort:1795500000123:sim-fill-7'],
     ['follow-1', 'not-a-fill'],
     ['', fill],
     [undefined, undefined],
@@ -1126,6 +1138,32 @@ console.log('local-test-gates: marker, builder, hash and planning checks passed'
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
+}
+
+// #10632: a person's TEST partner token carries the scope svc-bank's door asks of `testPartner.set` and `testPartner.fund`
+// (a token with no scopes was refused `403 Scope "bank:write" is required` on every beta pass), and nothing more.
+{
+  const calls = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'crates', 'svc-bank', 'src', 'door', 'calls.rs'),
+    'utf8',
+  );
+  for (const path of ['testPartner.set', 'testPartner.fund']) {
+    const at = calls.indexOf(`path: "${path}",`);
+    assert.ok(at > 0, `${path} is in svc-bank's door`);
+    const scope = /scope: "([^"]+)"/.exec(calls.slice(at))?.[1];
+    assert.ok(PERSON_TEST_PARTNER_SCOPES.includes(scope), `${path} needs ${scope}, which the person's TEST partner token carries`);
+  }
+  assert.deepEqual([...PERSON_TEST_PARTNER_SCOPES], ['bank:read', 'bank:write']);
+  let minted;
+  const ctx = {
+    secrets: { jwt: 'test-secret' },
+    tokens: { issueAccessToken: async (claims, opts) => ((minted = { claims, opts }), { token: 'tok' }) },
+  };
+  const ids = { userId: '76030d60-1af1-467f-96ae-b6bbbb47acb2', sessionId: 'b38c4959-f293-4386-b979-96b5e678b919' };
+  assert.equal(await personToken(ctx, ids), 'tok');
+  assert.deepEqual(minted.claims, { ...ids, scopes: ['bank:read', 'bank:write'], tier: 'none', mfa: false });
+  assert.equal(minted.opts.accessTtlSeconds, 120);
+  await assert.rejects(personToken(ctx, { userId: 'x', sessionId: ids.sessionId }), /needs a user id and a live session id/);
 }
 
 await source.unregister();

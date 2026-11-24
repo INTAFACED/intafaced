@@ -56,7 +56,7 @@ export function DormancyNotice() {
       data-fee={notice.fee}
       data-debit-date={notice.debitDate}
       role={notice.state === 'noticed' ? 'alert' : 'status'}
-      className="money-card"
+      className="lt-callout lt-callout-warn"
     >
       {notice.state === 'noticed' ? (
         <>

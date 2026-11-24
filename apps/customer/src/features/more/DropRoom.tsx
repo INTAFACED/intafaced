@@ -1,10 +1,10 @@
 // volt-room: /campaigns/drops
 import { useState } from 'react';
-import { type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
+import { type DropReward, type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, Tag } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate, FirstState, KeyValue } from '@intafaced/ui/lit/templates';
 import { t as copyText } from './copy';
 import { dropRoomCopy } from './drop-room-copy';
@@ -137,11 +137,21 @@ function Season({ season }: { season: ProcedureOutput<typeof CAMPAIGNS_DROPS_ROO
               { label: t('seasonName'), value: <span data-testid="drop-season-name">{season.name}</span> },
               { label: t('seasonWindow'), value: t('seasonWindowValue', { start: when(season.startsAt), end: when(season.endsAt) }) },
               { label: t('seasonState'), value: t(season.state) },
-              {
-                label: t('points'),
-                value: <span data-testid="drop-season-points">{season.points}</span>,
-                note: t('pointsNote', { count: String(season.taskCampaigns) }),
-              },
+              season.pointsBlocker
+                ? {
+                    label: t('points'),
+                    value: (
+                      <span data-testid="drop-season-points" data-state="not_running" data-code={season.pointsBlocker}>
+                        {t('pointsNotRunning')} <code lang="zxx">{season.pointsBlocker}</code>
+                      </span>
+                    ),
+                    note: t('pointsBlocked'),
+                  }
+                : {
+                    label: t('points'),
+                    value: <span data-testid="drop-season-points">{season.points}</span>,
+                    note: t('pointsNote', { count: String(season.taskCampaigns) }),
+                  },
             ]}
           />
         )}
@@ -159,7 +169,7 @@ function Drops({ drops, outcomes, settle }: { drops: readonly DropView[]; outcom
       {drops.length === 0 ? (
         <EmptyNote title={t('dropsNone')} />
       ) : (
-        <ScrollTable label={t('dropsLabel')} headers={[t('dropName'), t('dropLeft'), t('dropState'), t('dropAction')]}>
+        <ScrollTable label={t('dropsLabel')} headers={[t('dropName'), t('dropValue'), t('dropLeft'), t('dropState'), t('dropAction')]}>
           {drops.map((drop) => (
             <DropRow key={drop.id} drop={drop} outcome={outcomes[drop.id] ?? null} settle={settle} />
           ))}
@@ -183,6 +193,9 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
   return (
     <tr data-testid="drop-row" data-drop-id={drop.id}>
       <th scope="row">{drop.title}</th>
+      <td data-align="end" data-testid="drop-value">
+        {drop.value ? t('valueAmount', { amount: drop.value.amount, asset: drop.value.asset }) : t('valueNone')}
+      </td>
       <td data-align="end" data-testid="drop-left">
         {t('dropLeftValue', { remaining: String(drop.remaining), count: String(drop.count) })}
       </td>
@@ -191,6 +204,7 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
         {drop.mine ? (
           <span data-testid="drop-claimed">
             {t('claimed')} · {when(drop.mine.claimedAt)}
+            {drop.mine.reward ? <RewardLine reward={drop.mine.reward} /> : null}
           </span>
         ) : (
           <Button tone="primary" onClick={() => void claim()} disabled={busy} aria-label={t('claim', { title: drop.title })}>
@@ -202,6 +216,27 @@ function DropRow({ drop, outcome, settle }: { drop: DropView; outcome: Outcome |
         ) : null}
       </td>
     </tr>
+  );
+}
+
+/** States in which a claimed drop's reward will not be paid. */
+const NOT_PAID: readonly DropReward['state'][] = ['failed', 'forfeited', 'withheld', 'cancelled'];
+
+/** A claimed drop's reward: owed until its payment is booked, then the wallet and the chain transaction that paid it. */
+function RewardLine({ reward }: { reward: DropReward }) {
+  const { t } = dropRoomCopy.useCopy();
+  const amount = { amount: reward.amount, asset: reward.asset };
+  return (
+    <span data-testid="drop-reward" data-state={reward.state} data-tx={reward.chainTx ?? undefined} data-pay-to={reward.payTo ?? undefined}>
+      {' · '}
+      {reward.chainTx && reward.payTo
+        ? t('rewardPaid', { ...amount, wallet: reward.payTo })
+        : NOT_PAID.includes(reward.state)
+          ? t('rewardNotPaid', { state: reward.state })
+          : reward.payTo
+            ? t('rewardOwed', amount)
+            : t('rewardNoWallet', amount)}
+    </span>
   );
 }
 
@@ -247,10 +282,8 @@ function TgeClaim({ network, label }: { network: TgeNetwork; label: string }) {
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
   };
   return (
-    <div data-testid={`tge-${network}`}>
-      <Tag tone="neutral" data-testid={`tge-${network}-label`}>
-        {label}
-      </Tag>
+    <div data-testid={`tge-${network}`} className="lt-actions">
+      <strong data-testid={`tge-${network}-label`}>{label}</strong>
       <Button tone="secondary" onClick={() => void claim()} disabled={busy}>
         {t('tgeClaim', { network: label })}
       </Button>

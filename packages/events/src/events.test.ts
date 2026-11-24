@@ -938,6 +938,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
     selfFreezeApplied: { userId: uid(), freezeId: uid(), since: ts() },
+    supportAccountFrozen: { userId: uid(), freezeId: uid(), since: ts() },
     staffCreated: {
       staffId: 'staff-1',
       actorId: 'staff-0',

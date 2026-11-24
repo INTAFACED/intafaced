@@ -23,6 +23,17 @@ pub const PROD_ENGINE_CONFIG_CODE: &str = "blueprint.prod_engine_config";
 const ENGINE_URL_UNSET: &str =
     "BLUEPRINT_ENGINE_URL is unset — will not invent http://host.docker.internal:4108 as live";
 
+/// The owner-published settings (`BlueprintServiceOptions` in `blueprint-service.ts`). Every field stays `None` until
+/// published: a blank setting refuses with its typed 412 code, never a default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Settings {
+    pub crew_capacity: Option<i64>,
+    pub mentor_shortlist_size: Option<i64>,
+    pub season: Option<i64>,
+    pub shares_per_owner: Option<i64>,
+    pub opens_list_limit: Option<i64>,
+}
+
 /// The loaded environment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlueprintEnv {
@@ -50,6 +61,17 @@ impl BlueprintEnv {
         match self.get(key) {
             Some(Json::Number(n)) => format!("{n}").parse().ok(),
             _ => None,
+        }
+    }
+
+    /// The owner-published settings read from the loaded environment, as `index.ts` hands them to `BlueprintService`.
+    pub fn settings(&self) -> Settings {
+        Settings {
+            crew_capacity: self.int("BLUEPRINT_CREW_CAPACITY"),
+            mentor_shortlist_size: self.int("BLUEPRINT_MENTOR_SHORTLIST_SIZE"),
+            season: self.int("BLUEPRINT_SEASON"),
+            shares_per_owner: self.int("BLUEPRINT_SHARES_PER_OWNER"),
+            opens_list_limit: self.int("BLUEPRINT_OPENS_LIST_LIMIT"),
         }
     }
 
@@ -404,5 +426,63 @@ mod tests {
         ] {
             assert!(!is_loopback_engine_url(url), "{url}");
         }
+    }
+
+    #[test]
+    fn settings_keep_blank_unset_and_preserve_zero() {
+        let base = |extra: &[(&str, &str)]| {
+            let mut vars: BTreeMap<String, String> = [
+                ("APP_ENV", "test"),
+                ("DATABASE_URL", "postgres://u:p@localhost:5432/db"),
+                ("DATABASE_POOL_MAX", "4"),
+                (
+                    "EDGE_PRINCIPAL_SECRET",
+                    "an-edge-principal-secret-long-enough-for-the-schema",
+                ),
+                ("BLUEPRINT_ENGINE_MODE", "mock"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+            for (k, v) in extra {
+                vars.insert((*k).to_owned(), (*v).to_owned());
+            }
+            load(&vars).map(|e| e.settings())
+        };
+        assert_eq!(base(&[]), Ok(Settings::default()));
+        assert_eq!(
+            base(&[
+                ("BLUEPRINT_SHARES_PER_OWNER", ""),
+                ("BLUEPRINT_OPENS_LIST_LIMIT", "   "),
+            ]),
+            Ok(Settings::default())
+        );
+        assert_eq!(
+            base(&[
+                ("BLUEPRINT_SHARES_PER_OWNER", "0"),
+                ("BLUEPRINT_OPENS_LIST_LIMIT", "0"),
+            ]),
+            Ok(Settings {
+                shares_per_owner: Some(0),
+                opens_list_limit: Some(0),
+                ..Settings::default()
+            })
+        );
+        assert_eq!(
+            base(&[
+                ("BLUEPRINT_CREW_CAPACITY", "6"),
+                ("BLUEPRINT_MENTOR_SHORTLIST_SIZE", "3"),
+                ("BLUEPRINT_SEASON", "1"),
+                ("BLUEPRINT_SHARES_PER_OWNER", "2"),
+                ("BLUEPRINT_OPENS_LIST_LIMIT", "20"),
+            ]),
+            Ok(Settings {
+                crew_capacity: Some(6),
+                mentor_shortlist_size: Some(3),
+                season: Some(1),
+                shares_per_owner: Some(2),
+                opens_list_limit: Some(20),
+            })
+        );
     }
 }

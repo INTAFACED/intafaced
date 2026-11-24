@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -345,3 +346,15 @@ export async function walletDoorAct(session, key, { subAccount = null, intent, a
   expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   return sent;
 }
+
+/** Keys sorted, no spaces: the canonical form svc-trade hashes (services/svc-trade/src/admin/common.ts payloadHash). */
+function canonical(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+}
+/** The payload hash svc-trade binds an operator's two-person change to (`sha256:` over the canonical body). */
+export const tradePayloadHash = (body) => `sha256:${createHash('sha256').update(canonical(body)).digest('hex')}`;

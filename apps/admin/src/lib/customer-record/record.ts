@@ -1,4 +1,5 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, readOf, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
+import { readOf } from '@/lib/desk-read';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
 import {
   IDENTITY_DEVELOPER_SUPPORT_CALLS,

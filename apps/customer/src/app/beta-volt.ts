@@ -62,17 +62,21 @@ export function betaShownHref(
 
 /**
  * What the signed-in account can use, for the beta's menus: `business`, the session reads a business account the person
- * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts). Unknown counts as
- * no, so a menu never shows a room before the answer comes. App sets it on each of its renders (BetaAccess.ts), before
- * the shell and its menus draw; it stays at no in every other build.
+ * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts); `staking` and
+ * `vaults`, the door is on and the venue itself answers its staking terms or its vault list (a venue that offers none,
+ * as Hyperliquid's test network, refuses `not_offered`). Unknown counts as no, so a menu never shows a room before the
+ * answer comes. App sets it on each of its renders (BetaAccess.ts), before the shell and its menus draw; it stays at no in
+ * every other build.
  */
-export type BetaNeed = 'business' | 'venue';
+export type BetaNeed = 'business' | 'venue' | 'staking' | 'vaults';
 export type BetaAccess = Readonly<Record<BetaNeed, boolean>>;
-let access: BetaAccess = { business: false, venue: false };
+const NONE: BetaAccess = { business: false, venue: false, staking: false, vaults: false };
+let access: BetaAccess = NONE;
 
 export function betaAccess(): BetaAccess {
   return access;
 }
-export function setBetaAccess(next: BetaAccess): void {
-  access = next;
+/** Sets what the account can use; a need left out is no. */
+export function setBetaAccess(next: Partial<BetaAccess>): void {
+  access = { ...NONE, ...next };
 }

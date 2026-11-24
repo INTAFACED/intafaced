@@ -504,7 +504,11 @@ export function Verification() {
                   <Copy k={problem ?? 'storage'} />
                 </p>
               )}
-              <VerificationTradingChecks disabled={!userId || !api.canWrite()} onDone={reload} />
+              <VerificationTradingChecks
+                disabled={!userId || !api.canWrite()}
+                onDone={reload}
+                levelHeld={resource.status === 'loading' ? null : heldLevel !== 'none'}
+              />
               <section data-testid="verification__list" className="lt-stack" aria-label={t('records')}>
                 {resource.status === 'loading' ? (
                   <Loading />

@@ -33,7 +33,7 @@ export interface Feature {
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
-  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, or the venue door on. */
+  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, the venue door on, or a venue that offers staking or vaults. */
   needs?: BetaNeed;
 }
 
@@ -137,10 +137,11 @@ export const features: readonly Feature[] = [
     id: 'supported-assets',
     label: 'Supported assets',
     paths: ['/uc/assets'],
-    status: 'blocked',
-    reason: 'svc-ledger’s asset registry through svc-bank; unproven on main',
-    unlock: 'J-wallet-01 #5 green in the Real-app journeys run on main',
+    status: 'live',
+    reason: 'svc-ledger’s asset registry through svc-bank, proven on main',
+    unlock: 'already live',
     tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #5',
   },
   {
     id: 'repeat-buy',
@@ -323,9 +324,19 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-add-money',
+    label: 'Add money',
+    paths: ['/bank/ramps/new'],
+    status: 'live',
+    reason: 'Card, bank pull and bank transfer purchases run through the configured pay-in partner',
+    unlock: 'already live',
+    tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #3 and J-bank-02 #1 to #7',
+  },
+  {
     id: 'bank-ramps',
     label: 'Add money and cash out',
-    paths: ['/bank/ramps', '/bank/ramps/new', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
+    paths: ['/bank/ramps', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
     status: 'blocked',
     reason:
       'No payment partner is connected (rail.bank, rail.card), so no linked bank account can be verified; J-bank-02 proves only the refused ending',
@@ -615,7 +626,7 @@ export const features: readonly Feature[] = [
   {
     id: 'user-venue',
     label: "Trading on the customer's own venue account",
-    paths: ['/trade/account', '/trade/positions', '/trade/staking', '/trade/vaults', '/uc/trading-permissions', '/fees'],
+    paths: ['/trade/account', '/trade/positions', '/uc/trading-permissions', '/fees'],
     status: 'live',
     needs: 'venue',
     reason:
@@ -624,8 +635,39 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
+    id: 'user-venue-staking',
+    label: "Staking on the customer's own venue account",
+    paths: ['/trade/staking'],
+    status: 'live',
+    needs: 'staking',
+    reason: "The room reads the venue's own staking terms (/api/v1/venue/staking); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers staking',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-vaults',
+    label: "Vaults on the customer's own venue account",
+    paths: ['/trade/vaults'],
+    status: 'live',
+    needs: 'vaults',
+    reason: "The room reads the venue's own vault list (/api/v1/venue/vaults); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers vaults',
+    tab: 'trade',
+  },
+  {
+    id: 'agents',
+    label: 'Agents',
+    paths: ['/agents', '/agents/new', '/agents/:agentId'],
+    status: 'live',
+    reason: 'The agents catalogue, builder and own-agent rooms run on svc-agents and svc-trade from the signed-in session',
+    unlock: 'already live',
+    tab: 'more',
+    checked:
+      '2026-11-24, Real-app journeys run 11600 (J-agents-08 #1 to #7 passed on the real stack with proof v2 FAITHFUL and SHOWN pictures).',
+  },
+  {
     id: 'more-rooms',
-    label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
+    label: 'Academy, Agents extras, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
       '/academy/learning',
@@ -637,13 +679,10 @@ export const features: readonly Feature[] = [
       '/academy/learning/course/:slug',
       '/academy/learning/course/:slug/assignment/:itemId',
       '/academy/:slug',
-      '/agents',
       '/agents/team',
       '/agents/approvals',
       '/agents/connect',
-      '/agents/new',
       '/agents/runs/:runId',
-      '/agents/:agentId',
       '/quant',
       '/quant/sandbox',
       '/quant/strategies',

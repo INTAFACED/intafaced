@@ -133,8 +133,11 @@ describe("the beta's parked rooms", () => {
 
   it('come back in links once the account has the venue door, and stay in every other build', () => {
     vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
-    setBetaAccess({ business: false, venue: true });
+    setBetaAccess({ business: false, venue: true, staking: true, vaults: true });
     expect(VENUE.filter((path) => betaDropsLink(path))).toEqual([]);
+    // The door on, but a venue that answers neither staking nor vaults (Hyperliquid's test network): those two stay out.
+    setBetaAccess({ business: false, venue: true });
+    expect(VENUE.filter((path) => betaDropsLink(path))).toEqual(['/trade/staking', '/trade/vaults']);
     vi.unstubAllGlobals();
     setBetaAccess({ business: false, venue: false });
     expect(PARKED.filter((path) => betaDropsLink(path) || isHiddenPath(path))).toEqual([]);

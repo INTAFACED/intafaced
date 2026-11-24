@@ -54,6 +54,10 @@ describe('the API version panel', () => {
     world.answers = [notSet];
     await render();
     expect(text('api-version__default')).toBe('Account default: not set');
+    expect(host.textContent).toContain('Available versions');
+    expect(host.textContent).not.toContain('Published versions');
+    expect(host.textContent).not.toContain('intafaced-version header');
+    expect(host.textContent).not.toContain('intafaced-advisories');
     expect(text('api-version__versions')).toContain(`${LATEST_API_VERSION} · newest`);
     expect(text('api-version__deprecations')).toContain('POST /api/v1/orders stopPx');
     expect(text('api-version__deprecations')).toContain('stopPrice');

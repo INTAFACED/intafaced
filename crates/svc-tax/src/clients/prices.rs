@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use crate::http::{Fetch, HttpRequest};
 use crate::json::{self, Json};
+use crate::lot_book::is_par;
 use crate::money::parse_amount;
 use crate::ports::{CloseSeries, CloseSeriesSource, PriceAt, PriceAtTime, SeriesTimeframe};
 use crate::tax::{Amount, Failure};
-use crate::time::Instant;
+use crate::time::{Instant, zod_datetime};
 
 const QUOTES: [&str; 2] = ["USDT", "USDC"];
 /// Candle sizes in order, with how far back before the arrival each looks for its last candle (read windows).
@@ -227,5 +228,225 @@ impl CloseSeriesSource for TradePrices {
             }));
         }
         Ok(None)
+    }
+}
+
+/// The venue's own spot candles (`GET /api/v1/venue/spot-candles?base=<asset>&interval=<tf>&limit=500`),
+/// used to value coins arriving into the person's own venue account (deposits and staking rewards,
+/// J-portfolio-04 #3) without touching our own order book. Never values from a non-dollar pair, never
+/// reads a candle after the arrival, and never invents a zero.
+pub struct VenueSpotPrices {
+    base: String,
+    fetch: Arc<dyn Fetch>,
+}
+
+/// The most candles `/api/v1/venue/spot-candles` answers in one read (`user-venue-rest.ts`).
+const VENUE_CANDLES_LIMIT: i64 = 500;
+
+enum VenueRows {
+    Candles {
+        symbol: String,
+        rows: Vec<(i64, String)>,
+    },
+    NoMarket,
+}
+
+impl VenueSpotPrices {
+    pub fn new(base_url: &str, fetch: Arc<dyn Fetch>) -> VenueSpotPrices {
+        VenueSpotPrices {
+            base: base_url.strip_suffix('/').unwrap_or(base_url).to_owned(),
+            fetch,
+        }
+    }
+
+    fn spot_candles(&self, asset_id: &str, timeframe: &str) -> Result<VenueRows, Failure> {
+        let base = asset_id.to_uppercase();
+        let url = format!(
+            "{}/api/v1/venue/spot-candles?base={}&interval={timeframe}&limit={VENUE_CANDLES_LIMIT}",
+            self.base,
+            encode_component(&base),
+        );
+        let res = self
+            .fetch
+            .fetch(&HttpRequest {
+                method: "GET".to_owned(),
+                url,
+                headers: Vec::new(),
+                body: None,
+                timeout_ms: Some(READ_TIMEOUT_MS),
+                refuse_redirect: false,
+            })
+            .map_err(|e| thrown(e.message))?;
+        if matches!(res.status, 400 | 404 | 422) {
+            return Ok(VenueRows::NoMarket);
+        }
+        if !res.ok() {
+            return Err(thrown(format!(
+                "venue spot candles read failed {base} {timeframe}: {}",
+                res.status
+            )));
+        }
+        let body = json::parse(&res.body).map_err(|e| thrown(e.message))?;
+        let Some(Json::String(symbol)) = body.get("symbol") else {
+            return Ok(VenueRows::NoMarket);
+        };
+        if !symbol.rsplit_once('-').is_some_and(|(_, q)| is_par(q)) {
+            return Ok(VenueRows::NoMarket);
+        }
+        let Some(Json::Array(items)) = body.get("value") else {
+            return Ok(VenueRows::Candles {
+                symbol: symbol.clone(),
+                rows: Vec::new(),
+            });
+        };
+        let rows = items
+            .iter()
+            .filter_map(|item| {
+                let open = match item.get("openAt") {
+                    Some(Json::String(s)) => zod_datetime(s, false)?.0,
+                    _ => return None,
+                };
+                match item.get("closePrice") {
+                    Some(Json::String(close)) => Some((open, close.clone())),
+                    _ => None,
+                }
+            })
+            .collect();
+        Ok(VenueRows::Candles {
+            symbol: symbol.clone(),
+            rows,
+        })
+    }
+}
+
+impl PriceAtTime for VenueSpotPrices {
+    fn price_at(&self, asset_id: &str, at: Instant) -> Result<Option<PriceAt>, Failure> {
+        let t = at.0;
+        let mut failure: Option<Failure> = None;
+        for (timeframe, ms, _) in FRAMES {
+            let (symbol, candles) = match self.spot_candles(asset_id, timeframe) {
+                Ok(VenueRows::NoMarket) => return Ok(None),
+                Ok(VenueRows::Candles { symbol, rows }) => (symbol, rows),
+                Err(e) => {
+                    failure = Some(e);
+                    continue;
+                }
+            };
+            // One-minute: the minute it arrived in counts. Bigger: only a candle that had ended by the arrival.
+            let last = candles.iter().rfind(|(open, _)| {
+                if timeframe == "1m" {
+                    *open <= t
+                } else {
+                    open + ms <= t
+                }
+            });
+            if let Some((open, close)) = last {
+                return Ok(Some(PriceAt {
+                    price: parse_amount(close).map_err(thrown)?,
+                    market: symbol,
+                    timeframe,
+                    candle_at: Instant(*open),
+                }));
+            }
+        }
+        match failure {
+            Some(f) => Err(f),
+            None => Ok(None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::{FetchError, HttpResponse};
+    use std::sync::Mutex;
+
+    type ReplyFn = Box<dyn Fn(&str) -> Result<HttpResponse, FetchError> + Send + Sync>;
+
+    struct StubFetch {
+        asked: Mutex<Vec<String>>,
+        reply: ReplyFn,
+    }
+
+    impl Fetch for StubFetch {
+        fn fetch(&self, req: &HttpRequest) -> Result<HttpResponse, FetchError> {
+            self.asked.lock().expect("lock").push(req.url.clone());
+            (self.reply)(&req.url)
+        }
+    }
+
+    fn ok(body: &str) -> Result<HttpResponse, FetchError> {
+        Ok(HttpResponse {
+            status: 200,
+            body: body.to_owned(),
+        })
+    }
+
+    #[test]
+    fn venue_spot_prices_picks_the_minute_candle_at_or_before_arrival_never_a_later_one() {
+        let fetch = Arc::new(StubFetch {
+            asked: Mutex::new(Vec::new()),
+            reply: Box::new(|_| {
+                ok(
+                    r#"{"venueId":"test-venue","symbol":"HYPE-USDC","test":true,"asOf":"2026-11-24T12:05:00.000Z","value":[
+                    {"openAt":"2026-11-24T12:01:00.000Z","closePrice":"24.5"},
+                    {"openAt":"2026-11-24T12:02:00.000Z","closePrice":"25"},
+                    {"openAt":"2026-11-24T12:03:00.000Z","closePrice":"29"}
+                ]}"#,
+                )
+            }),
+        });
+        let prices = VenueSpotPrices::new("http://trade.test/", fetch.clone());
+        let at = zod_datetime("2026-11-24T12:02:35.000Z", false).expect("time");
+        let found = prices.price_at("hype", at).expect("read").expect("price");
+        assert_eq!(found.market, "HYPE-USDC");
+        assert_eq!(found.timeframe, "1m");
+        assert_eq!(found.price, parse_amount("25").expect("25"));
+        assert_eq!(
+            found.candle_at,
+            zod_datetime("2026-11-24T12:02:00.000Z", false).expect("open")
+        );
+        assert_eq!(
+            *fetch.asked.lock().expect("lock"),
+            vec!["http://trade.test/api/v1/venue/spot-candles?base=HYPE&interval=1m&limit=500"]
+        );
+    }
+
+    #[test]
+    fn venue_spot_prices_ignores_non_dollar_quote_and_not_offered() {
+        let non_dollar = Arc::new(StubFetch {
+            asked: Mutex::new(Vec::new()),
+            reply: Box::new(|_| {
+                ok(
+                    r#"{"venueId":"test-venue","symbol":"ALT-BTC","test":true,"asOf":"2026-11-24T12:05:00.000Z","value":[
+                    {"openAt":"2026-11-24T12:01:00.000Z","closePrice":"0.01"}
+                ]}"#,
+                )
+            }),
+        });
+        let at = zod_datetime("2026-11-24T12:02:00.000Z", false).expect("time");
+        assert_eq!(
+            VenueSpotPrices::new("http://trade.test", non_dollar)
+                .price_at("ALT", at)
+                .expect("read"),
+            None
+        );
+
+        let missing = Arc::new(StubFetch {
+            asked: Mutex::new(Vec::new()),
+            reply: Box::new(|_| {
+                Ok(HttpResponse {
+                    status: 422,
+                    body: r#"{"intafacedCode":"trade.venue.not_offered"}"#.to_owned(),
+                })
+            }),
+        });
+        assert_eq!(
+            VenueSpotPrices::new("http://trade.test", missing)
+                .price_at("NOPE", at)
+                .expect("read"),
+            None
+        );
     }
 }

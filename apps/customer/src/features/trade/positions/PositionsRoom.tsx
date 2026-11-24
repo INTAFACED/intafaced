@@ -41,6 +41,7 @@ import { positionsCopy } from './positions-copy';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
 import { AutoTopUpPanel } from './AutoTopUpPanel';
 import { MarginCalls, RiskAlertsPanel } from './RiskAlertsPanel';
+import { PreLiquidationStopPanel, StopOnRow, usePreLiquidationStops } from './PreLiquidationStop';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
@@ -66,7 +67,7 @@ export function PositionsRoom({ path }: { path: string }) {
       mode="pro"
       figures={[]}
       roomAction={link ? deskLink : undefined}
-      explain={<p className="lt-hint">{t('eyebrow')}</p>}
+      explain={<p className="lt-hint">{t('explain')}</p>}
     />
   );
   if (!userId)
@@ -100,7 +101,7 @@ export function PositionsRoom({ path }: { path: string }) {
             <Owned>{(owner) => <Room owner={owner} status={status} path={path} />}</Owned>
           </div>
         }
-        explain={<p className="lt-hint">{t('eyebrow')}</p>}
+        explain={<p className="lt-hint">{t('explain')}</p>}
       />
     </VenueFrame>
   );
@@ -238,6 +239,7 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
             onDone={reload}
             test={status.test}
             builder={status.builder}
+            desk={{ id: status.venue.id, name: status.venue.displayName }}
           />
           <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
           <Modes
@@ -358,6 +360,7 @@ function AllPositions({
   onDone,
   test,
   builder,
+  desk,
 }: {
   owner: string;
   reads: VenueRead[] | null;
@@ -368,10 +371,14 @@ function AllPositions({
   onDone: () => void;
   test: boolean;
   builder: VenueUp['builder'];
+  /** The venue the door sends protections to (a pre-liquidation stop rests there). */
+  desk: { id: string; name: string };
 }) {
   const { t } = positionsCopy.useCopy();
   const headers = useHeaders();
-  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin'; key: string } | null>(null);
+  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin' | 'stop'; key: string } | null>(null);
+  const stops = usePreLiquidationStops(owner);
+  const stopOf = (row: Row) => (row.venue.id === desk.id ? stops.stops.get(row.position.symbol) : undefined);
   const openRow = open ? (rows.find((r) => rowKey(r) === open.key) ?? null) : null;
   // The liquidation panel names its venue and market, not a row: it stays open when the venue closes the position.
   const [liquidation, setLiquidation] = useState<{ venue: Venue; symbol: string } | null>(null);
@@ -406,9 +413,15 @@ function AllPositions({
                   {t('changeLeverage')}
                 </Button>{' '}
                 {row.position.marginMode === 'isolated' ? (
-                  <Button tone="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
-                    {t('adjustMargin')}
-                  </Button>
+                  <>
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
+                      {t('adjustMargin')}
+                    </Button>{' '}
+                    <Button tone="secondary" onClick={() => setOpen({ kind: 'stop', key: rowKey(row) })}>
+                      {t('plsButton')}
+                    </Button>{' '}
+                    <StopOnRow stop={stopOf(row)} />
+                  </>
                 ) : null}{' '}
                 <Button tone="secondary" onClick={() => setLiquidation({ venue: row.venue, symbol: row.position.symbol })}>
                   {t('liquidationButton')}
@@ -434,6 +447,24 @@ function AllPositions({
       ) : null}
       {open?.kind === 'margin' && openRow ? (
         <IsolatedMargin key={open.key} row={openRow} owner={owner} run={run} onDone={onDone} onClose={() => setOpen(null)} />
+      ) : null}
+      {open?.kind === 'stop' && openRow ? (
+        <PreLiquidationStopPanel
+          key={open.key}
+          owner={owner}
+          position={openRow.position}
+          venue={openRow.venue}
+          desk={desk}
+          market={entryOf(marketOf(openRow.venue.id, openRow.position.symbol))}
+          stop={stopOf(openRow)}
+          builder={builder}
+          run={run}
+          onDone={() => {
+            stops.reload();
+            onDone();
+          }}
+          onClose={() => setOpen(null)}
+        />
       ) : null}
       {liquidation ? (
         <LiquidationPanel

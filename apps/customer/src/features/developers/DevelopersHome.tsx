@@ -9,12 +9,14 @@ import { AUDIENCES, SECTIONS, type Section } from './developers-model';
 const key = (id: string) => id.replace(/-/g, '_');
 type PortalCopy = ReturnType<typeof developersCopy.useCopy>['t'];
 type SectionKey = Extract<Parameters<PortalCopy>[0], `section_${string}`>;
+type BlockerKey = Extract<Parameters<PortalCopy>[0], `blocker_${string}`>;
 const sectionKey = (id: string) => `section_${key(id)}` as SectionKey;
+const blockerKey = (id: string) => `blocker_${key(id)}` as BlockerKey;
 
-function sectionState(section: Section, t: PortalCopy): string {
-  if (section.page) return t('pageHere');
+function sectionState(section: Section, t: PortalCopy): string | null {
+  if (section.page) return null;
   if (section.published) return t('published');
-  return section.waitsFor ? t('waitsFor', { slice: section.waitsFor }) : t('unpublished');
+  return section.waitsFor ? t('waitsFor', { blocker: t(blockerKey(section.id)) }) : t('unpublished');
 }
 
 /** /developers on the reading template: the portal home, its search, the base addresses and every section by audience. Public. */
@@ -50,14 +52,26 @@ export function DevelopersHome() {
                 </p>
                 <p data-testid="developers-access">{t(`access_${audience}` as const)}</p>
                 <ul>
-                  {SECTIONS.filter((section) => section.audience === audience).map((section) => (
-                    <li key={section.id}>
-                      <a className="lt-link" href={`/developers/${section.id}`}>
-                        {t(sectionKey(section.id))}
-                      </a>{' '}
-                      <small>{sectionState(section, t)}</small>
-                    </li>
-                  ))}
+                  {SECTIONS.filter((section) => section.audience === audience).map((section) => {
+                    const state = sectionState(section, t);
+                    return (
+                      <li
+                        key={section.id}
+                        data-section-state={section.page ? 'page' : section.published ? 'published' : 'waiting'}
+                        data-waits-for={section.waitsFor}
+                      >
+                        <a className="lt-link" href={`/developers/${section.id}`}>
+                          {t(sectionKey(section.id))}
+                        </a>
+                        {state ? (
+                          <>
+                            {' '}
+                            <small>{state}</small>
+                          </>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))}

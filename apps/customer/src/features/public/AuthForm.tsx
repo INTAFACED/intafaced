@@ -715,10 +715,14 @@ export function AuthForm({ register }: { register: boolean }) {
           <>
             <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
             <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
-            <div className="public-auth-context">
-              <Copy k="after" />
-              <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
-            </div>
+            {(inviteToken || (authContext.hasReturn && destination !== '/home')) && (
+              <div className="public-auth-context">
+                <Copy k="after" />
+                <span>
+                  {inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}
+                </span>
+              </div>
+            )}
           </>
         )}
         {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (

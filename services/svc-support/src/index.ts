@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { createIdentityWithdrawalFreezeClient, WithdrawalFreezes } from './withdrawal-freeze.js';
+import { AccountFreezes, createIdentityAccountFreezeClient } from './account-freeze.js';
 import { createPayOwnershipClient, SqlLinkBook, TicketLinks } from './ticket-links.js';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
@@ -336,6 +337,8 @@ const appRouter = createSupportRouter(
     owners: createReadOwners({ tradeUrl: env.TRADE_URL, payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
     audit: (row) => checkBook.audit(row),
   }),
+  // Account freezes (J-support-public-20 #7): svc-identity records each one and announces it to revoke agent permissions.
+  new AccountFreezes(support, createIdentityAccountFreezeClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
