@@ -6,7 +6,7 @@ import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
 import { BellPopover } from '../screens/notifications/BellPopover';
 import { currentReturnLocation } from './location';
-import { defaultDeskPair, doorLabel, safeReturnTo, type Door } from './navigation';
+import { defaultDeskPair, doorLabel, markMenuSpotNavigation, safeReturnTo, type Door } from './navigation';
 import { ShellIcon } from './icons';
 import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
@@ -16,7 +16,6 @@ import { TopSearch } from './TopSearch';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
-import { markMenuSpotNavigation } from '../screens/trade/desk/VenueSpotGate';
 
 /** Marks generic menu clicks to the default spot pair so VenueSpotGate opens the active venue's default spot market. */
 const DEFAULT_SPOT_HREF = `/trade/spot/${defaultDeskPair}`;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { defaultDeskPair } from '../../../app/navigation';
+import { consumeMenuSpotNavigation, defaultDeskPair } from '../../../app/navigation';
 import { useResource } from '../../../shared/resource';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import type { VenueMarket } from '../../../features/trade/venue-api';
@@ -13,27 +13,6 @@ import { VenueVerifyDesk } from './VenueVerifyDesk';
 
 /** The desk's own symbol form ("BTC-USDC"), whichever way the address writes it. */
 const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
-
-const MENU_SPOT_KEY = 'if.menuSpot';
-
-/** Marks that the trader clicked a generic Spot menu link (Trade › Spot or Pro Trade tab). */
-export function markMenuSpotNavigation(): void {
-  try {
-    sessionStorage.setItem(MENU_SPOT_KEY, '1');
-  } catch {
-    /* private mode or SSR */
-  }
-}
-
-function consumeMenuSpotNavigation(): boolean {
-  try {
-    const marked = sessionStorage.getItem(MENU_SPOT_KEY) === '1';
-    if (marked) sessionStorage.removeItem(MENU_SPOT_KEY);
-    return marked;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Picks the venue spot market for `symbol`. Exact matches always win. When opened from a generic menu link
