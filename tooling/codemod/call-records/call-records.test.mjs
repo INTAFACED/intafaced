@@ -33,7 +33,7 @@ import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
-import { samplesFor } from './samples.mjs';
+import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -2281,6 +2281,26 @@ test("a door record's accepted sample is the door's own accepted request, and no
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test("svc-bank's replay gives each call the first input its door let through; one it refused every way gives none", () => {
+  const ans = (byInput) =>
+    Object.fromEntries(
+      Object.entries(byInput).flatMap(([input, st]) => [
+        [`${input} anon`, [401, 0]],
+        [`${input} customer`, [st, 1]],
+      ]),
+    );
+  const inputs = { sample: '{"currency":"xxx"}', 'sample-nulls': '{"currency":null}' };
+  assert.deepEqual(bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 412, 'sample-nulls': 400 })), { currency: 'xxx' });
+  assert.deepEqual(bankAccepted({ sample: '{"a":1}' }, ans({ absent: 400, empty: 200, sample: 400 })), {});
+  assert.equal(typeof bankAccepted(inputs, ans({ absent: 400, empty: 400, sample: 400, 'sample-nulls': 403 })), 'symbol');
+  // The recording itself: before, svc-bank's parts were read as svc-agents' and named no call, so every bank record was
+  // left with "no accepted input found the door lets through".
+  const bank = doorAccepts('crates/svc-bank');
+  assert.deepEqual(bank.get('salary.form'), { currency: 'xxx' });
+  assert.deepEqual(bank.get('salary.details'), {});
+  assert.equal(bank.has('analytics.compare'), false, 'its recorded sample is refused by every caller');
 });
 
 test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
