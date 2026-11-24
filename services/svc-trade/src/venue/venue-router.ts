@@ -430,11 +430,19 @@ export class UserVenueRouter {
   }
 
   async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
-    const row = await this.deps.store.find(principal.userId, (actionKey ?? '').trim());
+    return this.submitRequest(principal, { actionKey, signature });
+  }
+
+  async submitRequest(
+    principal: Principal,
+    req: { readonly actionKey: string; readonly signature: VenueSignature; readonly requestDeadline?: string | null },
+  ): Promise<SubmitAnswer> {
+    const row = await this.deps.store.find(principal.userId, (req.actionKey ?? '').trim());
     const d = row ? await this.door(row.prepared.venueId) : this.primary;
     const venueId = row?.prepared.venueId ?? null;
     try {
-      const answer = await d.submit(principal, actionKey, signature);
+      const caller = req.requestDeadline === undefined ? undefined : { requestDeadline: req.requestDeadline };
+      const answer = await d.submit(principal, req.actionKey, req.signature, caller);
       if (venueId) this.observe(venueId, true, null);
       return answer;
     } catch (err) {

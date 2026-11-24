@@ -135,7 +135,7 @@ describe('signing in to an account its owner froze', () => {
       Array.from(page()!.querySelectorAll('[data-testid="frozen-by-you__stops"] li')).map((li) => li.getAttribute('data-action')),
     ).toEqual(['create_api_key']);
     expect(page()!.textContent).toContain('Create API keys');
-    expect(host.querySelector('.public-auth-feedback')).toBeNull();
+    expect(host.querySelector('[data-testid="public-auth-feedback"]')).toBeNull();
     expect(host.querySelector('form')).toBeNull();
     expect(location.pathname).toBe('/login');
     await act(async () => buttonNamed('Reactivate in Security')!.click());

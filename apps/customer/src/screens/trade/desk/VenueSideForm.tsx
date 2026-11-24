@@ -42,7 +42,6 @@ import {
   previewMoved,
   refusedAtHeldWorst,
   ticketProblem,
-  unpublishedRules,
   type DeskTif,
   type TicketFields,
   type VenueOrderType,
@@ -526,16 +525,6 @@ export function VenueSideForm({
           <p className="lt-note">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
           <p className="lt-note">{t('Verification unread')}</p>
-        ) : issue === 'rule_unpublished' ? (
-          <p className="lt-note lt-note-bad" role="alert" data-code="trade.venue_rule_unpublished">
-            {t('Rule unpublished', {
-              venue: status.venue.displayName,
-              symbol: market.symbol,
-              rules: unpublishedRules(market)
-                .map((rule) => t(rule === 'min' ? 'Rule name min' : rule === 'band' ? 'Rule name band' : 'Rule name cap'))
-                .join(', '),
-            })}
-          </p>
         ) : !owner ? (
           <p className="lt-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
@@ -552,6 +541,10 @@ export function VenueSideForm({
           <p className="lt-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
           <p className="lt-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+        ) : issue === 'below_min' && market.minOrderNotional != null ? (
+          <p className="lt-note lt-note-bad" role="alert" data-testid="venue-ticket-below-min">
+            {t('Too small', { min: market.minOrderNotional, quote: market.quoteAsset })}
+          </p>
         ) : live?.state === 'checking' ? (
           <p className="lt-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (

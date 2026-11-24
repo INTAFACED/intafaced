@@ -1572,6 +1572,7 @@ registerPublicRest(app, {
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+  ...(userVenue ? { venueSpotMarkets: async () => (await userVenue.markets()).value } : {}),
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,

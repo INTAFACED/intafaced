@@ -8,7 +8,7 @@ import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import type { ProtocolSnapshot } from '../blockers';
 import { protocolCopy } from '../copy';
-import { WALLET_SECTIONS } from '../routes';
+import { WALLET_SECTIONS, walletSections } from '../routes';
 import { Actions, toSource } from '../volt/answer';
 import { Panel } from '../volt/parts';
 import { ConnectPanel } from './ConnectPanel';
@@ -68,6 +68,13 @@ export function WalletHomeRoom() {
               <p className="lt-hint">
                 <strong>{t('linkTitle')}.</strong> {t('linkNote')}
               </p>
+              {walletSections().includes('venue') ? (
+                <p className="lt-hint">
+                  <a className="lt-link" href={WALLET_SECTIONS.venue}>
+                    {t('section_venue')}
+                  </a>
+                </p>
+              ) : null}
             </Panel>
           </>
         }

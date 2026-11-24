@@ -31,17 +31,33 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-testid="status-subscription-unsubscribe">
-<header class="pub-heading">
-<p class="eyebrow">Status updates</p>
-<h1>This link doesn’t work</h1>
-</header>
-<div class="pub-notice" role="alert" data-testid="status-subscription-dead">
-<p>It is wrong, expired, or was replaced by a newer one. Subscribe again from the status page.</p>
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">This link doesn’t work</h1>
+<p class="lt-description">Status updates</p>
 </div>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
+<div class="lt-stack" data-testid="status-subscription-unsubscribe">
+<div class="lt-refusal" role="alert" data-testid="status-subscription-dead">
+<p class="lt-refusal-body">It is wrong, expired, or was replaced by a newer one. Subscribe again from the status page.</p>
+</div>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="help">
 <p>
 <a class="lt-link" href="/status">Back to platform status</a>
 </p>
+</section>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

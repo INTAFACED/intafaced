@@ -1,8 +1,6 @@
 // World: stack, restart
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
-import { stackUrl, toolAwaited } from './stack.mjs';
-import { venueRecord } from './venue.mjs';
 import { closedMinute, MINUTE, utcMinuteOf } from './clock.mjs';
 import {
   alertsOf,
@@ -12,17 +10,20 @@ import {
   consoleStep,
   createReconDesk,
   evidence,
-  HIGH_FLOOR,
   ledgerOutside,
   openAlert,
   openAlerts,
   openLedger,
+  OWN_REPORTS,
+  ownReportRecord,
   putOutsideBack,
+  reportAmount,
   requireTreasury,
   row,
   runApproved,
   runId,
   scaled,
+  seedOwnRecord,
   setPolicy,
   storedRun,
 } from './recon-controls.mjs';
@@ -39,23 +40,14 @@ const tag = randomUUID().slice(0, 8);
 const { founders, pages, define, approvedRun, twoFounderRun, lifecycle } = createReconDesk(tag);
 const state = {
   thresholdId: null,
+  venue1: null,
+  venueControlId: null,
   outsideId: null,
   outsideRuns: [],
   floorId: null,
   pairId: null,
+  pairVenue: null,
 };
-/** The TEST venue and TEST partner report stand-in on loopback (`local-test-rail-statements.mjs`), read directly via `venueRecord`. */
-const OWN_REPORTS = stackUrl('rail-statements');
-
-/** Reads one TEST venue's or TEST partner's own report for `place` at `asOf` directly from loopback, never through our app. */
-async function ownReportRecord(reporter, place, asOf) {
-  return (await venueRecord(place, '/report', { reporter, asOf }, OWN_REPORTS)).value;
-}
-
-/** Seeds one of INTAFACED's own TEST obligations: writes the reporter's line first, then books our ledger record through its recipe. */
-function seedOwnRecord(reporter, place, asset, amount, ref) {
-  return toolAwaited('local-test-stack.mjs', 'seed-own-record', reporter, place, asset, amount, '--ref', ref);
-}
 
 /** Arms a one-shot loopback hold on `GET /report` for one reporter and place, so a test can observe the `started` run row mid-read. */
 async function holdReport(reporter, place) {
@@ -156,6 +148,35 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(section.getByTestId('rc-row').filter({ hasText: 'Built-in' })).toHaveCount(3);
     await requireTreasury(section);
 
+    // Seed an initial TEST venue obligation and verify the TEST venue's own loopback report before defining the control.
+    state.venue1 = `ltv1-${tag}`;
+    await seedOwnRecord('venue', state.venue1, 'USDT', '1', `ops07s1-${tag}`);
+    const reported = await ownReportRecord('venue', state.venue1, new Date().toISOString());
+    expect(reported.asOf, 'the TEST venue published its report').toBeTruthy();
+    expect(reported.balances).toEqual([{ assetId: 'USDT', amount: '-1' }]);
+
+    state.venueControlId = await define(section, {
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue report draft ${tag}`,
+      fill: async (form) => {
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(state.venue1);
+      },
+    });
+    await expect(row(section, state.venueControlId).getByTestId('rc-state')).toHaveText('Draft');
+    await expect(row(section, state.venueControlId)).toContainText(`our own records at venue ${state.venue1}`);
+
+    // Activate the venue-report control with a blank tolerance: svc-ledger refuses and it stays draft.
+    await choose(section, state.venueControlId);
+    const venueForm = section.getByTestId('rc-form-update');
+    await setPolicy(venueForm, { tolerance: '' });
+    await venueForm.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 activate venue draft ${tag}`);
+    await venueForm.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(venueForm.getByTestId('rc-save-refused')).toContainText('ops.control_policy_unset');
+    await section.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(row(section, state.venueControlId).getByTestId('rc-state')).toHaveText('Draft');
+    await expect(venueForm.getByTestId('rc-save-refused')).toContainText('ops.control_policy_unset');
+
+    // Also define the dynamic USDT threshold control and prove blank tolerance refuses activation on it too.
     state.thresholdId = await define(section, {
       template: 'threshold',
       explanation: `LOCAL TEST USDT floor ${tag}`,
@@ -166,7 +187,6 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     });
     await expect(row(section, state.thresholdId).getByTestId('rc-state')).toHaveText('Draft');
 
-    // Activate with every policy value but the tolerance: svc-ledger refuses and the control stays a draft.
     await choose(section, state.thresholdId);
     const form = section.getByTestId('rc-form-update');
     await setPolicy(form, { tolerance: '' });
@@ -183,8 +203,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     browser,
     stepPicture,
   }) => {
-    test.setTimeout(240_000);
-    if (!state.thresholdId) throw new Error('step #1 left no control');
+    test.setTimeout(300_000);
+    if (!state.thresholdId || !state.venueControlId || !state.venue1) throw new Error('step #1 left no controls');
     const { a } = await founders(browser);
     const section = await openLedger(a);
     await choose(section, state.thresholdId);
@@ -199,16 +219,43 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     await expect(active).toContainText('warning');
     await expect(active).toContainText('Every account with asset USDT, matched at each run');
 
+    // Activate the venue-report control from #1 with the same UTC schedule, severity and tolerance, then run it and
+    // verify the console's evidence equals the TEST venue's own loopback report.
+    await choose(section, state.venueControlId);
+    const venueForm = section.getByTestId('rc-form-update');
+    await setPolicy(venueForm, { tolerance: '0' });
+    await venueForm.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 activate venue ${tag}`);
+    await venueForm.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(venueForm.getByTestId('rc-saved')).toContainText('is active', { timeout: 30_000 });
+    const activeVenue = row(section, state.venueControlId);
+    await expect(activeVenue.getByTestId('rc-state')).toHaveText('Active');
+    await expect(activeVenue).toContainText('Daily at 06:30 UTC');
+    await expect(activeVenue).toContainText('warning');
+    await expect(activeVenue).toContainText(`our own records at venue ${state.venue1}`);
+    const venueReport = await ownReportRecord('venue', state.venue1, new Date().toISOString());
+    const expectedVenueAmount = reportAmount(venueReport, 'USDT');
+    expect(expectedVenueAmount, 'the TEST venue report holds the seeded USDT balance').toBe('-1');
+    const venueRun = await twoFounderRun(state.venueControlId);
+    expect(venueRun).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+    expect(venueRun).toContain(`Venue ${state.venue1} report: as of ${venueReport.asOf}.`);
+    expect(evidence(venueRun, 'USDT')).toEqual({
+      observed: expectedVenueAmount,
+      expected: expectedVenueAmount,
+      difference: '0',
+      tolerance: '0',
+    });
+
     // The three built-in controls offer no change form and cannot be removed: no pause or retire step is offered, the
     // lifecycle desk names the ledger's code and its request button stays off; only a run is left.
-    const builtins = section.getByTestId('rc-row').filter({ hasText: 'Built-in' });
+    const afterRun = await openLedger(a);
+    const builtins = afterRun.getByTestId('rc-row').filter({ hasText: 'Built-in' });
     await expect(builtins).toHaveCount(3);
     const builtinIds = await builtins.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-control-id')));
     for (const id of builtinIds) {
-      await choose(section, id);
-      await expect(section.getByTestId('rc-builtin')).toContainText('cannot be changed or removed');
-      await expect(section.getByTestId('rc-form-update')).toHaveCount(0);
-      const desk = section.getByTestId('rc-lifecycle');
+      await choose(afterRun, id);
+      await expect(afterRun.getByTestId('rc-builtin')).toContainText('cannot be changed or removed');
+      await expect(afterRun.getByTestId('rc-form-update')).toHaveCount(0);
+      const desk = afterRun.getByTestId('rc-lifecycle');
       await expect(desk.getByTestId('rc-lifecycle-move')).toHaveCount(0);
       await expect(desk.getByTestId('rc-lifecycle-why')).toHaveText(
         'A built-in control cannot be paused or retired (ledger.reconcile_builtin_immutable).',
@@ -222,7 +269,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
 
     // A retire sent anyway, with two founders, is refused by the ledger with its code, and the control stays as it was.
-    await requireTreasury(section);
+    await requireTreasury(afterRun);
     const { b } = await founders(browser);
     const target = builtinIds[0];
     const control = (await controlsOf(a)).find((c) => c.id === target);
@@ -497,31 +544,51 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(held.tolerance).toBe('0');
     expect(scaled(held.observed) >= 0n, 'the book holds no negative USDT total under a floor of 0').toBe(true);
 
-    // FAIL: a floor far above the book. The difference is exactly observed minus expected.
+    // FAIL: a TEST venue report control whose matched obligation PASSes first, then an unmatched --ledger-only booking
+    // creates a real break against the TEST venue's own loopback report. The difference is exactly observed minus expected.
+    const venue5 = `ltv5a-${tag}`;
+    await seedOwnRecord('venue', venue5, 'USDT', '4', `ops07s5a-${tag}`);
+    const matched5 = await ownReportRecord('venue', venue5, new Date().toISOString());
+    const expected5 = reportAmount(matched5, 'USDT');
+    expect(expected5, 'the TEST venue report holds the matched 4 USDT obligation').toBe('-4');
+
     const section = await openLedger(a);
     const floorId = await define(section, {
-      template: 'threshold',
-      explanation: `LOCAL TEST USDT high floor ${tag}`,
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue USDT break ${tag}`,
       fill: async (form) => {
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(venue5);
         await setPolicy(form, { tolerance: '0' });
       },
     });
     try {
       await expect(row(section, floorId).getByTestId('rc-state')).toHaveText('Active');
+      const venuePass = await twoFounderRun(floorId);
+      expect(venuePass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
+      expect(evidence(venuePass, 'USDT')).toEqual({
+        observed: expected5,
+        expected: expected5,
+        difference: '0',
+        tolerance: '0',
+      });
+
+      await seedOwnRecord('venue', venue5, 'USDT', '1.5', `ops07s5b-${tag}`, { ledgerOnly: true });
+      const afterBreak5 = await ownReportRecord('venue', venue5, new Date().toISOString());
+      const expectedBreak5 = reportAmount(afterBreak5, 'USDT');
+      expect(expectedBreak5, 'the TEST venue report stays at -4 when only our ledger booked the extra 1.5').toBe('-4');
+
       const fail = await twoFounderRun(floorId);
       expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
       const broken = evidence(fail, 'USDT');
-      expect(broken.expected).toBe(HIGH_FLOOR);
+      expect(broken.expected).toBe(expectedBreak5);
       expect(broken.tolerance).toBe('0');
-      expect(scaled(broken.difference)).toBe(scaled(broken.observed) - scaled(HIGH_FLOOR));
+      expect(scaled(broken.observed)).toBe(scaled(expectedBreak5) - scaled('1.5'));
+      expect(scaled(broken.difference)).toBe(scaled(broken.observed) - scaled(expectedBreak5));
       expect(scaled(broken.difference) < 0n).toBe(true);
       // The person reads the evaluation: the stored row is FAIL with the same four figures.
       expect(evidence(await storedRun(a, floorId, fail, 'FAIL'), 'USDT'), 'the FAIL evidence is stored as shown').toEqual(broken);
     } finally {
-      // Pause the TEST floor even when an assertion fails, so scheduled runs do not keep failing on it. Step #6 reads its alert
-      // while paused, then retires it.
+      // Pause the TEST control even when an assertion fails, so scheduled runs do not keep failing on it. Step #6 retires it.
       await lifecycle(floorId, 'pause', 'Paused');
       state.floorId = floorId;
     }
@@ -747,14 +814,21 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
     await expect(runs.locator(`[data-run-id="${second.id}"]`)).toContainText('Error: ledger.reconcile_source_unavailable at outside.');
 
-    // A paused control keeps its alerts, and so does a retired one. A fresh TEST floor fails; its USDT alert and its
-    // evaluations are read back from svc-ops and svc-ledger once it is paused, and again after it is retired.
+    // A paused control keeps its alerts, and so does a retired one. A fresh TEST venue report control fails against the
+    // TEST venue's own loopback report; its USDT alert and its evaluations are read back from svc-ops and svc-ledger once
+    // it is paused, and again after it is retired.
+    const venue6 = `ltv6-${tag}`;
+    await seedOwnRecord('venue', venue6, 'USDT', '3', `ops07s6a-${tag}`);
+    await seedOwnRecord('venue', venue6, 'USDT', '1', `ops07s6b-${tag}`, { ledgerOnly: true });
+    const reported6 = await ownReportRecord('venue', venue6, new Date().toISOString());
+    const expected6 = reportAmount(reported6, 'USDT');
+    expect(expected6, 'the TEST venue report holds the matched 3 USDT obligation').toBe('-3');
+
     const keepId = await define(await openLedger(a), {
-      template: 'threshold',
-      explanation: `LOCAL TEST USDT floor kept ${tag}`,
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue USDT kept ${tag}`,
       fill: async (form) => {
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${HIGH_FLOOR}`);
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(venue6);
         await setPolicy(form, { tolerance: '0' });
       },
     });
@@ -763,11 +837,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       const fail = await twoFounderRun(keepId);
       expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
       const failed = evidence(fail, 'USDT');
+      expect(failed).toEqual({ observed: '-4', expected: expected6, difference: '-1', tolerance: '0' });
       const [raised] = await awaitAlerts(
         a,
         keepId,
         (rows) => rows.length === 1 && rows[0].asset === 'USDT',
-        'svc-ops raises exactly one USDT alert from the floor’s FAIL',
+        'svc-ops raises exactly one USDT alert from the venue break’s FAIL',
       );
       expect(raised.state).toBe('open');
 
@@ -819,14 +894,25 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const { a } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
-    // Two floors no TEST book reaches, over the USDT account set: USDT fails on its total; the set holds no USDC account, so
-    // USDC fails as a missing ledger side, never as a total of 0 (OWNER 288).
+    // A fresh TEST venue with breaks in two assets (USDT: ledger -7 vs venue -5; USDC: ledger -7 vs venue -4), read
+    // directly from the TEST venue's own loopback report.
+    state.pairVenue = `ltv7-${tag}`;
+    await seedOwnRecord('venue', state.pairVenue, 'USDT', '5', `ops07s7u1-${tag}`);
+    await seedOwnRecord('venue', state.pairVenue, 'USDT', '2', `ops07s7u2-${tag}`, { ledgerOnly: true });
+    await seedOwnRecord('venue', state.pairVenue, 'USDC', '4', `ops07s7c1-${tag}`);
+    await seedOwnRecord('venue', state.pairVenue, 'USDC', '3', `ops07s7c2-${tag}`, { ledgerOnly: true });
+    const reported7 = await ownReportRecord('venue', state.pairVenue, new Date().toISOString());
+    const expectedUsdt = reportAmount(reported7, 'USDT');
+    const expectedUsdc = reportAmount(reported7, 'USDC');
+    expect(expectedUsdt, 'the TEST venue report holds the matched 5 USDT').toBe('-5');
+    expect(expectedUsdc, 'the TEST venue report holds the matched 4 USDC').toBe('-4');
+
     state.pairId = await define(section, {
-      template: 'threshold',
-      explanation: `LOCAL TEST two-asset floor ${tag}`,
+      template: 'outside_balance',
+      explanation: `LOCAL TEST two-asset venue break ${tag}`,
       fill: async (form) => {
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill(`USDC=${HIGH_FLOOR}, USDT=${HIGH_FLOOR}`);
+        await form.getByLabel('Asset', { exact: true }).fill('');
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(state.pairVenue);
         await setPolicy(form, { tolerance: '0' });
       },
     });
@@ -839,9 +925,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       if (leftToday < 300_000) await a.waitForTimeout(leftToday + 5_000);
       const first = await twoFounderRun(state.pairId);
       expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      expect(evidence(first, 'USDC')).toEqual({ observed: 'unset', expected: HIGH_FLOOR, difference: 'unset', tolerance: '0' });
-      expect(first).toContain('USDC is missing on the ledger side: a break, never read as a zero.');
-      expect(scaled(evidence(first, 'USDT').difference) < 0n).toBe(true);
+      expect(evidence(first, 'USDT')).toEqual({ observed: '-7', expected: expectedUsdt, difference: '-2', tolerance: '0' });
+      expect(evidence(first, 'USDC')).toEqual({ observed: '-7', expected: expectedUsdc, difference: '-3', tolerance: '0' });
 
       // Two alerts, one per asset, in the same period, each counted once.
       const opened = await awaitAlerts(a, state.pairId, (rows) => rows.length >= 2, 'svc-ops opens the two-asset FAIL’s alerts');
@@ -883,15 +968,21 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     stepPicture,
   }) => {
     test.setTimeout(600_000);
-    if (!state.pairId || !state.thresholdId) throw new Error('steps #1 and #7 left no controls');
+    if (!state.pairId || !state.pairVenue || !state.thresholdId) throw new Error('steps #1 and #7 left no controls');
     const { a, b } = await founders(browser);
     try {
+      const reported8 = await ownReportRecord('venue', state.pairVenue, new Date().toISOString());
+      const expectedUsdt8 = reportAmount(reported8, 'USDT');
+      expect(expectedUsdt8, 'the TEST venue report still holds -5 USDT').toBe('-5');
       const rows = await alertsOf(a, state.pairId);
       const usdt = rows.find((r) => r.asset === 'USDT');
       if (!usdt || usdt.state !== 'open') throw new Error(`step #7 left no open USDT alert: ${JSON.stringify(rows)}`);
 
       // Both founders open the alert at the same version and acknowledge with their own notes at once.
       const [detailA, detailB] = await Promise.all([openAlert(a, usdt.id), openAlert(b, usdt.id)]);
+      await expect(detailA.getByTestId('alert-evidence')).toHaveText(
+        `Observed -7 · expected ${expectedUsdt8} · difference -2 · tolerance 0`,
+      );
       const version = await detailA.getAttribute('data-version');
       await expect(detailB).toHaveAttribute('data-version', version);
       const notes = { a: `LOCAL TEST ack A ${tag}`, b: `LOCAL TEST ack B ${tag}` };

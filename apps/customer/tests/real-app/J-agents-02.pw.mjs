@@ -319,6 +319,7 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
 
 test(`${J} #4 asks for a run when the payment method's available amount, as the partner or the chain reports it, is below the worst case: a refusal naming the payment method and its figure with its source and as-of time; the engine is never called, nothing is billed; with that figure unreadable the run does not start and says why`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   // A passkey belongs to the stack's relying party, `localhost` (an IP address cannot be one), so this step's page is
@@ -390,6 +391,8 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   await expect(runs.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
   await expect(runs.nth(1).getByTitle(address)).toContainText(`block ${block}`);
   expect(await ledgerBalances(payer)).toEqual(before);
+  // Picture while the wallet's funds refusal (wallet, chain figure, block and time) is on screen, before switching accounts.
+  await stepPicture(page);
 
   // With the chain unreachable (its gate closed) the figure cannot be read: the run does not start and says why, naming
   // the wallet. The engine is never called and nothing is billed.

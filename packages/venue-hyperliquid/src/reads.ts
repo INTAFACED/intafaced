@@ -36,7 +36,13 @@ import {
   type HyperliquidTestnetOptions,
   type Json,
 } from './core.js';
-import { BUILDER_FEE_CAP_BPS, unreadMarketTerms, type ReadMarketTerms } from './market-terms.js';
+import {
+  BUILDER_FEE_CAP_BPS,
+  DEFAULT_MAX_OPEN_ORDERS,
+  MIN_ORDER_NOTIONAL,
+  unreadMarketTerms,
+  type ReadMarketTerms,
+} from './market-terms.js';
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
 
 /**
@@ -68,6 +74,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         // The finest price step a non-integer price may use; the venue also caps prices at 5 significant figures.
         tickSize: unit((m.kind === 'spot' ? SPOT_MAX_DECIMALS : PERP_MAX_DECIMALS) - m.szDecimals),
         lotSize: unit(m.szDecimals),
+        minOrderNotional: MIN_ORDER_NOTIONAL,
+        maxOpenOrders: DEFAULT_MAX_OPEN_ORDERS,
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
         builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },

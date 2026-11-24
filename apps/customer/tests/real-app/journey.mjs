@@ -8,8 +8,9 @@ import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scrip
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
 import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
-import { makeScreens } from '../../../../tooling/scripts/journey-screens.mjs';
+import { makeFileContexts, makeScreens } from '../../../../tooling/scripts/journey-screens.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { makeMoves } from '../../../../tooling/scripts/journey-moves.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
@@ -84,6 +85,13 @@ const enterReach = (file) => {
   partnerFile(file);
   reachFile = file;
   reach.enter(file);
+  noted(() => screens.enter(file));
+};
+/** A file's first hook or test: the contexts an earlier file left open close first, read while that file still owns
+ *  the records (journey-screens.mjs makeFileContexts), and then the records are this file's. */
+const enterOwnFile = async (file) => {
+  if (file !== reachFile) await fileContexts.enter(file, closeContextQuietly);
+  enterReach(file);
 };
 const readLogs = () => noted(() => reach.served(stackLogs.read(), reachFile));
 const noted = (fn) => {
@@ -192,15 +200,29 @@ function watchApiMaker(apiRequest) {
   apiRequest.newContext = async (...args) => watchApi(await newContext(...args));
 }
 
-// The customer app's screens each test showed, for the hosted beta's check (tooling/scripts/journey-screens.mjs).
+// The customer app's screens each test showed, for the hosted beta's check (tooling/scripts/journey-screens.mjs). Each
+// page belongs to the journey file whose test or hook opened its context, and records only that file's screens.
 const screens = makeScreens((url) => reach.servesCustomer(url));
-const watchScreens = (page) => noted(() => screens.watch(page));
+const fileContexts = makeFileContexts();
+/** The journey file whose test or hook is running now, or null outside any (a worker fixture). */
+const runningFile = () => {
+  try {
+    return base.info().file ?? null;
+  } catch {
+    return null;
+  }
+};
+const watchScreens = (page) => noted(() => screens.watch(page, fileContexts.ownerOf(page.context())));
 
 const creating = new WeakMap(); // context -> pages being made by our own newPage, not opened by the app
 const watched = new WeakSet();
+// The in-app moves each test made, for the hosted beta's reach check (tooling/scripts/journey-moves.mjs).
+const moves = makeMoves((url) => reach.servesCustomer(url));
+const watchMoves = (page) => noted(() => moves.watch(page));
 function watchContext(context) {
   if (watched.has(context)) return context;
   watched.add(context);
+  noted(() => fileContexts.opened(context, runningFile()));
   noted(() => watchApi(context.request));
   context.on('request', (req) => {
     recordSignIn(req.url(), req.postData() ?? undefined);
@@ -211,9 +233,13 @@ function watchContext(context) {
       if (!covered.get(page)?.started) askedEarly.add(page);
     });
   });
-  for (const page of context.pages()) watchScreens(page);
+  for (const page of context.pages()) {
+    watchScreens(page);
+    watchMoves(page);
+  }
   context.on('page', (page) => {
     watchScreens(page);
+    watchMoves(page);
     if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });
   });
   const newPage = context.newPage.bind(context);
@@ -370,7 +396,7 @@ const extended = base.extend({
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
   worldBetweenFiles: [
     async ({}, use, testInfo) => {
-      enterReach(testInfo.file);
+      await enterOwnFile(testInfo.file);
       await enterFile(testInfo.file);
       await use();
     },
@@ -408,6 +434,21 @@ const extended = base.extend({
         await use();
       } finally {
         const note = screens.end(seen);
+        if (note) testInfo.annotations.push(note);
+      }
+    },
+    { auto: true },
+  ],
+  // The in-app moves this test made (journey-moves.mjs), on the test as its `beta moves` annotation, which the reach
+  // check reads from passing steps to reach a room only a record the step made leads to. Never fails the test.
+  betaMoves: [
+    async ({ context }, use, testInfo) => {
+      void context;
+      const seen = moves.begin();
+      try {
+        await use();
+      } finally {
+        const note = moves.end(seen);
         if (note) testInfo.annotations.push(note);
       }
     },
@@ -488,7 +529,7 @@ extended.beforeAll = (...args) => {
   const entered = async (fixtures, testInfo) => {
     // The restore gets its own time on top of the hook's, as the worldBetweenFiles fixture does.
     if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + 150_000);
-    enterReach(testInfo.file);
+    await enterOwnFile(testInfo.file);
     await enterFile(testInfo.file);
     return hook(fixtures, testInfo);
   };

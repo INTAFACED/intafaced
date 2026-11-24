@@ -146,6 +146,8 @@ export interface DoorCaller {
   readonly liveRun?: boolean;
   /** Set only by Convert (src/venue/venue-convert.ts): its orders are stored under `convert:` keys. */
   readonly convert?: boolean;
+  /** Optional ISO-8601 caller deadline (J-cex-spot-04 #7), enforced on first submit before any venue call or lock. */
+  readonly requestDeadline?: string | null;
 }
 
 /** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
@@ -223,6 +225,7 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.request_expired'
   | 'trade.cancel_all_after_rejected'
   | 'trade.cancel_all_after_unset'
   | 'trade.venue.withdraw_own_wallet_only'
@@ -248,7 +251,6 @@ export type UserVenueDoorCode =
   | 'trade.venue.price_outside_protection'
   // A venue market order on a book whose spread is wider than the owner's spread limit (J-cex-spot-03 #2).
   | 'trade.venue.spread_too_wide'
-  | 'trade.venue_rule_unpublished'
   | 'trade.venue_agent_account_only'
   | 'trade.venue_live_run_only'
   | 'trade.venue_action_other_venue'
@@ -590,6 +592,12 @@ export interface PrepareRequest {
    * `orderKeyOfIdempotencyKey(header)`, which becomes its `clientOrderKey`.
    */
   readonly idempotencyKey?: string | null;
+  /**
+   * Optional ISO-8601 caller deadline (J-cex-spot-04 #7). If already passed when a fresh action is prepared or submitted,
+   * the door refuses `trade.request_expired` before asking the venue, spending step-up, or locking anything. Waived on
+   * replay of an already-stored action.
+   */
+  readonly requestDeadline?: string | null;
 }
 
 export interface PreparedAnswer {
@@ -614,6 +622,27 @@ export interface SubmitAnswer {
 
 function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
+}
+
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T/;
+
+/** Parse an optional ISO-8601 `requestDeadline` to epoch ms, or null when omitted; malformed refuses 400 invalid. */
+function parseRequestDeadline(requestDeadline: string | null | undefined): number | null {
+  if (requestDeadline === undefined || requestDeadline === null) return null;
+  if (typeof requestDeadline !== 'string' || !ISO_TIMESTAMP_RE.test(requestDeadline)) {
+    invalid('requestDeadline must be an ISO-8601 timestamp');
+  }
+  const at = Date.parse(requestDeadline);
+  if (Number.isNaN(at)) invalid('requestDeadline must be an ISO-8601 timestamp');
+  return at;
+}
+
+/** Refuse a caller deadline that has already passed (J-cex-spot-04 #7), before any venue call, hold or step-up. */
+function assertRequestDeadline(requestDeadline: string | null | undefined, now: Date): void {
+  const at = parseRequestDeadline(requestDeadline);
+  if (at !== null && at <= now.getTime()) {
+    throw new UserVenueDoorError('the request deadline has passed; nothing was prepared, signed or locked', 'trade.request_expired', 400);
+  }
 }
 
 const SIDES: ReadonlySet<unknown> = new Set(['buy', 'sell']);
@@ -981,28 +1010,6 @@ export class UserVenueDoor {
         422,
       );
     }
-  }
-
-  /**
-   * A new spot order is taken only on a market whose venue publishes the rules it is checked against (J-cex-spot-04 #6):
-   * its smallest order value, its price band and its open-order cap. One the venue does not publish refuses
-   * `trade.venue_rule_unpublished`, naming each missing rule, before anything is prepared: the door never stands in a
-   * default of its own. The venue enforces each published rule itself and refuses in its own words.
-   */
-  private async assertRulesPublished(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
-    const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
-    const missing = [
-      market.minOrderNotional == null ? 'smallest order value' : null,
-      market.priceBandBps == null ? 'price band' : null,
-      market.maxOpenOrders == null ? 'open-order cap' : null,
-    ].filter((x): x is string => x !== null);
-    if (missing.length === 0) return;
-    throw new UserVenueDoorError(
-      `${venue.venue.displayName} publishes no ${missing.join(', no ')} for ${intent.symbol}, so this order can't be checked against it; nothing was prepared`,
-      'trade.venue_rule_unpublished',
-      422,
-    );
   }
 
   /** Our builder address on the venue: the owner value, or null when it is blank. */
@@ -1487,6 +1494,11 @@ export class UserVenueDoor {
     }
   }
 
+  /** Refuse an optional ISO-8601 caller deadline that has already passed (J-cex-spot-04 #7). */
+  assertRequestDeadline(requestDeadline: string | null | undefined): void {
+    assertRequestDeadline(requestDeadline, this.deps.now());
+  }
+
   async preview(principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     assertPlaceIntent(intent);
@@ -1499,7 +1511,8 @@ export class UserVenueDoor {
     // The winning discount as it stands: a coupon is named, never taken, by a preview.
     const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
     const account = await this.account(owner);
-    await this.assertRulesPublished(venue, withFee);
+    // Unpublished venue rules (such as Hyperliquid's spot price band) are left to the venue without defaulting
+    // (J-cex-spot-04 #6); blank owner values still refuse in assertMarketProtection.
     await this.assertMarketProtection(venue, withFee);
     const answered = await venue.preview(account, priced);
     return {
@@ -1710,6 +1723,19 @@ export class UserVenueDoor {
     if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
     if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    const deadlineAt = parseRequestDeadline(req.requestDeadline);
+    // J-cex-spot-04 #7: a fresh action whose request deadline has passed is refused before any step-up, venue call or
+    // hold. A replay of an already-stored key is waived so retries still see their stored action.
+    if (deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      const existing = await this.deps.store.find(principal.userId, key);
+      if (!existing) {
+        throw new UserVenueDoorError(
+          'the request deadline has passed; nothing was prepared, signed or locked',
+          'trade.request_expired',
+          400,
+        );
+      }
+    }
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
     assertConvertKey(key, caller);
@@ -1838,7 +1864,7 @@ export class UserVenueDoor {
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    finalIntent = await eachOrder(finalIntent, (order) => this.assertRulesPublished(venue, order));
+    // Unpublished venue rules are left to the venue without defaulting (J-cex-spot-04 #6).
     if (!opts.ownWorstPrice) finalIntent = await eachOrder(finalIntent, (order) => this.assertMarketProtection(venue, order));
     // Only an order every check admitted takes a coupon. It keeps the builder fee it is signed with: a coupon used up
     // later never reprices it (J-campaigns-09 #3).
@@ -1940,6 +1966,7 @@ export class UserVenueDoor {
   }
 
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
+    const deadlineAt = parseRequestDeadline(caller?.requestDeadline);
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
@@ -1996,6 +2023,11 @@ export class UserVenueDoor {
     // answer about the action it already applied.
     if (row.signature !== null && row.lastOutcome?.definite === true) {
       return { actionKey: key, outcome: row.lastOutcome, readBack: null, replayed: true };
+    }
+    // J-cex-spot-04 #7: an action never sent to the venue whose request deadline has passed is refused before storing
+    // the signature or sending to the venue (replays and read-backs of bytes already sent are never refused here).
+    if (!row.signature && deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      throw new UserVenueDoorError('the request deadline has passed; nothing was sent or locked', 'trade.request_expired', 400);
     }
     // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
     const at = this.deps.now();

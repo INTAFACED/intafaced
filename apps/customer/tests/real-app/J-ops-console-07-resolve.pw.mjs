@@ -1,27 +1,27 @@
-// World: restart
+// World: stack, restart
 import { expect, test } from './journey.mjs';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { fund, ROOT, STACK_PORTS } from './stack.mjs';
+import { ROOT, STACK_PORTS } from './stack.mjs';
 import { openTx, reverseWithTwoFounders } from './ledger-reversal-desk.mjs';
 import {
   alertsOf,
   awaitAlerts,
-  choose,
   consoleStep,
   createReconDesk,
   evidence,
-  HIGH_FLOOR,
   ledgerOutside,
   openAlert,
   openAlerts,
   openLedger,
+  ownReportRecord,
   putOutsideBack,
+  reportAmount,
   requireTreasury,
   row,
   runId,
-  scaled,
+  seedOwnRecord,
   setPolicy,
   storedRun,
 } from './recon-controls.mjs';
@@ -35,10 +35,14 @@ import {
 const tag = randomUUID().slice(0, 8);
 const { founders, define, twoFounderRun, lifecycle } = createReconDesk(tag);
 const state = {
-  // #9 and #10: our own house USDT floor that is resolved, reopens and passes, and its alert; the USDC floor accepted.
+  // #9 and #10: a TEST venue report control (resolved with a real reversal, reopened, then auto-resolved when the venue
+  // reports the remaining leg) and a TEST partner report control (accepted with frozen evidence, then split by a new break).
   fixId: null,
+  fixVenue: null,
+  fixRef3: null,
   fixAlertId: null,
   acceptId: null,
+  acceptPartner: null,
   acceptAlert: null,
 };
 
@@ -208,41 +212,37 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
     const section = await openLedger(a);
     await requireTreasury(section);
 
-    // Ensure INTAFACED's own house market-maker USDT account holds a positive balance (no customer accounts).
-    expect(fund('house', 'USDT', '1', `ops07-fix0-${tag}`).tx, 'the house USDT seed is a booked ledger transaction').toMatch(
-      /^[0-9a-f-]{36}$/,
-    );
-    // A floor over INTAFACED's own house market-maker USDT, set 5 above what the book holds now, so it fails until 5 USDT more arrives.
+    // A TEST venue with one matched obligation (5 USDT) and two unmatched --ledger-only bookings (2 USDT and 3 USDT):
+    // our ledger holds -10 while the TEST venue's own loopback report holds -5, so the break is -5 USDT. Reversing the
+    // 2 USDT booking in #9 leaves a -3 USDT break so #10's next run fails again and reopens the alert, then the TEST venue
+    // reports the remaining 3 USDT and #10's passing run auto-resolves it.
+    state.fixVenue = `ltv9f-${tag}`;
+    state.fixRef3 = `ops07-fix2-${tag}`;
+    await seedOwnRecord('venue', state.fixVenue, 'USDT', '5', `ops07-fix0-${tag}`);
+    const unmatched2 = await seedOwnRecord('venue', state.fixVenue, 'USDT', '2', `ops07-fix1-${tag}`, { ledgerOnly: true });
+    expect(unmatched2.tx, `the unmatched 2 USDT booking names its ledger transaction: ${unmatched2.out}`).toMatch(/^[0-9a-f-]{36}$/);
+    const unmatched3 = await seedOwnRecord('venue', state.fixVenue, 'USDT', '3', state.fixRef3, { ledgerOnly: true });
+    expect(unmatched3.tx, `the unmatched 3 USDT booking names its ledger transaction: ${unmatched3.out}`).toMatch(/^[0-9a-f-]{36}$/);
+
+    const fixReported = await ownReportRecord('venue', state.fixVenue, new Date().toISOString());
+    const expectedFix = reportAmount(fixReported, 'USDT');
+    expect(expectedFix, 'the TEST venue report holds only the matched 5 USDT obligation').toBe('-5');
+
     state.fixId = await define(section, {
-      template: 'threshold',
-      explanation: `LOCAL TEST house USDT floor ${tag}`,
+      template: 'outside_balance',
+      explanation: `LOCAL TEST venue USDT break ${tag}`,
       fill: async (form) => {
-        await form.getByLabel('Owner type', { exact: true }).selectOption('house');
-        await form.getByLabel('Owner id starts with', { exact: true }).fill('market-maker');
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill('USDT=0');
+        await form.getByLabel('Asset', { exact: true }).fill('USDT');
+        await form.getByLabel('Venue report (venue id)', { exact: true }).fill(state.fixVenue);
         await setPolicy(form, { tolerance: '0' });
       },
     });
     try {
       await expect(row(section, state.fixId).getByTestId('rc-state')).toHaveText('Active');
-      const probe = await twoFounderRun(state.fixId);
-      expect(probe).toMatch(/Run [0-9a-f-]{36}: PASS\./);
-      const held = scaled(evidence(probe, 'USDT').observed);
-      const floor = held + 5n * 10n ** 18n;
-      const floorText = `${floor / 10n ** 18n}.${(floor % 10n ** 18n).toString().padStart(18, '0')}`.replace(/\.?0+$/, '');
-      const update = await openLedger(a);
-      await choose(update, state.fixId);
-      const form = update.getByTestId('rc-form-update');
-      await form.getByLabel(/^Threshold by asset/).fill(`USDT=${floorText}`);
-      await form.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 raise floor ${tag}`);
-      await form.getByRole('button', { name: 'Save changes' }).click();
-      await expect(form.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
-
       const fail = await twoFounderRun(state.fixId);
       expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      expect(scaled(evidence(fail, 'USDT').difference)).toBe(held - floor);
-      const [opened] = await awaitAlerts(a, state.fixId, (rows) => rows.length === 1, 'svc-ops opens the customer floor’s alert');
+      expect(evidence(fail, 'USDT')).toEqual({ observed: '-10', expected: expectedFix, difference: '-5', tolerance: '0' });
+      const [opened] = await awaitAlerts(a, state.fixId, (rows) => rows.length === 1, 'svc-ops opens the venue break’s alert');
       expect(opened).toMatchObject({ asset: 'USDT', state: 'open', occurrences: 1, cause: 'fail', team: 'finance' });
       state.fixAlertId = opened.id;
 
@@ -254,6 +254,7 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
         occurrences: await beforeUnknown.getAttribute('data-occurrences'),
         evidence: await beforeUnknown.getByTestId('alert-evidence').innerText(),
       };
+      expect(openedAs.evidence.replace(/\s+/g, ' ')).toBe(`Observed -10 · expected ${expectedFix} · difference -5 · tolerance 0`);
       const refused = await resolveWith(a, opened.id, [unknown]);
       await expect(refused.getByTestId('alert-refused-code')).toHaveText('ops.resolve_transaction_not_found', { timeout: 30_000 });
       await expect(refused.getByTestId('alert-refused-detail')).toContainText(unknown);
@@ -269,24 +270,16 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
       ).toEqual(openedAs);
       await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
-      // Two real postings on INTAFACED's own books, kept apart (zero customer accounts):
-      // - #10's figures: a TEST house seed of 2 USDT (`marketMakerSeedFund`). 2 is short of the 5 the floor wants, so
-      //   #10's next run fails again and reopens the alert; #10 seeds the other 3 and the run passes.
-      // - #9's fix: the corrective reversal the alert is resolved with, made on J-ops-console-05's reversal desk and only
-      //   linked here. Its original is INTAFACED's own TEST entry (a house market-maker seed in an asset no other journey
-      //   reads); founder a asks and runs, founder b approves.
-      const deposit = fund('house', 'USDT', '2', `ops07-fix1-${tag}`);
-      expect(deposit.tx, `the house seed names its ledger transaction: ${deposit.out}`).toMatch(/^[0-9a-f-]{36}$/);
-      const own = fund('house', 'AUD', '0.5', `ops07-fix-${tag}`);
-      expect(own.tx, `our own entry names its ledger transaction: ${own.out}`).toMatch(/^[0-9a-f-]{36}$/);
-      const reversal = await reverseWithTwoFounders(a, b, own.tx, {
+      // Reverse the unmatched 2 USDT builder-fee booking on J-ops-console-05's reversal desk with two founders, then link
+      // that booked reversal id to resolve the alert as fixed. Our ledger moves from -10 to -8 while the venue still
+      // reports -5 (leaving the -3 break for #10's reopen).
+      const reversal = await reverseWithTwoFounders(a, b, unmatched2.tx, {
         reason: `LOCAL TEST J-ops-console-07 corrective reversal ${tag}`,
         caseRef: `LOCAL-TEST-OPS07-${tag}`,
       });
-      // The id linked below is a booked reversal: the ledger's own record of it names the entry it reverses.
       const reversing = await openTx(a, reversal);
-      await expect(reversing.getByTestId('tx-reverses')).toHaveAttribute('data-tx-id', own.tx.toLowerCase());
-      await expect(reversing.getByTestId('ledger-lookup-business-key')).toHaveText(`ops:reversal:${own.tx.toLowerCase()}:1`);
+      await expect(reversing.getByTestId('tx-reverses')).toHaveAttribute('data-tx-id', unmatched2.tx.toLowerCase());
+      await expect(reversing.getByTestId('ledger-lookup-business-key')).toHaveText(`ops:reversal:${unmatched2.tx.toLowerCase()}:1`);
 
       const resolved = await resolveWith(a, opened.id, [reversal.toUpperCase()], `LOCAL TEST fixed by reversal ${tag}`);
       await expect(resolved).toHaveAttribute('data-state', 'resolved', { timeout: 30_000 });
@@ -300,25 +293,34 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
       // A resolved alert offers no second resolution and no acceptance.
       await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
 
-      // Accept: a USDC floor over the USDT account set fails at every run on a missing USDC side (no account holds it), the
-      // same figures each time.
+      // Accept: a TEST partner USDC report control with a real -1 USDC break (ledger -5 vs partner report -4).
+      state.acceptPartner = `ltp9a-${tag}`;
+      await seedOwnRecord('partner', state.acceptPartner, 'USDC', '4', `ops07-acc0-${tag}`);
+      await seedOwnRecord('partner', state.acceptPartner, 'USDC', '1', `ops07-acc1-${tag}`, { ledgerOnly: true });
+      const accReported = await ownReportRecord('partner', state.acceptPartner, new Date().toISOString());
+      const expectedAcc = reportAmount(accReported, 'USDC');
+      expect(expectedAcc, 'the TEST partner report holds the matched 4 USDC obligation').toBe('-4');
+
       const desk = await openLedger(a);
       state.acceptId = await define(desk, {
-        template: 'threshold',
-        explanation: `LOCAL TEST USDC floor to accept ${tag}`,
+        template: 'outside_balance',
+        explanation: `LOCAL TEST partner USDC break to accept ${tag}`,
         fill: async (f) => {
-          await f.getByLabel('Threshold bound').selectOption('min');
-          await f.getByLabel(/^Threshold by asset/).fill(`USDC=${HIGH_FLOOR}`);
+          await f.getByLabel('Asset', { exact: true }).fill('USDC');
+          await f.getByLabel('Partner report (partner id)', { exact: true }).fill(state.acceptPartner);
           await setPolicy(f, { tolerance: '0' });
         },
       });
-      expect(await twoFounderRun(state.acceptId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      const [toAccept] = await awaitAlerts(a, state.acceptId, (rows) => rows.length === 1, 'svc-ops opens the USDC floor’s alert');
+      const accFail = await twoFounderRun(state.acceptId);
+      expect(accFail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(evidence(accFail, 'USDC')).toEqual({ observed: '-5', expected: expectedAcc, difference: '-1', tolerance: '0' });
+      const [toAccept] = await awaitAlerts(a, state.acceptId, (rows) => rows.length === 1, 'svc-ops opens the partner USDC alert');
       expect(toAccept).toMatchObject({ asset: 'USDC', state: 'open', cause: 'fail', team: 'finance' });
       const before = await openAlert(a, toAccept.id);
       const evidenceHash = (await before.getByTestId('alert-evidence-hash').innerText()).trim();
       expect(evidenceHash).toMatch(/^[0-9a-f]{64}$/);
       const evidenceText = await before.getByTestId('alert-evidence').innerText();
+      expect(evidenceText.replace(/\s+/g, ' ')).toBe(`Observed -5 · expected ${expectedAcc} · difference -1 · tolerance 0`);
 
       // A blank note is refused before any approval is made.
       const blank = await proposeAccept(a, toAccept.id, evidenceHash, '');
@@ -401,14 +403,27 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
     stepPicture,
   }) => {
     test.setTimeout(900_000);
-    if (!state.fixId || !state.fixAlertId || !state.acceptId || !state.acceptAlert)
+    if (
+      !state.fixId ||
+      !state.fixVenue ||
+      !state.fixRef3 ||
+      !state.fixAlertId ||
+      !state.acceptId ||
+      !state.acceptPartner ||
+      !state.acceptAlert
+    )
       throw new Error('#10 starts from #9’s resolved and accepted alerts, and #9 did not finish, so #10 cannot run');
     const { a } = await founders(browser);
     let errorId;
     try {
-      // The same failure after the fix: the resolved alert reopens (no second alert), its count rises and the acknowledgement
-      // and resolution are cleared on the alert while the timeline keeps them.
-      expect(await twoFounderRun(state.fixId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      // The same venue break remains after #9's 2 USDT reversal (ledger -8 vs TEST venue report -5): the resolved alert
+      // reopens (no second alert), its count rises and the resolution is cleared on the alert while the timeline keeps it.
+      const fixBefore = await ownReportRecord('venue', state.fixVenue, new Date().toISOString());
+      const expectedFixBefore = reportAmount(fixBefore, 'USDT');
+      expect(expectedFixBefore, 'the TEST venue still reports -5 before the remaining 3 USDT is reported').toBe('-5');
+      const reopenRun = await twoFounderRun(state.fixId);
+      expect(reopenRun).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(evidence(reopenRun, 'USDT')).toEqual({ observed: '-8', expected: expectedFixBefore, difference: '-3', tolerance: '0' });
       const reopened = await awaitAlerts(
         a,
         state.fixId,
@@ -425,11 +440,16 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
       );
       expect(kinds.filter((k) => k === 'reopened')).toHaveLength(1);
 
-      // The accepted alert is frozen: the same failure again changes nothing on it and opens no new alert.
-      expect(await twoFounderRun(state.acceptId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      // The accepted alert is frozen: the same partner break again (-5 vs -4) changes nothing on it and opens no new alert.
+      const accReport = await ownReportRecord('partner', state.acceptPartner, new Date().toISOString());
+      const expectedAcc = reportAmount(accReport, 'USDC');
+      expect(expectedAcc, 'the TEST partner report still holds -4').toBe('-4');
+      const sameAccRun = await twoFounderRun(state.acceptId);
+      expect(sameAccRun).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(evidence(sameAccRun, 'USDC')).toEqual({ observed: '-5', expected: expectedAcc, difference: '-1', tolerance: '0' });
       const fixedRun = await twoFounderRun(state.fixId);
       expect(fixedRun).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      // svc-ops reads evaluations in order: once the later fix-floor run is counted, the accept run before it was read too.
+      // svc-ops reads evaluations in order: once the later fix-venue run is counted, the accept run before it was read too.
       await awaitAlerts(a, state.fixId, (rows) => rows[0]?.occurrences === 3, 'svc-ops counts the later run');
       const frozen = await alertsOf(a, state.acceptId);
       expect(frozen, 'no new alert beside the accepted one').toHaveLength(1);
@@ -439,17 +459,13 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
       await expect(still.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
       await expect(still).toHaveAttribute('data-version', String(state.acceptAlert.version));
 
-      // Different figures are a new discrepancy: the floor rises by 1, the next FAIL opens a new alert, and the accepted
-      // one keeps its frozen evidence, count and version.
-      const raise = await openLedger(a);
-      await choose(raise, state.acceptId);
-      const raiseForm = raise.getByTestId('rc-form-update');
-      await raiseForm.getByLabel(/^Threshold by asset/).fill(`USDC=${BigInt(HIGH_FLOOR) + 1n}`);
-      await raiseForm.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 raise accepted floor ${tag}`);
-      await raiseForm.getByRole('button', { name: 'Save changes' }).click();
-      await expect(raiseForm.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
+      // Different figures are a new discrepancy: another unmatched 2 USDC ledger booking moves observed from -5 to -7
+      // against the partner's -4 report (difference -3). The next FAIL opens a new alert, and the accepted one keeps its
+      // frozen evidence, count and version.
+      await seedOwnRecord('partner', state.acceptPartner, 'USDC', '2', `ops07-acc2-${tag}`, { ledgerOnly: true });
       const differs = await twoFounderRun(state.acceptId);
       expect(differs).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(evidence(differs, 'USDC')).toEqual({ observed: '-7', expected: expectedAcc, difference: '-3', tolerance: '0' });
       const both = await awaitAlerts(a, state.acceptId, (rows) => rows.length === 2, 'svc-ops opens a new alert for different figures');
       const fresh = both.find((r) => r.id !== state.acceptAlert.id);
       const was = both.find((r) => r.id === state.acceptAlert.id);
@@ -469,11 +485,20 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
       await expect(kept.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
       await expect(kept.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
 
-      // The rest of the 5 USDT arrives on INTAFACED's own house account: the next run passes and resolves the reopened alert by itself, naming that run.
-      expect(fund('house', 'USDT', '3', `ops07-fix2-${tag}`).tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+      // The TEST venue reports the remaining 3 USDT (same business key, so our ledger stays at -8 idempotently while the
+      // venue's own loopback report catches up to -8): the next run passes and resolves the reopened alert automatically.
+      await seedOwnRecord('venue', state.fixVenue, 'USDT', '3', state.fixRef3);
+      const fixAfter = await ownReportRecord('venue', state.fixVenue, new Date().toISOString());
+      const expectedFixAfter = reportAmount(fixAfter, 'USDT');
+      expect(expectedFixAfter, 'the TEST venue report now agrees with our ledger at -8').toBe('-8');
       const pass = await twoFounderRun(state.fixId);
       expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
-      expect(evidence(pass, 'USDT').difference).toBe('0');
+      expect(evidence(pass, 'USDT')).toEqual({
+        observed: expectedFixAfter,
+        expected: expectedFixAfter,
+        difference: '0',
+        tolerance: '0',
+      });
       await awaitAlerts(a, state.fixId, (rows) => rows[0]?.state === 'resolved', 'svc-ops resolves the alert on the passing run');
       const auto = (await openAlert(a, state.fixAlertId)).getByTestId('alert-resolved');
       await expect(auto).toHaveAttribute('data-resolution', 'auto');
@@ -545,11 +570,14 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
   });
 
   // The receiver of svc-ops' alert transitions is svc-notify: it keeps one feed row per business key. The fixed alert's real
-  // transitions (#7 to #10) arrived there in order; its reopen, delivered twice more, changes nothing.
+  // transitions (#9 to #10) arrived there in order; its reopen, delivered twice more, changes nothing.
   test('J-ops-console-07 #10 a transition event received twice applies once', async ({ browser, stepPicture }) => {
     test.setTimeout(300_000);
-    if (!state.fixAlertId) throw new Error('#10’s transition check reads the alert #9 resolved and #10 reopened, and #9 did not finish');
+    if (!state.fixAlertId || !state.fixVenue)
+      throw new Error('#10’s transition check reads the alert #9 resolved and #10 reopened, and #9 did not finish');
     const { a } = await founders(browser);
+    const venueFinal = await ownReportRecord('venue', state.fixVenue, new Date().toISOString());
+    expect(reportAmount(venueFinal, 'USDT'), 'the TEST venue report holds the reconciled -8 balance').toBe('-8');
     let before;
     await expect
       .poll(
@@ -560,6 +588,8 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
         { message: 'svc-notify receives the alert’s transitions from svc-ops', timeout: 90_000, intervals: [3_000] },
       )
       .toEqual(expect.arrayContaining(['opened', 'resolved', 'reopened']));
+    await expect(a.getByTestId('alert-detail')).toHaveAttribute('data-state', 'resolved');
+    await expect(a.getByTestId('alert-resolved')).toHaveAttribute('data-resolution', 'auto');
     await expect(a.getByTestId('alert-feed')).toHaveAttribute('data-bus', 'attached');
     const keys = before.map((e) => e.eventKey);
     expect(new Set(keys).size, 'one row per business key').toBe(keys.length);
