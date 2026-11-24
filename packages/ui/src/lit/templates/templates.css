@@ -1507,11 +1507,6 @@ button.lt-tab {
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  /* A figure breaks only between its words ("8,000 / characters"), never inside a number or a unit ("500 / 0"): the
-     naming column gives way instead. */
-  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td[data-align='end'] {
-    overflow-wrap: normal;
-  }
   .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
     block-size: var(--lit-row-h);
     padding-inline: var(--lit-gap-item);
