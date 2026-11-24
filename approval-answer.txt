@@ -1,0 +1,32 @@
+TEST
+The venue locks
+0.77335 USDC-PERP
+Venue’s fee
+0.0067600125 USDC-PERP
+Our builder fee
+0.0007511125 USDC-PERP
+Fee role
+Taker
+Time in force
+Immediate or cancel
+Client id held for retry
+order:0xdeafb9ffaf6dc6dafe1c8d954741475a93dc5040:btc-perp:mwucffr50
+Initial margin
+0.77335
+Liquidation price
+not known
+Leverage and margin mode
+20x, Cross
+Total to commit
+0.780861125 USDC
+Builder fee approval
+Not signed: your wallet signs an approval of up to 0.5 bps before the order
+
+As of 2026-11-24T06:58:26.872Z
+
+Approve our builder fee in your wallet
+
+The venue refused it: Builder has insufficient balance to be approved.
+
+Open long
+Back
