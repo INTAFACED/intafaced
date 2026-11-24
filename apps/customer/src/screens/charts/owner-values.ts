@@ -17,6 +17,8 @@ export const chartOwnerValuesSchema = z.object({
   drawingCap: count,
   brushPointCap: count,
   delayedBoundarySeconds: count,
+  /** The owner's stale age (row d115): a stream whose newest trade is older reads Stale; blank judges none stale. */
+  staleAgeSeconds: count,
   /** The longest main-thread task the chart may hold while ticks stream, in ms; blank while the owner has not set it. */
   renderBudgetMs: count,
   /** How far from the last price, in basis points, a chart order may be moved before the person confirms the distance. */
