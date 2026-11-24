@@ -182,6 +182,14 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         if (lev !== null) locked = div(mul(price, remaining, 'ceil'), parseAmount(String(lev)), 'ceil');
       }
     }
+    const origin =
+      raw.isLiquidation === true || /liquidat/i.test(orderType)
+        ? ('liquidation' as const)
+        : raw.isTrigger === true
+          ? /take\s*profit/i.test(orderType)
+            ? ('take_profit' as const)
+            : ('stop' as const)
+          : ('user' as const);
     return {
       venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
       venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
@@ -198,6 +206,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       locked,
       lockedAsset,
       reduceOnly: raw.reduceOnly === true,
+      origin,
+      originRef: null,
     };
   }
 

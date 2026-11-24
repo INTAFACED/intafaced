@@ -26,13 +26,12 @@ import {
   decisionStyleSchema,
   energyRhythmSchema,
   learningModeSchema,
-  openerKindSchema,
   riskTemperamentSchema,
 } from '@intafaced/contracts/blueprint';
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
-import { BlueprintRow, MentorMatchRow, ShareRow, StoredProfile } from './rows.js';
+import { BlueprintRow, MentorMatchRow, OpenerRow, ShareRow, StoredProfile } from './rows.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
 import { deterministicUuid } from './deterministic.js';
@@ -183,12 +182,6 @@ type BlueprintRow = z.infer<typeof BlueprintRow>;
 
 type ShareRow = z.infer<typeof ShareRow>;
 
-const OpenerRow = z.object({
-  kind: openerKindSchema,
-  first_opened: z.date(),
-  last_opened: z.date(),
-  open_count: z.number(),
-});
 type OpenerRow = z.infer<typeof OpenerRow>;
 
 const IdRow = z.object({ id: z.string() });
