@@ -112,15 +112,14 @@ function fifoLeft(lots, takes) {
   return open;
 }
 
-/** The venue's own 1-minute candle closes at or before `before` and `after`, read straight from the TEST venue. */
-async function venueClosesAround(owner, symbol, before, after) {
+/** The venue's own last 1-minute candle that opened at or before `arrivedAt`, read straight from the TEST venue. */
+async function venueCandleAt(owner, symbol, arrivedAt) {
+  const at = Date.parse(arrivedAt);
   const candles = (await venueRecord(owner, '/candles', { symbol, interval: '1m', limit: 50 })).value;
-  const lastAt = (t) => candles.filter((c) => Date.parse(c.openAt) <= t).at(-1)?.closePrice;
-  return [...new Set([lastAt(before), lastAt(after)].filter(Boolean))];
+  const candle = candles.filter((c) => Date.parse(c.openAt) <= at).at(-1);
+  expect(candle, `a 1m venue candle on ${symbol} at or before ${arrivedAt}`).toBeTruthy();
+  return candle;
 }
-
-/** The screen's dollar text for `qty` coins at each candle close: what the arrival is worth at that price. */
-const valuesAt = (qty, closes) => closes.map((close) => fmtLotUsd((toUnits(qty) * toUnits(close) + ONE / 2n) / ONE));
 
 /**
  * TEST setup, not a journey step: one verified account, this run's TEST wallet key, TEST USDC in its venue account, and
@@ -330,28 +329,26 @@ test(`${J} #3 reads a deposit and a reward: each valued at the time it arrived, 
 
   // 1. A deposit of 4 TEST coins into the person's venue account, valued from the venue's own 1-minute spot candles.
   const depRef = `84532:0x${randomBytes(32).toString('hex')}:0`;
-  const beforeDep = Date.now();
   expect(await testDeposit(s.owner, s.base, DEPOSIT_QTY, depRef)).toBe(true);
-  const afterDep = Date.now();
   const arrivals = (await venueRecord(s.owner, '/arrivals')).value;
-  expect(arrivals).toEqual(
-    expect.arrayContaining([expect.objectContaining({ arrivalId: depRef, kind: 'deposit', asset: s.base, amount: DEPOSIT_QTY })]),
-  );
-  await closedMinute(page, afterDep);
+  const depArrival = arrivals.find((a) => a.arrivalId === depRef);
+  expect(depArrival, JSON.stringify(arrivals)).toMatchObject({ arrivalId: depRef, kind: 'deposit', asset: s.base, amount: DEPOSIT_QTY });
+  await closedMinute(page, Date.parse(depArrival.arrivedAt));
+  const depCandle = await venueCandleAt(s.owner, s.symbol, depArrival.arrivedAt);
+  expect(Date.parse(depCandle.openAt)).toBeLessThanOrEqual(Date.parse(depArrival.arrivedAt));
+  const depExpected = fmtLotUsd((toUnits(DEPOSIT_QTY) * toUnits(depCandle.closePrice) + ONE / 2n) / ONE);
 
   await signIn(page, s.account);
   const lots = await lotsPage(page, s.base);
   const depRow = lots.locator('tbody tr[data-source="deposit"]');
   await expect(depRow).toHaveCount(1, { timeout: 30_000 });
+  await expect(depRow.locator('th')).toHaveText(await writtenTime(page, depArrival.arrivedAt));
   await expect(depRow.locator('[data-col="source"]')).toHaveText('Deposit');
   await expect(depRow.locator('[data-col="qty"]')).toHaveText(DEPOSIT_QTY);
   await expect(depRow.locator('[data-col="cost"]')).toHaveText('Cost unknown');
-  await expect(depRow.locator('[data-col="price-source"]')).toContainText(`at the ${s.symbol} price, one-minute candle from`);
-  const depCloses = await venueClosesAround(s.owner, s.symbol, beforeDep, afterDep);
-  const depValues = valuesAt(DEPOSIT_QTY, depCloses);
-  expect(depValues.length).toBeGreaterThan(0);
-  const depShown = (await depRow.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
-  expect(depValues).toContain(depShown.split(' ')[0]);
+  const depSource = `at the ${s.symbol} price, one-minute candle from ${await writtenTime(page, depCandle.openAt)}`;
+  await expect(depRow.locator('[data-col="price-source"]')).toHaveText(depSource);
+  await expect(depRow.locator('[data-col="arrival"]')).toHaveText(`${depExpected} ${depSource}`);
   await expect(lots.locator('tbody tr[data-source="trade"] [data-col="cost"]').first()).not.toHaveText('Cost unknown');
   await expect(page.locator(`tr[data-asset="${s.base}"][data-venue="${MAIN}"] [data-col="cost"]`)).toHaveText('Not known');
 
@@ -403,29 +400,31 @@ test(`${J} #3 reads a deposit and a reward: each valued at the time it arrived, 
       moveKey: `pf4-delegate:${RUN}`,
     },
   });
-  const beforeReward = Date.now();
   const rewarded = await testVenue('/test/staking', {
     account: await venueAccount(s.owner),
     reward: { validator: validator.address, amount: HYPE_REWARD, rewardRef: `pf4-reward:${RUN}` },
   });
   expect(rewarded.status, JSON.stringify(rewarded.body)).toBe(200);
-  const afterReward = Date.now();
-  expect(toUnits((await venueRecord(s.owner, '/staking-account')).value.rewards.total)).toBe(toUnits(HYPE_REWARD));
+  const stakingRecord = (await venueRecord(s.owner, '/staking-account')).value;
+  expect(toUnits(stakingRecord.rewards.total)).toBe(toUnits(HYPE_REWARD));
+  const rewardRec = stakingRecord.rewards.recent[0];
+  expect(rewardRec, JSON.stringify(stakingRecord.rewards)).toBeTruthy();
   expect(toUnits((await venueBalance(s.owner, HYPE)).total)).toBe(hypeBeforeReward + toUnits(HYPE_REWARD));
-  await closedMinute(page, afterReward);
+  await closedMinute(page, Date.parse(rewardRec.rewardedAt));
+  const rewardCandle = await venueCandleAt(s.owner, hypeSymbol, rewardRec.rewardedAt);
+  expect(Date.parse(rewardCandle.openAt)).toBeLessThanOrEqual(Date.parse(rewardRec.rewardedAt));
+  const rewardExpected = fmtLotUsd((toUnits(HYPE_REWARD) * toUnits(rewardCandle.closePrice) + ONE / 2n) / ONE);
 
   const hypeLots = await lotsPage(page, HYPE);
   const rewardRow = hypeLots.locator('tbody tr[data-source="reward"]');
   await expect(rewardRow).toHaveCount(1, { timeout: 30_000 });
+  await expect(rewardRow.locator('th')).toHaveText(await writtenTime(page, rewardRec.rewardedAt));
   await expect(rewardRow.locator('[data-col="source"]')).toHaveText('Reward');
   await expect(rewardRow.locator('[data-col="qty"]')).toHaveText(HYPE_REWARD);
   await expect(rewardRow.locator('[data-col="cost"]')).toHaveText('Cost unknown');
-  await expect(rewardRow.locator('[data-col="price-source"]')).toContainText(`at the ${hypeSymbol} price, one-minute candle from`);
-  const rewardCloses = await venueClosesAround(s.owner, hypeSymbol, beforeReward, afterReward);
-  const rewardValues = valuesAt(HYPE_REWARD, rewardCloses);
-  expect(rewardValues.length).toBeGreaterThan(0);
-  const rewardShown = (await rewardRow.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
-  expect(rewardValues).toContain(rewardShown.split(' ')[0]);
+  const rewardSource = `at the ${hypeSymbol} price, one-minute candle from ${await writtenTime(page, rewardCandle.openAt)}`;
+  await expect(rewardRow.locator('[data-col="price-source"]')).toHaveText(rewardSource);
+  await expect(rewardRow.locator('[data-col="arrival"]')).toHaveText(`${rewardExpected} ${rewardSource}`);
   await stepPicture();
 
   // Enter the arrival price for the HYPE reward lot so the `base` deposit is the one missing-cost lot for steps 6 and 7.
@@ -433,9 +432,7 @@ test(`${J} #3 reads a deposit and a reward: each valued at the time it arrived, 
   const item = page.getByRole('region', { name: 'Missing cost', exact: true }).locator(`li[data-missing-lot="${rewardLot}"]`);
   await item.getByRole('button', { name: 'Enter a cost', exact: true }).click();
   const form = item.getByRole('form', { name: 'Enter a cost for this lot', exact: true });
-  await form
-    .getByLabel(`Price you paid per ${HYPE}, in USD`, { exact: true })
-    .fill(rewardCloses[rewardValues.indexOf(rewardShown.split(' ')[0])]);
+  await form.getByLabel(`Price you paid per ${HYPE}, in USD`, { exact: true }).fill(rewardCandle.closePrice);
   await form.getByLabel('Where this price comes from', { exact: true }).fill('TEST the venue HYPE-USDC price when the reward arrived');
   await form.getByRole('button', { name: 'Save price', exact: true }).click();
   await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
