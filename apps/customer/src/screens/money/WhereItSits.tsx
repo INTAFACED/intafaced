@@ -22,7 +22,7 @@ import { clockTime } from './time';
 import { WhereAllocation } from './WhereAllocation';
 import { WhereHoldingsChange } from './WhereHoldingsChange';
 import { isHiddenPath, navigate } from './deps';
-import { MoneyOverview } from './MoneyRoom';
+import { MoneyOverview, MoneyRoomLinks } from './MoneyRoom';
 import { buyHref } from './links';
 import { balanceEntriesHref } from './balance-entries-model';
 
@@ -89,6 +89,7 @@ function BeforeWallet({ t, onWithdraw }: { t: T; onWithdraw: () => void }) {
     <MoneyOverview
       title={t('Title')}
       description={t('Lede')}
+      roomAction={<MoneyRoomLinks />}
       hero={
         <div className="lt-stack">
           {held ? (
@@ -152,6 +153,7 @@ function Read({
     <MoneyOverview
       title={t('Title')}
       description={t('Lede')}
+      roomAction={<MoneyRoomLinks />}
       hero={
         standing.prices || pricesFailed ? (
           <section className="lt-stack" aria-labelledby="assets-total-title">

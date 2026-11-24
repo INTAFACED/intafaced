@@ -26,7 +26,7 @@ export type MoneyOverviewProps = Omit<OverviewProps, 'state' | 'mode'> & {
 };
 
 /** Links to the live Money helper rooms reachable from Assets on the hosted beta (J-wallet-01 #3 and #5). */
-function MoneyRoomLinks() {
+export function MoneyRoomLinks() {
   const { t } = whereCopy.useCopy();
   const links = [
     ...(!isHiddenPath('/bank/ramps/new') ? [{ href: '/bank/ramps/new', label: t('Add money') }] : []),
@@ -45,14 +45,7 @@ function MoneyRoomLinks() {
 }
 
 /** The overview template as both views of `/money` use it: the person's Simple or Pro choice, and ready by default. */
-export function MoneyOverview({ state = { kind: 'ready' }, roomAction, ...props }: MoneyOverviewProps) {
+export function MoneyOverview({ state = { kind: 'ready' }, ...props }: MoneyOverviewProps) {
   const { layoutMode } = usePreferences();
-  return (
-    <OverviewTemplate
-      {...props}
-      roomAction={roomAction ?? <MoneyRoomLinks />}
-      state={state}
-      mode={layoutMode === 'pro' ? 'pro' : 'simple'}
-    />
-  );
+  return <OverviewTemplate {...props} state={state} mode={layoutMode === 'pro' ? 'pro' : 'simple'} />;
 }
