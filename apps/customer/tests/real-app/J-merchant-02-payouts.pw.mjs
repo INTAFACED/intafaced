@@ -49,7 +49,8 @@ test(`${J} part of #5 the verified owner saves where payouts go, confirming it w
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await page.reload();
-  const standing = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Before you go live', level: 2 }) });
+  // The section the heading titles, its nearest one: the flow template wraps the step in a region section of its own.
+  const standing = page.getByRole('heading', { name: 'Before you go live', level: 2 }).locator('xpath=ancestor::section[1]');
   await expect(standing).toContainText('DestinationSaved');
   // svc-pay's list, as the Destinations room reads it: exactly this one wallet, masked to its end.
   const listed = async (open) => {

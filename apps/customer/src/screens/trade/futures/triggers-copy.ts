@@ -23,7 +23,7 @@ const messages = {
   'Cancel position_gone': 'The position was already gone when this one fired.',
   'Cancel cancelled': 'You cancelled it.',
   'Cancel linked': 'Its linked take profit or stop loss filled, so this one was cancelled.',
-  'Cancel other': 'Cancelled by the service ({reason}).',
+  'Cancel other': 'Cancelled automatically ({reason}).',
   'Failure covered': 'It fired, but your other close orders already cover the whole position, so it had nothing left to close.',
   'Failure engine': 'It fired, but the order book refused its close order.',
   'Failure limit gone': 'It fired, but its limit order was cancelled or expired in the book.',

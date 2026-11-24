@@ -1,21 +1,18 @@
+import { useMemo } from 'react';
 import { P2PTabs } from './p2p-tabs';
 import { payCopy } from './copy';
-import { useMemo } from 'react';
-import { useResource } from '../../shared/resource';
 import { EmptyState, Page } from './ui-kit';
-import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import { PayDetails, PayPagination, PaySection, PayState, Status } from './components';
-import { id } from './schemas';
+import { createPersonalPayApi } from './pay-api';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { CounterpartyRoom } from './p2p-counterparty/CounterpartyRoom';
-import { OfferForm } from './personal/OfferForm';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { MethodsRoom } from './personal/MethodsRoom';
 import { P2PBoard } from './p2p-board/Board';
 import { P2PMine } from './p2p-board/Mine';
 import { AccessRoom } from './p2p-access/AccessRoom';
+import { OfferRoom } from './p2p-offer/OfferRoom';
 import { OrderDetail, OrderRoom } from './p2p-order/OrderRoom';
 // The other P2P rooms still draw the offer list's old look until they move to Volt.
 import './p2p-offer.css';
@@ -52,6 +49,9 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   if (showAccess && !tradeId && current !== '/chat' && !showOrders && !publish) return <AccessRoom pay={pay} userId={userId} />;
   // The person's orders (and any opened order outside /chat) are on the record-list template in Volt.
   if ((showOrders || Boolean(tradeId)) && current !== '/chat') return <OrderRoom pay={pay} tradeId={tradeId ?? null} userId={userId} />;
+  // Creating or editing an offer is on its flow template, which draws its own title and the P2P rooms.
+  if (publish && !tradeId)
+    return <OfferRoom pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />;
   // The person's own offers are on the overview template too, which draws its own title and the P2P rooms.
   if (showMine && !tradeId) return <P2PMine pay={pay} userId={userId} />;
   // The offer board is on its overview template, which draws its own title and the P2P rooms.
@@ -69,17 +69,9 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   return (
     <Page
       eyebrow={payCopy.t('personalPay')}
-      title={
-        current === '/chat' || tradeId
-          ? payCopy.t('p2pOrder')
-          : publish
-            ? current === '/uc/ad/update'
-              ? p2pDepth.t('formEditTitle')
-              : payCopy.t('createAnOffer')
-            : payCopy.t('personToPerson')
-      }
+      title={current === '/chat' || tradeId ? payCopy.t('p2pOrder') : payCopy.t('personToPerson')}
       description={
-        tradeId || current === '/chat' || (!showOrders && !showMethods && !showAccess && !publish)
+        tradeId || current === '/chat' || (!showOrders && !showMethods && !showAccess)
           ? undefined
           : payCopy.t('externalPaymentLedgerEscrowAndARecorded')
       }
@@ -95,9 +87,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
                 ? '/p2p/methods'
                 : showAccess
                   ? '/p2p/access'
-                  : publish
-                    ? undefined
-                    : '/p2p'
+                  : '/p2p'
         }
       />
       {current === '/chat' && !tradeId ? (
@@ -113,13 +103,6 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         </EmptyState>
       ) : current === '/chat' || tradeId ? (
         <OrderDetail pay={pay} tradeId={tradeId ?? ''} userId={userId} />
-      ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
-        <OfferForm pay={pay} userId={userId} mode="edit" offerId={null} />
-      ) : publish ? (
-        <div className="lt-stack">
-          <OfferForm pay={pay} userId={userId} mode={current === '/uc/ad/update' ? 'edit' : 'create'} offerId={params.get('offerId')} />
-          <PublishAvailability pay={pay} />
-        </div>
       ) : showMine ? (
         <P2POffers pay={pay} userId={userId} mine />
       ) : (
@@ -130,58 +113,5 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         </div>
       )}
     </Page>
-  );
-}
-function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
-  const health = useResource((signal) => pay.health(signal), 'pay:p2p-health');
-  const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
-  return (
-    <div className="lt-stack">
-      <PaySection title={payCopy.t('serviceReadiness')}>
-        <PayState resource={health.resource} retry={health.reload}>
-          {(data) => (
-            <PayDetails
-              values={[
-                [payCopy.t('instrumentEncryption'), data.instrumentKmsConfigured ? payCopy.t('configured') : payCopy.t('notConnected')],
-                [
-                  payCopy.t('offerLimits'),
-                  payCopy.t(
-                    data.offerLimitsPosture === 'unset'
-                      ? 'offerLimitsUnset'
-                      : data.offerLimitsPosture === 'unlimited'
-                        ? 'offerLimitsUnlimited'
-                        : 'offerLimitsConfigured',
-                  ),
-                ],
-                [
-                  payCopy.t('moderation'),
-                  data.moderation.status === 'configured'
-                    ? payCopy.t('configuredLiveReachabilityIsUnprobed')
-                    : payCopy.t('noModeratorsConfigured'),
-                ],
-              ]}
-            />
-          )}
-        </PayState>
-      </PaySection>
-      <PaySection title={payCopy.t('registeredPaymentMethods')}>
-        <PayState resource={methods.resource} retry={methods.reload} empty={payCopy.t('noPaymentMethodsRegistered')}>
-          {(rows) => (
-            <div>
-              {rows.map((method) => (
-                <div className="pay-destination" key={`${method.methodId}:${method.country}`}>
-                  <span>
-                    {method.label}
-                    <small>{method.country === '*' ? payCopy.t('allCountries') : method.country}</small>
-                  </span>
-                  <Status value={method.enabled ? 'enabled' : 'disabled'} />
-                </div>
-              ))}
-              <PayPagination count={rows.length} limit={200} setLimit={() => {}} />
-            </div>
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }
