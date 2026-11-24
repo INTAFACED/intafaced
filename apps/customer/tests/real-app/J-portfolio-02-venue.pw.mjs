@@ -410,6 +410,14 @@ test(`${J} #5 switches to LIFO (one lot: the same result), then asks for an unkn
     headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
   });
   expect(res.status).toBe(400);
+  // Its typed refusal: a bad request naming the method as the one field refused, with the methods it does offer.
+  const body = await res.json();
+  const refusal = body.error?.json ?? body.error;
+  expect(refusal?.data?.code, JSON.stringify(body).slice(0, 300)).toBe('BAD_REQUEST');
+  const issues = JSON.parse(refusal.message);
+  expect(issues).toEqual([expect.objectContaining({ code: 'invalid_value', path: ['method'] })]);
+  expect(issues[0].values).toEqual(expect.arrayContaining(['FIFO', 'LIFO']));
+  expect(issues[0].values).not.toContain('LOFO');
   // Picking a method again brings the figures back.
   await refused
     .getByRole('group', { name: 'Matching method', exact: true })
