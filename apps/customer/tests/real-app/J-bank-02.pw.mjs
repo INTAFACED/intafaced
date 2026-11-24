@@ -900,7 +900,7 @@ test(`${J} #8 pays more than the bank holds on a plan that allows a negative bal
   const ledgerStart = await ledgerOf(who);
   const asked = fromUnits(held + toUnits('10'));
 
-  // In the app: paying 10 USDT more than the partner holds is refused at the review, with the partner's figure.
+  // In the app: paying 10 USDT more than the partner holds is first refused at the review, with the partner's figure.
   await signIn(page, who);
   await page.goto('/bank/transfers');
   const sent = [];
@@ -914,9 +914,29 @@ test(`${J} #8 pays more than the bank holds on a plan that allows a negative bal
   await dialog.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(dialog).toContainText(`This is 10 USDT more than this space holds (${fromUnits(held)} USDT).`);
   expect(sent).toEqual([]);
+
+  // Now confirm a 10 USDT transfer in the browser: it passes the local review (10 <= 12.345678) and reaches the partner
+  // holding the money, which holds back the purchase until its release time so 0 can move now, and refuses it on screen
+  // (`bank.partner_insufficient_funds`) with its own live figure.
+  const overLive = '10';
+  const partnerBrowserSays = `The partner holds back ${bookHeldStr} USDT of a purchase until its release time, so 0 can move now, less than ${overLive}. Nothing was moved.`;
+  await dialog.getByLabel(/Amount \(USDT\)/).fill(overLive);
+  await dialog.getByRole('button', { name: 'Review', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const failure = dialog.getByTestId('failure');
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText(partnerBrowserSays);
+  await expect(dialog).not.toContainText('This request may have completed');
+  expect(sent).toHaveLength(1);
   await stepPicture();
 
-  // The same payment sent to the bank reaches the partner, and the partner refuses it with its own figure.
+  // Nothing moved on the partner's own book from the refused browser payment.
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe(bookHeldStr);
+  expect(await partnerBookMoves(payerId)).toEqual(movesBefore);
+  expect(await partnerBookAccounts(payerId)).toEqual(accountsBefore);
+
+  // The same payment for 10 USDT more than the partner holds, sent directly to the bank, reaches the partner, and the
+  // partner refuses it with its own figure every time: never a second attempt that lands.
   const transferId = `jb2-8-over-${who.handle}`;
   const pay = () => api.mutate('transfers.create', { transferId, fromSpaceId: main.id, toSpaceId: pot, amount: asked });
   const partnerSays = `The partner reports ${fromUnits(held)} USDT in this account, less than ${asked}. Nothing was moved.`;
