@@ -1,4 +1,5 @@
-import { Amount, EmptyState, Table, type TableColumn } from '@intafaced/ui';
+import { Amount } from '@intafaced/ui/lit';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import type { Collateral } from './api';
@@ -6,6 +7,7 @@ import { LoadGate, TabHeader } from './HistoryTab';
 import { futuresRefusal } from './refusals';
 import { riskCopy } from './risk-copy';
 import { percentOfBps } from './tabs-logic';
+import { RegionNote } from './notes';
 
 type CashRow = Collateral['assets'][number];
 
@@ -24,59 +26,60 @@ export function CollateralTab({ collateral }: { collateral: Loadable<Collateral>
   const { t } = riskCopy.useCopy();
   const money = (value: string, asset: string) => `${fmtAmount(value, { places: 8 })} ${asset}`;
 
-  const columns: TableColumn<CashRow>[] = [
-    { id: 'asset', header: t('Collateral asset'), value: (row) => row.asset },
-    { id: 'class', header: t('Collateral class'), value: () => t('Collateral cash') },
+  const columns: Column<CashRow>[] = [
+    { key: 'asset', label: t('Collateral asset'), cell: (row) => row.asset },
+    { key: 'class', label: t('Collateral class'), cell: () => t('Collateral cash') },
     {
-      id: 'haircut',
-      header: t('Collateral haircut'),
-      numeric: true,
-      value: (row) => (row.haircutBps === null ? t('Collateral haircut unset') : `${percentOfBps(row.haircutBps)}%`),
+      key: 'haircut',
+      label: t('Collateral haircut'),
+      align: 'end',
+      cell: (row) => (row.haircutBps === null ? t('Collateral haircut unset') : `${percentOfBps(row.haircutBps)}%`),
     },
-    { id: 'free', header: t('Collateral free'), numeric: true, cell: (row) => <Amount value={money(row.free, row.asset)} /> },
-    { id: 'posted', header: t('Collateral posted'), numeric: true, cell: (row) => <Amount value={money(row.posted, row.asset)} /> },
+    { key: 'free', label: t('Collateral free'), align: 'end', cell: (row) => <Amount value={money(row.free, row.asset)} /> },
+    { key: 'posted', label: t('Collateral posted'), align: 'end', cell: (row) => <Amount value={money(row.posted, row.asset)} /> },
     {
-      id: 'committed',
-      header: t('Collateral committed'),
-      numeric: true,
+      key: 'committed',
+      label: t('Collateral committed'),
+      align: 'end',
       cell: (row) => <Amount value={money(row.committed, row.asset)} />,
     },
     {
-      id: 'power',
-      header: t('Collateral buying power'),
-      numeric: true,
+      key: 'power',
+      label: t('Collateral buying power'),
+      align: 'end',
       cell: (row) => <Amount value={row.buyingPower === null ? t('Collateral buying power unset') : money(row.buyingPower, row.asset)} />,
     },
   ];
 
   return (
-    <section aria-label={t('Collateral heading')} className="flex flex-col">
+    <section aria-label={t('Collateral heading')} className="lt-stack">
       <TabHeader title={t('Collateral heading')} load={collateral} />
       <LoadGate load={collateral} thing={t('Thing collateral')}>
         {(data) => (
           <>
             <Table
-              label={t('Collateral table')}
-              density="dense"
+              caption={t('Collateral table')}
+              mode="pro"
+              dense
               columns={columns}
               rows={data.assets}
-              getRowId={(row) => row.asset}
-              emptyState={<EmptyState size="inline" title={t('Collateral table')} />}
+              rowKey={(row) => row.asset}
+              empty={<RegionNote title={t('Collateral table')} />}
             />
-            <p className="m-0 px-3 pt-2 text-xs text-fg-2">{t('Collateral note')}</p>
+            <p className="lt-note">{t('Collateral note')}</p>
             {data.assets.some((row) => row.haircutBps === null) ? (
-              <p role="status" className="m-0 px-3 pt-1 text-xs text-warn" data-code="trade.haircut_unset">
+              <p role="status" className="lt-note lt-note-warn" data-code="trade.haircut_unset">
                 {t('Collateral unset note')}
               </p>
             ) : null}
-            <h4 className="m-0 px-3 pt-3 text-xs font-medium text-fg">{t('Refused heading')}</h4>
-            <ul aria-label={t('Refused heading')} className="m-0 flex list-none flex-col gap-1 px-3 pb-2 pt-1">
+            <h4 className="lt-strong lt-small">{t('Refused heading')}</h4>
+            <ul aria-label={t('Refused heading')} className="lt-list">
               {data.refusedClasses.map((r) => {
                 const words = futuresRefusal({ code: r.code ?? undefined });
                 const name = REFUSED_NAMES[r.collateralClass as keyof typeof REFUSED_NAMES];
                 return (
-                  <li key={r.collateralClass} className="lt-hint" data-code={r.code ?? undefined}>
-                    <span className="text-fg">{name ? t(name) : r.collateralClass}</span>: {words.title}
+                  <li key={r.collateralClass} className="lt-note" data-code={r.code ?? undefined}>
+                    <span className="lt-strong">{name ? t(name) : r.collateralClass}</span>: {words.title}
                   </li>
                 );
               })}
