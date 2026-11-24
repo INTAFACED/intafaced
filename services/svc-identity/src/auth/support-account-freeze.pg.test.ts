@@ -249,7 +249,7 @@ if (!(await postgresAvailable(TEST_URL))) {
       });
 
       it('a write that fails is 503, never a freeze', async () => {
-        const dead = postgres('postgres://nobody:nobody@127.0.0.1:1/none', { connect_timeout: 1, max: 1 });
+        const dead = postgres('postgres://nobody:nobody@127.0.0.1:1/unreachable_test', { connect_timeout: 1, max: 1 });
         const a = await app(dead);
         const down = await a.inject(post(ask(await person())));
         expect([down.statusCode, down.json().code]).toEqual([503, 'identity.support_freeze_unavailable']);

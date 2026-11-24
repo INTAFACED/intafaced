@@ -89,15 +89,21 @@ describe('an account freeze asked from a request', () => {
   });
 
   it("reads back the request's rows for its own customer; a row of another request, or no answer, claims nothing", async () => {
-    const good = identity(answer, () => ({ recordedBy: 'svc-identity', records: [row()] }));
+    const good = identity(
+      (input) => answer(input.userId),
+      () => ({ recordedBy: 'svc-identity', records: [row()] }),
+    );
     expect(await desk(ticket({ status: 'closed' }), good.port).records(OPERATOR, { ticketId: TICKET })).toEqual({
       recordedBy: 'svc-identity',
       records: [row()],
     });
     expect(good.read).toEqual([{ userId: CUSTOMER, ticketId: TICKET }]);
-    const stray = identity(answer, () => ({ recordedBy: 'svc-identity', records: [row(OTHER)] }));
+    const stray = identity(
+      (input) => answer(input.userId),
+      () => ({ recordedBy: 'svc-identity', records: [row(OTHER)] }),
+    );
     expect(await code(desk(ticket(), stray.port).records(OPERATOR, { ticketId: TICKET }))).toBe('support.account_freeze_unavailable');
-    expect(await code(desk(ticket(), identity(answer).port).records(OPERATOR, { ticketId: TICKET }))).toBe(
+    expect(await code(desk(ticket(), identity((input) => answer(input.userId)).port).records(OPERATOR, { ticketId: TICKET }))).toBe(
       'support.account_freeze_unavailable',
     );
   });
