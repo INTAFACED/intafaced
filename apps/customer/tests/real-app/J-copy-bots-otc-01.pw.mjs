@@ -143,7 +143,7 @@ test(`${J} #1 opens Copy trading: every tab, with no leader listed the Leaders t
     // With no leader listed, the Leaders tab shows its empty state and no placeholder row (the only row in tbody is
     // the empty state's own, and there are zero data rows).
     const directory = page.getByRole('table', { name: 'Leaders', exact: true });
-    await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
+    await expect(directory.locator('[data-slot="table-empty-row"]').getByText('No leaders are listed yet', { exact: true })).toBeVisible();
     await expect(directory.locator('tbody tr')).toHaveCount(1);
     await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
 
@@ -156,7 +156,7 @@ test(`${J} #1 opens Copy trading: every tab, with no leader listed the Leaders t
     expect((await ranking).status()).toBe(403);
     await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
     await expect(page.getByText('Reference trade.copy_ranking_forbidden', { exact: true })).toBeVisible();
-    await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
+    await expect(directory.locator('[data-slot="table-empty-row"]').getByText('No leaders are listed yet', { exact: true })).toBeVisible();
     await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
 
     // The desk state comes from the service (TEST fee share and country list are published on this stack).
