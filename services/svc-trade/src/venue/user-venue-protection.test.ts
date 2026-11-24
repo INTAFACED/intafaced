@@ -314,6 +314,13 @@ describe('unpublished venue rules are left to the venue, while blank owner value
       ),
     ).toBe('passed');
     expect(asked).toEqual({ previews: 1, prepares: 2 });
+
+    // A blank owner cap still refuses a market order on the same bare spot market, without asking the venue.
+    const blankOwner = door(null);
+    const market = order({ symbol: 'BAR-USDC' });
+    expect(await refusal(() => blankOwner.d.preview(principal, owner, market))).toBe('trade.slippage_cap_unset');
+    expect(await refusal(() => blankOwner.d.prepare(principal, { owner, signer, intent: market }))).toBe('trade.slippage_cap_unset');
+    expect(blankOwner.asked).toEqual({ previews: 0, prepares: 0 });
   });
 
   it('the same order on a spot market that publishes all three passes, and a perpetual is not held to the spot rules', async () => {
