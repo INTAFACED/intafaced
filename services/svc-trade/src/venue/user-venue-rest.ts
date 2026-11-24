@@ -28,6 +28,7 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
+ *   GET  /api/v1/venue/arrivals?owner=                 the credits into the account from outside it: deposits and transfers in (J-portfolio-06 #3)
  *   GET  /api/v1/venue/deposit-routes                  how the venue takes each asset as a deposit, as it publishes it (J-wallet-24 #5 #6)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
@@ -700,6 +701,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
       return venue.deposits(a);
     },
+    // J-portfolio-06 #3: the credits into the account from outside it (deposits, transfers in); a venue that publishes none refuses not_offered.
+    '/api/v1/venue/arrivals': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.arrivals)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no credit list' });
+      return venue.arrivals(a);
+    },
     // J-bank-31 #3: the venue's published withdrawal terms for an asset, read before anything is signed; a venue that
     // publishes none refuses not_offered, and the review shows every term as not known.
     '/api/v1/venue/withdrawal-terms': async (d, q) => {
@@ -927,6 +935,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
+    '/api/v1/venue/arrivals',
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/deposit-routes',
     '/api/v1/venue/leverage',
