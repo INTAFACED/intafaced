@@ -34,8 +34,12 @@ export interface CopyNotices {
   }): Promise<void>;
 }
 
-/** The skips the follower did not choose, so they are told. */
-const SKIPS_TOLD: ReadonlySet<CopySkipReason> = new Set<CopySkipReason>([
+/**
+ * The skips the follower did not choose, so they are told. A lead's order marked not a lead trade (`not_lead_order`)
+ * is not one: it was never a trade to copy, so it shows in the follow's skip log only.
+ */
+type ToldSkip = Exclude<CopySkipReason, 'not_lead_order' | 'paused' | 'stopped' | 'per_contract_cap' | 'daily_cap'>;
+const SKIPS_TOLD: ReadonlySet<CopySkipReason> = new Set<ToldSkip>([
   'lead_stopped',
   'platform_paused',
   'risk_control',
@@ -46,6 +50,8 @@ const SKIPS_TOLD: ReadonlySet<CopySkipReason> = new Set<CopySkipReason>([
   'refused',
 ]);
 
+const isToldSkip = (reason: CopySkipReason): reason is ToldSkip => SKIPS_TOLD.has(reason);
+
 type Warn = (message: string, fields: Record<string, string>) => void;
 
 const defaultWarn: Warn = (message, fields) => console.warn(JSON.stringify({ level: 'warn', msg: message, ...fields }));
@@ -53,7 +59,7 @@ const defaultWarn: Warn = (message, fields) => console.warn(JSON.stringify({ lev
 export function busCopyNotices(bus: Pick<EventBus, 'publish'>, warn: Warn = defaultWarn): CopyNotices {
   return {
     async skipped(input) {
-      if (!SKIPS_TOLD.has(input.reason)) return;
+      if (!isToldSkip(input.reason)) return;
       try {
         await bus.publish(
           'copySkipped',

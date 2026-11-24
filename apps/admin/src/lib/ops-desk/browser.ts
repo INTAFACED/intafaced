@@ -2,13 +2,19 @@
 import { DESKS } from './catalog';
 import { fetchOutcome, isReadOutcome, type OwnFetch } from './own-server';
 import type { DeskView, OpsDeskId, ReadOutcome } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-export async function fetchDesk(deskId: OpsDeskId, signal?: AbortSignal, sections?: readonly string[]): Promise<DeskView | null> {
-  const query = sections && sections.length > 0 ? `?${sections.map((s) => `section=${encodeURIComponent(s)}`).join('&')}` : '';
+export async function fetchDesk(
+  deskId: OpsDeskId,
+  signal?: AbortSignal,
+  sections?: readonly string[],
+  filter: Readonly<Record<string, string>> = {},
+): Promise<DeskView | null> {
+  const parts = [
+    ...(sections ?? []).map((s) => `section=${encodeURIComponent(s)}`),
+    ...Object.entries(filter).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`),
+  ];
+  const query = parts.length > 0 ? `?${parts.join('&')}` : '';
   try {
     const res = await fetch(`${DESKS[deskId].endpoint}${query}`, {
       cache: 'no-store',

@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { lockMoneyUsage, readUsage } from './counters.js';
@@ -29,7 +30,7 @@ export interface DailyPayoutApprovalSubject {
 
 /** Approvals that already hold today's headroom and have not been paid out. */
 export async function reservedLivePayoutAmount(
-  q: Sql,
+  q: Queryable,
   merchantId: string,
   assetCode: string,
   at: Date,
@@ -105,7 +106,7 @@ export async function dailyPayoutRemainingRows(
  * counter and the second sees the first's committed reservation. A missing cap
  * refuses; it is not treated as unlimited.
  */
-export async function assertApprovalWithinDailyPayoutLimit(tx: Sql, subject: DailyPayoutApprovalSubject, at: Date): Promise<void> {
+export async function assertApprovalWithinDailyPayoutLimit(tx: Queryable, subject: DailyPayoutApprovalSubject, at: Date): Promise<void> {
   const control = await loadMerchantControl(tx, subject.merchantId);
   const limit = configuredLimit(effectiveCaps(control), subject.assetCode);
   if (limit === null) throw new ControlError('pay.caps_unconfigured');

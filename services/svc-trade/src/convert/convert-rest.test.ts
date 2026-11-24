@@ -5,7 +5,7 @@ import { attachConvertRestRoutes, type ConvertRestPort } from './convert-rest.js
 import { TradeError } from '../spot/types.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
-const who = { userId: USER, sub: USER, scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const who = { userId: USER, sub: USER, scopes: ['trade:read', 'trade:write'] } as Principal;
 
 const quote = {
   quoteId: 'cq-1',
@@ -50,7 +50,7 @@ describe('convert API (J-cex-spot-11 #12)', () => {
       convertQuote: (async (_p: Principal, input: unknown) => {
         asked.push(input);
         return quote;
-      }) as unknown as ConvertRestPort['convertQuote'],
+      }) as ConvertRestPort['convertQuote'],
     });
     const res = await server.inject({ method: 'POST', url: '/api/v1/convert/quote', payload: { from: 'USDT', to: 'BTC', amount: '10' } });
     expect(res.statusCode).toBe(200);
@@ -65,7 +65,7 @@ describe('convert API (J-cex-spot-11 #12)', () => {
       convertQuote: (async (_p: Principal, input: unknown) => {
         asked.push(input);
         return quote;
-      }) as unknown as ConvertRestPort['convertQuote'],
+      }) as ConvertRestPort['convertQuote'],
     });
     await server.inject({ method: 'POST', url: '/api/v1/convert/quote', payload: { from: 'BTC', to: 'USDT', amount: '0.5' } });
     expect(asked).toEqual([{ symbol: 'BTC/USDT', side: 'sell', qty: 5n * 10n ** 17n }]);
@@ -146,7 +146,7 @@ describe('convert API (J-cex-spot-11 #12)', () => {
     const server = app({
       convertAccept: (async () => {
         throw new TradeError('expired', 'trade.convert_quote_expired');
-      }) as unknown as ConvertRestPort['convertAccept'],
+      }) as ConvertRestPort['convertAccept'],
     });
     const res = await server.inject({ method: 'POST', url: '/api/v1/convert/accept', payload: { quoteId: 'cq-1' } });
     expect(res.statusCode).toBe(409);

@@ -4,6 +4,7 @@ import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { layoutCopy as c } from './copy';
 
 import { groups, type NavGroup, type NavItem } from './groups';
+import { isHiddenPath } from '../../../../app/feature-registry';
 
 const matchOf = ([href, , options]: NavItem) => options?.match ?? href;
 const covers = (prefix: string, here: string) => here === prefix || here.startsWith(prefix + '/');
@@ -26,7 +27,13 @@ export function activeGroup(here: string) {
 export function useVisibleGroups(): NavGroup[] {
   const mode = useOptionalMerchantAccess()?.access;
   const payfac = mode?.status === 'ready' && mode.mode === 'payfac';
-  return groups.map((group) => ({ ...group, items: group.items.filter(([, , options]) => options?.when !== 'payfac' || payfac) }));
+  // The beta's build also drops each page not yet in Volt (app/beta-volt.ts), and a group left empty.
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(([href, , options]) => (options?.when !== 'payfac' || payfac) && !isHiddenPath(href.split('?')[0]!)),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 export function GroupedMenu({ here, close }: { here: string; close?: () => void }) {
@@ -63,7 +70,7 @@ export function LayoutNavigation({ here }: { here: string }) {
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
   }, [here]);
-  const shown = visible.find((g) => g.label === active.label) ?? active;
+  const shown = visible.find((g) => g.label === active.label) ?? { ...active, items: active.items.filter(([href]) => !isHiddenPath(href)) };
   return (
     <div ref={nav} className="plo-navigation">
       <nav data-testid="plo-tabs" className="plo-tabs" aria-label={t('portalNav')}>

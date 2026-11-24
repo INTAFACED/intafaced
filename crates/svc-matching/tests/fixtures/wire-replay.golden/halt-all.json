@@ -1,0 +1,902 @@
+{
+  "blank POST /halt-all valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all valid svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /halt-all valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all no-approval anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all no-approval svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.missing\",\"message\":\"approvalId and operationId are required; a typed-in second name is not approval\"}"
+  },
+  "blank POST /halt-all no-approval svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all no-approval svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all no-approval svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all no-approval svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all no-approval founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all no-approval reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all no-approval founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all not-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all not-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /halt-all not-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all not-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all not-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all not-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all not-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all not-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all not-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all blank-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all blank-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Too small: expected string to have >=1 characters\"]}"
+  },
+  "blank POST /halt-all blank-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all blank-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all blank-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all blank-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all blank-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all blank-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all blank-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "blank POST /halt-all absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "blank POST /halt-all null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "blank POST /halt-all wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received undefined\"]}"
+  },
+  "blank POST /halt-all empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all extra-key svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.operators_unset\",\"message\":\"MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator\"}"
+  },
+  "blank POST /halt-all extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received null\"]}"
+  },
+  "blank POST /halt-all all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank POST /halt-all all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank POST /halt-all all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank POST /halt-all all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank POST /halt-all all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all valid anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"halted\":true,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"rejected\":null}"
+  },
+  "set POST /halt-all valid svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all valid svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all valid svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all valid svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all valid founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all valid reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all valid founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all no-approval anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all no-approval svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.missing\",\"message\":\"approvalId and operationId are required; a typed-in second name is not approval\"}"
+  },
+  "set POST /halt-all no-approval svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all no-approval svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all no-approval svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all no-approval svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all no-approval founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all no-approval reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all no-approval founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all not-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all not-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"action_approval.not_operator\",\"message\":\"the requester is not an operator of this venue\"}"
+  },
+  "set POST /halt-all not-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all not-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all not-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all not-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all not-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all not-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all not-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all blank-operator anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all blank-operator svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Too small: expected string to have >=1 characters\"]}"
+  },
+  "set POST /halt-all blank-operator svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all blank-operator svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all blank-operator svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all blank-operator svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all blank-operator founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all blank-operator reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all blank-operator founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all absent anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all absent svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received undefined\"]}"
+  },
+  "set POST /halt-all absent svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all absent svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all absent svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all absent svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all absent founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all absent reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all absent founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received null\"]}"
+  },
+  "set POST /halt-all null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all wrong-type anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all wrong-type svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\": Invalid input: expected object, received number\"]}"
+  },
+  "set POST /halt-all wrong-type svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all wrong-type svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all wrong-type svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all wrong-type svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all wrong-type founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all wrong-type reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all wrong-type founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all empty anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all empty svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received undefined\"]}"
+  },
+  "set POST /halt-all empty svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all empty svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all empty svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all empty svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all empty founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all empty reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all empty founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all extra-key anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all extra-key svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"accepted\":true,\"halted\":true,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"rejected\":null}"
+  },
+  "set POST /halt-all extra-key svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all extra-key svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all extra-key svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all extra-key svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all extra-key founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all extra-key reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all extra-key founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all all-null anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all all-null svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"BadRequest\",\"issues\":[\"operatorId: Invalid input: expected string, received null\"]}"
+  },
+  "set POST /halt-all all-null svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all all-null svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set POST /halt-all all-null svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set POST /halt-all all-null svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set POST /halt-all all-null founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all all-null reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set POST /halt-all all-null founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  }
+}

@@ -162,6 +162,7 @@ export function createWritesMock(ctx) {
             maxUses: input.maxUses ?? null,
             uses: 0,
             createdAt: iso(Date.now()),
+            token: `TEST-token-${prefix}`,
             checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
             priceId: input.priceId ?? null,
             inactiveMessage: null,

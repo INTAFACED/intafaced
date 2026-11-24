@@ -52,6 +52,8 @@ const messages = {
   notesNone: 'No reports yet.',
   scamLinks: 'Official channels and scam guides',
   reportScam: 'Report a scam message',
+  explain:
+    'Securing your account ends every sign-in and API key, freezes the account and opens one case, in one step. Pressing again returns the same case. A stolen-funds report is a note on that case: it moves no money and does not promise any back.',
 } as const;
 
 export const compromiseCopy = defineCopy('account.compromise', messages);

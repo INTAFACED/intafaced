@@ -1,0 +1,3812 @@
+{
+  "cases": [
+    {
+      "name": "policy",
+      "path": "support.policy",
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "agentAssist": "agents.support",
+          "deskMountain": "ops.support",
+          "deskStandalone": true,
+          "deskProductComplete": false,
+          "moneyTools": [
+            "ledger.post",
+            "ledger.hold",
+            "pay.refund",
+            "pay.capture",
+            "bank.transfer",
+            "bank.withdraw",
+            "bank.loan",
+            "trade.order",
+            "trade.place",
+            "trade.amend",
+            "trade.cancel",
+            "p2p.release"
+          ],
+          "moneyDeny": { "tools": 12, "hasLedgerPost": 1, "hasPayRefund": 1, "hasTradeOrder": 1 },
+          "moneyDenyStatusLine": "tools=12 ledger_post=1 pay_refund=1 trade_order=1",
+          "moneyDenyExport": "tools,ledger_post,pay_refund,trade_order\n12,1,1,1",
+          "guardrail": { "agentId": "support", "version": 3, "declared": 4, "moneyDenied": 12, "approvalRequired": 1 },
+          "guardrailStatusLine": "agent=support v=3 declared=4 moneyDenied=12 approval=1",
+          "guardrailExport": "agentId,version,declared,moneyDenied,approvalRequired\nsupport,3,4,12,1",
+          "declaredTools": ["support.ticket.read", "support.kb.search", "identity.account.read", "support.ticket.comment"],
+          "dataTools": ["support.kb.search", "support.ticket.read", "identity.account.read"],
+          "darkPlaneRefuse": { "reason": "desk_plane_dark", "userMessageKey": "agents.support.unavailable" },
+          "liveAllowedTasks": ["support.classify", "support.reply"],
+          "tierLawRefuse": { "reason": "tier_law_blank", "userMessageKey": "agents.support.tier_closed" },
+          "escalationUserMessageKey": "agents.support.escalated",
+          "inventsBalances": false,
+          "inventsRefunds": false,
+          "escalationFirstClass": true
+        }
+      }
+    },
+    {
+      "name": "stage1Guardrail",
+      "path": "support.stage1Guardrail",
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "agentId": "support",
+          "version": 3,
+          "tools": [
+            { "name": "support.ticket.read", "module": "support", "mode": "read", "requiresApproval": false },
+            { "name": "support.kb.search", "module": "support", "mode": "read", "requiresApproval": false },
+            { "name": "identity.account.read", "module": "identity", "mode": "read", "requiresApproval": false },
+            { "name": "support.ticket.comment", "module": "support", "mode": "write", "requiresApproval": true, "maxCallsPerSession": 20 }
+          ],
+          "limits": {
+            "maxActionsPerSession": 40,
+            "maxOutputTokensPerCall": 2048,
+            "maxSpendPerSession": "0.5",
+            "allowedModules": ["support", "identity"],
+            "allowedTasks": ["support.classify", "support.reply"]
+          }
+        }
+      }
+    },
+    {
+      "name": "tierGate: no law",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.support.tier_closed" } }
+    },
+    {
+      "name": "tierGate: unpublished",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":false}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.support.tier_closed" } }
+    },
+    {
+      "name": "tierGate: empty matrix",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{}}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_law_blank", "userMessageKey": "agents.support.tier_closed" } }
+    },
+    {
+      "name": "tierGate: granted",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "ok",
+          "userTier": "basic",
+          "allowedTools": ["support.kb.search", "support.ticket.read", "identity.account.read"]
+        }
+      }
+    },
+    {
+      "name": "tierGate: granted nothing",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[]}}}",
+      "answer": { "data": { "status": "ok", "userTier": "basic", "allowedTools": [] } }
+    },
+    {
+      "name": "tierGate: another tier",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"full\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "refuse", "reason": "tier_not_granted", "userMessageKey": "agents.support.tier_closed" } }
+    },
+    {
+      "name": "tierGate: no tier",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": "",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "tierGate: a padded tier",
+      "path": "support.tierGate",
+      "input": {},
+      "tier": " basic ",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "tierGate: a stray key",
+      "path": "support.tierGate",
+      "input": { "tier": "basic" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"tier\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"tier\\\"\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "draftComment: ok",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "We are looking into it." },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "We are looking into it." } }
+    },
+    {
+      "name": "draftComment: padded",
+      "path": "support.draftComment",
+      "input": { "ticketId": "  tkt-1 ", "body": "\n  We are looking into it.\t" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "We are looking into it." } }
+    },
+    {
+      "name": "draftComment: no ticket",
+      "path": "support.draftComment",
+      "input": { "body": "Hello" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "missing_ticket", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: null ticket",
+      "path": "support.draftComment",
+      "input": { "ticketId": null, "body": "Hello" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "missing_ticket", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: blank ticket",
+      "path": "support.draftComment",
+      "input": { "ticketId": "   ", "body": "Hello" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "missing_ticket", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: no body",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "empty_body", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: null body",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": null },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "empty_body", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: blank body",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "    " },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "empty_body", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: 4000 characters",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "ticketId": "tkt-1",
+          "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "name": "draftComment: 4001 characters",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "body_too_long", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: 4000 characters padded",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": " aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "ticketId": "tkt-1",
+          "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "name": "draftComment: 2000 astral characters",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "ok",
+          "ticketId": "tkt-1",
+          "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      }
+    },
+    {
+      "name": "draftComment: 2001 astral characters",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "body_too_long", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: over the input cap",
+      "path": "support.draftComment",
+      "input": {
+        "ticketId": "tkt-1",
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"origin\": \"string\",\n    \"code\": \"too_big\",\n    \"maximum\": 5000,\n    \"inclusive\": true,\n    \"path\": [\n      \"body\"\n    ],\n    \"message\": \"Too big: expected string to have <=5000 characters\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "draftComment: I refunded",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "Good news, I refunded you." },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: I have refunded",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "I HAVE REFUNDED the fee" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: balance is",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "Your balance is 100 now" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: balance now",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "balance now 5" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: balance is a word",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "your balance is fine" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "your balance is fine" } }
+    },
+    {
+      "name": "draftComment: credited",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "We credited $50" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: wired",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "wired 10 to you" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: sent you",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "We Sent You $3." },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: payout of",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "A payout of value" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "reason": "money_invent_language", "userMessageKey": "agents.support.comment_refused" } }
+    },
+    {
+      "name": "draftComment: inside a word",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "xpayout of" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "xpayout of" } }
+    },
+    {
+      "name": "draftComment: a digit after",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "credited 5x" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "credited 5x" } }
+    },
+    {
+      "name": "draftComment: a dotless i",
+      "path": "support.draftComment",
+      "input": { "ticketId": "tkt-1", "body": "ı refunded" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "ticketId": "tkt-1", "body": "ı refunded" } }
+    },
+    {
+      "name": "grounded: dark",
+      "path": "support.grounded",
+      "input": { "plane": "dark" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": { "status": "refuse", "plane": "dark", "reason": "desk_plane_dark", "userMessageKey": "agents.support.unavailable" }
+      }
+    },
+    {
+      "name": "grounded: dark, KB live",
+      "path": "support.grounded",
+      "input": { "plane": "dark", "kbPlane": "live", "kbHitCount": 3, "requireKb": true },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": { "status": "refuse", "plane": "dark", "reason": "desk_plane_dark", "userMessageKey": "agents.support.unavailable" }
+      }
+    },
+    {
+      "name": "grounded: live",
+      "path": "support.grounded",
+      "input": { "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "plane": "live", "allowedTasks": ["support.classify", "support.reply"] } }
+    },
+    {
+      "name": "grounded: KB dark",
+      "path": "support.grounded",
+      "input": { "plane": "live", "kbPlane": "dark" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "plane": "dark", "reason": "kb_empty", "userMessageKey": "agents.support.unavailable" } }
+    },
+    {
+      "name": "grounded: KB live",
+      "path": "support.grounded",
+      "input": { "plane": "live", "kbPlane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "plane": "live", "allowedTasks": ["support.classify", "support.reply"] } }
+    },
+    {
+      "name": "grounded: KB required, no count",
+      "path": "support.grounded",
+      "input": { "plane": "live", "requireKb": true },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "plane": "dark", "reason": "kb_empty", "userMessageKey": "agents.support.unavailable" } }
+    },
+    {
+      "name": "grounded: KB required, none",
+      "path": "support.grounded",
+      "input": { "plane": "live", "requireKb": true, "kbHitCount": 0 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "refuse", "plane": "dark", "reason": "kb_empty", "userMessageKey": "agents.support.unavailable" } }
+    },
+    {
+      "name": "grounded: KB required, hits",
+      "path": "support.grounded",
+      "input": { "plane": "live", "requireKb": true, "kbHitCount": 3 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "plane": "live", "allowedTasks": ["support.classify", "support.reply"] } }
+    },
+    {
+      "name": "grounded: KB not required, none",
+      "path": "support.grounded",
+      "input": { "plane": "live", "requireKb": false, "kbHitCount": 0 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "ok", "plane": "live", "allowedTasks": ["support.classify", "support.reply"] } }
+    },
+    {
+      "name": "grounded: a fraction",
+      "path": "support.grounded",
+      "input": { "plane": "live", "kbHitCount": 1.5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"expected\": \"int\",\n    \"format\": \"safeint\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"kbHitCount\"\n    ],\n    \"message\": \"Invalid input: expected int, received number\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: a money tool",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "ledger.post", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": { "status": "refuse", "tool": "ledger.post", "reason": "money_tool", "userMessageKey": "agents.support.unavailable" },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "ledger.post",
+            "reason": "money_tool",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: a padded money tool",
+      "path": "support.invokeDataTool",
+      "input": { "tool": " pay.refund ", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": { "status": "refuse", "tool": "pay.refund", "reason": "money_tool", "userMessageKey": "agents.support.unavailable" },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "pay.refund",
+            "reason": "money_tool",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: a live write",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "trade.place", "plane": "dark" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": { "status": "refuse", "tool": "trade.place", "reason": "money_tool", "userMessageKey": "agents.support.unavailable" },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "trade.place",
+            "reason": "money_tool",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: dark",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "dark", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "desk_plane_dark",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "desk_plane_dark",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: KB dark",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "dark", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "kb_empty",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "kb_empty",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: no law",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: unpublished",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":false}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: empty matrix",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "tier_law_blank",
+            "userMessageKey": "agents.support.tier_closed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: another tier",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"full\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "tier_not_granted",
+            "userMessageKey": "agents.support.tier_closed"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "tier_not_granted",
+            "userMessageKey": "agents.support.tier_closed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: no tier",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": " ",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "error": { "code": "UNAUTHORIZED", "message": "Authentication required" } }
+    },
+    {
+      "name": "invokeDataTool: undeclared",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.unknown", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\",\"pay.refund\",\"support.ticket.comment\",\"support.unknown\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.unknown",
+            "reason": "tool_not_declared",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.unknown",
+            "reason": "tool_not_declared",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: declared, not a data tool",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.ticket.comment", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\",\"pay.refund\",\"support.ticket.comment\",\"support.unknown\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.comment",
+            "reason": "tool_not_declared",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.comment",
+            "reason": "tool_not_declared",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: not in tier",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "tool_not_in_tier",
+            "userMessageKey": "agents.support.tier_closed"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "tool_not_in_tier",
+            "userMessageKey": "agents.support.tier_closed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: live, no port",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.kb.search",
+        "plane": "live",
+        "kbPlane": "live",
+        "limit": 5,
+        "articles": [
+          {
+            "articleKey": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: live, no port, a stamp",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live", "occurredAt": "2026-11-18T09:00:00Z" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-18T09:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: a stray key",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5, "requester": "99999999-9999-4999-8999-999999999999" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"requester\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"requester\\\"\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: no page size",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "kb_search_limit_unset",
+            "userMessageKey": "agents.refused.kb_search_limit_unset"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "kb_search_limit_unset",
+            "userMessageKey": "agents.refused.kb_search_limit_unset",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: ok",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          },
+          { "id": "kb-account-access", "titleKey": "support.kb.account_access.title", "bodyKey": "support.kb.account_access.body" }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.kb.search",
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              },
+              {
+                "articleKey": "kb-account-access",
+                "titleKey": "support.kb.account_access.title",
+                "bodyKey": "support.kb.account_access.body"
+              }
+            ]
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.kb.search",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: wrapped",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "result": {
+            "data": [
+              {
+                "id": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.kb.search",
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.kb.search",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: wrapped json",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "result": {
+            "data": {
+              "json": [
+                {
+                  "id": "support.kb.withdrawal_hold",
+                  "titleKey": "support.kb.withdrawal_hold.title",
+                  "bodyKey": "support.kb.withdrawal_hold.body"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.kb.search",
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.kb.search",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: wrapped null",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": { "result": { "data": null } } },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: extra fields",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body",
+            "version": 2,
+            "published": true,
+            "tags": ["a"],
+            "secret": "x"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.kb.search",
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.kb.search",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: none",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": [] },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "kb_empty",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "kb_empty",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: a sentence",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [{ "id": "support.kb.withdrawal_hold", "titleKey": "support.kb.withdrawal_hold.title", "bodyKey": "Your money is safe" }]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "incomplete_article",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "incomplete_article",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: a padded key",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [{ "id": "support.kb.withdrawal_hold", "titleKey": " support.kb.x ", "bodyKey": "support.kb.withdrawal_hold.body" }]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.kb.search",
+            "articles": [
+              { "articleKey": "support.kb.withdrawal_hold", "titleKey": " support.kb.x ", "bodyKey": "support.kb.withdrawal_hold.body" }
+            ]
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.kb.search",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: one segment",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [{ "id": "withdrawals", "titleKey": "support.kb.withdrawal_hold.title", "bodyKey": "support.kb.withdrawal_hold.body" }]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "incomplete_article",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "incomplete_article",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: a blank id",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [{ "id": "", "titleKey": "support.kb.withdrawal_hold.title", "bodyKey": "support.kb.withdrawal_hold.body" }]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: version 0",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body",
+            "version": 0
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: a bad audience",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body",
+            "audience": "nobody"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: an object",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "articles": [
+            {
+              "id": "support.kb.withdrawal_hold",
+              "titleKey": "support.kb.withdrawal_hold.title",
+              "bodyKey": "support.kb.withdrawal_hold.body"
+            }
+          ]
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: 500",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 500,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, search: down",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.kb.search", "plane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "throws": true },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.kb.search",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: no ticket",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "support.ticket.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: a blank id",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": { "ticketId": "  ", "ownerUserId": "11111111-1111-4111-8111-111111111111", "status": "open", "category": "withdrawal" }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: ok",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "open",
+              "category": "deposit_withdraw"
+            }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.ticket.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: padded id",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": " 55555555-5555-4555-8555-555555555555 ",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "open",
+              "category": "deposit_withdraw"
+            }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.ticket.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: wrapped",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "result": {
+            "data": {
+              "json": {
+                "id": "55555555-5555-4555-8555-555555555555",
+                "userId": "11111111-1111-4111-8111-111111111111",
+                "category": "deposit_withdraw",
+                "subject": "Where is my withdrawal?",
+                "body": "It has been pending for a day.",
+                "status": "resolved",
+                "assigneeId": null,
+                "createdAt": "2026-11-18T10:00:00.000Z",
+                "updatedAt": "2026-11-18T10:00:00.000Z"
+              }
+            }
+          }
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "resolved",
+              "category": "deposit_withdraw"
+            }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.ticket.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: optional fields",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z",
+          "messageHeaders": null,
+          "mergedInto": null,
+          "customerStatus": "open"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "open",
+              "category": "deposit_withdraw"
+            }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "support.ticket.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: somebody else",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "99999999-9999-4999-8999-999999999999",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "not_ticket_owner",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "not_ticket_owner",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: another id",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "99999999-9999-4999-8999-999999999999",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: not a guid",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": { "ticketId": "tkt-1", "ownerUserId": "11111111-1111-4111-8111-111111111111", "status": "open", "category": "withdrawal" }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "tkt-1",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: a bad status",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "lost",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: a bad time",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "yesterday"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: a blank subject",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: 404",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 404, "body": { "error": "missing" } },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "missing_fixture",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: 401",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 401, "body": {} },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, ticket: down",
+      "path": "support.invokeDataTool",
+      "input": {
+        "tool": "support.ticket.read",
+        "plane": "live",
+        "ticket": {
+          "ticketId": "55555555-5555-4555-8555-555555555555",
+          "ownerUserId": "11111111-1111-4111-8111-111111111111",
+          "status": "open",
+          "category": "withdrawal"
+        }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "throws": true },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "support.ticket.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: ok",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" } },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "identity.account.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: archived, frozen",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": { "userId": "11111111-1111-4111-8111-111111111111", "status": "frozen", "kycTier": "basic", "archived": false }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "frozen", "kycTier": "basic" }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "identity.account.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: a money field",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "status": "active",
+          "kycTier": "basic",
+          "balance": "100",
+          "availableBalance": "5"
+        }
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "ok",
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "executed",
+            "tool": "identity.account.read",
+            "reason": null,
+            "userMessageKey": "agents.action.executed",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: somebody else",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": { "userId": "99999999-9999-4999-8999-999999999999", "status": "active", "kycTier": "basic" } },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: a bad tier",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "tier2" } },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: 404",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 404, "body": {} },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: down",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "throws": true },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "no_live_kb",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "invokeDataTool: desk, account: no identity",
+      "path": "support.invokeDataTool",
+      "input": { "tool": "identity.account.read", "plane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" },
+        "identity": false
+      },
+      "answer": {
+        "data": {
+          "result": {
+            "status": "refuse",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable"
+          },
+          "audit": {
+            "sequence": 0,
+            "kind": "tool_call",
+            "status": "refused",
+            "tool": "identity.account.read",
+            "reason": "account_plane_dark",
+            "userMessageKey": "agents.support.unavailable",
+            "occurredAt": "2026-11-19T00:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "answerOrEscalate: a money request",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "moneyRequest": true, "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "money_request", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: dark",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "dark", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: KB omitted is dark",
+      "path": "support.answerOrEscalate",
+      "input": {
+        "tool": "support.kb.search",
+        "plane": "live",
+        "limit": 5,
+        "articles": [
+          {
+            "articleKey": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "kb_no_hit", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: live, no port",
+      "path": "support.answerOrEscalate",
+      "input": {
+        "tool": "support.kb.search",
+        "plane": "live",
+        "kbPlane": "live",
+        "limit": 5,
+        "articles": [
+          {
+            "articleKey": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: no law",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: a money tool",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "pay.refund", "plane": "live", "kbPlane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: moneyRequest false",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "dark", "moneyRequest": false },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "data": { "status": "escalate", "reason": "kb_no_hit", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, hits",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          },
+          { "id": "kb-account-access", "titleKey": "support.kb.account_access.title", "bodyKey": "support.kb.account_access.body" }
+        ]
+      },
+      "answer": { "data": { "status": "answer", "citedArticleKeys": ["support.kb.withdrawal_hold", "kb-account-access"] } }
+    },
+    {
+      "name": "answerOrEscalate: desk, a money request with hits",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5, "moneyRequest": true },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": { "data": { "status": "escalate", "reason": "money_request", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, no hits",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": [] },
+      "answer": { "data": { "status": "escalate", "reason": "kb_no_hit", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, no page size",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, the desk down",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "throws": true },
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, a sentence",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.kb.search", "plane": "live", "kbPlane": "live", "limit": 5 },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [{ "id": "support.kb.withdrawal_hold", "titleKey": "Hello there", "bodyKey": "support.kb.withdrawal_hold.body" }]
+      },
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, an account read",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "identity.account.read", "plane": "live", "kbPlane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": { "status": 200, "body": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" } },
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "answerOrEscalate: desk, a ticket read",
+      "path": "support.answerOrEscalate",
+      "input": { "tool": "support.ticket.read", "plane": "live", "kbPlane": "live" },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": {
+          "id": "55555555-5555-4555-8555-555555555555",
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "category": "deposit_withdraw",
+          "subject": "Where is my withdrawal?",
+          "body": "It has been pending for a day.",
+          "status": "open",
+          "assigneeId": null,
+          "createdAt": "2026-11-18T10:00:00.000Z",
+          "updatedAt": "2026-11-18T10:00:00.000Z"
+        }
+      },
+      "answer": { "data": { "status": "escalate", "reason": "desk_refused", "userMessageKey": "agents.support.escalated" } }
+    },
+    {
+      "name": "runSession: dark",
+      "path": "support.runSession",
+      "input": {
+        "plane": "dark",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "desk_plane_dark",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: dark, a money request",
+      "path": "support.runSession",
+      "input": {
+        "plane": "dark",
+        "moneyRequest": true,
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "desk_plane_dark",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: a money request",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "moneyRequest": true,
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "escalate",
+          "reason": "money_request",
+          "userMessageKey": "agents.support.escalated",
+          "findings": [],
+          "unanswered": [],
+          "caseFile": {
+            "reason": "money_request",
+            "moneyRequest": true,
+            "findings": [],
+            "unanswered": [],
+            "ticketIds": [],
+            "citedArticleKeys": [],
+            "accounts": []
+          },
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: moneyRequest false",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "moneyRequest": false,
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_law_blank",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: no law",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": null,
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_law_blank",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: unpublished",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":false}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_law_blank",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: empty matrix",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_law_blank",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: another tier",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "none",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: no catalog",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "kb_plane_ungrounded",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: a null catalog",
+      "path": "support.runSession",
+      "input": { "plane": "live", "kbCatalog": null, "asks": [{ "tool": "support.kb.search", "kbQuery": "withdrawal-hold", "limit": 20 }] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "kb_plane_ungrounded",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: an empty catalog",
+      "path": "support.runSession",
+      "input": { "plane": "live", "kbCatalog": [], "asks": [{ "tool": " support.kb.search ", "kbQuery": "account", "limit": 20 }] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "kb_plane_ungrounded",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: nothing asked",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": []
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "kb_plane_ungrounded",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: nothing asked, no catalog",
+      "path": "support.runSession",
+      "input": { "plane": "live", "asks": [] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "kb_plane_ungrounded",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live, no port",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_kb",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: live, no port, no KB ask",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "no_live_kb",
+          "userMessageKey": "agents.support.unavailable",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: a key may not run",
+      "path": "support.runSession",
+      "input": {
+        "plane": "dark",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": { "error": { "code": "FORBIDDEN", "message": "Scope \"agents:execute\" is required" } }
+    },
+    {
+      "name": "runSession: a body naming its tier",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ],
+        "userTier": "basic"
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"userTier\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"userTier\\\"\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "runSession: a body naming its law",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ],
+        "law": { "published": true }
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"law\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"law\\\"\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "runSession: 21 asks",
+      "path": "support.runSession",
+      "input": {
+        "plane": "dark",
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          },
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_big\",\n    \"maximum\": 20,\n    \"inclusive\": true,\n    \"path\": [\n      \"asks\"\n    ],\n    \"message\": \"Too big: expected array to have <=20 items\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "runSession: a bad grounding",
+      "path": "support.runSession",
+      "input": {
+        "plane": "dark",
+        "asks": [
+          {
+            "tool": "identity.account.read",
+            "accountGrounding": {
+              "status": "read",
+              "state": { "userId": "u1", "status": "active", "kycTier": "basic" },
+              "readAt": "2026-11-18T10:00:00.000Z"
+            }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "answer": {
+        "error": {
+          "code": "BAD_REQUEST",
+          "message": "[\n  {\n    \"origin\": \"string\",\n    \"code\": \"invalid_format\",\n    \"format\": \"guid\",\n    \"pattern\": \"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\",\n    \"path\": [\n      \"asks\",\n      0,\n      \"accountGrounding\",\n      \"state\",\n      \"userId\"\n    ],\n    \"message\": \"Invalid GUID\"\n  }\n]"
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, no tool granted",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "open",
+              "category": "withdrawal"
+            }
+          },
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, nothing granted",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [
+          {
+            "tool": "support.kb.search",
+            "limit": 20,
+            "articles": [
+              {
+                "articleKey": "support.kb.withdrawal_hold",
+                "titleKey": "support.kb.withdrawal_hold.title",
+                "bodyKey": "support.kb.withdrawal_hold.body"
+              }
+            ]
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, a padded grant miss",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "kbCatalog": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ],
+        "asks": [{ "tool": " support.unknown " }]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "refuse",
+          "reason": "tier_not_granted",
+          "userMessageKey": "agents.support.tier_closed",
+          "unanswered": [],
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, no KB ask",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          },
+          {
+            "tool": "support.ticket.read",
+            "ticket": {
+              "ticketId": "55555555-5555-4555-8555-555555555555",
+              "ownerUserId": "11111111-1111-4111-8111-111111111111",
+              "status": "open",
+              "category": "withdrawal"
+            }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "escalate",
+          "reason": "kb_no_hit",
+          "userMessageKey": "agents.support.escalated",
+          "findings": [],
+          "unanswered": [],
+          "caseFile": {
+            "reason": "kb_no_hit",
+            "moneyRequest": false,
+            "findings": [],
+            "unanswered": [],
+            "ticketIds": [],
+            "citedArticleKeys": [],
+            "accounts": []
+          },
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, no KB ask, the KB not granted",
+      "path": "support.runSession",
+      "input": {
+        "plane": "live",
+        "asks": [
+          {
+            "tool": "identity.account.read",
+            "account": { "userId": "11111111-1111-4111-8111-111111111111", "status": "active", "kycTier": "basic" }
+          }
+        ]
+      },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.ticket.read\",\"identity.account.read\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "escalate",
+          "reason": "kb_no_hit",
+          "userMessageKey": "agents.support.escalated",
+          "findings": [],
+          "unanswered": [],
+          "caseFile": {
+            "reason": "kb_no_hit",
+            "moneyRequest": false,
+            "findings": [],
+            "unanswered": [],
+            "ticketIds": [],
+            "citedArticleKeys": [],
+            "accounts": []
+          },
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    },
+    {
+      "name": "runSession: desk, no KB ask, a money tool",
+      "path": "support.runSession",
+      "input": { "plane": "live", "asks": [{ "tool": "pay.refund" }] },
+      "tier": "basic",
+      "scopes": ["agents:read", "agents:execute", "identity:write"],
+      "laws": "{\"support\":{\"published\":true,\"matrix\":{\"basic\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\",\"pay.refund\",\"support.ticket.comment\",\"support.unknown\"]}}}",
+      "port": {
+        "status": 200,
+        "body": [
+          {
+            "id": "support.kb.withdrawal_hold",
+            "titleKey": "support.kb.withdrawal_hold.title",
+            "bodyKey": "support.kb.withdrawal_hold.body"
+          }
+        ]
+      },
+      "answer": {
+        "data": {
+          "status": "escalate",
+          "reason": "kb_no_hit",
+          "userMessageKey": "agents.support.escalated",
+          "findings": [],
+          "unanswered": [],
+          "caseFile": {
+            "reason": "kb_no_hit",
+            "moneyRequest": false,
+            "findings": [],
+            "unanswered": [],
+            "ticketIds": [],
+            "citedArticleKeys": [],
+            "accounts": []
+          },
+          "metering": { "sessionId": null, "billedAmount": "0", "assetId": "fixture-asset", "sessionClosed": false, "settlements": [] }
+        }
+      }
+    }
+  ]
+}

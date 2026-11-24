@@ -1,0 +1,4552 @@
+{
+  "nodes": [
+    { "t": "object", "shape": [["key", 1]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 3],
+        ["replyId", 4]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["taskId", 6]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["certId", 8],
+        ["revision", 9],
+        ["reason", 10]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["body", 13],
+        ["key", 14]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 2000 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "object", "shape": [["itemId", 16]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 18],
+        ["revision", 19],
+        ["path", 20]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "enum", "values": ["template", "model"] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 22],
+        ["authorId", 23],
+        ["reason", 24]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["id", 26]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 28 },
+    { "t": "object", "shape": [["path", 29]], "catchall": "strict" },
+    { "t": "optional", "in": 30 },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 30],
+        ["rows", 32],
+        ["reason", 37]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "array",
+      "el": 33,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 1000 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["address", 34],
+        ["userId", 35]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 320 }] },
+    { "t": "nullable", "in": 36 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 39],
+        ["fileName", 40],
+        ["csv", 41]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 262144 }
+      ]
+    },
+    { "t": "object", "shape": [["certId", 8]], "catchall": "strict" },
+    { "t": "optional", "in": 44 },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    { "t": "object", "shape": [["n", 46]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 48 },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    { "t": "object", "shape": [["certId", 8]] },
+    { "t": "object", "shape": [["reason", 51]], "catchall": "strict" },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 53],
+        ["to", 54],
+        ["pathSlug", 55]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    { "t": "optional", "in": 56 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "object", "shape": [["mediaId", 58]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["changeId", 60]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["courseId", 62]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["courseId", 64]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["limit", 66]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 68 },
+    { "t": "object", "shape": [["path", 69]], "catchall": "strict" },
+    { "t": "optional", "in": 30 },
+    { "t": "object", "shape": [["courseId", 71]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["itemId", 73]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["courseId", 75]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["state", 77],
+        ["limit", 79]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 78 },
+    { "t": "enum", "values": ["draft", "published", "concluded", "archived", "deleted"] },
+    { "t": "optional", "in": 80 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [["courseId", 82]], "catchall": "strict" },
+    { "t": "nullable", "in": 83 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 85],
+        ["title", 86],
+        ["summary", 87],
+        ["thumbnailUrl", 89],
+        ["pricing", 91],
+        ["price", 92],
+        ["priceAsset", 94]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "pricing_holds", "msg": "a price comes with its asset, and only a paid course has one" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 64 },
+        { "k": "regex", "src": "/^[a-z0-9]+(?:-[a-z0-9]+)*$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "nullable", "in": 88 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 1000 }] },
+    { "t": "nullable", "in": 90 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2048 }, { "k": "url" }, { "k": "starts_with", "prefix": "https://" }] },
+    { "t": "enum", "values": ["free", "paid"] },
+    { "t": "nullable", "in": 93 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$/" },
+        { "k": "refine", "id": "has_nonzero_digit", "msg": "a price is more than zero" }
+      ]
+    },
+    { "t": "nullable", "in": 95 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z][A-Z0-9]{1,11}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 97],
+        ["reason", 98]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 85],
+        ["name", 100]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 60 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 102],
+        ["fileName", 103],
+        ["csv", 104],
+        ["dryRun", 105],
+        ["reason", 106]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 900000 }
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["certId", 8],
+        ["reason", 108]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 110],
+        ["basedOnRevision", 111],
+        ["kind", 112],
+        ["decision", 113]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "literal", "values": ["template"] },
+    { "t": "enum", "values": ["accept", "discard"] },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 115],
+        ["reason", 24]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 117],
+        ["limit", 118]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 120],
+        ["slug", 85],
+        ["title", 86],
+        ["reason", 121]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 123],
+        ["courseRevision", 124]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 126],
+        ["to", 127]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 129],
+        ["reason", 130]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 132],
+        ["revision", 133],
+        ["questions", 134],
+        ["reason", 161]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "array", "el": 135, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "dunion",
+      "disc": "kind",
+      "options": [136, 147, 154, 159],
+      "checks": [
+        { "k": "refine", "id": "unique_choice_ids", "path": ["choices"], "msg": "choice ids are unique" },
+        { "k": "refine", "id": "single_key_is_choice", "path": ["correctChoiceId"], "msg": "the key is one of the choices" },
+        { "k": "refine", "id": "multi_keys_are_choices", "path": ["correctChoiceIds"], "msg": "every key is one of the choices, once" },
+        {
+          "k": "refine",
+          "id": "partial_credit_splits",
+          "path": ["points"],
+          "msg": "with partial credit the points split into a whole share per correct choice"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 137],
+        ["id", 138],
+        ["prompt", 139],
+        ["points", 140],
+        ["choices", 141],
+        ["correctChoiceId", 145]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["single"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 80 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 2000 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
+    {
+      "t": "array",
+      "el": 142,
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 143],
+        ["text", 144]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{1,40}$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "nullable", "in": 146 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{1,40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 148],
+        ["id", 138],
+        ["prompt", 139],
+        ["points", 140],
+        ["choices", 149],
+        ["correctChoiceIds", 150],
+        ["partialCredit", 153]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["multi"] },
+    {
+      "t": "array",
+      "el": 142,
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    { "t": "nullable", "in": 151 },
+    {
+      "t": "array",
+      "el": 152,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{1,40}$/" }] },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 155],
+        ["id", 138],
+        ["prompt", 139],
+        ["points", 140],
+        ["answer", 156],
+        ["tolerance", 158]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["numeric"] },
+    { "t": "nullable", "in": 157 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^-?(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,18})?$/" }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^-?(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,18})?$/" },
+        { "k": "refine", "id": "not_negative", "msg": "a tolerance is not negative" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 160],
+        ["id", 138],
+        ["prompt", 139],
+        ["points", 140]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["essay"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 163],
+        ["n", 164]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 166],
+        ["submissionId", 167],
+        ["n", 168],
+        ["score", 169],
+        ["comment", 170],
+        ["reason", 172]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$/" }] },
+    { "t": "nullable", "in": 171 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 5000 }] },
+    { "t": "nullable", "in": 173 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["itemId", 175]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["pathSlug", 177],
+        ["reason", 178],
+        ["expiresAt", 179]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    { "t": "nullable", "in": 180 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 182 },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 183],
+        ["cursor", 185],
+        ["course", 187],
+        ["certificate", 189]
+      ],
+      "checks": [{ "k": "refine", "id": "course_or_certificate", "msg": "name a course or a certificate, not both" }]
+    },
+    { "t": "optional", "in": 184 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    { "t": "optional", "in": 186 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "optional", "in": 188 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 190 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 192],
+        ["certId", 8],
+        ["reason", 193],
+        ["approvalId", 194],
+        ["operationId", 197]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "optional", "in": 195 },
+    { "t": "nullable", "in": 196 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 198 },
+    { "t": "nullable", "in": 199 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 201],
+        ["itemId", 202],
+        ["userId", 203],
+        ["dueAt", 204],
+        ["reason", 205]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 207],
+        ["itemSlug", 208],
+        ["reason", 209],
+        ["extendedUntil", 210],
+        ["clientRequestId", 211]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["itemSlug", 213],
+        ["until", 180],
+        ["reason", 178],
+        ["key", 14]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 215],
+        ["revision", 216],
+        ["document", 217]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 1048576 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 30],
+        ["address", 219],
+        ["reason", 37]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 320 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["certificate", 221],
+        ["limit", 223]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 222 },
+    { "t": "nullable", "in": 8 },
+    { "t": "optional", "in": 224 },
+    { "t": "nullable", "in": 225 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "object", "shape": [["itemId", 227]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["userId", 12]], "catchall": "strict" },
+    {
+      "t": "object",
+      "shape": [
+        ["tag", 230],
+        ["limit", 232]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 231 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^[a-z0-9][a-z0-9-]{0,39}$/" }] },
+    { "t": "optional", "in": 233 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["tag", 235],
+        ["after", 237]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 236 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^[a-z0-9][a-z0-9-]{0,39}$/" }] },
+    { "t": "optional", "in": 238 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["itemId", 240]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["itemSlug", 242],
+        ["reason", 178],
+        ["key", 14]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 244],
+        ["kind", 245],
+        ["fileName", 246],
+        ["contentType", 247],
+        ["bytes", 248],
+        ["sha256", 249]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["video", "handout"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z]+\\/[a-z0-9.+-]+$/" }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[0-9a-f]{64}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 251],
+        ["limit", 253]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 252 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["conversationId", 255],
+        ["limit", 256]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 258],
+        ["submissionId", 259]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 261],
+        ["to", 262]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 264],
+        ["attemptId", 265],
+        ["questionId", 266],
+        ["points", 267],
+        ["n", 268],
+        ["comment", 269],
+        ["reason", 271]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "nullable", "in": 270 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 2000 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["limit", 273]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 275],
+        ["accountId", 277],
+        ["role", 278],
+        ["kind", 281],
+        ["reason", 24],
+        ["requestId", 282]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 276 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "union", "options": [279, 280] },
+    {
+      "t": "enum",
+      "values": [
+        "admin",
+        "instructor",
+        "author",
+        "staff",
+        "limited_staff",
+        "data_researcher",
+        "discussion_admin",
+        "moderator",
+        "community_ta"
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^custom:[0-9a-f-]{36}$/" }] },
+    { "t": "enum", "values": ["assign", "revoke"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 284],
+        ["lessonRevision", 285],
+        ["courseRevision", 286],
+        ["reason", 287]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["key", 289],
+        ["reason", 290]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["grantId", 292],
+        ["reason", 178],
+        ["expiresAt", 293],
+        ["n", 294]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "nullable", "in": 180 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["conversationId", 296],
+        ["body", 297],
+        ["clientRequestId", 298]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 20000 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "object", "shape": [["id", 300]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["tag", 302],
+        ["key", 304]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 303 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^[a-z0-9][a-z0-9-]{0,39}$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 306],
+        ["tag", 307],
+        ["n", 308]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["learners"] },
+    { "t": "nullable", "in": 236 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 310],
+        ["reason", 311]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 313],
+        ["revision", 314],
+        ["toRevision", 315]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["publicId", 317],
+        ["reason", 318],
+        ["approvalId", 319],
+        ["operationId", 322]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[0-9a-f]{32}$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "optional", "in": 320 },
+    { "t": "nullable", "in": 321 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 323 },
+    { "t": "nullable", "in": 324 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["linkId", 326],
+        ["reason", 327]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 329],
+        ["revision", 330],
+        ["instructions", 331],
+        ["points", 332],
+        ["dueAt", 333],
+        ["text", 335],
+        ["file", 336]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "text_or_file", "path": ["text"], "msg": "a learner hands in text, a file or both" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 10000 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$/" },
+        { "k": "refine", "id": "has_nonzero_digit", "msg": "points are more than zero" }
+      ]
+    },
+    { "t": "nullable", "in": 334 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "enum", "values": ["off", "optional", "required"] },
+    { "t": "enum", "values": ["off", "optional", "required"] },
+    {
+      "t": "object",
+      "shape": [
+        ["title", 338],
+        ["body", 339],
+        ["signatories", 340],
+        ["disclaimer", 344],
+        ["language", 346],
+        ["size", 347],
+        ["effortHours", 348],
+        ["certId", 8],
+        ["revision", 350],
+        ["reason", 351]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 2000 }] },
+    { "t": "array", "el": 341, "checks": [{ "k": "max_length", "n": 4 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 342],
+        ["role", 343]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "nullable", "in": 345 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 2000 }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z]{2,3}(-[A-Z]{2})?$/" }] },
+    { "t": "enum", "values": ["a4", "letter"] },
+    { "t": "nullable", "in": 349 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d{1,4}(\\.\\d{1,2})?$/" }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 353],
+        ["revision", 354],
+        ["passMark", 355],
+        ["attemptLimit", 357],
+        ["scoringPolicy", 359],
+        ["timeLimitSeconds", 361],
+        ["reviewMode", 363],
+        ["ipAllow", 364],
+        ["kind", 367],
+        ["anonymous", 368],
+        ["resultsVisibility", 369],
+        ["accessCode", 370],
+        ["questions", 373]
+      ],
+      "catchall": "strict",
+      "checks": [
+        { "k": "refine", "id": "unique_question_ids", "path": ["questions"], "msg": "question ids are unique" },
+        { "k": "refine", "id": "graded_has_keys", "path": ["questions"], "msg": "a graded quiz has the key to every question" },
+        { "k": "refine", "id": "only_survey_anonymous", "path": ["anonymous"], "msg": "only a survey is anonymous" },
+        {
+          "k": "refine",
+          "id": "after_last_needs_limit",
+          "path": ["resultsVisibility"],
+          "msg": "results after the last attempt need an attempt limit"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "nullable", "in": 356 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "nullable", "in": 358 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
+    { "t": "nullable", "in": 360 },
+    { "t": "enum", "values": ["highest", "latest", "first", "average"] },
+    { "t": "nullable", "in": 362 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 86400, "incl": true }] },
+    { "t": "enum", "values": ["answers", "score_only"] },
+    { "t": "nullable", "in": 365 },
+    {
+      "t": "array",
+      "el": 366,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 50 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "trim" },
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 64 },
+        { "k": "regex", "src": "/^(?:[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*)(?:\\/[0-9]{1,3})?$/" }
+      ]
+    },
+    { "t": "enum", "values": ["quiz", "survey"] },
+    { "t": "boolean" },
+    { "t": "enum", "values": ["always", "after_last_attempt", "never"] },
+    { "t": "optional", "in": 371 },
+    { "t": "nullable", "in": 372 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 4 }, { "k": "max_length", "n": 64 }] },
+    { "t": "array", "el": 135, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 375],
+        ["permissions", 376],
+        ["reason", 24],
+        ["requestId", 282]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "trim" },
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 },
+        { "k": "regex", "src": "/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/" },
+        { "k": "refine", "id": "not_builtin_role", "msg": "that name is a built-in role" }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 377,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 15 }
+      ]
+    },
+    {
+      "t": "enum",
+      "values": [
+        "content.edit",
+        "content.publish",
+        "content.delete",
+        "grade",
+        "enrol",
+        "reports",
+        "certificates",
+        "comments",
+        "coaching",
+        "refund.request",
+        "financial.view",
+        "discussion.moderate",
+        "discussion.endorse",
+        "discussion.assign",
+        "roles.assign"
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 379],
+        ["slug", 380],
+        ["title", 381],
+        ["pinned", 382],
+        ["position", 383],
+        ["reason", 384]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 },
+        { "k": "regex", "src": "/^[a-z0-9]+(?:-[a-z0-9]+)*$/" },
+        { "k": "refine", "id": "not_general_topic", "msg": "General is every course’s default topic and is not saved" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "boolean" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 386],
+        ["revision", 387],
+        ["types", 388],
+        ["reason", 395]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    {
+      "t": "array",
+      "el": 389,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 10 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 390],
+        ["weight", 391],
+        ["dropLowest", 392],
+        ["itemIds", 393]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 60 }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(?:0\\.(?=\\d*[1-9])\\d{1,4}|1(?:\\.0{1,4})?)$/" }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 20, "incl": true }] },
+    {
+      "t": "array",
+      "el": 394,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 100 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 397],
+        ["revision", 398],
+        ["policy", 399],
+        ["reason", 403]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "nullable", "in": 400 },
+    {
+      "t": "object",
+      "shape": [
+        ["graceHours", 401],
+        ["deductionPerDay", 402]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(?:0|[1-9]\\d{0,3})(?:\\.\\d{1,2})?$/" }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(?:0\\.(?=\\d*[1-9])\\d{1,4}|1(?:\\.0{1,4})?)$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 405],
+        ["revision", 406],
+        ["blocks", 407]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    {
+      "t": "array",
+      "el": 408,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "dunion", "disc": "type", "options": [409, 412, 416, 418, 420] },
+    {
+      "t": "object",
+      "shape": [
+        ["type", 410],
+        ["markdown", 411]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["text"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 20000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["type", 413],
+        ["url", 414],
+        ["alt", 415]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["image"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2048 }, { "k": "url" }, { "k": "starts_with", "prefix": "https://" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["type", 417],
+        ["url", 414],
+        ["title", 415]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["audio"] },
+    {
+      "t": "object",
+      "shape": [
+        ["type", 419],
+        ["url", 414],
+        ["title", 415]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["pdf"] },
+    {
+      "t": "object",
+      "shape": [
+        ["type", 421],
+        ["language", 422],
+        ["source", 423]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["code"] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z0-9+#-]{1,20}$/" }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 20000 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 425],
+        ["revision", 426],
+        ["sections", 427]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "array", "el": 428, "checks": [{ "k": "max_length", "n": 1000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 429],
+        ["title", 431],
+        ["items", 432]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 430 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "array", "el": 433, "checks": [{ "k": "max_length", "n": 1000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 434],
+        ["kind", 436],
+        ["title", 437],
+        ["indent", 438],
+        ["url", 439]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "link_has_url", "msg": "a link item has an https address, and only a link has one" }]
+    },
+    { "t": "optional", "in": 435 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["lesson", "video", "file", "quiz", "assignment", "discussion", "link", "subheader"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 2, "incl": true }] },
+    { "t": "nullable", "in": 440 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 2048 }, { "k": "url" }, { "k": "starts_with", "prefix": "https://" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 442],
+        ["title", 443],
+        ["summary", 444],
+        ["courseSlugs", 445],
+        ["expectedRevision", 447],
+        ["reason", 449]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "unique_course_slugs", "path": ["courseSlugs"], "msg": "a course is in a programme once" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 },
+        { "k": "regex", "src": "/^[a-z0-9]+(?:-[a-z0-9]+)*$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 1000 }] },
+    { "t": "array", "el": 446, "checks": [{ "k": "max_length", "n": 4 }] },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    { "t": "nullable", "in": 448 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 451],
+        ["revision", 452],
+        ["peer", 453],
+        ["peerCount", 454],
+        ["self", 456],
+        ["criteria", 457]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "boolean" },
+    { "t": "nullable", "in": 455 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 20, "incl": true }] },
+    { "t": "boolean" },
+    { "t": "array", "el": 458, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 459],
+        ["levels", 460]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "levels_ascend", "path": ["levels"], "msg": "levels go up, with no two alike" }]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    {
+      "t": "array",
+      "el": 461,
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 10 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(?:0|[1-9]\\d{0,5})(?:\\.\\d{1,2})?$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 463],
+        ["attemptId", 464],
+        ["points", 465]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "record", "key": 466, "value": 467 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 30],
+        ["subject", 469],
+        ["body", 470],
+        ["key", 304]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["certId", 8],
+        ["mode", 472],
+        ["delayMinutes", 473],
+        ["reason", 475]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "only_delayed_has_delay", "path": ["delayMinutes"], "msg": "only a delayed rule has a delay" }]
+    },
+    { "t": "enum", "values": ["manual", "automatic", "delayed"] },
+    { "t": "nullable", "in": 474 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 525600, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 477],
+        ["opensAt", 478],
+        ["closesAt", 480],
+        ["reason", 482]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 479 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 481 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 484],
+        ["itemId", 485],
+        ["prerequisiteIds", 486],
+        ["reason", 488]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "array", "el": 487, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 490],
+        ["pacing", 491],
+        ["reason", 492]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["self_paced", "instructor_paced"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 494],
+        ["state", 495],
+        ["reason", 496]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["draft", "published"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 498],
+        ["seatCap", 499],
+        ["reason", 501]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 500 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 1000000, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 503],
+        ["startsAt", 504],
+        ["reason", 506]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 505 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 508],
+        ["to", 509],
+        ["revision", 510],
+        ["reason", 511]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["published"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 513],
+        ["revision", 514],
+        ["topicIds", 515]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "unique_topic_ids", "msg": "a topic is named once" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "array", "el": 516, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 518],
+        ["visibility", 519],
+        ["reason", 520]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["published", "hidden", "unpublished"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["roleId", 522],
+        ["active", 523],
+        ["reason", 24]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["itemSlug", 525],
+        ["reason", 527]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 526 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 529],
+        ["language", 530],
+        ["label", 531],
+        ["format", 532],
+        ["text", 533]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 60 }] },
+    { "t": "enum", "values": ["srt", "vtt"] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 524288 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemSlug", 535],
+        ["prerequisites", 536]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "array", "el": 537, "checks": [{ "k": "max_length", "n": 40 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemSlug", 539],
+        ["videoSlug", 540],
+        ["reason", 542]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 541 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemSlug", 544],
+        ["availableFrom", 545],
+        ["availableUntil", 547],
+        ["dueAt", 549]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 546 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 548 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 550 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 552],
+        ["quiz", 553],
+        ["reason", 575]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "nullable", "in": 554 },
+    {
+      "t": "object",
+      "shape": [
+        ["passMark", 555],
+        ["attemptLimit", 557],
+        ["timeLimitSeconds", 559],
+        ["reviewMode", 561],
+        ["resultsHiddenUntil", 562],
+        ["questions", 565]
+      ]
+    },
+    { "t": "nullable", "in": 556 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "nullable", "in": 558 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "nullable", "in": 560 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "enum", "values": ["answers", "score_only"] },
+    { "t": "optional", "in": 563 },
+    { "t": "nullable", "in": 564 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 566,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 100 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 567],
+        ["prompt", 568],
+        ["points", 569],
+        ["choices", 570],
+        ["correctChoiceId", 574]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 2000 }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "array",
+      "el": 571,
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 572],
+        ["text", 573]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 577],
+        ["sectionId", 578],
+        ["rule", 579],
+        ["reason", 587]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "nullable", "in": 580 },
+    { "t": "dunion", "disc": "kind", "options": [581, 584] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 582],
+        ["at", 583]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["at"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 585],
+        ["days", 586]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["after_enrolment"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 365, "incl": true }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["videoSlug", 589],
+        ["tracks", 590],
+        ["reason", 595]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "array", "el": 591, "checks": [{ "k": "max_length", "n": 12 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["language", 592],
+        ["label", 593],
+        ["vtt", 594]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/" }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 60 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200000 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 30],
+        ["userId", 36],
+        ["reason", 37]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 598 },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 599],
+        ["userId", 600]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 30 },
+    { "t": "optional", "in": 36 },
+    {
+      "t": "object",
+      "shape": [
+        ["userIds", 602],
+        ["tag", 231],
+        ["reason", 178]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "array",
+      "el": 12,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["tag", 231],
+        ["reason", 178]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 605],
+        ["revision", 606],
+        ["title", 86],
+        ["summary", 87],
+        ["thumbnailUrl", 89],
+        ["pricing", 91],
+        ["price", 92],
+        ["priceAsset", 94]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "pricing_holds", "msg": "a price comes with its asset, and only a paid course has one" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 12],
+        ["attemptId", 608],
+        ["reason", 178]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 610],
+        ["reason", 611]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["courseId", 613],
+        ["revision", 614],
+        ["reason", 615]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 617],
+        ["courseRevision", 618],
+        ["reason", 619]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["userId", 621]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["beneficiaryId", 623],
+        ["dryRun", 624],
+        ["residencyStatus", 626]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 625 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 627 },
+    { "t": "enum", "values": ["applied", "accepted", "rejected", "withdrawn"] },
+    { "t": "optional", "in": 629 },
+    { "t": "object", "shape": [["kind", 630]] },
+    { "t": "optional", "in": 631 },
+    { "t": "enum", "values": ["ifc_pay", "revenue_share"] },
+    {
+      "t": "object",
+      "shape": [
+        ["beneficiaryId", 633],
+        ["dryRun", 634],
+        ["residencyStatus", 636]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 635 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 637 },
+    { "t": "enum", "values": ["applied", "accepted", "rejected", "withdrawn"] },
+    { "t": "optional", "in": 639 },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 640],
+        ["limit", 642]
+      ]
+    },
+    { "t": "optional", "in": 641 },
+    { "t": "enum", "values": ["active", "frozen"] },
+    { "t": "optional", "in": 643 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["attemptId", 645],
+        ["questionId", 646],
+        ["answer", 647]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "union", "options": [648, 649] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 10000 }] },
+    { "t": "array", "el": 650, "checks": [{ "k": "max_length", "n": 20 }] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{1,40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["cohortSlug", 652],
+        ["statement", 653]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 20 },
+        { "k": "max_length", "n": 2000 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 655],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 657 },
+    { "t": "nullable", "in": 658 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 660 },
+    { "t": "nullable", "in": 661 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 663 },
+    { "t": "nullable", "in": 664 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["attemptId", 666],
+        ["questionId", 667],
+        ["choiceId", 668]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 670]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 672]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["attemptId", 674]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 676]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["attemptId", 678]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 680]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 682],
+        ["clientAttemptId", 683],
+        ["answers", 684]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "array", "el": 685, "checks": [{ "k": "max_length", "n": 100 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["questionId", 686],
+        ["choiceId", 687]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    { "t": "object", "shape": [["itemId", 689]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 691]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 693],
+        ["patches", 694],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "array", "el": 695, "checks": [{ "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 696],
+        ["score", 697]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 699],
+        ["wallet", 700]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{40}$/" }] },
+    { "t": "object", "shape": [["kind", 702]] },
+    { "t": "enum", "values": ["cert_to_perk_map", "invent_perk_money", "invent_fee_discount", "invent_ifc_grant", "invent_balance"] },
+    { "t": "object", "shape": [["certId", 704]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "object", "shape": [["publicId", 706]] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "object", "shape": [["slug", 30]], "catchall": "strict" },
+    { "t": "object", "shape": [["slug", 709]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "object", "shape": [["itemSlug", 711]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["courseSlug", 85],
+        ["topicSlug", 713],
+        ["kind", 714],
+        ["title", 715],
+        ["body", 716],
+        ["anonymous", 717],
+        ["image", 718],
+        ["clientRequestId", 722]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 },
+        { "k": "regex", "src": "/^[a-z0-9]+(?:-[a-z0-9]+)*$/" }
+      ]
+    },
+    { "t": "enum", "values": ["question", "discussion"] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 20000 }] },
+    { "t": "boolean" },
+    { "t": "nullable", "in": 719 },
+    {
+      "t": "object",
+      "shape": [
+        ["contentType", 720],
+        ["base64", 721]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 699052 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 724],
+        ["name", 725],
+        ["kind", 726],
+        ["access", 727],
+        ["minStake", 728],
+        ["capacity", 730]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 64 },
+        { "k": "regex", "src": "/^[a-z0-9-]+$/", "msg": "a slug is lowercase letters, digits and hyphens" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "enum", "values": ["general", "futures", "options", "meme_war_room", "forex", "defi_lab", "merchant_clinic"] },
+    { "t": "enum", "values": ["free", "staked", "invite"] },
+    { "t": "optional", "in": 729 },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/", "msg": "amounts are unsigned decimal strings (max 18dp)" }]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 732],
+        ["title", 733],
+        ["rulesSummary", 734],
+        ["startsAt", 735],
+        ["endsAt", 736],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 4000 }
+      ]
+    },
+    { "t": "date", "coerce": true },
+    { "t": "optional", "in": 737 },
+    { "t": "nullable", "in": 738 },
+    { "t": "date", "coerce": true },
+    { "t": "optional", "in": 740 },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 741],
+        ["kind", 743],
+        ["limit", 745]
+      ]
+    },
+    { "t": "optional", "in": 742 },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    { "t": "optional", "in": 744 },
+    { "t": "enum", "values": ["playbook", "workbook", "lesson"] },
+    { "t": "optional", "in": 746 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 742],
+        ["slug", 748]
+      ]
+    },
+    { "t": "optional", "in": 749 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 751]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 753],
+        ["locale", 754]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 755 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 12 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 757],
+        ["limit", 758]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 759 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "int" }] },
+    { "t": "object", "shape": [["slug", 761]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 763 },
+    {
+      "t": "object",
+      "shape": [
+        ["path", 764],
+        ["limit", 765]
+      ]
+    },
+    { "t": "optional", "in": 742 },
+    { "t": "optional", "in": 766 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 768],
+        ["decision", 769],
+        ["note", 770],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["accepted", "rejected"] },
+    { "t": "optional", "in": 771 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["limit", 773]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "object", "shape": [["postId", 775]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["courseSlug", 85],
+        ["topicSlug", 713],
+        ["limit", 777]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "object", "shape": [["courseSlug", 85]], "catchall": "strict" },
+    { "t": "object", "shape": [["sessionId", 780]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 782],
+        ["track", 783]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "enum", "values": ["audit", "certificate"] },
+    { "t": "object", "shape": [["pathSlug", 785]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "object", "shape": [["attemptId", 787]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 789],
+        ["on", 790]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 792],
+        ["reason", 793],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    { "t": "object", "shape": [["seasonId", 795]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["certId", 797]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["roomId", 799],
+        ["userId", 800],
+        ["expiresAt", 801]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 802 },
+    { "t": "nullable", "in": 803 },
+    { "t": "date", "coerce": true },
+    { "t": "object", "shape": [["itemSlug", 805]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["itemSlug", 807]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["sessionId", 809]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["sessionId", 811]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 813],
+        ["enrolledAt", 334]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["pathSlug", 815],
+        ["clientRequestId", 816]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["itemSlug", 818]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 820],
+        ["version", 821],
+        ["n", 822]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 824 },
+    { "t": "object", "shape": [["limit", 825]] },
+    { "t": "optional", "in": 826 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 828],
+        ["cursor", 830]
+      ]
+    },
+    { "t": "optional", "in": 829 },
+    { "t": "number" },
+    { "t": "optional", "in": 831 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "optional", "in": 833 },
+    { "t": "object", "shape": [["limit", 834]] },
+    { "t": "optional", "in": 835 },
+    { "t": "number" },
+    { "t": "object", "shape": [["limit", 837]] },
+    { "t": "optional", "in": 838 },
+    { "t": "number" },
+    { "t": "optional", "in": 840 },
+    {
+      "t": "object",
+      "shape": [
+        ["cohortSlug", 841],
+        ["limit", 843]
+      ]
+    },
+    { "t": "optional", "in": 842 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 3 },
+        { "k": "max_length", "n": 48 }
+      ]
+    },
+    { "t": "optional", "in": 844 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 846],
+        ["market", 847]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "default", "in": 848, "value": null },
+    { "t": "nullable", "in": 849 },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 850],
+        ["paper", 851],
+        ["symbol", 852]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "boolean" },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 854],
+        ["market", 855],
+        ["completedStepIds", 857],
+        ["fills", 860],
+        ["markPrice", 870]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "default", "in": 856, "value": null },
+    { "t": "nullable", "in": 849 },
+    { "t": "default", "in": 858, "value": [] },
+    { "t": "array", "el": 859, "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "default", "in": 861, "value": [] },
+    { "t": "array", "el": 862, "checks": [{ "k": "max_length", "n": 256 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["fillId", 863],
+        ["marketId", 864],
+        ["side", 865],
+        ["price", 866],
+        ["size", 867],
+        ["recordedAt", 868]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "enum", "values": ["buy", "sell"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 869 },
+    { "t": "date" },
+    { "t": "default", "in": 871, "value": null },
+    { "t": "nullable", "in": 872 },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "object", "shape": [["itemId", 874]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 876],
+        ["taskId", 877]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["roomId", 879],
+        ["itemSlug", 880]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["clientKey", 882],
+        ["text", 883]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 120 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "object", "shape": [["todoId", 885]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemsPerWeek", 887],
+        ["reminder", 888]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["todoId", 890],
+        ["done", 891]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["slug", 442]], "catchall": "strict" },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 273],
+        ["mine", 894]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 895 },
+    { "t": "boolean" },
+    { "t": "object", "shape": [["limit", 897]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "object", "shape": [["slug", 899]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 901],
+        ["key", 902]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["q", 904],
+        ["path", 906],
+        ["kind", 908],
+        ["sort", 910],
+        ["limit", 912]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 905 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
+    { "t": "optional", "in": 907 },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    { "t": "optional", "in": 909 },
+    { "t": "enum", "values": ["playbook", "workbook", "lesson"] },
+    { "t": "optional", "in": 911 },
+    { "t": "enum", "values": ["recommended", "name_asc", "name_desc"] },
+    { "t": "optional", "in": 913 },
+    { "t": "number" },
+    { "t": "object", "shape": [["slug", 915]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 917],
+        ["body", 716],
+        ["anonymous", 918],
+        ["clientRequestId", 722]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["postId", 920],
+        ["reason", 921]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    { "t": "object", "shape": [["limit", 923]] },
+    { "t": "optional", "in": 924 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["beneficiaryId", 926],
+        ["residencyStatus", 927],
+        ["dryRun", 928]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["applied", "accepted", "rejected", "withdrawn"] },
+    { "t": "default", "in": 929, "value": true },
+    { "t": "optional", "in": 930 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 932 },
+    { "t": "object", "shape": [["residencyStatus", 933]] },
+    { "t": "optional", "in": 934 },
+    { "t": "enum", "values": ["applied", "accepted", "rejected", "withdrawn"] },
+    {
+      "t": "object",
+      "shape": [
+        ["roomId", 936],
+        ["limit", 937]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 938 },
+    { "t": "number" },
+    { "t": "optional", "in": 940 },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 941],
+        ["limit", 942]
+      ]
+    },
+    { "t": "optional", "in": 726 },
+    { "t": "optional", "in": 943 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["roomId", 945],
+        ["title", 946],
+        ["startsAt", 947]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 160 }
+      ]
+    },
+    { "t": "date", "coerce": true },
+    { "t": "object", "shape": [["seasonId", 949]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 951],
+        ["at", 952]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 953 },
+    { "t": "date", "coerce": true },
+    { "t": "optional", "in": 955 },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 956],
+        ["limit", 958]
+      ]
+    },
+    { "t": "optional", "in": 957 },
+    { "t": "enum", "values": ["scheduled", "live", "frozen", "ended"] },
+    { "t": "optional", "in": 959 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["courseSlug", 85],
+        ["body", 297],
+        ["clientRequestId", 298]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "object", "shape": [["sessionId", 962]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["sessionId", 964]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["grantId", 966],
+        ["publicId", 968],
+        ["holderName", 970],
+        ["consent", 972],
+        ["clientRequestId", 973]
+      ],
+      "checks": [{ "k": "refine", "id": "grant_or_public_id" }]
+    },
+    { "t": "optional", "in": 967 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 969 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "nullable", "in": 971 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 400 }] },
+    { "t": "literal", "values": [true] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 30],
+        ["on", 975]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 977],
+        ["status", 957],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 979],
+        ["userId", 980],
+        ["score", 981],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 983],
+        ["limit", 984]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 985 },
+    { "t": "number" },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 987],
+        ["accessCode", 988]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "nullable", "in": 989 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "max_length", "n": 64 }] },
+    { "t": "object", "shape": [["sessionId", 991]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["sessionId", 993]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 995],
+        ["version", 996],
+        ["text", 997],
+        ["fileId", 999]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "nullable", "in": 998 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 20000 }] },
+    { "t": "nullable", "in": 1000 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["key", 1002],
+        ["txHash", 1003]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{64}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 1005],
+        ["clientToken", 1006],
+        ["answers", 1007]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 16 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "record", "key": 1008, "value": 647 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 80 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 1010],
+        ["taskId", 1011],
+        ["marks", 1012]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "array",
+      "el": 461,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 1014],
+        ["secondsRead", 1015],
+        ["clientRequestId", 1017]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 1016 },
+    { "t": "number" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["kind", 1019]] },
+    { "t": "enum", "values": ["fund_pool", "payout", "escrow", "clawback", "invent_balance"] },
+    {
+      "t": "object",
+      "shape": [
+        ["seasonId", 1021],
+        ["prizePool", 1023]
+      ]
+    },
+    { "t": "optional", "in": 1022 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "nullable", "in": 1024 },
+    { "t": "optional", "in": 1025 },
+    { "t": "union", "options": [1026, 1027] },
+    { "t": "string" },
+    { "t": "object", "shape": [["amount", 1028]], "catchall": "passthrough" },
+    { "t": "nullable", "in": 1029 },
+    { "t": "optional", "in": 1030 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["itemSlug", 1032],
+        ["completedAt", 564],
+        ["clientRequestId", 1033]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 1035],
+        ["confirmOperatorId", 656],
+        ["approvalId", 659],
+        ["operationId", 662]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["roomId", 1037],
+        ["itemSlug", 1038]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["sessionId", 1040],
+        ["scene", 1041],
+        ["expectedFingerprint", 1044]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "record", "key": 1042, "value": 1043 },
+    { "t": "string" },
+    { "t": "unknown" },
+    { "t": "optional", "in": 1045 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["itemId", 1047],
+        ["fileName", 1048],
+        ["contentType", 1049],
+        ["contentBase64", 1050]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 200 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 100 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 1048576 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 1052]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["slug", 1054],
+        ["url", 1055]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "optional", "in": 1056 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 2000 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 1058]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["videoSlug", 1060]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["videoSlug", 1062],
+        ["positionSeconds", 1063],
+        ["clientRequestId", 1064]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "number" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "object", "shape": [["videoSlug", 1066]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["slug", 1068]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 120 }
+      ]
+    },
+    { "t": "object", "shape": [["id", 1070]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    }
+  ],
+  "inputs": {
+    "abandonCoursePurchase": 0,
+    "acceptDiscussionReply": 2,
+    "admin.abortReport": 5,
+    "admin.activateCertDesign": 7,
+    "admin.addLearnerNote": 11,
+    "admin.assignment": 15,
+    "admin.assistantDraft": 17,
+    "admin.bulkDeleteUserPosts": 21,
+    "admin.bulkEmail": 25,
+    "admin.bulkEmails": 27,
+    "admin.bulkEnrol": 31,
+    "admin.bulkGrade": 38,
+    "admin.certDesign": 42,
+    "admin.certDesigns": 43,
+    "admin.certExportFile": 45,
+    "admin.certExports": 47,
+    "admin.certIssueRule": 49,
+    "admin.clearFeatured": 50,
+    "admin.completionsByItem": 52,
+    "admin.confirmMedia": 57,
+    "admin.confirmTeamChange": 59,
+    "admin.course": 61,
+    "admin.courseGradebook": 63,
+    "admin.courseGradeReports": 63,
+    "admin.courseInbox": 65,
+    "admin.courseInvitations": 67,
+    "admin.courseItemRules": 70,
+    "admin.coursePurchase": 0,
+    "admin.courseQuiz": 72,
+    "admin.courseQuizAnalytics": 72,
+    "admin.courseQuizAnswers": 72,
+    "admin.courseQuizAttempts": 72,
+    "admin.courseQuizReviews": 72,
+    "admin.courseRelease": 74,
+    "admin.courses": 76,
+    "admin.courseTeam": 81,
+    "admin.createCourse": 84,
+    "admin.createPrivateLink": 96,
+    "admin.createTopic": 99,
+    "admin.curveCourseQuiz": 101,
+    "admin.deactivateCertDesign": 107,
+    "admin.decideDraft": 109,
+    "admin.deleteDiscussionPost": 114,
+    "admin.deleteReport": 5,
+    "admin.discussionThread": 116,
+    "admin.duplicateCourse": 119,
+    "admin.duplicateItem": 122,
+    "admin.enrolments": 125,
+    "admin.featureLesson": 128,
+    "admin.fixCourseQuizKey": 131,
+    "admin.gradeReportFile": 162,
+    "admin.gradeSubmission": 165,
+    "admin.gradingQueue": 174,
+    "admin.grantAccess": 176,
+    "admin.grantAudit": 181,
+    "admin.grantCertException": 191,
+    "admin.grantCourseExtension": 200,
+    "admin.grantItemExtension": 206,
+    "admin.grantLearnerExtension": 212,
+    "admin.importLesson": 214,
+    "admin.inviteToCourse": 218,
+    "admin.issuedCerts": 220,
+    "admin.itemMedia": 226,
+    "admin.learner": 228,
+    "admin.learnerProgress": 228,
+    "admin.learners": 229,
+    "admin.learnerSummaries": 234,
+    "admin.lesson": 239,
+    "admin.makeCertExport": 45,
+    "admin.makeGradeReport": 162,
+    "admin.markCompleteFor": 241,
+    "admin.mediaUploadIntent": 243,
+    "admin.moderationQueue": 250,
+    "admin.openCourseConversation": 254,
+    "admin.openGrading": 257,
+    "admin.opsMetrics": 260,
+    "admin.overrideCourseQuizScore": 263,
+    "admin.previewCourse": 61,
+    "admin.privateLinks": 61,
+    "admin.programmes": 272,
+    "admin.proposeTeamChange": 274,
+    "admin.publishLesson": 283,
+    "admin.refundCoursePurchase": 288,
+    "admin.reinstateAccess": 291,
+    "admin.replyCourseMessage": 295,
+    "admin.reportCentreFile": 5,
+    "admin.reportFile": 299,
+    "admin.requestLearnerExport": 301,
+    "admin.requestReport": 305,
+    "admin.rescoreCourseQuiz": 309,
+    "admin.revertLesson": 312,
+    "admin.revokeCert": 316,
+    "admin.revokePrivateLink": 325,
+    "admin.saveAssignment": 328,
+    "admin.saveCertDesign": 337,
+    "admin.saveCourseQuiz": 352,
+    "admin.saveCustomRole": 374,
+    "admin.saveDiscussionTopic": 378,
+    "admin.saveGradingPolicy": 385,
+    "admin.saveLatePolicy": 396,
+    "admin.saveLesson": 404,
+    "admin.saveOutline": 424,
+    "admin.saveProgramme": 441,
+    "admin.saveReviewSteps": 450,
+    "admin.scoreCourseQuizEssays": 462,
+    "admin.sendBulkEmail": 468,
+    "admin.setCertIssueRule": 471,
+    "admin.setCourseEnrolmentWindow": 476,
+    "admin.setCourseItemPrerequisites": 483,
+    "admin.setCoursePacing": 489,
+    "admin.setCourseQuizState": 493,
+    "admin.setCourseSeatCap": 497,
+    "admin.setCourseStart": 502,
+    "admin.setCourseState": 507,
+    "admin.setCourseTopics": 512,
+    "admin.setCourseVisibility": 517,
+    "admin.setCustomRoleActive": 521,
+    "admin.setFeatured": 524,
+    "admin.setItemCaptions": 528,
+    "admin.setItemPrerequisites": 534,
+    "admin.setItemVideo": 538,
+    "admin.setItemWindow": 543,
+    "admin.setQuiz": 551,
+    "admin.setSectionRelease": 576,
+    "admin.setVideoTracks": 588,
+    "admin.staffEnrol": 596,
+    "admin.staffEnrolments": 597,
+    "admin.tagLearners": 601,
+    "admin.untagLearner": 603,
+    "admin.updateCourse": 604,
+    "admin.voidQuizAttempt": 607,
+    "admin.withdrawAssignment": 609,
+    "admin.withdrawCoursePrice": 612,
+    "admin.withdrawLesson": 616,
+    "ambassadorBadge": 620,
+    "ambassadorIfcPay": 622,
+    "ambassadorPayQuote": 628,
+    "ambassadorRevenueShare": 632,
+    "ambassadors": 638,
+    "answerCourseQuiz": 644,
+    "applyResidency": 651,
+    "appointAmbassador": 654,
+    "assessment.answer": 665,
+    "assessment.attempts": 669,
+    "assessment.current": 671,
+    "assessment.finish": 673,
+    "assessment.get": 675,
+    "assessment.review": 677,
+    "assessment.start": 679,
+    "assessment.submit": 681,
+    "assignment": 688,
+    "authoredCourse": 690,
+    "authoredCourseEnrolment": 690,
+    "bulkSetStandings": 692,
+    "buyCourse": 698,
+    "certPerkIntent": 701,
+    "certProgress": 703,
+    "certVerify": 705,
+    "courseConversations": 65,
+    "courseEmails": 707,
+    "courseEnrolment": 708,
+    "courseOutline": 710,
+    "coursePurchase": 690,
+    "courseQuiz": 72,
+    "courseQuizAttempt": 72,
+    "createDiscussionPost": 712,
+    "createRoom": 723,
+    "createSeason": 731,
+    "curriculum": 739,
+    "curriculumDeepLink": 747,
+    "curriculumItem": 750,
+    "curriculumItemLocalized": 752,
+    "curriculumRelated": 756,
+    "curriculumStudyGuide": 760,
+    "curriculumStudyGuides": 762,
+    "decideResidency": 767,
+    "discussionCourses": 772,
+    "discussionPostImage": 774,
+    "discussionPosts": 776,
+    "discussionThread": 116,
+    "discussionTopics": 778,
+    "endSession": 779,
+    "enrolAuthoredCourse": 781,
+    "enrolCourse": 781,
+    "enrollCertPath": 784,
+    "finishCourseQuiz": 786,
+    "followDiscussionPost": 788,
+    "freezeAmbassador": 791,
+    "freezeSnapshot": 794,
+    "grantCert": 796,
+    "invite": 798,
+    "itemRelease": 804,
+    "itemVideo": 806,
+    "join": 808,
+    "leave": 810,
+    "leaveAuthoredCourse": 812,
+    "leaveCertPath": 814,
+    "likeDiscussionPost": 788,
+    "markCurriculumComplete": 817,
+    "markFeedbackRead": 819,
+    "myCerts": 823,
+    "myCompletions": 827,
+    "myResidencies": 832,
+    "myUpcomingSessions": 836,
+    "openCourseConversation": 254,
+    "openResidencies": 839,
+    "paperDrill": 845,
+    "paperDrillResult": 853,
+    "peerReview": 873,
+    "peerReviewFile": 875,
+    "pinLesson": 878,
+    "planner.addTodo": 881,
+    "planner.removeTodo": 884,
+    "planner.setGoal": 886,
+    "planner.setTodoDone": 889,
+    "programme": 892,
+    "programmes": 893,
+    "publicAuthoredCourse": 690,
+    "publicAuthoredCourses": 896,
+    "publicCourse": 898,
+    "publicCourseByLink": 900,
+    "publicCurriculum": 903,
+    "publicCurriculumItem": 914,
+    "publicCurriculumRelated": 756,
+    "replyDiscussionPost": 916,
+    "reportDiscussionPost": 919,
+    "residencyCohorts": 922,
+    "residencyIfcPayQuote": 925,
+    "residencyPayQuote": 931,
+    "room": 935,
+    "rooms": 939,
+    "scheduleSession": 944,
+    "season": 948,
+    "seasonCalendar": 950,
+    "seasons": 954,
+    "sendCourseMessage": 960,
+    "session": 961,
+    "sessionCalendar": 963,
+    "setCertHolderName": 965,
+    "setCourseEmails": 974,
+    "setSeasonStatus": 976,
+    "setStanding": 978,
+    "standings": 982,
+    "startCourseQuiz": 986,
+    "startSession": 990,
+    "streamCredential": 992,
+    "submitAssignment": 994,
+    "submitCoursePayment": 1001,
+    "submitCourseSurvey": 1004,
+    "submitPeerReview": 1009,
+    "touchLesson": 1013,
+    "tournamentPrizeIntent": 1018,
+    "tournamentPrizeStart": 1020,
+    "undoCurriculumComplete": 1031,
+    "unfreezeAmbassador": 1034,
+    "unpinLesson": 1036,
+    "updateScene": 1039,
+    "uploadAssignmentFile": 1046,
+    "videoCaptions": 1051,
+    "videoPlayback": 1053,
+    "videoPlayer": 1057,
+    "videoProgress.get": 1059,
+    "videoProgress.set": 1061,
+    "videoProgress.watched": 1065,
+    "videoTranscript": 1067,
+    "withdrawResidency": 1069
+  }
+}

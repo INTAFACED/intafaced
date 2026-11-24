@@ -172,7 +172,7 @@ export function orderSessionTypedData(fields: ChallengeFields): DexTypedData {
 
 function digest(typed: DexTypedData): Hex {
   const { EIP712Domain: _domain, ...types } = typed.types;
-  const m = typed.message as { wallet: Address; scope: string; cap: string; expiresAt: string; nonce: Hex };
+  const m = typed.message;
   return hashTypedData({
     domain: typed.domain,
     types: types as { OrderSession: { name: string; type: string }[] },

@@ -133,21 +133,12 @@ const schema = baseEnvSchema
        */
       QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT: blankable(z.string().regex(/^\d{1,6}(\.\d{1,4})?$/)),
       /**
-       * Simulated account (ENGINE RK-5): the highest leverage a margin backtest may use, from 1. The rules of the market
-       * simulated, published here until the futures engine publishes its own. NO DEFAULT: blank, a margin run refuses
-       * `quant.account_rule_unset` naming it; a cash run is unaffected.
-       */
-      QUANT_ACCOUNT_MAX_LEVERAGE: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
-      /**
-       * Simulated account (ENGINE RK-5): the margin level, equity over the margin used in percent, at which a margin
-       * backtest records a margin call. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
+       * Simulated account (ENGINE RK-5, J-algo-dev-02 #5): our own margin-call warning on a margin backtest, the margin
+       * level (equity over the margin used, in percent) it fires at, shown as ours beside the venue's published maximum
+       * leverage and maintenance level, which are read from the venue and never set here. NO DEFAULT: blank, a margin
+       * run refuses `quant.account_rule_unset` naming it; a cash run is unaffected.
        */
       QUANT_ACCOUNT_MARGIN_CALL_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
-      /**
-       * Simulated account (ENGINE RK-5): the margin level in percent at which a margin backtest closes the position (a
-       * stop-out), below the margin call level. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
-       */
-      QUANT_ACCOUNT_STOP_OUT_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
       /**
        * Public reads of a share link allowed in one window (AL-report-03). NO DEFAULT: blank refuses
        * `quant.share_rate_unset`. Zero is a real cap and refuses every public read.
@@ -173,6 +164,31 @@ const schema = baseEnvSchema
        * taking the lock (`quant.edit_lock_unset`), and so a teammate's save; the owner's own save still saves.
        */
       QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
+      /**
+       * Monte Carlo resampling of a finished backtest (J-algo-dev-16 #3): how many paths one resampling draws, up to
+       * 10000, and the fewest closed round trips a run needs. NO DEFAULT: blank refuses `quant.montecarlo_runs_unset` or
+       * `quant.montecarlo_min_trades_unset`.
+       */
+      QUANT_MONTECARLO_RUNS: blankable(z.string().regex(/^(?:[1-9]\d{0,3}|10000)$/)),
+      QUANT_MONTECARLO_MIN_TRADES: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The market data lake (J-algo-dev-16 #2): the symbols it captures (comma-separated), the seconds between capture
+       * passes and the days a row is kept. NO DEFAULT: blank symbols or interval capture nothing and the catalogue
+       * refuses `quant.lake_store_unset`; blank retention refuses `quant.lake_retention_unset`.
+       */
+      QUANT_LAKE_SYMBOLS: blankable(z.string().max(1000)),
+      QUANT_LAKE_CAPTURE_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,4}$/)),
+      QUANT_LAKE_RETENTION_DAYS: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The licences a library listing may carry (J-algo-dev-09), `|`-separated. Owner and lawyer content. NO DEFAULT:
+       * blank refuses every publish check `quant.library_licences_unset`.
+       */
+      QUANT_LIBRARY_LICENCES: blankable(z.string()),
+      /**
+       * The realism checklist a developer accepts before publishing, as JSON `{ "version": "...", "items": ["..."] }`.
+       * Owner and lawyer content. NO DEFAULT: blank or unreadable refuses publishing `quant.realism_checklist_unset`.
+       */
+      QUANT_REALISM_CHECKLIST: blankable(z.string()),
       /**
        * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
        * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.

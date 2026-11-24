@@ -42,6 +42,10 @@ const trade = (status: Trade['status']): Trade => ({
   escrowedAt: '2026-10-24T05:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
 });
 const review = (patch: Partial<Review>): Review => ({
   id: '44444444-4444-4444-8444-444444444444',

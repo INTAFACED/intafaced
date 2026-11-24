@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -18,7 +18,6 @@ import {
   recipes,
   userAvailable,
   type Amount,
-  futuresLossSink,
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
@@ -42,7 +41,7 @@ const migrations = readdirSync(drizzle)
 async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_h8a_test')
     .withUsername('intafaced')
     .withPassword('intafaced')

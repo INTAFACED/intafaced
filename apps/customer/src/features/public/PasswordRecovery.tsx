@@ -1,20 +1,17 @@
 import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { HandleRecovery } from './HandleRecovery';
 import {
   RECOVERY_STEPS,
   clearsCode,
-  completedSchema,
   initialRecovery,
-  limitsSchema,
   linkRecovery,
   recoveryReducer,
-  requestedSchema,
   stepStates,
   validEmail,
   windowWords,
@@ -22,7 +19,12 @@ import {
   type ResetLimits,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
+import {
+  IDENTITY_AUTH_PASSWORD_RESET_LIMITS,
+  IDENTITY_AUTH_REQUEST_PASSWORD_RESET,
+  IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;
@@ -46,7 +48,7 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
   const [limits, setLimits] = useState<ResetLimits>(null);
   useEffect(() => {
     const controller = new AbortController();
-    void api.query('identity', 'auth.passwordResetLimits', undefined, limitsSchema, { signal: controller.signal }).then((result) => {
+    void api.call(IDENTITY_AUTH_PASSWORD_RESET_LIMITS, undefined, { signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted && result.ok) setLimits(result.data);
     });
     return () => controller.abort();
@@ -90,7 +92,7 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       dispatch({ type: 'askCode', email });
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate('identity', 'auth.requestPasswordReset', { email }, requestedSchema, { signal: controller.signal });
+      const result = await api.call(IDENTITY_AUTH_REQUEST_PASSWORD_RESET, { email }, { signal: controller.signal });
       if (mounted.current) dispatch({ type: 'codeAnswered', result });
     });
   }
@@ -113,12 +115,9 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       dispatch({ type: 'reset', issue: null });
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate(
-        'identity',
-        'auth.completePasswordReset',
-        // From the mailed link the code alone names the reset; typed on the page, the address goes with it.
+      const result = await api.call(
+        IDENTITY_AUTH_COMPLETE_PASSWORD_RESET,
         state.fromLink ? { code, newPassword: password } : { email: state.email, code, newPassword: password },
-        completedSchema,
         { signal: controller.signal },
       );
       return result;
@@ -146,14 +145,14 @@ export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
       </a>
       <header className="pub-heading">
         <h1>{copy.t('title')}</h1>
-        <p className="muted">{copy.t('intro')}</p>
+        <p className="lt-muted">{copy.t('intro')}</p>
       </header>
       <ol className="pub-steps" aria-label={copy.t('stepsLabel')}>
         {RECOVERY_STEPS.map((step, index) => (
           <li key={step} className={`pub-step pub-step--${states[step]}`} aria-current={states[step] === 'current' ? 'step' : undefined}>
             <span className="pub-step__number">{copy.t('stepNumber', { number: index + 1 })}</span>
             <h2>{copy.t(TITLE[step])}</h2>
-            <p className="muted">{copy.t(BODY[step])}</p>
+            <p className="lt-muted">{copy.t(BODY[step])}</p>
             {step === state.step && (
               <StepBody
                 step={step}
@@ -246,19 +245,19 @@ function StepBody({
         <Button type="submit" disabled={busy}>
           {busy ? copy.t('sending') : copy.t('sendCode')}
         </Button>
-        {limitLine ? <p className="muted">{limitLine}</p> : null}
+        {limitLine ? <p className="lt-muted">{limitLine}</p> : null}
       </form>
     );
   }
   return (
     <form ref={formRef} method="post" className="pub-form" onSubmit={onFinish} noValidate>
       {codeAsked && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {copy.t('codeOnItsWay')}
         </p>
       )}
       {limitLine ? (
-        <p className="muted" data-testid="reset-limit">
+        <p className="lt-muted" data-testid="reset-limit">
           {limitLine}
         </p>
       ) : null}

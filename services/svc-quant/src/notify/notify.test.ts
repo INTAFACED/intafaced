@@ -9,7 +9,7 @@ import {
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Bar } from '../engine/bars.js';
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import type { FeePort, VenuePricePort } from '../engine/ports.js';
 import { createMemoryQuota } from '../quota/memory.js';
 import { createQuantRouter } from '../router.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
@@ -54,9 +54,9 @@ function signed(userId: string, scopes: string[] = ['trade:read']) {
   });
 }
 
-/** Hourly closed bars, rising then falling, at every hour the read asks for: the exchange's own tape, as svc-trade gives it. */
+/** Hourly closed bars, rising then falling, at every hour the read asks for: the venue's own prints, as svc-trade gives them. */
 const CLOSES = ['100', '110', '120', '130', '115', '100', '90', '95', '105', '120'];
-function history(read: { fromMs: number; toMs: number }[] = []): HistoryPort {
+function history(read: { fromMs: number; toMs: number }[] = []): VenuePricePort {
   return {
     wired: true,
     async bars({ fromMs, toMs }) {
@@ -73,11 +73,11 @@ function history(read: { fromMs: number; toMs: number }[] = []): HistoryPort {
           close: parseAmount(close),
         });
       }
-      return bars;
+      return { venueMarket: 'BTC-USDC', test: true, bars };
     },
   };
 }
-const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as unknown as FeePort;
+const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
 function setup(options: { concurrent?: string } = {}) {
   let offset = 0;
@@ -93,7 +93,7 @@ function setup(options: { concurrent?: string } = {}) {
     runs,
     notify,
     quota: quota.repository,
-    history: history(),
+    venuePrices: history(),
     fees,
     now: () => Date.now() + offset,
   });
@@ -122,7 +122,7 @@ function setup(options: { concurrent?: string } = {}) {
       },
       runs,
       strategies,
-      history: history(),
+      prices: history(),
       fees,
       now: () => Date.now() + offset,
       sink: async () => (opts.bus === false ? null : async (fill) => void published.push(fill)),

@@ -24,7 +24,6 @@ import {
 } from '@intafaced/ledger-client';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import {
-  ABANDONED_PARKED,
   memoryLiquidationAttemptStore,
   runLiquidationTick,
   feeLeftoverCollateral,
@@ -33,7 +32,7 @@ import {
   type LiquidationTickDeps,
 } from './liquidation-tick.js';
 import { REALIZED_LOSS_REASON, reconcileRungsToLedger, type InsuranceCredit, type LedgerLossTx } from './liquidation-reconcile.js';
-import { decodeRungPlan, encodeRungPlan, memoryLiquidationRungStore, type RungPlan, type RungRowBook } from './liquidation-rungs.js';
+import { memoryLiquidationRungStore, type RungRowBook } from './liquidation-rungs.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const AT = new Date('2026-08-12T14:00:00.000Z');

@@ -124,4 +124,16 @@ export const flowCopy = defineCopy('trade.desk.flow', {
   'My queue basis unset': 'No estimate is shown until the venue sets the window it reads recent trading over.',
   'My queue source': 'From the matching engine’s own queue.',
   'My queue unavailable': 'The queue is not available right now.',
+  // The DOM on the venue spot desk: the venue's own book and prints, and an estimate of my place from them.
+  'Chart market': 'Chart market',
+  'My queue venue ahead': 'At most {size} {asset} ahead of you at this price',
+  'My queue venue first': 'Nobody else rests at this price: first in the queue',
+  'My queue venue basis':
+    'Estimate: {traded} {asset} traded at or through this price in the last {seconds} seconds, against at most {toFill} {asset} that must trade for this order to fill. Not a promise.',
+  'My queue venue partial': 'Only the venue’s newest trades were read, so more may have traded.',
+  'My queue venue basis unset': 'No estimate is shown: the window of recent trading it reads over has not been set.',
+  'My queue venue window unread': 'No estimate is shown: the window of recent trading it reads over could not be read.',
+  'My queue venue source':
+    'From the venue’s own published book and trades. The venue shows each price’s total, not the order of its queue, so the size ahead is at most this and the chance at least this.',
+  'My queue venue past book': 'Your price is not among the levels the venue published just now, so your place can’t be read.',
 });

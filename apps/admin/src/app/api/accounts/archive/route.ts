@@ -7,9 +7,14 @@ import {
   accountArchiveStateSchema,
 } from '@intafaced/contracts';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
 import { archiveExecute } from '@/lib/accounts/archive';
 import { handleStep } from '@/lib/desk/step-route';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Archive of one closed customer record (J-ops-console-04 #10).
@@ -32,36 +37,34 @@ export async function GET(request: Request) {
       throw new AdminSessionError('admin.accounts_input', 400);
     if (params.get('proposals') === 'true') {
       if (params.size !== 1) throw new AdminSessionError('admin.accounts_input', 400);
-      const data = await founderEdgeCall(config, 'identity', 'accountControls.archiveProposals', 'GET', {}, session.accessToken);
+      const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS, {}, session.accessToken);
       if (!accountArchiveProposalsSchema.safeParse(data).success) throw new AdminSessionError('admin.upstream_invalid', 502);
       return Response.json(data, { headers: { 'cache-control': 'no-store' } });
     }
     const userId = params.get('id')?.toLowerCase();
-    const history = params.get('history') === 'true';
-    const parsed = history
-      ? accountArchiveHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) })
-      : accountArchiveLookupInputSchema.safeParse({ userId });
-    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-    const data = await founderEdgeCall(
-      config,
-      'identity',
-      history ? 'accountControls.archiveHistory' : 'accountControls.archiveState',
-      'GET',
-      parsed.data,
-      session.accessToken,
-    );
-    const valid = history
-      ? Array.isArray(data) &&
+    if (params.get('history') === 'true') {
+      const parsed = accountArchiveHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
+      if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+      const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY, parsed.data, session.accessToken);
+      const valid =
+        Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&
         data.every((row) => {
           const parsedRow = accountArchiveResultSchema.safeParse(row);
           return parsedRow.success && parsedRow.data.userId === parsed.data.userId;
-        })
-      : data === null ||
-        (() => {
-          const state = accountArchiveStateSchema.safeParse(data);
-          return state.success && state.data.userId === parsed.data.userId;
-        })();
+        });
+      if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
+      return Response.json(data, { headers: { 'cache-control': 'no-store' } });
+    }
+    const parsed = accountArchiveLookupInputSchema.safeParse({ userId });
+    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+    const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE, parsed.data, session.accessToken);
+    const valid =
+      data === null ||
+      (() => {
+        const state = accountArchiveStateSchema.safeParse(data);
+        return state.success && state.data.userId === parsed.data.userId;
+      })();
     if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
     return Response.json(data, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {

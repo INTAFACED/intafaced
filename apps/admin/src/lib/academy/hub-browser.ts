@@ -1,8 +1,7 @@
 /** Browser hop for the Learn hub desk. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { HubDeskReply, HubView } from './hub-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchHub(): Promise<HubView | null> {
   try {

@@ -23,19 +23,19 @@ export function VenueTiers({ market, venueName, test }: { market: VenueMarket; v
             {tiers.map((tier, i) => (
               <tr key={tier.fromNotional} data-tier={i + 1}>
                 <td>{i + 1}</td>
-                <td className="numeric" data-cell="from">
+                <td className="lt-num" data-cell="from">
                   {displayAmount(tier.fromNotional)} {market.quoteAsset}
                 </td>
-                <td className="numeric" data-cell="leverage">
+                <td className="lt-num" data-cell="leverage">
                   {tier.maxLeverageBps / 10_000}x
                 </td>
-                <td className="numeric" data-cell="maintenance">
+                <td className="lt-num" data-cell="maintenance">
                   {percentOf(tier.maintenanceRate)}%
                 </td>
               </tr>
             ))}
           </DataTable>
-          <p className="muted">{t('Tiers note', { venue: venueName })}</p>
+          <p className="lt-muted">{t('Tiers note', { venue: venueName })}</p>
         </>
       ) : (
         <p data-testid="venue-tiers-unpublished">{t('Tiers not published', { venue: venueName })}</p>
@@ -81,13 +81,13 @@ export function VenueCollateral({
               return (
                 <tr key={c.asset} data-asset={c.asset}>
                   <td>{c.asset}</td>
-                  <td className="numeric" data-cell="haircut">
+                  <td className="lt-num" data-cell="haircut">
                     {c.haircut.known ? `${percentOf(c.haircut.value)}%` : t('Haircut not published', { venue: venueName })}
                   </td>
-                  <td className="numeric" data-cell="free">
+                  <td className="lt-num" data-cell="free">
                     {displayAmount(free)}
                   </td>
-                  <td className="numeric" data-cell="counts">
+                  <td className="lt-num" data-cell="counts">
                     {c.haircut.known
                       ? displayAmount(
                           formatAmount((parseAmount(free) * (parseAmount('1') - parseAmount(c.haircut.value))) / parseAmount('1')),
@@ -100,13 +100,13 @@ export function VenueCollateral({
           </DataTable>
           <p data-testid="venue-buying-power">
             {t('Buying power', { symbol: market.symbol })}:{' '}
-            <span className="numeric" data-testid="venue-buying-power-value" data-value={power?.known ? power.value : undefined}>
+            <span className="lt-num" data-testid="venue-buying-power-value" data-value={power?.known ? power.value : undefined}>
               {power?.known
                 ? t('Buying power value', { amount: displayAmount(power.value), asset: market.quoteAsset })
                 : t('Buying power unknown', { venue: venueName, asset: power?.asset ?? '' })}
             </span>
           </p>
-          <p className="muted">{t('Buying power note', { venue: venueName })}</p>
+          <p className="lt-muted">{t('Buying power note', { venue: venueName })}</p>
           {others.length > 0 ? (
             <>
               <h3>{t('Not taken title', { venue: venueName })}</h3>

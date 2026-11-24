@@ -12,7 +12,6 @@ import { paymentListSummaryFromText, type PaymentListSummary } from '../payments
 import { safeFailure, type MerchantFailure } from '../merchant-failure.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from '../control/snapshots.js';
 import type {
-  PayService,
   PayServiceInternal,
   PaymentEventRecord,
   PaymentPage,

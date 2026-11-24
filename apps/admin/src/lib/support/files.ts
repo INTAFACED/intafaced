@@ -1,4 +1,5 @@
 import type { SupportAttachment, SupportAttachmentScanState } from '@intafaced/contracts';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The files on one ticket, as the operator desk shows them. Types only from the contracts package: a client component may
@@ -33,10 +34,6 @@ export function sizeLabel(bytes: number): string {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isFileId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 const STATES: readonly string[] = ['scanning', 'clean', 'blocked'];
 
 /** Strict: a row with a missing, extra or mistyped key makes the whole list invalid, so a guess is never printed. */
@@ -66,26 +63,20 @@ export function readTicketFiles(raw: unknown): TicketFile[] | null {
   return out;
 }
 
-/** What the download route reads from svc-support: the bytes as base64 and the fixed content type. */
+/** What the download route reads from svc-support: the bytes as base64. */
 export interface FileDownload {
   readonly id: string;
   readonly byteLength: number;
   readonly bodyBase64: string;
 }
 
-export function readFileDownload(raw: unknown): FileDownload | null {
-  if (!isRecord(raw) || Object.keys(raw).sort().join(',') !== 'bodyBase64,byteLength,contentType,disposition,id') return null;
-  const { id, contentType, disposition, byteLength, bodyBase64 } = raw;
-  if (!isFileId(id) || contentType !== 'application/octet-stream' || disposition !== 'attachment') return null;
-  if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 0) return null;
-  if (typeof bodyBase64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(bodyBase64)) return null;
-  return { id, byteLength, bodyBase64 };
-}
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
-/** One file, as `attachOps` answers it. The same strict check as a list row. */
-export function readTicketFile(raw: unknown): TicketFile | null {
-  return readTicketFiles([raw])?.[0] ?? null;
-}
+/** A download the desk serves: the file it asked for, as bytes the route can decode. */
+export const downloadServes = (got: FileDownload, attachmentId: string): boolean => got.id === attachmentId && BASE64.test(got.bodyBase64);
+
+/** A file the desk added: on the ticket it was added to, and by an operator, not its owner. */
+export const addedByOperatorOn = (file: TicketFile, ticketId: string): boolean => file.ticketId === ticketId && file.uploadedBy !== null;
 
 /**
  * The most bytes the console carries for one upload. This is a transport guard so one request cannot fill memory; it is not

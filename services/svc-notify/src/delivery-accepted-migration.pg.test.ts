@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { createTestDb, rewriteSchemaSql, type TestDb, resolveTestDatabaseUrl } from '@intafaced/db';
 
 /**
  * 0002 rewrites deliveries that 0001 already stored.
@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', 'drizzle');
 const read = (name: string) => readFileSync(join(drizzleDir, name), 'utf8');
 
-const URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const CHECK_VIOLATION = '23514';
 
 const NOTIFICATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';

@@ -4,37 +4,39 @@
  *
  * For the files the change touches (added, modified, renamed, deleted; lintable extensions), it lints each file as it was
  * at the merge base and as it is at the head, with MAIN's `.oxlintrc.json`, main's garden plugin (tooling/lint/**) and
- * main's start dates (tooling/lint/ratchet.json), read with `git show`, so a change cannot loosen the rules it is judged
- * by. It counts findings per rule over those files on each side, prints the table (into the job summary on CI), and fails
- * only when an enforcing rule's count is higher at the head than at the base.
+ * main's tooling/lint/ratchet.json, read with `git show`, so a change cannot loosen the rules it is judged by. It counts
+ * findings per rule over those files on each side, prints the table (into the job summary on CI), and fails when a rule's
+ * count is higher at the head than at the base, printing each new finding's line, message and fix.
  *
  * There is no baseline file: main's own code is the baseline, so the count tightens by itself and a function moved from
  * one touched file to another does not fail (its finding leaves one file and arrives in the other).
  *
- * A rule enforces 7 days after its start date and only prints before that, so a pull request opened before a rule
- * started is told the date. The start date is the rule's entry in ratchet.json `started`, else the day ratchet.json first
- * reached main. Rules in `enforceFromStart` enforce at once: they replaced checks that already failed a change (deleted
- * source-reading unit tests, the regex duplicate ratchet), so their guard never lapses. Rules in `enforceAddedFromStart`
- * replaced tests that judged only the files a change ADDS: any finding in an added file fails at once, as the test did,
- * and a rise in an existing file follows the dates like any other rule.
+ * Every rule enforces. A suppression (`oxlint-disable…` / `eslint-disable…`) is counted too, as `suppression/<rule>`, one
+ * per rule it names, and `suppression/(every rule)` for one that names none: silencing a finding never gets past the
+ * ratchet. In a test file only a suppression that can silence a garden rule counts (it names one, or names none); others
+ * there stay free. ratchet.json `fixes` maps a rule (or its
+ * plugin, or `suppression`) to the fix printed under each new finding. Rules in
+ * ratchet.json `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
+ * fails, even when a removal elsewhere pays for it, as the test did.
  *
  * Usage:
- *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD
+ *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD (an automatic revert of X: X^ .. HEAD)
  *   node tooling/ci/lint-ratchet.mjs --base <ref> --head <ref> [--rules-ref <ref>] [--json]
- * On GitHub Actions main is fetched fresh from the repository's URL into refs/lint-ratchet/main, never read from
- * origin/main, which code the change ran earlier in the job could move.
+ * Main is fetched fresh first (mainRef): on GitHub Actions from the repository's URL into refs/lint-ratchet/main, never
+ * read from origin/main, which code the change ran earlier in the job could move; on the Mac from `origin`, so the push-time
+ * run judges with the rules CI will.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { autoRevertOf } from './exact-revert.mjs';
 
 const ROOT = process.cwd();
 export const LINTABLE = /\.(?:[cm]?[jt]sx?)$/u;
 export const CONFIG = '.oxlintrc.json';
 export const PLUGIN_DIR = 'tooling/lint';
 export const STARTS = 'tooling/lint/ratchet.json';
-const DAY = 24 * 60 * 60 * 1000;
 
 const git = (args, opts = {}) =>
   execFileSync('git', args, { cwd: opts.cwd ?? ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -62,12 +64,55 @@ export function changedFiles(base, head) {
   return files.filter((f) => LINTABLE.test(f.head ?? f.base));
 }
 
-/** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. */
+/** The touched files with each base side read at `from` (an automatic revert's X^) instead of the merge base: a file's
+ *  head path, when `from` holds it. `from` null: the files as they are. */
+export function restoredFrom(files, from, has = (ref, path) => show(ref, path) !== null) {
+  if (!from) return files;
+  return files
+    .map((f) => {
+      const path = f.head ?? f.base;
+      return { base: has(from, path) ? path : null, head: f.head };
+    })
+    .filter((f) => f.base || f.head);
+}
+
+/** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. A message that
+ * starts with `[kind]` is counted as `<rule>[kind]`, so one rule holding several kinds is still ratcheted kind by kind. */
 export const ruleOf = (d) => {
   if (!d.code) return /^Unused .*directive/u.test(d.message ?? '') ? 'unused-suppression' : 'unknown';
   const m = /^([\w-]+)\((.+)\)$/u.exec(d.code);
-  return m ? `${m[1]}/${m[2]}` : d.code;
+  const rule = m ? `${m[1]}/${m[2]}` : d.code;
+  const kind = /^\[([\w-]+)\] /u.exec(d.message ?? '');
+  return kind ? `${rule}[${kind[1]}]` : rule;
 };
+
+/** A test file: only its suppressions that can silence a garden rule are counted (countedIn). */
+export const TEST_FILE = /(?:^|\/)(?:tests?|testing|__tests__|fixtures)\/|\.(?:test|spec|pw)\.[cm]?[jt]sx?$/u;
+const DIRECTIVE = /(?:\/\/|\/\*)\s*(?:oxlint|eslint)-disable(?:-next-line|-line)?(?=[\s*]|$)([^\n]*)/gu;
+
+/** The suppressions in one file's text: [{ rule: 'suppression/<rule>', line }], one per rule a directive names. */
+export function suppressionsOf(text) {
+  const out = [];
+  for (const m of text.matchAll(DIRECTIVE)) {
+    const line = text.slice(0, m.index).split('\n').length;
+    const names = m[1]
+      .split('*/')[0]
+      .split(/\s--\s|\s--$/u)[0]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const name of names.length ? names : ['(every rule)'])
+      out.push({ rule: `suppression/${name.replace(/^@typescript-eslint\//u, 'typescript/')}`, line });
+  }
+  return out;
+}
+
+/** Whether a suppression in this file counts: every one outside tests; in a test file, one naming a garden rule or none. */
+export const countedIn = (file, rule) =>
+  !TEST_FILE.test(file) || rule.startsWith('suppression/garden/') || rule === 'suppression/(every rule)';
+
+/** The fix printed under a new finding: ratchet.json `fixes` by rule, then by plugin. */
+export const fixOf = (rule, fixes = {}) => fixes[rule.replace(/\[[\w-]+\]$/u, '')] ?? fixes[rule.split('/')[0]];
 
 /** Writes main's config and plugin into dir/rules and returns the config text with the plugin path made absolute. */
 function rulesFrom(ref, dir) {
@@ -84,11 +129,12 @@ function rulesFrom(ref, dir) {
   delete config.$schema;
   config.jsPlugins = (config.jsPlugins ?? []).map((p) => join(dir, 'rules', p));
   const starts = show(ref, STARTS);
-  return { config, starts: starts ? JSON.parse(starts) : { printOnlyDays: 7, enforceFromStart: [], started: {} } };
+  return { config, starts: starts ? JSON.parse(starts) : {} };
 }
 
-/** Lints one side's files (path → text) with the config, from a tree of their own; returns { rule: { file: count } }. */
-export function lintSide(files, config, dir, oxlint) {
+/** Lints one side's files (path → text) with the config, from a tree of their own; returns { rule: { file: count } },
+ * with each finding's line and text in `found` (rule → file → [{ line, text }]). */
+export function lintSide(files, config, dir, oxlint, found = {}) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, CONFIG), JSON.stringify(config));
@@ -104,6 +150,8 @@ export function lintSide(files, config, dir, oxlint) {
     cwd: dir,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
+    // A rule that compares a file with its untouched neighbours (garden/no-copied-journey-function) reads them here.
+    env: { ...process.env, GARDEN_TREE: ROOT },
   });
   let parsed;
   try {
@@ -116,36 +164,35 @@ export function lintSide(files, config, dir, oxlint) {
     const file = String(d.filename).split('\\').join('/');
     counts[rule] ??= {};
     counts[rule][file] = (counts[rule][file] ?? 0) + 1;
+    ((found[rule] ??= {})[file] ??= []).push({ line: d.labels?.[0]?.span?.line, text: [d.message, d.help].filter(Boolean).join(' ') });
+  }
+  for (const [file, text] of Object.entries(files)) {
+    for (const s of suppressionsOf(text).filter((x) => countedIn(file, x.rule))) {
+      counts[s.rule] ??= {};
+      counts[s.rule][file] = (counts[s.rule][file] ?? 0) + 1;
+      ((found[s.rule] ??= {})[file] ??= []).push({ line: s.line, text: 'a suppression silences this rule here' });
+    }
   }
   return counts;
 }
 
 const sum = (byFile) => Object.values(byFile ?? {}).reduce((a, b) => a + b, 0);
 
-/** When a rule starts failing: null (enforces now) or the ISO day it starts. */
-export function enforcesFrom(rule, starts, defaultStart) {
-  if ((starts.enforceFromStart ?? []).includes(rule)) return null;
-  const start = starts.started?.[rule] ?? defaultStart;
-  return start ? new Date(Date.parse(start) + (starts.printOnlyDays ?? 7) * DAY).toISOString().slice(0, 10) : 'never';
-}
-
-/** The verdict: one row per rule seen on either side, and the rules that rose while enforcing. */
-export function compare(base, head, starts, defaultStart, today = new Date().toISOString().slice(0, 10), added = new Set()) {
+/** The verdict: one row per rule seen on either side, and the rules that rose. */
+export function compare(base, head, starts, added = new Set()) {
   const rows = [];
   for (const rule of [...new Set([...Object.keys(base), ...Object.keys(head)])].sort()) {
     const was = sum(base[rule]);
     const now = sum(head[rule]);
-    const from = enforcesFrom(rule, starts, defaultStart);
-    const enforcing = from === null || (from !== 'never' && from <= today);
     const rose = now > was;
     const inFiles = (keep) =>
       Object.keys(head[rule] ?? {})
         .filter((f) => (head[rule][f] ?? 0) > 0 && keep(f))
         .sort();
-    // A rule that replaced a test of ADDED files only enforces on added files at once; elsewhere it follows its dates.
-    const newFiles = (starts.enforceAddedFromStart ?? []).includes(rule) ? inFiles((f) => added.has(f)) : [];
-    const fails = (rose && enforcing) || newFiles.length > 0;
-    rows.push({ rule, was, now, enforcing, from, fails, newFiles, files: rose || newFiles.length ? inFiles(() => true) : [] });
+    const newFiles = (starts.failInAddedFiles ?? []).includes(rule) ? inFiles((f) => added.has(f)) : [];
+    const fails = rose || newFiles.length > 0;
+    const files = rose || newFiles.length ? inFiles((f) => newFiles.includes(f) || (head[rule][f] ?? 0) > (base[rule]?.[f] ?? 0)) : [];
+    rows.push({ rule, was, now, fails, newFiles, files });
   }
   return { rows, failing: rows.filter((r) => r.fails) };
 }
@@ -161,27 +208,32 @@ export function table({ rows }, nFiles) {
     const status = r.newFiles?.length
       ? `**FAILS: in file(s) this change adds**: ${r.newFiles.join(', ')}`
       : r.now > r.was
-        ? r.enforcing
-          ? `**FAILS: +${r.now - r.was}** in ${r.files.join(', ')}`
-          : `rose +${r.now - r.was}; prints only, fails from ${r.from}`
-        : r.enforcing
-          ? r.now < r.was
-            ? `fell ${r.now - r.was}`
-            : 'held'
-          : `held; fails from ${r.from}`;
+        ? `**FAILS: +${r.now - r.was}** in ${r.files.join(', ')}`
+        : r.now < r.was
+          ? `fell ${r.now - r.was}`
+          : 'held';
     lines.push(`| ${r.rule} | ${r.was} | ${r.now} | ${status} |`);
   }
   if (!rows.length) lines.push('| (no findings on either side) | 0 | 0 | held |');
   return lines.join('\n');
 }
 
-function mainRef() {
+/**
+ * Main as it is now, the rules a change is judged by, fetched fresh on CI and on the Mac alike: a branch cut before main
+ * gained a rule otherwise passed the push-time run on a stale origin/main and failed CI's minutes later. On the Mac it is
+ * fetched from `origin` and read by its fetched commit (FETCH_HEAD is this worktree's own, so builders pushing at once on
+ * one repository never share a ref); a repository with no `origin` remote has only its own origin/main. null: the fetch
+ * failed, and nothing is judged with rules that may be old.
+ */
+export function mainRef() {
   if (process.env.GITHUB_ACTIONS && process.env.GITHUB_REPOSITORY) {
     const url = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`;
     if (gitOr(['fetch', '--no-tags', '--quiet', url, '+refs/heads/main:refs/lint-ratchet/main']) === null) return null;
     return 'refs/lint-ratchet/main';
   }
-  return 'origin/main';
+  if (gitOr(['remote', 'get-url', 'origin']) === null) return 'origin/main';
+  if (gitOr(['fetch', '--no-tags', '--quiet', 'origin', 'main']) === null) return null;
+  return gitOr(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])?.trim() ?? null;
 }
 
 export function run(argv = process.argv.slice(2)) {
@@ -205,7 +257,15 @@ export function run(argv = process.argv.slice(2)) {
     console.error('✖ lint-ratchet: node_modules/.bin/oxlint is missing; run pnpm install');
     return 1;
   }
-  const files = changedFiles(base, head);
+  // main-bisect's proven revert of X is judged against X^, the code it restores (exact-revert.mjs autoRevertOf), over
+  // the files it touches: a culprit that deleted code today's rules count can still be reverted (project-state#3635).
+  const restored = autoRevertOf(process.env, main, git);
+  const from = restored ? `${restored}^` : base;
+  if (restored)
+    console.log(
+      `lint-ratchet: main-bisect's automatic revert of ${restored.slice(0, 10)}, judged against ${restored.slice(0, 10)}^, the code it restores`,
+    );
+  const files = restoredFrom(changedFiles(base, head), from === base ? null : from);
   const dir = mkdtempSync(join(tmpdir(), 'lint-ratchet-'));
   try {
     const rules = rulesFrom(main, dir);
@@ -223,23 +283,26 @@ export function run(argv = process.argv.slice(2)) {
           }),
       );
     const started = Date.now();
-    const baseCounts = lintSide(read(base, 'base'), rules.config, join(dir, 'base'), oxlint);
-    const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint);
-    const landed = gitOr(['log', '--diff-filter=A', '--format=%cI', main, '--', STARTS], '').trim().split('\n').filter(Boolean).pop();
+    const found = {};
+    const baseCounts = lintSide(read(from, 'base'), rules.config, join(dir, 'base'), oxlint);
+    const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint, found);
     const added = new Set(files.filter((f) => !f.base).map((f) => f.head));
-    const verdict = compare(baseCounts, headCounts, rules.starts, landed ?? new Date().toISOString(), undefined, added);
+    const verdict = compare(baseCounts, headCounts, rules.starts, added);
     const text = table(verdict, files.length) + `\n\n(${Date.now() - started} ms)`;
     if (argv.includes('--json')) console.log(JSON.stringify({ files: files.length, ...verdict, ms: Date.now() - started }));
     else console.log(text);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
     if (verdict.failing.length) {
-      for (const r of verdict.failing)
+      for (const r of verdict.failing) {
         console.error(
-          (r.newFiles.length
-            ? `✖ lint-ratchet: ${r.rule} fires in file(s) this change adds (${r.newFiles.join(', ')}). `
-            : `✖ lint-ratchet: ${r.rule} rose from ${r.was} to ${r.now} in the touched files (${r.files.join(', ')}). `) +
-            'Run `pnpm lint <file>` for the lines and the fix; a finding removed elsewhere in a touched file pays for one added.',
+          r.newFiles.length
+            ? `✖ lint-ratchet: ${r.rule} fires in file(s) this change adds (${r.newFiles.join(', ')}).`
+            : `✖ lint-ratchet: ${r.rule} rose from ${r.was} to ${r.now} in the touched files (${r.files.join(', ')}); a finding removed elsewhere in them pays for one added.`,
         );
+        for (const f of r.files) for (const d of (found[r.rule]?.[f] ?? []).slice(0, 10)) console.error(`  ${f}:${d.line}  ${d.text}`);
+        const fix = fixOf(r.rule, rules.starts.fixes);
+        if (fix) console.error(`  fix: ${fix}`);
+      }
       return 1;
     }
     return 0;

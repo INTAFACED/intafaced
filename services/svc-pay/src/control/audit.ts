@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { FounderControlAuditEntry, FounderControlAuditListInput } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { ControlError } from './errors.js';
@@ -143,7 +144,7 @@ export async function readMerchantAudit(
 }
 
 /** Append one audit row. Always inside the same transaction as the change it records. */
-export async function writeAudit(tx: Sql, row: AuditRow): Promise<void> {
+export async function writeAudit(tx: Queryable, row: AuditRow): Promise<void> {
   await tx`
     INSERT INTO pay.control_audit (scope, scope_id, merchant_id, kind, outcome, actor_id, second_actor_id, request_id, reason, before, after)
     VALUES (${row.scope}, ${row.scopeId}, ${row.merchantId ?? null}, ${row.kind}, ${row.outcome}, ${row.actorId}, ${row.secondActorId ?? null},

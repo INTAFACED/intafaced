@@ -4,7 +4,7 @@
  * queued per finished journeys run (that workflow is gone since 9 Nov 2026: each seal input ends with a `Start the seal`
  * job, journey-seal.test.mjs).
  *
- * It holds four rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
+ * It holds these rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
  * matter (a tiny evaluator of GitHub's expression syntax below, so a rewrite that keeps the meaning still passes):
  *   1. Every workflow a pull request triggers keeps only the newest run per pull request: its group is one per pull
  *      request and its run cancels the older one (cancel-in-progress true on that event). The exceptions are named in
@@ -21,13 +21,16 @@
  *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
  *   7. Main bisect: a journeys revert, confirm or settle gets one group per red commit and broken steps, so two breaks in
  *      one main run never wait behind or replace each other, and the same break dispatched twice still shares one.
+ *   8. CI review (INTAFACED/project-state#3820): as rule 5 for the seal, and a ready-for-review joins the pull request's
+ *      group without cancelling, since it reviews the head being merged.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { BUILD_JOB, DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { DISPATCH_GROUP_MAX, dispatchBatches, dispatchGroup } from './journey-touch.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -213,12 +216,11 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
 
 /**
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
- *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
- *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- * merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2: a push cancels the older head's seal, and
- * rule 5 below holds that nothing else is cancelled.
+ * None today. merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2, and ci-review.yml none since
+ * INTAFACED/project-state#3820: a push cancels the older head's seal and review, and rules 5 and 8 below hold that
+ * nothing else is cancelled.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml']);
+export const PR_EXCEPTIONS = new Set([]);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -276,29 +278,74 @@ export function journeysProblems(text) {
   });
   if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
   if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
-  // A fork's pull request or a draft runs nothing, in a group of its own, so it never cancels a branch's run (council
-  // R1, R2/G2): a fork branch named like this repository's, or a draft push racing a manual run.
-  for (const pull of [
-    { draft: false, head: { repo: { full_name: 'someone/fork' } } },
-    { draft: true, head: { repo: { full_name: REPO } } },
-  ]) {
-    const other = resolve(text, {
+  // A fork's pull request runs nothing, in a group of its own, so it never cancels a branch's run (council R1): a fork
+  // branch named like this repository's. A draft runs from its first push, in its branch's group, as a ready pull request
+  // does (#8707). `ready_for_review` keeps a group of its own: on the head its push already runs, it never cancels that.
+  const prRun = (pull, action = 'synchronize', id = 2) =>
+    resolve(text, {
       github: {
         workflow: 'Real-app journeys',
         repository: REPO,
         event_name: 'pull_request',
         ref: 'refs/pull/8/merge',
         head_ref: 'b1',
-        run_id: 2,
-        event: { pull_request: pull },
+        run_id: id,
+        event: { action, pull_request: pull },
       },
       inputs: {},
     });
-    if (other.group === branch('').group) problems.push(`a ${pull.draft ? 'draft' : "fork's"} pull request run shares a branch's group`);
-  }
+  if (prRun({ draft: false, head: { repo: { full_name: 'someone/fork' } } }).group === branch('').group)
+    problems.push("a fork's pull request run shares a branch's group");
+  const draft = { draft: true, head: { repo: { full_name: REPO } } };
+  for (const action of ['opened', 'synchronize', 'reopened'])
+    if (prRun(draft, action).group !== branch('').group || !prRun(draft, action).cancel)
+      problems.push(`a draft's ${action} run is not in its branch's group, cancelling the superseded one`);
+  const ready = prRun({ draft: false, head: { repo: { full_name: REPO } } }, 'ready_for_review', 3);
+  if (ready.group === branch('').group)
+    problems.push("ready_for_review shares its branch's group, so it would cancel the run its push started");
+  if (ready.group === prRun({ draft: false, head: { repo: { full_name: REPO } } }, 'ready_for_review', 4).group)
+    problems.push('two ready_for_review runs share a group');
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
+  // GitHub refuses to start a run whose group passes DISPATCH_GROUP_MAX characters, so the seal splits a long list into
+  // runs by hand that each stay within it (journey-touch.mjs dispatchBatches), measuring each by dispatchGroup: it must be this
+  // workflow's own group, or a split it prints may still not start (run 44766798876, 20 Nov 2026).
+  const sel = 'J-a-01.pw.mjs J-b-02.pw.mjs';
+  for (const b of ['fix/ps-3298', 'b1'])
+    if (run(`refs/heads/${b}`, sel) !== dispatchGroup(b, sel))
+      problems.push("journey-touch.mjs dispatchGroup is not the group a run by hand gets, so the seal's split runs may not start");
+  return problems;
+}
+
+// ---- rule 8: CI review ----------------------------------------------------------------------------------------------
+
+/** Problems with rule 8 in ci-review.yml's text, or []. */
+export function reviewProblems(text) {
+  if (!concurrency(text)) return ['ci-review.yml has no top-level concurrency group'];
+  const problems = [];
+  const at = (sha, extra) => resolve(text, prEvent('pull_request_target', 101, sha, extra));
+  const opened = at('aaa', { action: 'opened' });
+  const pushed = at('bbb', { action: 'synchronize' });
+  const ready = at('bbb', { action: 'ready_for_review' });
+  if (opened.group !== pushed.group || ready.group !== pushed.group || !pushed.cancel)
+    problems.push("a push doesn't cancel the review of the head it replaced");
+  if (pushed.group === at('ccc', { action: 'synchronize', number: 202 }).group) problems.push('two pull requests share a group');
+  // A ready-for-review run reviews the head being merged: it waits behind a running review rather than cancelling it.
+  if (ready.cancel) problems.push('a ready-for-review cancels a running review');
+  // Each of these reviews the head being merged, or runs no job; in the pull request's group it could replace a push's
+  // waiting review and leave the new head with none, and a re-run there of an old head's review would cancel the new one.
+  const own = {
+    'a title edit': at('bbb', { action: 'edited', changes: { title: { from: 'x' } } }),
+    'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
+    'a reopen': at('bbb', { action: 'reopened' }),
+    "a push's re-run": at('aaa', { action: 'synchronize', attempt: '2' }),
+    "a ready-for-review's re-run": at('aaa', { action: 'ready_for_review', attempt: '2' }),
+  };
+  for (const [what, r] of Object.entries(own)) {
+    if (r.cancel) problems.push(`${what} cancels a running review`);
+    if (r.group === pushed.group) problems.push(`${what} shares the pull request's group, so a push could cancel or replace it`);
+  }
   return problems;
 }
 
@@ -389,10 +436,14 @@ export function mainFirstProblems(text) {
   const defer = step(touch, `"${DEFER_MARK}"`);
   if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
     problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
-  // The touch job plans the shards too, so every run, main's and a branch's, queues for runners twice (this job, then
-  // the shards), not three times: no planner job of its own, and the shards wait on the touch job alone.
-  if (job(text, 'plan') || !/\n {4}needs: \[touch\]\n/.test(job(text, 'journeys')))
-    problems.push('the shards wait on a job after the touch job, so every run queues for runners three times');
+  // The touch job plans the shards too: no planner job of its own. The shards wait on the touch job and the build job
+  // alone, so no shard holds a runner while the build runs, and no other hop sits between.
+  if (job(text, 'plan') || !/\n {4}needs: \[touch, build\]\n/.test(job(text, 'journeys')))
+    problems.push('the shards wait on a job other than the touch and build jobs, so every run queues for runners once more');
+  // A shard that took a runner before the build ended would hold it while it waits: the shards take the build only
+  // through `needs`, never by asking the API in a loop.
+  if (/actions\/runs\/\$GITHUB_RUN_ID\/jobs/.test(job(text, 'journeys')))
+    problems.push("a shard asks the API for the build job's state, so it holds a runner while the build runs");
   if (/\n {4}if: /.test(touch.split('\n    steps:\n')[0] ?? ''))
     problems.push('the touch job is skipped somewhere, so that run plans no shards');
   for (const key of ['build', 'journeys'])
@@ -431,12 +482,13 @@ export function mainFirstProblems(text) {
     failsOn(MAIN, 'skipped')
   )
     problems.push("the scoreboard doesn't fail a run off main whose touch job didn't finish, so it can read as an empty run");
-  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  // The release: on main after the planner and the build (the shards queue when both end), with the right to re-run,
+  // running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
   if (
     !release ||
-    !/\n {4}needs: \[touch\]\n/.test(release) ||
+    !/\n {4}needs: \[touch, build\]\n/.test(release) ||
     !/\n {6}actions: write/.test(release) ||
     !/main-first\.mjs --release/.test(release) ||
     !relIf.includes("github.ref == 'refs/heads/main'")
@@ -480,6 +532,8 @@ export function mainFirstProblems(text) {
     );
   if (!new RegExp(`\n {4}name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
+  if (!new RegExp(`\n  build:\n    name: ${BUILD_JOB}\n`).test(text))
+    problems.push(`no build job is named "${BUILD_JOB}", the name main-first.mjs reads to know main's shards are not queued yet`);
   if (!new RegExp(`\n  release:\n    name: ${RELEASE_JOB}\n`).test(text))
     problems.push(`no release job is named "${RELEASE_JOB}", the name main-first.mjs reads to know main already let deferred runs go`);
   return problems;
@@ -523,13 +577,118 @@ test('Real-app journeys: main is never cancelled and shares one group; a superse
   assert.deepEqual(journeysProblems(read('real-app-journeys.yml')), []);
 });
 
-test('CI: a run on main is never cancelled', () => {
-  const ci = read('ci.yml');
-  for (const e of ['push', 'workflow_dispatch']) assert.equal(resolve(ci, journeysRun(e, MAIN)).cancel, false, e);
+test("Real-app journeys: every run by hand the seal asks for fits GitHub's group limit, and the whole list did not", () => {
+  const t = read('real-app-journeys.yml');
+  // The 63 files the seal of #9250 named on 20 Nov 2026 (its run 44764722293), which failed to start as one run.
+  const files = `J-agents-12 J-campaigns-18 J-cex-spot-01 J-cex-spot-17 J-charts-desk-04-venue J-charts-desk-04 J-charts-desk-05
+    J-charts-desk-09-quota J-charts-desk-09 J-charts-desk-10 J-copy-bots-otc-10 J-derivatives-02-venue J-derivatives-02
+    J-derivatives-03 J-derivatives-07 J-derivatives-17 J-derivatives-21 J-derivatives-28 J-developer-03-detail J-developer-03
+    J-developer-06 J-developer-15 J-dex-protocol-01 J-dex-protocol-08 J-dex-protocol-11 J-dex-protocol-13 J-dex-protocol-20
+    J-home-ia-01-venue J-home-ia-01 J-home-ia-06 J-home-ia-11 J-identity-01 J-merchant-02-payouts J-merchant-02 J-merchant-04
+    J-more-catalogue-15 J-ops-console-01-announcements J-ops-console-01-health J-ops-console-01-maintenance
+    J-ops-console-01-ops-room J-ops-console-01-search J-ops-console-01-service-page J-ops-console-01-settings J-ops-console-01
+    J-ops-console-22 J-ops-console-27 J-p2p-01 J-pay-03-qr J-pay-03 J-portfolio-01-venue J-portfolio-01 J-portfolio-02-venue
+    J-portfolio-02 J-portfolio-03-venue J-portfolio-03 J-portfolio-04-venue J-portfolio-04 J-support-public-12
+    J-support-public-19 J-wallet-01 J-wallet-09 J-wallet-13 J-wallet-22`
+    .split(/\s+/)
+    .map((f) => `${f}.pw.mjs`);
+  assert.equal(files.length, 63);
+  const group = (branch, list) => resolve(t, journeysRun('workflow_dispatch', `refs/heads/${branch}`, list.join(' '))).group;
+  // Planted: the old instruction, one run of the whole list, is past the limit (it ended with no jobs).
+  assert.ok(group('fix/ps-3298', files).length > DISPATCH_GROUP_MAX);
+  for (const branch of ['fix/ps-3298', 'b1', `j/${'x'.repeat(120)}`]) {
+    const batches = dispatchBatches(branch, files);
+    assert.deepEqual(batches.flat(), files, `${branch}: every file once, in order`);
+    for (const b of batches) assert.ok(group(branch, b).length <= DISPATCH_GROUP_MAX, `${branch}: ${group(branch, b).length}`);
+    // As few runs as fit: no two neighbouring runs would fit as one.
+    for (let i = 1; i < batches.length; i++)
+      assert.ok(group(branch, [...batches[i - 1], ...batches[i]]).length > DISPATCH_GROUP_MAX, `${branch}: runs ${i - 1} and ${i}`);
+  }
+  // A short list stays one run, as before.
+  assert.deepEqual(dispatchBatches('b1', files.slice(0, 3)), [files.slice(0, 3)]);
+});
+
+test("planted: a dispatchGroup that is not the workflow's group fails", () => {
+  const t = read('real-app-journeys.yml');
+  const longer = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-by-hand-{0}:{1}'");
+  assert.notEqual(longer, t);
+  assert.ok(journeysProblems(longer).some((p) => /dispatchGroup is not the group/.test(p)));
+});
+
+const ciRun = (event_name, ref, run_attempt = '1') => ({
+  github: { workflow: 'CI', repository: REPO, event_name, ref, run_id: Math.random(), run_attempt },
+  inputs: {},
+});
+
+/**
+ * Problems with CI's main runs in ci.yml's text, or []. A main run is never cancelled, and a re-run of a red main run
+ * (Main trust's attempt 2) is in no group a later main run joins: GitHub keeps one waiting run per group and the next
+ * push replaces it, so in the shared group every re-run was cancelled and no red was ever confirmed (23 Nov 2026).
+ */
+export function ciProblems(text) {
+  const problems = [];
+  const first = ['push', 'workflow_dispatch'].map((e) => resolve(text, ciRun(e, MAIN)));
+  if (first.some((r) => r.cancel)) problems.push('a CI run on main could be cancelled');
+  const rerun = resolve(text, ciRun('push', MAIN, '2'));
+  if (rerun.cancel) problems.push('a re-run of a main run could cancel another main run');
+  if (first.some((r) => r.group === rerun.group)) problems.push('a re-run of a red main run waits in the group the next main run joins');
+  if (rerun.group === resolve(text, ciRun('push', MAIN, '2')).group) problems.push('two main re-runs share one group');
+  const pr = (n, attempt) => {
+    const ctx = prEvent('pull_request', n, 'x', { attempt });
+    return resolve(text, { ...ctx, github: { ...ctx.github, workflow: 'CI' } });
+  };
+  if (pr(7, '1').group !== 'CI-refs/pull/7/merge' || pr(7, '2').group !== 'CI-refs/pull/7/merge')
+    problems.push("a pull request's CI left its group CI-refs/pull/<n>/merge, which journey-seal.mjs relies on");
+  return problems;
+}
+
+test("CI: a run on main is never cancelled, and a red main run's re-run is never cancelled by the next merge", () => {
+  assert.deepEqual(ciProblems(read('ci.yml')), []);
+});
+
+test("planted: yesterday's CI group (one per ref, re-runs included) fails", () => {
+  const t = read('ci.yml');
+  const old = t.replace(concurrency(t).group, '${{ github.workflow }}-${{ github.ref }}');
+  assert.notEqual(old, t);
+  assert.ok(ciProblems(old).some((p) => /waits in the group the next main run joins/.test(p)));
+  const always = t.replace(`cancel-in-progress: ${concurrency(t).cancel}`, 'cancel-in-progress: true');
+  assert.notEqual(always, t);
+  assert.ok(ciProblems(always).some((p) => /could be cancelled/.test(p)));
 });
 
 test("CI merge seal: a push cancels the older head's seal; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
   assert.deepEqual(sealProblems(read('merge-seal.yml')), []);
+});
+
+test("CI review: a push cancels the older head's review; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
+  assert.deepEqual(reviewProblems(read('ci-review.yml')), []);
+});
+
+test("planted: yesterday's review (one group per head, never cancelled), and one where every run joins the group, fail rules 1 and 8", () => {
+  const t = read('ci-review.yml');
+  const c = concurrency(t);
+  const old = t
+    .replace(
+      c.group,
+      'ci-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.head.sha }}',
+    )
+    .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: false');
+  assert.notEqual(old, t);
+  assert.match(prProblems('ci-review.yml', old).join(), /land in different groups/);
+  assert.ok(reviewProblems(old).some((p) => /a push doesn't cancel/.test(p)));
+  const all = t
+    .replace(c.group, 'ci-review-pr-${{ github.event.pull_request.number }}')
+    .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
+  const p = reviewProblems(all);
+  for (const what of ['a title edit', 'a base change', 'a reopen', "a push's re-run", 'a ready-for-review cancels'])
+    assert.ok(
+      p.some((x) => x.startsWith(what)),
+      `${what}: ${p}`,
+    );
+  // Keyed on the event alone (no run_attempt), a re-run of an old head's review joins the group and cancels the new head's.
+  const noAttempt = t.replaceAll("github.run_attempt == '1' && ", '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(reviewProblems(noAttempt).some((x) => x.startsWith("a push's re-run cancels")));
 });
 
 test("Real-app journeys: a run off main waits for main's jobs to get runners, and never fails or holds main", () => {
@@ -545,16 +704,15 @@ test('Main bisect: two breaks on one main commit each get their own group, and a
 const drop = (text) => text.replace(/^concurrency:\n(?:[ #].*\n|\n)*/m, '');
 
 test('planted: a pull-request workflow without its concurrency group fails rule 1', () => {
-  assert.ok(concurrency(read('gate-file-guard.yml')), 'gate-file-guard.yml has a group to remove');
-  assert.match(prProblems('gate-file-guard.yml', drop(read('gate-file-guard.yml')))[0], /no top-level concurrency group/);
+  assert.ok(concurrency(read('pr-checks.yml')), 'pr-checks.yml has a group to remove');
+  assert.match(prProblems('pr-checks.yml', drop(read('pr-checks.yml')))[0], /no top-level concurrency group/);
 });
 
 test('planted: a pull-request workflow that never cancels, or keys on the base ref, fails rule 1', () => {
-  const t = read('gate-file-guard.yml');
-  assert.match(
-    prProblems('gate-file-guard.yml', t.replace('cancel-in-progress: true', 'cancel-in-progress: false')).join(),
-    /doesn't cancel/,
-  );
+  const t = read('pr-checks.yml');
+  const never = t.replace("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", 'cancel-in-progress: false');
+  assert.notEqual(never, t);
+  assert.match(prProblems('pr-checks.yml', never).join(), /doesn't cancel/);
   const target = `on:\n  pull_request_target:\n\nconcurrency:\n  group: x-\${{ github.ref }}\n  cancel-in-progress: true\n`;
   assert.match(prProblems('x.yml', target).join(), /share a group/);
 });
@@ -665,9 +823,22 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   );
   assert.notEqual(touchOffMain, t);
   assert.ok(mainFirstProblems(touchOffMain).some((p) => /plans no shards/.test(p)));
-  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch\]/, '$1needs: [touch, plan]');
+  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch, build, plan]');
   assert.notEqual(planHop, t);
-  assert.ok(mainFirstProblems(planHop).some((p) => /three times/.test(p)));
+  assert.ok(mainFirstProblems(planHop).some((p) => /once more/.test(p)));
+  // The shape this replaced: shards needing the touch job alone, polling the API for the build.
+  const pollBuild = t
+    .replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]')
+    .replace(
+      "      - name: Download the run's build\n",
+      '      - name: Wait\n        run: gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs"\n      - name: Download the run\'s build\n',
+    );
+  assert.notEqual(pollBuild, t);
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /once more/.test(p)));
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /holds a runner while the build runs/.test(p)));
+  const releaseEarly = t.replace(/(\n  release:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]');
+  assert.notEqual(releaseEarly, t);
+  assert.ok(mainFirstProblems(releaseEarly).some((p) => /never runs/.test(p)));
   const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
   assert.notEqual(noRelease, t);
   assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));

@@ -5,12 +5,13 @@ import { createProtocolApi } from '../features/protocol/api';
 import { protocolCopy } from '../features/protocol/copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { shortAddress } from '../features/protocol/wallet/eip1193';
-import { WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
-import { RegionContext, REGION_BLOCKED_CODE } from '../features/protocol/region';
+import { WalletGate, WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
+import { RegionContext, isRegionBlocked } from '../features/protocol/region';
 import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { SessionNotice } from './SessionNotice';
+import { isHiddenPath } from './feature-registry';
 import { shellCopy } from './shell-copy';
 import '../features/protocol/web3-shell.css';
 
@@ -33,7 +34,7 @@ const PHONE = ['nav_swap', 'nav_pools', 'nav_wallet', 'nav_explorer'] as const;
  */
 export function Web3Shell({ path, children }: { path: string; children: ReactNode }) {
   return (
-    <WalletProvider scope={path}>
+    <WalletProvider scope={path} gate={false}>
       <Web3Frame path={path}>{children}</Web3Frame>
     </WalletProvider>
   );
@@ -41,16 +42,17 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
 
 function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const wallet = useWallet();
-  const { session, restoring } = useSession();
+  const { session } = useSession();
   const { t: shell } = shellCopy.useCopy();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const chain = useResource((signal) => api.chainStatus(signal), 'web3-shell:chain').resource;
-  // The edge refuses every Protocol read from a blocked region. The shell says so once, in words, and the rooms offer no
-  // signing action while it holds.
-  const regionBlocked = chain.status === 'failed' && chain.failure.code === REGION_BLOCKED_CODE;
+  // A blocked region refuses every Protocol read: the edge's screening list (edge.geo_blocked), or svc-protocol's own guard
+  // for a region the business does not serve (denied.region_blocked). The shell says so once, in words, and the rooms offer
+  // no signing action while it holds.
+  const regionBlocked = chain.status === 'failed' && isRegionBlocked(chain.failure.code);
   const chip =
     chain.status === 'loading'
       ? t('networkChecking')
@@ -75,7 +77,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               <ShellSwitch current="web3" here={path} />
               <nav data-testid="tb-nav" className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
-                  {NAV.map((item) => (
+                  {NAV.filter((item) => !isHiddenPath(item.href)).map((item) => (
                     <li key={item.key} data-testid="tb-item" className="tb-item">
                       <a data-testid="tb-tab" className="tb-tab" href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                         {t(item.key)}
@@ -99,7 +101,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   {t('bannerPill')}
                 </span>
                 <span className="web3-chip" data-chip="wallet">
-                  {wallet.status === 'connecting'
+                  {wallet.status === 'connecting' || wallet.status === 'restoring'
                     ? t('walletConnecting')
                     : wallet.status === 'connected' && wallet.address && wallet.connected
                       ? wallet.guard?.ok
@@ -107,7 +109,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                         : `${t('walletWrongNetwork')} · ${shortAddress(wallet.address)}`
                       : t('walletNone')}
                 </span>
-                {session || restoring ? null : (
+                {session ? null : (
                   <>
                     {/* Signed out, every Web3 room is the public read-only view; signing in returns through Home. */}
                     <a className="tb-login" href="/login">
@@ -123,16 +125,23 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             <main id="main" tabIndex={-1}>
               <SessionNotice />
               {regionBlocked && (
-                <p className="web3-region-notice" role="alert" data-notice="region" data-code={REGION_BLOCKED_CODE}>
+                <p
+                  className="web3-region-notice"
+                  role="alert"
+                  data-notice="region"
+                  data-code={chain.status === 'failed' ? chain.failure.code : undefined}
+                >
                   {t('regionBlocked')}
                 </p>
               )}
-              <RegionContext.Provider value={regionBlocked}>{children}</RegionContext.Provider>
+              <RegionContext.Provider value={regionBlocked}>
+                <WalletGate>{children}</WalletGate>
+              </RegionContext.Provider>
             </main>
             <nav className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
               {PHONE.map((key) => {
                 const item = NAV.find((entry) => entry.key === key)!;
-                return (
+                return isHiddenPath(item.href) ? null : (
                   <a key={key} href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                     {t(key)}
                   </a>

@@ -20,6 +20,7 @@ export type CodRefuseCode =
   | 'cod.excluded_classes_unconfigured'
   | 'cod.scope_unsupported'
   | 'cod.ttl_out_of_range'
+  | 'cod.stream_token_unsupported'
   | 'cod.unarmed';
 
 export const COD_REFUSE_CODES = [
@@ -29,6 +30,7 @@ export const COD_REFUSE_CODES = [
   'cod.excluded_classes_unconfigured',
   'cod.scope_unsupported',
   'cod.ttl_out_of_range',
+  'cod.stream_token_unsupported',
   'cod.unarmed',
 ] as const satisfies readonly CodRefuseCode[];
 
@@ -217,10 +219,16 @@ export function decideArm(input: {
   readonly nowMs: number;
   readonly hasWrite: boolean;
   readonly cancelPortAttached: boolean;
+  /**
+   * The seat opened with a stream token (J-developer-09 #2). Its cancel would carry that token to svc-trade, which takes
+   * only the platform audience, so the switch could never fire: refused at arm time, never armed and left to fail.
+   */
+  readonly streamToken?: boolean;
 }): ArmDecision {
   const { command, range, nowMs, hasWrite, cancelPortAttached } = input;
   if (range === null) return { ok: false, code: 'cod.lease_range_unconfigured' };
   if (!hasWrite) return { ok: false, code: 'cod.write_required' };
+  if (input.streamToken === true) return { ok: false, code: 'cod.stream_token_unsupported' };
   if (command.excludedOrderClasses.length > 0) return { ok: false, code: 'cod.excluded_classes_unconfigured' };
   if (!SCOPES.includes(command.scope)) return { ok: false, code: 'cod.scope_unsupported' };
   if (command.ttlMs < range.minTtlMs || command.ttlMs > range.maxTtlMs) return { ok: false, code: 'cod.ttl_out_of_range' };
@@ -451,6 +459,7 @@ export class CodController {
       userId: string;
       accessToken: string;
       hasWrite: boolean;
+      streamToken?: boolean;
       send: (frame: string) => void;
     },
   ): void {
@@ -496,6 +505,7 @@ export class CodController {
       userId: string;
       accessToken: string;
       hasWrite: boolean;
+      streamToken?: boolean;
       send: (frame: string) => void;
     },
   ): void {
@@ -504,6 +514,7 @@ export class CodController {
       range: this.#options.range,
       nowMs: this.#options.now(),
       hasWrite: ctx.hasWrite,
+      ...(ctx.streamToken === true ? { streamToken: true } : {}),
       cancelPortAttached: this.#options.cancel !== null,
     });
     if (!decided.ok) {

@@ -28,13 +28,13 @@ export function Journey({ steps, label }: { steps: readonly JourneyStep[]; label
           <span className="depth-step-index" aria-hidden="true">
             {index + 1}
           </span>
-          <div className="depth-step-main">
+          <div className="lt-stack">
             <div className="depth-step-head">
               <h3>{step.title}</h3>
               <StatusPill state={step.state}>{step.stateLabel}</StatusPill>
             </div>
             <p>{step.body}</p>
-            {step.reason ? <p className="depth-reason">{step.reason}</p> : null}
+            {step.reason ? <p className="lt-muted">{step.reason}</p> : null}
             {step.action ? <div className="depth-step-action">{step.action}</div> : null}
           </div>
         </li>
@@ -62,10 +62,10 @@ export function StatRow({ items }: { items: readonly { label: ReactNode; value: 
 export function DisabledAction({ label, reason }: { label: ReactNode; reason: ReactNode }) {
   return (
     <div className="depth-disabled">
-      <button type="button" className="button button--primary" disabled aria-disabled="true">
+      <button type="button" className="lt-button lt-button-primary" disabled aria-disabled="true">
         {label}
       </button>
-      <p className="muted" role="note">
+      <p className="lt-muted" role="note">
         {reason}
       </p>
     </div>

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { StateBlock } from '@/components/merchants/ui';
+import { StateBlock } from '@/components/merchants';
 import { NOTE_BODY_MAX, parseTags, RETRACT_REASON_MAX, RETRACT_REASON_MIN } from '@/lib/founder-ops/notes';
 import { postNotes, type NotesReply } from '@/lib/founder-ops/notes-client';
 

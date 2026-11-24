@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { CheckField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { safeReturnTo } from '../../app/navigation';
-import { useSession } from '../session/session';
-import { sendArticleFeedback } from '../more/support-calls';
-import { supportRequestHref } from '../more/support-desk';
+import { useSession } from '../session';
+import { FailureNote, Waiting, sendArticleFeedback, supportRequestHref } from '../more';
 import { helpFeedbackCopy as copy } from './help-feedback-copy';
 
 type Vote = { helpful: boolean; ticketId?: string; earlier?: true };
@@ -28,11 +28,11 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
   const sending = useRef(false);
   if (!session) {
     return (
-      <section className="help__card help__measure" aria-label={t('question')} data-testid="help-feedback">
+      <section className="lt-stack" aria-label={t('question')} data-testid="help-feedback">
         <h2>{t('question')}</h2>
-        <p className="muted">{t('signedOut')}</p>
+        <p className="lt-hint">{t('signedOut')}</p>
         <a
-          className="button button--secondary"
+          className="lt-button lt-button-secondary"
           href={`/login?redirect=${encodeURIComponent(safeReturnTo(location.pathname + location.search))}`}
         >
           {t('signIn')}
@@ -65,21 +65,21 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
     }
   }
   return (
-    <section className="help__card help__measure" aria-label={t('question')} data-testid="help-feedback">
+    <section className="lt-stack" aria-label={t('question')} data-testid="help-feedback">
       <h2>{t('question')}</h2>
       {state.step === 'ask' && (
-        <div className="help__actions">
-          <Button variant="secondary" onClick={() => void send(true)}>
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={() => void send(true)}>
             {t('yes')}
           </Button>
-          <Button variant="secondary" onClick={() => setState({ step: 'comment', comment: '', asRequest: false, missing: false })}>
+          <Button tone="secondary" onClick={() => setState({ step: 'comment', comment: '', asRequest: false, missing: false })}>
             {t('no')}
           </Button>
         </div>
       )}
       {state.step === 'comment' && (
         <form
-          className="help__feedback"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             const comment = state.comment.trim();
@@ -87,48 +87,45 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
             void send(false, comment, state.asRequest, state);
           }}
         >
-          <label className="field">
-            <span>{t('commentLabel')}</span>
-            <textarea
-              name="help-feedback-comment"
-              value={state.comment}
-              maxLength={2000}
-              rows={3}
-              aria-invalid={state.missing}
-              onChange={(event) => setState({ ...state, comment: event.target.value, missing: false })}
-            />
-            {state.missing && <small className="error-text">{t('requestNeedsComment')}</small>}
-          </label>
-          <label className="help__check">
-            <input
-              type="checkbox"
-              checked={state.asRequest}
-              onChange={(event) => setState({ ...state, asRequest: event.target.checked, missing: false })}
-            />{' '}
-            {t('sendAsRequest')}
-          </label>
-          <div className="help__actions">
-            <Button type="submit">{t('send')}</Button>
-            <Button type="button" variant="ghost" onClick={() => setState({ step: 'ask' })}>
+          <TextAreaField
+            label={t('commentLabel')}
+            name="help-feedback-comment"
+            value={state.comment}
+            maxLength={2000}
+            rows={3}
+            aria-invalid={state.missing}
+            error={state.missing ? t('requestNeedsComment') : undefined}
+            onChange={(comment) => setState({ ...state, comment, missing: false })}
+          />
+          <CheckField
+            label={t('sendAsRequest')}
+            checked={state.asRequest}
+            onChange={(checked) => setState({ ...state, asRequest: checked, missing: false })}
+          />
+          <div className="lt-actions">
+            <Button type="submit" tone="primary">
+              {t('send')}
+            </Button>
+            <Button type="button" tone="quiet" onClick={() => setState({ step: 'ask' })}>
               {t('back')}
             </Button>
           </div>
         </form>
       )}
-      {state.step === 'sending' && <Loading label={t('sending')} />}
+      {state.step === 'sending' && <Waiting label={t('sending')} />}
       {state.step === 'done' && (
         <div role="status" data-testid="help-feedback-done">
           <p>{state.vote.earlier ? t('earlier') : state.vote.ticketId && state.askedRequest ? t('storedRequest') : t('stored')}</p>
           {state.vote.earlier && state.askedRequest && !state.vote.ticketId && (
             <p>
               {t('requestNotSent')}{' '}
-              <a className="text-link" href="/support">
+              <a className="lt-link" href="/support">
                 {t('openDesk')}
               </a>
             </p>
           )}
           {state.vote.ticketId && (
-            <a className="text-link" href={supportRequestHref(state.vote.ticketId)}>
+            <a className="lt-link lt-link-alone" href={supportRequestHref(state.vote.ticketId)}>
               {t('openRequest')}
             </a>
           )}
@@ -136,13 +133,13 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
       )}
       {state.step === 'failed' && (
         <>
-          <Failure result={state.failure} />
-          <Button variant="ghost" onClick={() => setState(state.back)}>
+          <FailureNote result={state.failure} />
+          <Button tone="quiet" onClick={() => setState(state.back)}>
             {t('back')}
           </Button>
         </>
       )}
-      <p className="help__caption muted">{t('oneVote')}</p>
+      <p className="lt-hint">{t('oneVote')}</p>
     </section>
   );
 }

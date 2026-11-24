@@ -29,16 +29,34 @@
     "./testing/saga": {
       "types": "./dist/testing/saga.d.ts",
       "default": "./dist/testing/saga.js"
+    },
+    "./history-page": {
+      "types": "./dist/history-page-record.d.ts",
+      "default": "./dist/history-page-record.js"
+    },
+    "./post-recipe": {
+      "types": "./dist/post-recipe-client.d.ts",
+      "default": "./dist/post-recipe-client.js"
+    },
+    "./operator-reverse": {
+      "types": "./dist/operator-reverse-record.d.ts",
+      "default": "./dist/operator-reverse-record.js"
+    },
+    "./gate": {
+      "types": "./dist/gate/index.d.ts",
+      "default": "./dist/gate/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
+    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['contracts'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/ledger-client^... run --if-present build && node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf dist .turbo",
+    "procedures:write": "node ../contracts/scripts/procedure-registry.mjs . LEDGER_PROCEDURES @intafaced/contracts/procedure && node ../../tooling/scripts/tsc.mjs -p tsconfig.json && node ../contracts/scripts/write-procedures.mjs ./dist/procedure-registry.js LEDGER_PROCEDURES && prettier --write procedures"
   },
   "dependencies": {
+    "@intafaced/contracts": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

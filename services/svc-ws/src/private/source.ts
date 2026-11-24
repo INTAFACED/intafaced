@@ -125,14 +125,53 @@ export async function subscribePrivatePositions(input: {
     });
 }
 
+/**
+ * A change in the balance of a person's own venue account (J-cex-spot-15 #9), published by svc-trade's venue balance
+ * watch. Fan-out only: the hub drops an id it has already sent the person.
+ */
+async function subscribePrivateBalances(input: {
+  bus: EventBus;
+  hub: PrivateOrderHub;
+  durable: string;
+  log?: HubLogger;
+}): Promise<Subscription> {
+  const { bus, hub, durable, log } = input;
+
+  return bus
+    .subscribe(
+      'venueBalanceChanged',
+      (payload) => {
+        hub.publishBalance({
+          changeId: payload.changeId,
+          userId: payload.userId,
+          venueId: payload.venueId,
+          owner: payload.owner,
+          subAccount: payload.subAccount,
+          asset: payload.asset,
+          source: payload.source,
+          sourceId: payload.sourceId,
+          change: payload.change,
+          total: payload.total,
+          ts: payload.ts,
+        });
+      },
+      { durable },
+    )
+    .then((sub) => {
+      log?.info({ durable, subject: 'venueBalanceChanged' }, 'ws: private balances subscribed');
+      return sub;
+    });
+}
+
 export interface PrivateAttachments {
   readonly orders: Subscription;
   readonly fills: Subscription;
   readonly positions: Subscription;
+  readonly balances: Subscription;
 }
 
 /**
- * Attach all three private consumers, or none.
+ * Attach all four private consumers, or none.
  * A partial attach (orders up, fills fail) would lie: ready frames say
  * `bus: true` while fills are silent. Tear whatever landed and return null
  * so the lifecycle can retry the half without touching the public tape.
@@ -147,6 +186,7 @@ export async function tryAttachPrivate(input: {
   let orders: Subscription | null = null;
   let fills: Subscription | null = null;
   let positions: Subscription | null = null;
+  let balances: Subscription | null = null;
   try {
     orders = await subscribePrivateOrders(input);
     fills = await subscribePrivateFills({
@@ -158,12 +198,17 @@ export async function tryAttachPrivate(input: {
       ...input,
       durable: `${input.durable}-positions`,
     });
-    return { orders, fills, positions };
+    balances = await subscribePrivateBalances({
+      ...input,
+      durable: `${input.durable}-balances`,
+    });
+    return { orders, fills, positions, balances };
   } catch (err) {
     input.positions?.markSourceAttached(false);
     await orders?.unsubscribe().catch(() => undefined);
     await fills?.unsubscribe().catch(() => undefined);
     await positions?.unsubscribe().catch(() => undefined);
+    await balances?.unsubscribe().catch(() => undefined);
     input.log?.warn({ err: String(err) }, 'ws: private bus subscribe failed — trade tape still attached; private half will retry');
     return null;
   }

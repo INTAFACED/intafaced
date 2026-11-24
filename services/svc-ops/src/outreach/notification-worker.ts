@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { crmSubmissionSchema, guestNotificationSendInputSchema, type GuestNotificationReceipt } from '@intafaced/contracts';
+import type { GuestNotificationReceipt } from '@intafaced/contracts';
+import { guestNotificationSendInputSchema } from '@intafaced/contracts/guest-notifications';
+import { crmSubmissionSchema } from '@intafaced/contracts/outreach-crm';
 import { OutreachNotificationError, type OutreachNotificationPort } from './notification-client.js';
 import { privacyReadLock } from './privacy.js';
 

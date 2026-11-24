@@ -8,8 +8,6 @@ import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } 
 import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
 import {
-  fmtAmount,
-  fmtPrice,
   Menu,
   MenuContent,
   MenuItem,

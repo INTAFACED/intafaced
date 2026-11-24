@@ -2,6 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 const messages = {
   'Public navigation': 'Public navigation',
+  Menu: 'Menu',
   Trade: 'Trade',
   Help: 'Help',
   About: 'About',
@@ -110,7 +111,7 @@ const messages = {
   // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
-  'Create an account ↗': 'Create an account ↗',
+  'Create an account': 'Create an account',
   'Contact support': 'Contact support',
   'Account notifications belong to your private inbox. They are not public announcements.':
     'Account notifications belong to your private inbox. They are not public announcements.',
@@ -138,6 +139,7 @@ const messages = {
 export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.public', messages, {
   es: {
     'Public navigation': 'Navegación pública',
+    Menu: 'Menú',
     Trade: 'Operar',
     Help: 'Ayuda',
     About: 'Acerca de',
@@ -245,7 +247,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Clear information comes first.': 'La información clara es lo primero.',
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
-    'Create an account ↗': 'Crear una cuenta ↗',
+    'Create an account': 'Crear una cuenta',
     'Contact support': 'Contactar con soporte',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Las notificaciones de cuenta pertenecen a tu bandeja de entrada privada. No son anuncios públicos.',
@@ -269,6 +271,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
   },
   fr: {
     'Public navigation': 'Navigation publique',
+    Menu: 'Menu',
     Trade: 'Négocier',
     Help: 'Aide',
     About: 'À propos',
@@ -376,7 +379,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Clear information comes first.': 'La clarté de l’information passe avant tout.',
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
-    'Create an account ↗': 'Créer un compte ↗',
+    'Create an account': 'Créer un compte',
     'Contact support': 'Contacter l’assistance',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Les notifications du compte appartiennent à votre boîte de réception privée. Ce ne sont pas des annonces publiques.',

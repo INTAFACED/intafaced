@@ -98,7 +98,8 @@ describe('pickMoneyView', () => {
 });
 
 type Answer = { ok: true; data: unknown } | { ok: false; reason: string; message: string; status?: number; code?: string };
-const envWith = (answer: Answer) => ({ api: { query: async () => answer } }) as unknown as DataEnv;
+// The summary is read by its record (`api.call`); the double answers it as the client would.
+const envWith = (answer: Answer) => ({ api: { call: async () => answer } }) as unknown as DataEnv;
 const signal = new AbortController().signal;
 
 describe('summaryFetcher', () => {
@@ -178,7 +179,7 @@ describe('display unit and account scope (PF-overview-03)', () => {
     const calls: unknown[] = [];
     const env = {
       api: {
-        query: async (_service: string, _procedure: string, input: unknown) => {
+        call: async (_record: unknown, input: unknown) => {
           calls.push(input);
           return { ok: true, data: summary() };
         },

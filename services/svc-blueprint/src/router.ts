@@ -1,28 +1,14 @@
-import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import {
-  blueprintExportSchema,
-  blueprintSchema,
-  cardInput,
-  cardOfInput,
-  cardOpenerSchema,
-  cardRenderSchema,
-  cardShareSchema,
-  createShareInput,
-  eraseReceiptSchema,
-  mentorMatchSchema,
-  onboardInput,
-  onboardOutput,
-  setVisibilityInput,
-  shareIdInput,
-} from '@intafaced/contracts';
+import { TRPCError } from '@trpc/server';
+import type { Context } from '@intafaced/contracts';
+import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { BLUEPRINT_PROCEDURES } from '@intafaced/contracts/blueprint-procedures';
 import { AttestationSurfaceError } from './attestations/zero-pii.js';
 import { BlueprintError, type BlueprintService } from './blueprint-service.js';
 
 /**
  * svc-blueprint's API (§7.1, §7.2).
  *
- * The contract shape lives in `packages/contracts` — this implements it.
+ * Mounted from its records (`@intafaced/contracts/blueprint-procedures`): this file holds only the handlers.
  *
  * ── Authorisation, stated once ──────────────────────────────────────────────
  * Every owner procedure operates on `ctx.principal.userId` and never on a
@@ -74,176 +60,63 @@ function toTrpcError(err: unknown): TRPCError {
   }
 }
 
+/** svc-blueprint's one refusal reader, in its wire form (`toTrpcError`). A TRPCError a handler already shaped passes as it is. */
+const blueprintRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError
+    ? undefined
+    : {
+        code: err instanceof BlueprintError || err instanceof AttestationSurfaceError ? err.code : 'blueprint.request_failed',
+        error: toTrpcError(err),
+      };
+
+/**
+ * `me`, `mentors` and `export` never mapped their errors: whatever they throw is sent as INTERNAL_SERVER_ERROR with its
+ * own message, as tRPC sends an unknown error. Kept as it is, bug included, so the wire does not move with the mount.
+ */
+const unmapped =
+  <T>(read: () => Promise<T>) =>
+  async (): Promise<T> => {
+    try {
+      return await read();
+    } catch (err) {
+      if (err instanceof TRPCError) throw err;
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: err });
+    }
+  };
+
+/** The signed caller. Every record here is scope-guarded, so the guard has already refused a call without one. */
+function userOf({ principal }: Context): string {
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not signed in' });
+  return principal.userId;
+}
+
 export function createBlueprintRouter(blueprint: BlueprintService) {
-  return router({
-    health: publicProcedure
-      .output(z.object({ ok: z.boolean(), service: z.literal('svc-blueprint') }))
-      .query(() => ({ ok: true, service: 'svc-blueprint' as const })),
-
-    /**
-     * Run the Blueprint session (§7.1).
-     *
-     * The input carries the session's answers and, optionally, birth data. Both
-     * are forwarded to the Neural Engine and then dropped — nothing on this
-     * path persists them (§10).
-     */
-    onboard: scopedProcedure('blueprint:write', { module: 'blueprint' })
-      .input(onboardInput.omit({ userId: true }))
-      .output(onboardOutput)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          return await blueprint.onboard({ ...input, userId: ctx.principal.userId });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-    /** The caller's own Blueprint. */
-    me: scopedProcedure('blueprint:read', { module: 'blueprint' })
-      .output(blueprintSchema.nullable())
-      .query(({ ctx }) => blueprint.get({ userId: ctx.principal.userId })),
-
-    /**
-     * The caller's own share card (§7.1, §7.2). Always allowed for the owner,
-     * including when visibility is `private`. `cardOf` is the other-user path.
-     *
-     * Still not a public unauthenticated URL — walking that back later would
-     * break embedded unfurls. Authenticated + visibility is the reversible
-     * direction; OG/share tokens stay ops.social-promotion / Class X.
-     */
-    card: scopedProcedure('blueprint:read', { module: 'blueprint' })
-      .input(cardInput)
-      .output(cardRenderSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          return await blueprint.card({ userId: ctx.principal.userId, size: input.size });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-    /**
-     * Someone else's share card, gated by `blueprints.visibility`.
-     *
-     * `userId` is the subject. The viewer is the signed principal — a forged
-     * header still cannot pick the viewer. Denied and missing are the same
-     * `NOT_FOUND`, so private Blueprints are not enumerable by id.
-     */
-    cardOf: scopedProcedure('blueprint:read', { module: 'blueprint' })
-      .input(cardOfInput)
-      .output(cardRenderSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          return await blueprint.cardFor({
-            viewerId: ctx.principal.userId,
-            ...(input.userId ? { subjectUserId: input.userId } : {}),
-            ...(input.shareId ? { shareId: input.shareId } : {}),
-            size: input.size,
-          });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-    /**
-     * Shares of the caller's own cards (MC-blueprint-01). The account is the
-     * signed principal. A share id from the body is only the row to revoke or
-     * to list; it never chooses whose shares are created.
-     */
-    shares: router({
-      create: scopedProcedure('blueprint:write', { module: 'blueprint' })
-        .input(createShareInput)
-        .output(cardShareSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await blueprint.createShare({ userId: ctx.principal.userId, size: input.size });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
+  return mountRecords(
+    BLUEPRINT_PROCEDURES,
+    {
+      'blueprint.health': () => ({ ok: true, service: 'svc-blueprint' as const }),
+      'blueprint.onboard': ({ ctx, input }) => blueprint.onboard({ ...input, userId: userOf(ctx) }),
+      'blueprint.me': ({ ctx }) => unmapped(() => blueprint.get({ userId: userOf(ctx) }))(),
+      'blueprint.card': ({ ctx, input }) => blueprint.card({ userId: userOf(ctx), size: input.size }),
+      /** The viewer is the signed principal; the input names only whose card, so a forged header cannot pick the viewer. */
+      'blueprint.cardOf': ({ ctx, input }) =>
+        blueprint.cardFor({
+          viewerId: userOf(ctx),
+          ...(input.userId ? { subjectUserId: input.userId } : {}),
+          ...(input.shareId ? { shareId: input.shareId } : {}),
+          size: input.size,
         }),
-
-      list: scopedProcedure('blueprint:read', { module: 'blueprint' })
-        .output(z.array(cardShareSchema))
-        .query(async ({ ctx }) => {
-          try {
-            return await blueprint.listShares({ userId: ctx.principal.userId });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      revoke: scopedProcedure('blueprint:write', { module: 'blueprint' })
-        .input(shareIdInput)
-        .output(cardShareSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await blueprint.revokeShare({ userId: ctx.principal.userId, shareId: input.shareId });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      openers: scopedProcedure('blueprint:read', { module: 'blueprint' })
-        .input(shareIdInput)
-        .output(z.array(cardOpenerSchema))
-        .query(async ({ ctx, input }) => {
-          try {
-            return await blueprint.shareOpeners({ userId: ctx.principal.userId, shareId: input.shareId });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-    }),
-
-    setVisibility: scopedProcedure('blueprint:write', { module: 'blueprint' })
-      .input(setVisibilityInput.omit({ userId: true }))
-      .output(blueprintSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          return await blueprint.setVisibility({ userId: ctx.principal.userId, visibility: input.visibility });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-    /**
-     * The caller's mentor shortlist.
-     *
-     * Reads the shortlist directly. It used to pluck `mentorMatches` off
-     * `export()`, which was merely wasteful until the card joined the export —
-     * at which point a shortlist request would compose an SVG and call an
-     * external rasterizer, and could stall behind that renderer's timeout.
-     */
-    mentors: scopedProcedure('blueprint:read', { module: 'blueprint' })
-      .output(z.array(mentorMatchSchema))
-      .query(({ ctx }) => blueprint.mentors({ userId: ctx.principal.userId })),
-
-    /**
-     * §7.2 ownership — portable. Everything this service holds about the
-     * caller, as JSON, in one response.
-     */
-    export: scopedProcedure('blueprint:read', { module: 'blueprint' })
-      .output(blueprintExportSchema)
-      .query(({ ctx }) => blueprint.export({ userId: ctx.principal.userId })),
-
-    /**
-     * §7.2 ownership — deletable. A hard delete that cascades; see the method's
-     * comment for what "cascades" is doing.
-     *
-     * `blueprint:write` and nothing more. It is tempting to gate erasure behind
-     * 2FA, but that would mean an account whose second factor is lost can never
-     * be erased — turning a user's right to delete into a support ticket.
-     */
-    erase: scopedProcedure('blueprint:write', { module: 'blueprint' })
-      .output(eraseReceiptSchema)
-      .mutation(async ({ ctx }) => {
-        try {
-          return await blueprint.erase({ userId: ctx.principal.userId });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-  });
+      'blueprint.shares.create': ({ ctx, input }) => blueprint.createShare({ userId: userOf(ctx), size: input.size }),
+      'blueprint.shares.list': ({ ctx }) => blueprint.listShares({ userId: userOf(ctx) }),
+      'blueprint.shares.revoke': ({ ctx, input }) => blueprint.revokeShare({ userId: userOf(ctx), shareId: input.shareId }),
+      'blueprint.shares.openers': ({ ctx, input }) => blueprint.shareOpeners({ userId: userOf(ctx), shareId: input.shareId }),
+      'blueprint.setVisibility': ({ ctx, input }) => blueprint.setVisibility({ userId: userOf(ctx), visibility: input.visibility }),
+      'blueprint.mentors': ({ ctx }) => unmapped(() => blueprint.mentors({ userId: userOf(ctx) }))(),
+      'blueprint.export': ({ ctx }) => unmapped(() => blueprint.export({ userId: userOf(ctx) }))(),
+      'blueprint.erase': ({ ctx }) => blueprint.erase({ userId: userOf(ctx) }),
+    },
+    blueprintRefusal,
+  );
 }
 
 export type BlueprintRouter = ReturnType<typeof createBlueprintRouter>;

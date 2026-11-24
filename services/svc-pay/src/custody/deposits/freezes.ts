@@ -1,6 +1,7 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   depositFreezeResultSchema,
   depositFreezeViewSchema,
@@ -17,6 +18,13 @@ import { requireDualControl, DualControlError } from '../../dual-control.js';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';
+import {
+  userIdSchema,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES,
+  PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 /**
  * Compliance freezes on customer deposit addresses (W-compliance-notices-03, J-wallet-03 #4). Founder-only and audited: every
@@ -53,16 +61,15 @@ export class DepositFreezeError extends Error {
   }
 }
 
-const userIdSchema = z.string().min(1).max(128);
 const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 const addressSchema = z.string().min(1).max(256).regex(/^\S+$/);
 
-export const depositFreezeInputSchema = z
+const depositFreezeInputSchema = z
   .object({ userId: userIdSchema, networkId: networkIdSchema, address: addressSchema, reason: reasonSchema })
   .strict();
 export type DepositFreezeInput = z.infer<typeof depositFreezeInputSchema>;
 
-export const depositUnfreezeInputSchema = z
+const depositUnfreezeInputSchema = z
   .object({
     userId: userIdSchema,
     networkId: networkIdSchema,
@@ -79,28 +86,7 @@ export type DepositUnfreezeInput = z.infer<typeof depositUnfreezeInputSchema>;
 // The output shapes live in contracts, so the admin console reads what this declares (one file, no copy).
 export { depositFreezeViewSchema, depositFreezeResultSchema, depositUnfreezeResultSchema, type DepositFreezeView };
 
-export const depositAddressStateSchema = z
-  .object({
-    /** `<networkId>:<address>`: an address belongs to one customer, asset and network. */
-    id: z.string(),
-    userId: z.string(),
-    assetId: z.string(),
-    networkId: z.string(),
-    address: z.string(),
-    /** When an extra address stops being for deposits; null when it never expires. */
-    expiresAt: z.string().nullable(),
-    frozen: z.boolean(),
-    /** The open freeze, when there is one. */
-    freezeId: z.string().nullable(),
-    freezeReason: z.string().nullable(),
-    frozenBy: z.string().nullable(),
-    frozenAt: z.string().nullable(),
-    /** Deposits to this address held by a freeze now. */
-    held: z.number().int(),
-  })
-  .strict();
-
-export const depositUnfreezePreviewSchema = z.object({ actionType: z.string(), payloadHash: z.string() }).strict();
+const depositUnfreezePreviewSchema = z.object({ actionType: z.string(), payloadHash: z.string() }).strict();
 
 interface FreezeRow {
   id: string;
@@ -145,7 +131,11 @@ export function unfreezeApprovalFields(input: Pick<DepositUnfreezeInput, 'userId
 export interface DepositFreezeBook {
   holdAddress(networkId: string, address: string): Promise<number>;
   /** Runs `lift` and puts the address's held deposits back to be judged in one transaction, then credits each that is due. */
-  release<T>(networkId: string, address: string, lift: (tx: Sql) => Promise<T>): Promise<{ lifted: T; released: number; credited: number }>;
+  release<T>(
+    networkId: string,
+    address: string,
+    lift: (tx: Queryable) => Promise<T>,
+  ): Promise<{ lifted: T; released: number; credited: number }>;
 }
 
 export interface DepositFreezesMountDeps {
@@ -305,14 +295,14 @@ export function createDepositFreezesRouter(deps: DepositFreezesMountDeps & { fou
   const founder = founderProcedure(deps.founderAuthority);
   const service = new DepositFreezeService(deps);
   return router({
-    addresses: founder
-      .input(z.object({ userId: userIdSchema }).strict())
-      .output(z.array(depositAddressStateSchema))
-      .query(({ input }) => wrap(() => service.addresses(input.userId))),
-    history: founder
-      .input(z.object({ userId: userIdSchema, limit: z.number().int().min(1).max(200).default(50) }).strict())
-      .output(z.array(depositFreezeViewSchema))
-      .query(({ input }) => wrap(() => service.history(input.userId, input.limit))),
+    addresses: mountRecord(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_ADDRESSES, ({ input }) => wrap(() => service.addresses(input.userId)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
+    history: mountRecord(PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY, ({ input }) => wrap(() => service.history(input.userId, input.limit)), {
+      refusalOf: payRefusal,
+      founder,
+    }),
     freeze: founder
       .input(depositFreezeInputSchema)
       .output(depositFreezeResultSchema)

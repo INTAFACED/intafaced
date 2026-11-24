@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -190,7 +191,7 @@ function planOf(r: PlanDb): PlanRow {
   };
 }
 
-async function latestTerms(sql: Sql): Promise<TermsRow | null> {
+async function latestTerms(sql: Queryable): Promise<TermsRow | null> {
   const [row] = await sql<TermsDb[]>`
     SELECT version::text, tiers, max_spread_bps, min_depth::text, min_uptime_pct::text, cancel_to_fill_ceiling::text,
            clawback_window_days, equal_access_criteria, operator_id, approver_id, approval_id, created_at
@@ -198,7 +199,7 @@ async function latestTerms(sql: Sql): Promise<TermsRow | null> {
   return row ? termsOf(row) : null;
 }
 
-const PLAN_COLUMNS = (sql: Sql) => sql`
+const PLAN_COLUMNS = (sql: Queryable) => sql`
   p.market_id::text, m.symbol, p.version::text, p.state, p.makers, p.max_spread_bps, p.min_depth::text, p.depth_band_bps,
   p.min_uptime_pct::text, p.inventory_min::text, p.inventory_max::text, to_char(p.exit_review_date, 'YYYY-MM-DD') AS exit_review_date,
   p.exit_uptime_below_pct::text, p.exit_spread_above_bps, p.operator_id, p.approver_id, p.approval_id, p.created_at`;
@@ -293,8 +294,7 @@ export class MakerProgrammeAdmin {
     const fingerprint = payloadHash({ kind: 'maker_programme_terms', ...body });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'maker_programme_terms', fingerprint);
     if (prior) return prior as TermsRow;
-    return this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.deps.sql.begin(async (q) => {
       // One terms writer at a time: a second write bound to the same version waits here and is refused as stale before
       // its approval is spent.
       await q`SELECT pg_advisory_xact_lock(hashtext('trade.maker_programme_terms'))`;
@@ -355,8 +355,7 @@ export class MakerProgrammeAdmin {
     const fingerprint = payloadHash({ kind: 'maker_programme_member', ...body });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'maker_programme_member', fingerprint);
     if (prior) return prior as MemberRow;
-    return this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.deps.sql.begin(async (q) => {
       await q`SELECT pg_advisory_xact_lock(hashtext(${`trade.maker_programme_members:${member.accountId}`}))`;
       // The tier is one the current terms define; with no terms there is no programme to admit anyone to.
       const terms = await latestTerms(q);
@@ -435,8 +434,7 @@ export class MakerProgrammeAdmin {
     if (plan.exitReviewDate! <= new Date().toISOString().slice(0, 10)) {
       throw new TradeOpsError(LAUNCH_PLAN_INVALID, 'exit criteria: review date is after today');
     }
-    return this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.deps.sql.begin(async (q) => {
       // One writer per market at a time, as the seeding configuration does.
       const [market] = await q<Array<{ id: string; symbol: string }>>`
         SELECT id::text, symbol FROM trade.markets WHERE id = ${input.market} AND kind = 'spot' FOR UPDATE`;

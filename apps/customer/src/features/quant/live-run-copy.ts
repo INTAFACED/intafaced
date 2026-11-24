@@ -10,6 +10,8 @@ const en = {
     'This strategy trades your own venue sub-account through an agent permission your wallet signed for this run only. It can trade that sub-account and can never withdraw. We hold none of your funds: cash, positions and fills below are the venue’s own record.',
   testLabel: 'TEST venue: every figure here is TEST.',
   loading: 'Reading the run…',
+  venueOff:
+    'Live trading on your own venue account is off on this service, so no strategy can run live. Your strategies, backtests and paper runs still work.',
   none: 'No live run is on this account. A run starts from a strategy’s deploy step.',
   open: 'Open',
   version: 'Version {version}',
@@ -36,6 +38,9 @@ const en = {
   permission_revoked: 'Revoked: INTAFACED’s key for this run signs nothing more',
   frozenNotice:
     'You froze this account, so INTAFACED takes no action for you. Your position stays in your own venue account, which only your wallet controls.',
+  haltedShort: 'Halted by INTAFACED risk',
+  haltedNotice:
+    'INTAFACED’s risk desk halted this strategy ({reason}). It places no new order and no new run of it starts. Liquidate, a reduce-only exit, still works, and your position stays in your own venue account.',
   safeguards: 'Safeguards',
   restarts: 'Restarts',
   restartsOf: '{restarts} of {attempts}',
@@ -119,6 +124,8 @@ const en = {
   code_quant_stop_unavailable: 'The venue could not be reached to cancel the open orders. The run is as it was.',
   code_quant_nothing_to_liquidate: 'The venue shows no open position, so nothing was sent.',
   code_quant_run_not_found: 'No live run with that id on this account.',
+  code_quant_strategy_halted: 'INTAFACED’s risk desk halted this strategy, so it takes no new order. Liquidate still works.',
+  code_quant_halt_unavailable: 'Whether this strategy is halted could not be read just now, so nothing new was sent.',
   code_other: 'The service refused.',
 } as const;
 

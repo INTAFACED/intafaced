@@ -59,7 +59,7 @@ function ledgerDoorOver(ledger: MemoryLedger, calls: string[]) {
       );
     }
     if (path === '/trpc/post') {
-      const request = body as unknown as Omit<PostRequest, 'entries'> & {
+      const request = body as Omit<PostRequest, 'entries'> & {
         entries: Array<{ account: never; direction: 'debit' | 'credit'; amount: string }>;
       };
       try {

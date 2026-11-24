@@ -21,6 +21,8 @@ const en = {
   termsFee: 'Fee: {fee} {asset}',
   termsNoFee: 'No fee',
   termsNetworkFeeUnknown: 'Network fee: not known.',
+  termsNetworkFee: 'Network fee: {fee} {asset}.',
+  termsNoNetworkFee: 'No network fee.',
   termsAllowance: 'Up to {perTransfer} {asset} per payment. {left} {asset} left today.',
   termsUnset: 'Sending {asset} is paused: no payment limits are published for it.',
   termsFeeUnwired: 'Sending {asset} is paused: a fee is published for it, and fees can’t be collected on payments to people.',
@@ -182,6 +184,8 @@ const es = {
   termsFee: 'Comisión: {fee} {asset}',
   termsNoFee: 'Sin comisión',
   termsNetworkFeeUnknown: 'Comisión de red: no se conoce.',
+  termsNetworkFee: 'Comisión de red: {fee} {asset}.',
+  termsNoNetworkFee: 'Sin comisión de red.',
   termsAllowance: 'Hasta {perTransfer} {asset} por pago. Te quedan {left} {asset} hoy.',
   termsUnset: 'El envío de {asset} está en pausa: no hay límites de pago publicados.',
   termsFeeUnwired:
@@ -338,6 +342,8 @@ const fr = {
   termsFee: 'Frais : {fee} {asset}',
   termsNoFee: 'Sans frais',
   termsNetworkFeeUnknown: 'Frais de réseau : inconnus.',
+  termsNetworkFee: 'Frais de réseau : {fee} {asset}.',
+  termsNoNetworkFee: 'Sans frais de réseau.',
   termsAllowance: 'Jusqu’à {perTransfer} {asset} par paiement. Il vous reste {left} {asset} aujourd’hui.',
   termsUnset: 'L’envoi de {asset} est en pause : aucune limite de paiement n’est publiée.',
   termsFeeUnwired:

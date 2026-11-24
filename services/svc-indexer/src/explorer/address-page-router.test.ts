@@ -20,7 +20,8 @@ import { createIndexerRouter, type IndexerRouterDeps } from '../router.js';
 import { CHAIN_ID } from '../testing/conformance.js';
 import { userCopy } from '../user-copy.js';
 import { INDEXER_EXPLORER_LIST_LIMIT_UNSET, INDEXER_EXPLORER_UNWIRED, memoryExplorerSource, parseExplorerListLimit } from './blocks.js';
-import { endOfUtcDay, type AddressInternalFact, type AddressPageSource, type TokenFact } from './address.js';
+import { endOfUtcDay } from '@intafaced/contracts/indexer-procedures';
+import { type AddressInternalFact, type AddressPageSource, type TokenFact } from './address.js';
 
 const edgeContext = createEdgeContext({ secret: 'an-indexer-address-page-test-edge-secret', serviceName: 'svc-indexer' });
 const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon' });

@@ -63,7 +63,7 @@ function sessionStore(sessions: SessionRow[], keys: KeyRow[] = []) {
     },
     sessions,
     keys,
-  }) as unknown as Parameters<typeof revokeNamedSession>[0] & {
+  }) as Parameters<typeof revokeNamedSession>[0] & {
     writes: number;
     keyWrites: number;
     sessions: SessionRow[];

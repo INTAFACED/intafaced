@@ -1,5 +1,8 @@
 name: intafaced
 
+# Every published port binds the host's loopback (127.0.0.1): Docker's own iptables rules skip a host firewall, so a
+# port published on all interfaces is open to the network on any hosted server (#9168). tooling/ci/compose-ports.test.mjs
+# holds it; only the customer site's entry point (vendor-shell, docker-compose.apps.yml) may listen beyond loopback.
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,7 +26,7 @@ services:
     ports:
       # Host 5433 — a native Postgres commonly owns 5432, and the platform DB
       # must never depend on that slot being free. Container-internal is 5432.
-      - '${POSTGRES_HOST_PORT:-5433}:5432'
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./tooling/infra/postgres-init:/docker-entrypoint-initdb.d:ro
@@ -41,7 +44,7 @@ services:
     ports:
       # Host 6380 for the same reason as Postgres above — a local Redis often
       # owns 6379. Container-internal stays 6379.
-      - '${REDIS_HOST_PORT:-6380}:6379'
+      - '127.0.0.1:${REDIS_HOST_PORT:-6380}:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -60,8 +63,8 @@ services:
       - '--http_port=8222'
       - '--name=intafaced-nats'
     ports:
-      - '4222:4222' # client
-      - '8222:8222' # monitoring
+      - '127.0.0.1:4222:4222' # client
+      - '127.0.0.1:8222:8222' # monitoring
     volumes:
       - natsdata:/data
     healthcheck:
@@ -78,8 +81,8 @@ services:
     volumes:
       - ./tooling/infra/otel-collector.yaml:/etc/otel/config.yaml:ro
     ports:
-      - '4317:4317' # OTLP gRPC
-      - '4318:4318' # OTLP HTTP
+      - '127.0.0.1:4317:4317' # OTLP gRPC
+      - '127.0.0.1:4318:4318' # OTLP HTTP
     depends_on:
       - tempo
       - prometheus
@@ -93,7 +96,7 @@ services:
       - ./tooling/infra/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempodata:/var/tempo
     ports:
-      - '3200:3200'
+      - '127.0.0.1:3200:3200'
 
   prometheus:
     image: prom/prometheus:v3.0.1
@@ -105,9 +108,12 @@ services:
       - '--enable-feature=exemplar-storage'
     volumes:
       - ./tooling/infra/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./tooling/infra/prometheus-alerts.yaml:/etc/prometheus/prometheus-alerts.yaml:ro
+      # The `app-health` job's targets, written from docker-compose.apps.yml by tooling/infra/probe-targets.mjs (#10250).
+      - ./tooling/infra/probe-targets.json:/etc/prometheus/probe-targets.json:ro
       - promdata:/prometheus
     ports:
-      - '9090:9090'
+      - '127.0.0.1:9090:9090'
 
   # ══════════════════════════════════════════════════════════════════════════
   # DEV ONLY — A THROWAWAY EVM. NEVER DEPLOY THIS. NEVER POINT IT AT VALUE.
@@ -147,8 +153,7 @@ services:
   #
   # Run `docker compose restart evm` before `chain:deploy`. The TEST suites do
   # not need it — they derive their own senders and deploy their own factories;
-  # see `services/svc-protocol/scripts/dev-chain.ts` and
-  # `docs/decisions/local-dev-chain.md`.
+  # see `services/svc-protocol/scripts/dev-chain.ts`.
   #
   # ── What it does NOT provide ──────────────────────────────────────────────
   #
@@ -180,7 +185,7 @@ services:
     ports:
       # 8545 is the EVM dev convention and nothing else in this stack wants it.
       # Overridable because a developer may already run their own node there.
-      - '${EVM_HOST_PORT:-8545}:8545'
+      - '127.0.0.1:${EVM_HOST_PORT:-8545}:8545'
     healthcheck:
       test:
         - CMD-SHELL
@@ -230,7 +235,7 @@ services:
         --block-base-fee-per-gas 0
         --silent
     ports:
-      - '${EVM_REORG_HOST_PORT:-8546}:8545'
+      - '127.0.0.1:${EVM_REORG_HOST_PORT:-8546}:8545'
     healthcheck:
       test:
         - CMD-SHELL
@@ -266,10 +271,64 @@ services:
       - ./tooling/infra/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports:
-      - '3001:3000'
+      - '127.0.0.1:3001:3000'
     depends_on:
       - prometheus
       - tempo
+
+  # ── THE HOSTED BETA'S BACKUP, HOST METRICS AND HEALTH PROBES (#10211, #10250) ─
+  #
+  # Profile `beta` only: a dev machine and CI never start them. `pg-backup` runs tooling/infra/backup/pg-backup.sh
+  # nightly (19:17 UTC, 03:17 in Bali): every database and the roles, the newest 14 kept in the `pgbackups` volume,
+  # and its result written for node-exporter, whose disk and backup metrics the alerts in
+  # tooling/infra/prometheus-alerts.yaml read. The backups sit on the same host as the database: they cover a dropped
+  # table or a bad migration, not a lost host. A restore: the script's header. No published ports.
+  pg-backup:
+    image: postgres:16-alpine
+    container_name: intafaced-pg-backup
+    profiles: ['beta']
+    restart: unless-stopped
+    command: ['sh', '/backup-bin/pg-backup.sh', 'nightly']
+    environment:
+      PGHOST: postgres
+      PGPORT: '5432'
+      PGUSER: intafaced
+      # The postgres service's own password, above.
+      PGPASSWORD: intafaced
+      BACKUP_DIR: /backups
+      KEEP: '14'
+      METRICS_DIR: /metrics
+    volumes:
+      - ./tooling/infra/backup:/backup-bin:ro
+      - pgbackups:/backups
+      - backupmetrics:/metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: intafaced-node-exporter
+    profiles: ['beta']
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.textfile.directory=/textfile'
+    volumes:
+      - /:/host:ro,rslave
+      - backupmetrics:/textfile:ro
+
+  # Asks every app service with a compose healthcheck the same question from outside, for prometheus.yaml's `app-health`
+  # job (#10250): most services expose no /metrics, so without it a service down or in a boot loop raises no alert.
+  # Its modules: tooling/infra/blackbox.yaml. No published ports.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: intafaced-blackbox-exporter
+    profiles: ['beta']
+    restart: unless-stopped
+    command: ['--config.file=/etc/blackbox/blackbox.yaml']
+    volumes:
+      - ./tooling/infra/blackbox.yaml:/etc/blackbox/blackbox.yaml:ro
 
 volumes:
   pgdata:
@@ -278,3 +337,5 @@ volumes:
   promdata:
   tempodata:
   grafanadata:
+  pgbackups:
+  backupmetrics:

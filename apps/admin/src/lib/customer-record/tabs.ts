@@ -5,7 +5,7 @@ import type { OperatorAccess, StaffArea } from '@/lib/operator-access';
  * constants without the desk catalogue.
  */
 
-export const CUSTOMER_TABS = ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'] as const;
+export const CUSTOMER_TABS = ['money', 'trade', 'pay', 'cards', 'documents', 'tickets', 'developer'] as const;
 export type CustomerTab = (typeof CUSTOMER_TABS)[number];
 
 export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
@@ -15,6 +15,7 @@ export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
   cards: 'Cards',
   documents: 'Documents',
   tickets: 'Tickets',
+  developer: 'Developer API',
 };
 
 /**
@@ -28,6 +29,7 @@ export const TAB_STAFF_AREA = {
   cards: 'cards',
   documents: 'documents',
   tickets: 'accounts',
+  developer: 'accounts',
 } as const satisfies Readonly<Record<CustomerTab, StaffArea>>;
 
 /** The code a tab carries when the signed-in staff member may not read its area. */
@@ -49,6 +51,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function customerId(raw: string): string | null {
   return UUID.test(raw) ? raw.toLowerCase() : null;
+}
+
+/** Longest request id the Developer API tab searches for: identity's own cap. */
+export const REQUEST_ID_MAX = 128;
+
+/** The request id from `?requestId=` on the Developer API tab, trimmed; undefined when none (or a blank or too long one) is given. */
+export function requestIdQuery(raw: string | string[] | undefined): string | undefined {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  return value.length > 0 && value.length <= REQUEST_ID_MAX ? value : undefined;
 }
 
 /** The tab from `?tab=`, money when none is given; null for a tab that does not exist. */

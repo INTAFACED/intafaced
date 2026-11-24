@@ -5,6 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import { transaction } from '@intafaced/db';
+import { z } from 'zod';
 import { testAcquirerSwitchesAllowed } from '../rails/posture.js';
 import {
   formatAmount,
@@ -30,6 +31,7 @@ import {
 import { CHARGEBACK_LEDGER_EFFECT_EVENT, chargebackLedgerEffect, type ChargebackLedgerEffect } from '../chargeback-ledger-effect.js';
 import { recordRailDisputeDeadline } from '../merchant-ops/dispute-deadlines.js';
 import {
+  refuseChargebackNotInOurCustody,
   refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
   refuseChargebackShortfallUnfunded,
@@ -39,8 +41,16 @@ import {
   type RailResolutionOutcome,
 } from '../fraud/dispute-case.js';
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
-import type { ChargebackPlan, ChargebackSplit, PayService, PayServiceInternal } from '../payment-service.js';
+import type { ChargebackPlan, ChargebackSplit, PayServiceInternal, PaymentCustody } from '../payment-service.js';
 import { PayError, appendEvent, isInsufficientFunds, openingTxIdFromDetail, postgresErrorCode, readLivePlan } from './internal.js';
+
+const CustodyRow = z.object({ custody: z.enum(['platform', 'merchant_wallet', 'partner']).nullish() });
+
+/** Who holds the payment's money. A row written before the column existed is ours (`platform`), as refunds read it. */
+async function paymentCustody(svc: PayServiceInternal, paymentId: string): Promise<PaymentCustody> {
+  const rows = CustodyRow.array().parse(await svc.sql`SELECT custody FROM pay.payments WHERE id = ${paymentId}`);
+  return rows[0]?.custody ?? 'platform';
+}
 
 /**
  * Post the opening debit: clearing first, then the settled merchant pot,
@@ -65,6 +75,14 @@ export async function openChargeback(
   if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
   const amount = parseAmount(input.amount);
   if (amount <= 0n) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
+  // At launch our book holds only our own money: a payment to the business's own wallet or held by the partner never entered clearing.
+  // Clearing is pooled per merchant, so charging it back here would debit other payments' money. Refused before any post.
+  if ((await paymentCustody(svc, input.paymentId)) !== 'platform') {
+    throw new PayError(
+      'This payment was paid to the business’s own wallet or the partner, so a chargeback is taken from there. Nothing was moved.',
+      'pay.payment_not_in_our_custody',
+    );
+  }
   if (input.keyEnv === 'sandbox' || (await svc.paymentIsSandbox(svc.sql, input.paymentId))) {
     // Opening, shortfall, won, and recovery all name a live pot. Refuse before any of them post.
     svc.refuseSandboxLive(
@@ -374,6 +392,10 @@ export async function bookDisputeResolution(
 ): Promise<ChargebackLedgerEffect> {
   try {
     if (input.outcome === 'won') return await svc.reverseChargeback(input);
+    // Not our money: a lost or closed dispute books nothing here, and the rail's outcome still lands on the case.
+    if ((await paymentCustody(svc, input.paymentId)) !== 'platform') {
+      return chargebackLedgerEffect({ openingTxId: null, shortfallTxId: null, wonTxId: null, recoveredTxId: null });
+    }
     const posted = await svc.openChargeback(input);
     return chargebackLedgerEffect({
       openingTxId: posted.openingTxId,
@@ -709,6 +731,10 @@ export async function postChargebackOpenOrRefuse(
   try {
     return { ledgerPost: await svc.openChargeback(input) };
   } catch (e) {
+    // The dispute is recorded and nothing is debited: the payer's money was never in our book.
+    if (e instanceof PayError && e.code === 'pay.payment_not_in_our_custody') {
+      return { ledgerRefuse: refuseChargebackNotInOurCustody({ disputeId: input.disputeId, paymentId: input.paymentId }) };
+    }
     if ((e instanceof PayError && e.code === 'pay.invalid_amount') || e instanceof InvalidEntryError || isInsufficientFunds(e)) {
       return { ledgerRefuse: refuseChargebackUncovered({ disputeId: input.disputeId, paymentId: input.paymentId }) };
     }

@@ -18,7 +18,11 @@ const query = vi.fn((_module: string, procedure: string, input: { hash?: string;
   const answer = answers.get(input.hash!);
   return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
 });
-vi.mock('../../session/session', () => ({ useApi: () => ({ query }) }));
+/** A call by its record reaches the same answers as the module and path it names (`api.call`). */
+const call = vi.fn((record: { module: string; path: string }, input: { hash?: string; symbol?: string }) =>
+  query(record.module, record.path, input),
+);
+vi.mock('../../session/session', () => ({ useApi: () => ({ query, call }) }));
 import { ChainHome } from './ChainHome';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

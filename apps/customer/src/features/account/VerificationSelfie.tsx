@@ -1,20 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   kycSelfieHandoffCheckSchema,
-  kycSelfieHandoffSchema,
-  kycSelfieReadSchema,
-  kycSelfieSchema,
   type KycSelfie,
   type KycSelfieHandoff,
   type KycSelfieRead,
 } from '@intafaced/contracts/identity-kyc-selfie';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { encodeQr, qrPath } from '../pay/personal/qr';
+import { Button } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
+import { QrCode } from '@intafaced/ui/lit/templates';
 import { verificationSelfieCopy as copy } from './verification-selfie-copy';
+import {
+  IDENTITY_KYC_SELFIE_READ,
+  IDENTITY_KYC_SELFIE_SUBMIT,
+  IDENTITY_KYC_SELFIE_HANDOFF_START,
+} from '@intafaced/contracts/identity-kyc-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal; retry?: () => void };
@@ -43,21 +46,7 @@ function handoffFromUrl(): { token: string | null; broken: boolean } {
 
 /** The link as a QR code, dark on light in every theme because that is what a scanner needs; says so when it cannot be made. */
 function PhoneCode({ value, label, failed }: { value: string; label: string; failed: string }) {
-  const drawn = useMemo(() => {
-    try {
-      return qrPath(encodeQr(value, 'M'), 2);
-    } catch {
-      return null;
-    }
-  }, [value]);
-  if (!drawn) return <p data-testid="verification__selfie-qr-failed">{failed}</p>;
-  return (
-    <div className="verification__selfie-qr" data-testid="verification__selfie-qr">
-      <svg viewBox={`0 0 ${drawn.size} ${drawn.size}`} role="img" aria-label={label} shapeRendering="crispEdges">
-        <path d={drawn.d} fill="black" /* look-drift-allow: a QR code needs dark on light in every theme */ />
-      </svg>
-    </div>
-  );
+  return <QrCode value={value} label={label} failed={failed} size="sm" marks={{ 'data-testid': 'verification__selfie-qr' }} />;
 }
 
 /** Photo types a canvas can write, in the order the page tries them against the published types. */
@@ -105,7 +94,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.selfie.read', undefined, kycSelfieReadSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_SELFIE_READ, undefined, { signal }),
     `verification-selfie:${userId}:${recordsKey}`,
   );
   const [opened] = useState(handoffFromUrl);
@@ -233,12 +222,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
       if (frame.size > caps.maxBytes)
         return setProblem({ kind: 'copy', text: t('tooLarge', { size: String(kib(frame.size)), kib: String(kib(caps.maxBytes)) }) });
       const bytesBase64 = await base64Of(frame);
-      const answer = await api.mutate(
-        'identity',
-        'kyc.selfie.submit',
-        { contentType: type, bytesBase64, ...(viaLink && token ? { handoff: token } : {}) },
-        kycSelfieSchema,
-      );
+      const answer = await api.call(IDENTITY_KYC_SELFIE_SUBMIT, {
+        contentType: type,
+        bytesBase64,
+        ...(viaLink && token ? { handoff: token } : {}),
+      });
       if (!answer.ok) return refused(answer);
       setSent(answer.data);
       setStream(null);
@@ -253,7 +241,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await api.mutate('identity', 'kyc.selfie.handoff.start', undefined, kycSelfieHandoffSchema);
+      const answer = await api.call(IDENTITY_KYC_SELFIE_HANDOFF_START, undefined);
       if (!answer.ok) return refused(answer);
       const lifetime = data?.handoffTtlSeconds ? data.handoffTtlSeconds * 1000 : Date.parse(answer.data.expiresAt) - Date.now();
       setBefore(data?.latest?.id ?? null);
@@ -279,11 +267,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
     const { latest, liveness, handoffTtlSeconds } = data;
     const phoneLink = handoff ? `${window.location.origin}/verification?handoff=${handoff.token}` : null;
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p data-testid="verification__selfie-manual" data-face-check={data.faceCheck}>
           <Copy k="manual" />
         </p>
-        <p className="muted" data-testid="verification__selfie-liveness">
+        <p className="lt-muted" data-testid="verification__selfie-liveness">
           {liveness.recheckFor ? <Copy k="livenessFor" params={{ actions: liveness.recheckFor.join(', ') }} /> : <Copy k="livenessNone" />}
         </p>
         {latest && (
@@ -303,21 +291,26 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
         ) : (
           !linkRefused &&
           link !== 'done' && (
-            <div className="verification__selfie-camera">
+            <div className="lt-stack">
               {stream ? (
                 <>
-                  <video ref={preview} autoPlay muted playsInline aria-label={t('cameraLabel')} />
-                  <div className="verification__selfie-actions">
-                    <Button type="button" disabled={disabled || busy} onClick={() => void take()}>
+                  <video className="lt-media" data-mirror ref={preview} autoPlay muted playsInline aria-label={t('cameraLabel')} />
+                  <div className="lt-actions">
+                    <Button tone="primary" type="button" disabled={disabled || busy} onClick={() => void take()}>
                       <Copy k={busy ? 'sending' : 'take'} />
                     </Button>
-                    <Button type="button" variant="secondary" disabled={busy} onClick={() => setStream(null)}>
+                    <Button type="button" tone="secondary" disabled={busy} onClick={() => setStream(null)}>
                       <Copy k="stopCamera" />
                     </Button>
                   </div>
                 </>
               ) : (
-                <Button type="button" disabled={disabled || busy || (token !== null && link === null)} onClick={() => void openCamera()}>
+                <Button
+                  tone="primary"
+                  type="button"
+                  disabled={disabled || busy || (token !== null && link === null)}
+                  onClick={() => void openCamera()}
+                >
                   <Copy k="openCamera" />
                 </Button>
               )}
@@ -330,9 +323,9 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
           </p>
         )}
         {token === null && !opened.broken && (
-          <div className="stack" data-testid="verification__selfie-phone">
+          <div className="lt-stack" data-testid="verification__selfie-phone">
             {!phoneLink || !handoff ? (
-              <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
+              <Button type="button" tone="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                 <Copy k="usePhone" />
               </Button>
             ) : (
@@ -350,12 +343,12 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                 ) : (
                   <>
                     <PhoneCode value={phoneLink} label={t('qrLabel')} failed={t('qrFailed')} />
-                    <p className="verification__selfie-link">
+                    <p className="lt-wrap">
                       <a href={phoneLink} data-testid="verification__selfie-link">
                         {phoneLink}
                       </a>
                     </p>
-                    <p className="muted" data-testid="verification__selfie-link-until">
+                    <p className="lt-muted" data-testid="verification__selfie-link-until">
                       <Copy
                         k="phoneUntil"
                         params={{ time: new Date(handoff.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
@@ -364,11 +357,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                   </>
                 )}
                 {handoffTtlSeconds && (
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="phoneRule" params={{ minutes: String(Math.round(handoffTtlSeconds / 60)) }} />
                   </p>
                 )}
-                <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
+                <Button type="button" tone="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                   <Copy k="newLink" />
                 </Button>
               </>
@@ -380,11 +373,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-selfie-title" data-testid="verification__selfie">
+    <section className="lt-stack" aria-labelledby="verification-selfie-title" data-testid="verification__selfie">
       <h2 id="verification-selfie-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {body()}

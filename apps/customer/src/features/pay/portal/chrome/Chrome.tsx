@@ -114,7 +114,7 @@ function PhoneMenu({ here }: { here: string }) {
       </DialogTrigger>
       <DialogContent className="pfo-drawer" closeLabel={t('closeMenu')}>
         <DialogTitle className="pfo-drawer-title">{title}</DialogTitle>
-        <DialogDescription className="pfo-sr">{t('businessNavigation')}</DialogDescription>
+        <DialogDescription className="lt-sr">{t('businessNavigation')}</DialogDescription>
         <a href="/home" className="pfo-drawer-back">
           <ArrowLeft size={14} aria-hidden="true" />
           {t('backToPersonal')}
@@ -185,8 +185,8 @@ function PortalSearch() {
         <kbd aria-hidden="true">⌘K</kbd>
       </DialogTrigger>
       <DialogContent className="pfo-searchbox" closeLabel={t('closeMenu')}>
-        <DialogTitle className="pfo-sr">{t('searchLabel')}</DialogTitle>
-        <DialogDescription className="pfo-sr">{t('searchHint')}</DialogDescription>
+        <DialogTitle className="lt-sr">{t('searchLabel')}</DialogTitle>
+        <DialogDescription className="lt-sr">{t('searchHint')}</DialogDescription>
         <form
           role="search"
           onSubmit={(event) => {

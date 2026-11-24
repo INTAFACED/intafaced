@@ -1,5 +1,5 @@
 import type { Member, MemberRole, MerchantRecord, TeamRole } from '../schemas';
-import { type StepState, type Steps, nameProblem, text } from '../model';
+import { type StepState, type Steps, nameProblem } from '../model';
 
 /**
  * Progress comes from the service, never from the browser: a merchant record means step 1 is done, a KYB

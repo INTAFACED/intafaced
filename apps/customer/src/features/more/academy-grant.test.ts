@@ -57,7 +57,11 @@ function fixture() {
     fetch: (async () => {
       state.reads++;
       if (state.hold) await state.hold();
-      return new Response(JSON.stringify({ result: { data: state.history } }), { status: 200 });
+      // The server's whole answer: each grant row also carries its public id, which the caller drops.
+      const served = Array.isArray(state.history)
+        ? state.history.map((row: unknown) => (row && typeof row === 'object' ? { ...row, publicId: 'a'.repeat(32) } : row))
+        : state.history;
+      return new Response(JSON.stringify({ result: { data: served } }), { status: 200 });
     }) as typeof fetch,
   });
   const create = () => createAcademyGrantApi(api, owner, ports);

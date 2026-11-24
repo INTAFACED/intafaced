@@ -8,7 +8,9 @@
  * the same way.
  */
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { Sql } from 'postgres';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

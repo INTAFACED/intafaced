@@ -593,9 +593,7 @@ describe('declared wiring sockets', () => {
    *
    * A written reason proves somebody thought about it; the class is where they
    * say what the answer was. `satisfies readonly WiringSocket[]` already makes a
-   * missing class a compile error — this asserts the runtime value too, because
-   * `tooling/ci/event-wiring.mjs` parses this file as TEXT, and a rule that only
-   * one of those two readers enforces is a rule with a hole in it.
+   * missing class a compile error — this asserts the runtime value too.
    */
   it('classifies every socket A, B or C', () => {
     for (const socket of WIRING_SOCKETS) {
@@ -616,9 +614,7 @@ describe('declared wiring sockets', () => {
    * defect had been fixed by code that has never run. A test written to match a
    * wrong answer is worse than no test: it is a second voice agreeing.
    *
-   * Pinned by name and in order, matching `CLASS_B_AWAITING_A_DECISION` in
-   * `tooling/ci/event-wiring.mjs` — so quietly downgrading it to A to make the
-   * gate green fails here as well as there. Two readers, one rule.
+   * Pinned by name and in order, so quietly downgrading it to A fails here.
    */
   it('records exactly the Class B wiring defects that are pinned for a named decision', () => {
     const b = WIRING_SOCKETS.filter((s) => s.class === 'B').map((s) => `${s.event}::${s.missing}`);
@@ -934,12 +930,14 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
+    referralCreated: { userId: uid(), referrerId: uid(), attachedAt: ts() },
     kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
     kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
     kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
+    selfFreezeApplied: { userId: uid(), freezeId: uid(), since: ts() },
     staffCreated: {
       staffId: 'staff-1',
       actorId: 'staff-0',
@@ -1244,6 +1242,19 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       fundingPaid: '0',
       ts: ts(),
     },
+    venueBalanceChanged: {
+      changeId: 'deposit:test-venue-sim:0x1111111111111111111111111111111111111111:-:84532:0xabc:0:USDC',
+      userId: uid(),
+      venueId: 'test-venue-sim',
+      owner: '0x1111111111111111111111111111111111111111',
+      subAccount: null,
+      asset: 'USDC',
+      source: 'deposit',
+      sourceId: '84532:0xabc:0',
+      change: '25',
+      total: '1025',
+      ts: ts(),
+    },
     protocolAccountCreated: {
       chainId: 1,
       account: addr,
@@ -1307,6 +1318,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       spent: '0.0102',
       assetId: 'USDT',
       email: false,
+    },
+    agentAlertFired: {
+      alertKey: 'agents.alert:r1:2026-11-15T14:00:00.000Z',
+      alertId: uid(),
+      userId: uid(),
+      ruleName: 'TEST refusals',
+      measure: 'refusal_rate',
+      value: '25',
+      threshold: '0',
+      windowStart: '2026-11-15T14:00:00.000Z',
+      windowEnd: '2026-11-15T15:00:00.000Z',
     },
     agentApprovalRequested: {
       requestId: uid(),
@@ -1389,6 +1411,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       assetId: 'USDT',
       reasonCode: 'ledger.insufficient_funds',
       failedAt: ts(),
+    },
+    bankCardCashbackEarned: {
+      authorizationId: uid(),
+      cardId: uid(),
+      userId: uid(),
+      spend: '4',
+      cashback: '0.04',
+      assetId: 'USDC',
+      tier: 'none',
+      rateBps: 100,
+      earnedAt: ts(),
     },
     p2pOfferCreated: {
       offerId: uid(),
@@ -1477,12 +1510,25 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
     copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
     copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
+    recurringBuySuspended: { ruleId: 'rule-1', userId: uid(), slot: 2, asset: 'USDC', amount: '20', free: '10', suspendedAt: ts() },
     venueDelistingScheduled: {
       venueId: 'test-venue-sim',
       symbol: 'BTC-USDC',
       delistsAt: ts(),
       scheduledAt: ts(),
       noticeKey: 'venue-delisting:test-venue-sim:BTC-USDC:2026-12-01T00:00:00.000Z',
+    },
+    venueRiskAlerted: {
+      alertKey: `risk:u:test-venue-sim:0x1111111111111111111111111111111111111111:BTC-PERP:1`,
+      userId: uid(),
+      symbol: 'BTC-PERP',
+      kind: 'margin_call',
+      asset: 'USDC',
+      level: '50',
+      marginWithResult: '10.5',
+      marginRatio: '57.2',
+      asked: '1.5',
+      raisedAt: ts(),
     },
     supportTicketResolved: {
       ticketId: uid(),

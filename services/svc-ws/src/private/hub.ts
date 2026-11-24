@@ -42,8 +42,35 @@ export { ORDERS_ENGINE_UNAVAILABLE };
 
 export type PrivateSink = DepthSink;
 
-/** Private socket catalog. Omit on attach = all three (back-compat). */
-export type PrivateStreamChannel = 'orders' | 'fills' | 'positions';
+/** Private socket catalog. Omit on attach = orders, fills and positions (back-compat); `balances` only by name. */
+export type PrivateStreamChannel = 'orders' | 'fills' | 'positions' | 'balances';
+
+/**
+ * One change in the balance of a person's own venue account (J-cex-spot-15 #9): the venue's new total, what changed it
+ * and the change's id. Fanned to that person's `balances` seats only, once per id.
+ */
+export interface PrivateBalanceUpdate {
+  readonly changeId: string;
+  readonly userId: string;
+  readonly venueId: string;
+  readonly owner: string;
+  readonly subAccount: string | null;
+  readonly asset: string;
+  readonly source: 'deposit' | 'transfer_in' | 'trade' | 'other';
+  readonly sourceId: string | null;
+  readonly change: string;
+  readonly total: string;
+  readonly ts: string;
+}
+
+/** How many change ids the hub keeps per person to ignore a repeat. A repeat older than these is sent again. */
+const BALANCE_SEEN_PER_USER = 4096;
+/** How many people's change ids the hub keeps; the person whose ids were touched least recently is forgotten first. */
+const BALANCE_SEEN_USERS = 10_000;
+
+function encodePrivateBalanceFrame(update: PrivateBalanceUpdate): string {
+  return JSON.stringify({ channel: 'balances', type: 'balance', ...update });
+}
 
 export interface PrivateOrderUpdate {
   readonly orderId: string;
@@ -188,6 +215,9 @@ const NO_LOG: HubLogger = { info: () => undefined, warn: () => undefined };
 
 const READY_CHANNELS = ['orders', 'fills', 'positions'] as const;
 
+/** Orders and fills seats carry the engine's trading and status frames; positions and balances seats never do. */
+const carriesEngineFrames = (channel: PrivateStreamChannel | null) => channel !== 'positions' && channel !== 'balances';
+
 export class PrivateOrderHub {
   readonly #options: PrivateOrderHubOptions;
   readonly #log: HubLogger;
@@ -199,6 +229,8 @@ export class PrivateOrderHub {
   #engineUnavailable = false;
   /** Matching-up, not taking submits. '*' = venue halt-all. */
   readonly #trading = new Map<string, OrdersMatchingTradingCode>();
+  /** Per person, the balance change ids already fanned out, oldest first (a repeat is ignored). */
+  readonly #balanceSeen = new Map<string, Set<string>>();
 
   constructor(options: PrivateOrderHubOptions, log: HubLogger = NO_LOG) {
     this.#options = options;
@@ -309,7 +341,8 @@ export class PrivateOrderHub {
     this.#subscriptions.add(sub);
     if (this.#engineUnavailable) this.#queueOrWriteUnavailable(sub);
     else this.#queueOrWriteTrading(sub);
-    if (this.#options.seedOrders || this.#options.seedPositions) {
+    // A balances seat carries no blotter: nothing to seed.
+    if ((this.#options.seedOrders || this.#options.seedPositions) && channel !== 'balances') {
       void this.#seed(sub);
     }
     return () => {
@@ -504,7 +537,7 @@ export class PrivateOrderHub {
   }
 
   #queueOrWriteTradingFrame(sub: Subscription, code: OrdersMatchingTradingCode, marketId: string | undefined): void {
-    if (sub.channel === 'positions') return;
+    if (!carriesEngineFrames(sub.channel)) return;
     const channel = sub.channel === 'fills' ? 'fills' : 'orders';
     const frame = ordersMatchingTradingFrame(sub.userId, code, marketId, channel);
     if (!sub.hydrated) {
@@ -515,7 +548,7 @@ export class PrivateOrderHub {
   }
 
   #queueOrWriteSubmitsResumed(sub: Subscription, marketId: string | undefined): void {
-    if (sub.channel === 'positions') return;
+    if (!carriesEngineFrames(sub.channel)) return;
     const channel = sub.channel === 'fills' ? 'fills' : 'orders';
     const frame = ordersSubmitsResumedFrame(sub.userId, channel, marketId);
     if (!sub.hydrated) {
@@ -526,7 +559,7 @@ export class PrivateOrderHub {
   }
 
   #engineUnavailableFrame(sub: Subscription): string | null {
-    if (sub.channel === 'positions') return null;
+    if (!carriesEngineFrames(sub.channel)) return null;
     const channel = sub.channel === 'fills' ? 'fills' : 'orders';
     return ordersEngineUnavailableFrame(sub.userId, channel);
   }
@@ -558,6 +591,30 @@ export class PrivateOrderHub {
   }
 
   /**
+   * One change in a person's own venue balance (J-cex-spot-15 #9), to their `balances` seats only. A change id already
+   * fanned out to this person is ignored: the watch publishes again under the same id after a restart.
+   */
+  publishBalance(update: PrivateBalanceUpdate): void {
+    let seen = this.#balanceSeen.get(update.userId);
+    if (seen?.has(update.changeId)) return;
+    if (seen) this.#balanceSeen.delete(update.userId);
+    else seen = new Set();
+    seen.add(update.changeId);
+    if (seen.size > BALANCE_SEEN_PER_USER)
+      for (const oldest of seen) {
+        seen.delete(oldest);
+        break;
+      }
+    this.#balanceSeen.set(update.userId, seen);
+    if (this.#balanceSeen.size > BALANCE_SEEN_USERS)
+      for (const oldest of this.#balanceSeen.keys()) {
+        this.#balanceSeen.delete(oldest);
+        break;
+      }
+    this.#fanout(update.userId, 'balances', encodePrivateBalanceFrame(update), null);
+  }
+
+  /**
    * Socket bytes plus frames still held for hydration. A stuck open-orders
    * read never hands those frames to the kernel, so the socket mark alone
    * would let `pending` grow without the lag check.
@@ -575,7 +632,7 @@ export class PrivateOrderHub {
 
     for (const sub of this.#subscriptions) {
       if (sub.closed || sub.userId !== userId) continue;
-      if (sub.channel !== null && sub.channel !== channel) continue;
+      if (sub.channel !== null ? sub.channel !== channel : channel === 'balances') continue;
       if (this.#overHighWater(sub)) {
         this.#noteLag(sub);
         continue;

@@ -17,14 +17,13 @@
  * It runs from a copy outside the checkout, with no imports, because it checks out older commits; old commits run as
  * code here, so the job gives it no GitHub token.
  *
- *   node journeys-revert-probe.mjs --self-test
  *   (CI) CANDIDATES FILES STEPS PROBE_SH JOURNEY_REPORT node journeys-revert-probe.mjs   (writes GITHUB_OUTPUT culprit)
  *   (CI) CANDIDATES node journeys-revert-probe.mjs plan                                  (writes GITHUB_OUTPUT points)
  *   (CI) POINT CANDIDATES FILES STEPS PROBE_SH JOURNEY_REPORT RESULT_FILE node journeys-revert-probe.mjs leg
  *   (CI) CANDIDATES RESULTS_DIR node journeys-revert-probe.mjs decide                    (writes GITHUB_OUTPUT culprit)
  */
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -101,6 +100,46 @@ export function stepsRan(report, steps) {
   };
   for (const s of report?.suites ?? []) walk(s);
   return ran;
+}
+
+/** Whether a spec titled for each step is in the report at all, step by step. Pure. */
+export function stepsPresent(report, steps) {
+  const seen = new Set();
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) {
+      const m = STEP_TITLE.exec(spec.title ?? '');
+      if (m) seen.add(`${m[1]}#${Number(m[2])}`);
+    }
+    for (const c of suite.suites ?? []) walk(c);
+  };
+  for (const s of report?.suites ?? []) walk(s);
+  return steps.filter((s) => seen.has(s));
+}
+
+/** Whether the probe's journey files loaded: the report lists at least one test and no load error. Pure. */
+export function filesLoaded(report) {
+  if (report?.errors?.length) return false;
+  let any = false;
+  const walk = (suite) => {
+    if ((suite.specs ?? []).length) any = true;
+    for (const c of suite.suites ?? []) walk(c);
+  };
+  for (const s of report?.suites ?? []) walk(s);
+  return any;
+}
+
+/**
+ * One probe's verdict from its report: 'bad' (a failing step fails outright), 'good', or 'error' (it says nothing). A
+ * step that is not in the commit yet (its files loaded and listed tests, but none titled for it) does not reproduce
+ * there, so the merge that brought a new step that breaks on main is named (14 Nov 2026: J-algo-dev-04 #3, new in
+ * #8371). Pure.
+ */
+export function probeVerdict(report, steps) {
+  if (!report) return 'error';
+  const present = stepsPresent(report, steps);
+  if (!present.length) return filesLoaded(report) ? 'good' : 'error';
+  if (!stepsRan(report, present)) return 'error';
+  return stepsFail(report, present) ? 'bad' : 'good';
 }
 
 /** One or more full commit shas: a lone candidate is run too, so a red that was the stack's blames no one. */
@@ -190,15 +229,25 @@ function main(mode = null) {
   if (!PROBE_SH || !JOURNEY_REPORT) throw new Error('PROBE_SH and JOURNEY_REPORT are required');
   const isBad = (sha) => {
     rmSync(JOURNEY_REPORT, { force: true });
+    // A journey file the commit doesn't hold yet is not run there: its steps don't exist, so they don't reproduce.
+    const there = files.filter(
+      (f) => spawnSync('git', ['cat-file', '-e', `${sha}:apps/customer/tests/real-app/${f}`], { stdio: 'ignore' }).status === 0,
+    );
+    if (!there.length) {
+      console.log(`probe ${sha.slice(0, 10)}: passes (${files.join(', ')} not there yet, so the steps don't exist)`);
+      return false;
+    }
     console.log(`::group::probe ${sha.slice(0, 10)}`);
-    const env = { ...process.env, JOURNEY_FILES: files.join(' '), JOURNEY_LEAVE_OUT_FILE: leaveOutFor(sha) };
+    const env = { ...process.env, JOURNEY_FILES: there.join(' '), JOURNEY_LEAVE_OUT_FILE: leaveOutFor(sha) };
     const r = spawnSync('bash', [PROBE_SH, sha], { stdio: 'inherit', env });
     console.log('::endgroup::');
     if (r.status !== 0) throw new Error(`the stack did not start on ${sha.slice(0, 10)} (exit ${r.status}), so the search stops`);
     const report = existsSync(JOURNEY_REPORT) ? JSON.parse(readFileSync(JOURNEY_REPORT, 'utf8')) : null;
-    if (!report || !stepsRan(report, steps)) throw new Error(`the failing steps did not run on ${sha.slice(0, 10)}, so the search stops`);
-    const bad = stepsFail(report, steps);
-    console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}`);
+    const verdict = probeVerdict(report, steps);
+    if (verdict === 'error') throw new Error(`the failing steps did not run on ${sha.slice(0, 10)}, so the search stops`);
+    const bad = verdict === 'bad';
+    const absent = steps.filter((x) => !stepsPresent(report, steps).includes(x));
+    console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}${absent.length ? ` (${absent.join(', ')} not there yet)` : ''}`);
     return bad;
   };
   // Confirm (main-bisect.yml, after the automatic revert merged): the failing journeys alone on main's head. Back when
@@ -250,60 +299,7 @@ function main(mode = null) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `culprit=${confirmed ? culprit : ''}\n`);
 }
 
-function selfTest() {
-  const eq = (got, want, m) => {
-    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
-  };
-  const c = ['1', '2', '3', '4', '5'].map((d) => d.repeat(40));
-  for (let k = 0; k < c.length; k++) {
-    const calls = [];
-    const r = firstBad(c, (s) => (calls.push(s), c.indexOf(s) >= k));
-    eq(r.culprit, c[k], `culprit at ${k}`);
-    eq(calls.length <= 3, true, `at most ceil(log2 5) probes for ${k}`);
-  }
-  const one = firstBad([c[0]], () => {
-    throw new Error('a lone candidate needs no search');
-  });
-  eq([one.culprit, one.probed.has(c[0])], [c[0], false], 'a lone candidate is settled unprobed, so main() probes it before blaming it');
-  eq([validCandidates([c[0]]), validCandidates([]), validCandidates(['x'])], [true, false, false], 'one or more full shas');
-  const rep = (status) => ({ suites: [{ specs: [{ title: 'J-a-01 #2 y', tests: [{ status }] }] }] });
-  eq(stepsFail(rep('unexpected'), ['J-a-01#2']), true, 'outright failure is bad');
-  eq(stepsFail(rep('expected'), ['J-a-01#2']), false, 'a pass is good');
-  eq(stepsFail(rep('unexpected'), ['J-a-01#3']), false, 'another step does not count');
-  eq(stepsRan(rep('skipped'), ['J-a-01#2']), false, 'a skipped step did not run');
-  eq(stepsRan(rep('expected'), ['J-a-01#2']), true, 'a step that ran');
-  const many = Array.from({ length: MAX_LEGS + 1 }, (_, i) => String(i % 10).repeat(39) + 'abcdefghijklmnopq'[i]);
-  eq([planPoints(c), planPoints(many)], [c, [SEARCH]], 'each candidate at once, or one search past MAX_LEGS');
-  const res = (...xs) =>
-    new Map(
-      xs
-        .map((x, i) => [c[i], x === 'F' ? { bad: true } : x === 'P' ? { bad: false } : x === 'E' ? { error: 'e' } : undefined])
-        .filter(([, v]) => v),
-    );
-  eq(decideCulprit(c, res('P', 'P', 'F', 'F', 'F')).culprit, c[2], 'the oldest of the failing run that ends at the red commit');
-  eq(decideCulprit(c, res('F', 'F', 'F', 'F', 'F')).culprit, c[0], 'all fail: the first candidate, after the last green commit');
-  eq(decideCulprit(c, res('F', 'P', 'P', 'F', 'F')).culprit, c[3], 'an older fail followed by a pass is not the break that reaches main');
-  eq(decideCulprit(c, res('P', 'P', 'F', 'F', 'P')).culprit, null, 'the newest passing: nothing reproduces');
-  eq(decideCulprit(c, res('P', 'E', 'F', 'F', 'F')).culprit, null, 'the commit before the failing run could not run: no one is blamed');
-  eq(decideCulprit(c, res('E', 'P', 'F', 'F', 'F')).culprit, c[2], 'a probe that could not run outside the deciding pair does not matter');
-  eq(decideCulprit(c, res('P', 'P', 'F', 'F', 'E')).culprit, null, 'the red commit could not run: no one is blamed');
-  eq(decideCulprit(c, res('P', 'P', 'F', 'F')).culprit, null, 'a missing result: no one is blamed');
-  eq(decideCulprit([c[0]], res('F')).culprit, c[0], 'a lone candidate that fails is blamed');
-  eq(decideCulprit([c[0]], res('P')).culprit, null, 'a lone candidate that passes is not');
-  const wf = (planner) =>
-    `jobs:\n  touch:\n    steps:\n      - run: |\n${planner ? '          node tooling/scripts/journey-leave-out.mjs --log x > y\n' : ''}          echo done\n`;
-  eq(
-    [leavesOut(wf(true)), leavesOut(wf(false)), leavesOut(''), leavesOut(null)],
-    [true, false, false, false],
-    'a commit leaves out only when its own run plans it',
-  );
-  // Planted: the paths list naming the planner's files is not the planner running.
-  eq(leavesOut("paths:\n  - 'tooling/scripts/journey-leave-out*.mjs'\n"), false, 'a paths entry is not the planner');
-  console.log('✓ journeys-revert-probe --self-test OK (32 fixtures)');
-}
-
-if (process.argv.includes('--self-test')) selfTest();
-else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     const mode = process.argv[2];
     if (mode === 'plan') plan();

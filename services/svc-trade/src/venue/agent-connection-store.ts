@@ -107,7 +107,9 @@ export class SqlAgentConnectionStore implements AgentConnectionStore {
     await this.sql`
       INSERT INTO trade.user_venue_agent_connections (key_id, user_id, account_id, created_at)
       VALUES (${r.keyId}, ${r.userId}, ${r.accountId}, ${r.createdAt})
-      ON CONFLICT (key_id) WHERE ended_at IS NULL DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
+    // No target: two connects of one key in one millisecond clash on the active key and the primary key
+    // (key_id, created_at) alike, and Postgres may find either first. Either way the active row is the answer.
     const stored = await this.active(r.keyId);
     if (!stored) throw new Error(`the connection of key ${r.keyId} was not stored`);
     return stored;

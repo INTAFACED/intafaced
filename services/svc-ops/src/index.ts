@@ -5,17 +5,20 @@ import postgres from 'postgres';
 import { migrateOutreach } from './db/migrate.js';
 import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
-import { createFounderAuthority } from './outreach/authority.js';
+import { createFounderAuthority, operatorAuthorityFrom } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { SqlConsoleModeStore } from './console-mode/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldLedger } from './staff-holds/ledger.js';
 import { SqlStaffHoldStore } from './staff-holds/store.js';
+import { LedgerReversalDesk } from './ledger-reversals/desk.js';
+import { createReversalLedger } from './ledger-reversals/ledger.js';
+import { SqlReversalStore } from './ledger-reversals/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlIncidentStore } from './incidents/store.js';
-import { parseIncidentSeverities } from '@intafaced/contracts';
+import { parseIncidentSeverities } from '@intafaced/contracts/ops-incidents';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createCapitalSources } from './capital/sources.js';
 import { SqlCapitalStore } from './capital/store.js';
@@ -46,7 +49,7 @@ import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createOpsRouter, type OpsRouter } from './router.js';
 import { createOpsApprovalClient } from './operator-desks.js';
@@ -171,6 +174,19 @@ const staffHolds = new StaffHoldDesk({
     app.log.warn({ code, holdNo }, 'Staff hold worker skipped one hold; it retries on the next tick');
   },
 });
+// Operator reversals of posted ledger transactions (OPS-ledger-desk-02): the intent rows, the ledger's operatorReverse door
+// on the same URL and credential as the staff holds, and identity's approvals each run spends.
+const ledgerReversals = new LedgerReversalDesk({
+  store: crmSql ? new SqlReversalStore(crmSql) : undefined,
+  ledger: createReversalLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
+  approvals: approvalConsumer,
+  now: () => new Date(),
+  // Runs only from the reversal timer below, after the server exists.
+  onWorkerError: (requestNo, error) => {
+    const code = error instanceof OpsError ? error.code : 'ops.reversal_worker_unavailable';
+    app.log.warn({ code, requestNo }, 'Ledger reversal worker skipped one request; it retries on the next tick');
+  },
+});
 const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
   ? env.OPS_PROTOCOL_REASON_CODES.split(',')
       .map((code) => code.trim())
@@ -188,15 +204,18 @@ const capitalSources = createCapitalSources({
 const capitalVenues = createVenueReader(
   testVenuesFor(env.OPS_TEST_VENUE, env.OPS_TEST_VENUE_BUILDER_ACCOUNT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
 );
+// One live read of the operator entitlement, for outreach and for every `operatorProcedure`.
+const founderAuthority = createFounderAuthority({
+  identityUrl: env.IDENTITY_URL,
+  serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
+});
+const operatorAuthority = operatorAuthorityFrom(founderAuthority);
 const appRouter = createOpsRouter(
   ops,
   {
     crm,
     ...(crmSql ? { publicSettings: new SqlPublicSettingsBook(crmSql) } : {}),
-    authority: createFounderAuthority({
-      identityUrl: env.IDENTITY_URL,
-      serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
-    }),
+    authority: founderAuthority,
   },
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
@@ -239,6 +258,7 @@ const appRouter = createOpsRouter(
     incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
     incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
     staffHolds,
+    ledgerReversals,
     homeConfig: homeConfigFromEnv(env),
     // A TEST price list only on a test stack (refuses to start elsewhere); blank, nothing is valued.
     valuationPrices: valuationPricesFromEnv(env.OPS_VALUATION_TEST_PRICES, {
@@ -299,6 +319,7 @@ await app.register(fastifyTRPCPlugin, {
     router: appRouter,
     createContext: async ({ req }) => ({
       ...(await edgeContext(req)),
+      operatorAuthority,
       outreachAbuseKey: createHash('sha256')
         .update(resolveClientIp(req.raw.socket.remoteAddress, req.headers['x-intafaced-client-ip']))
         .digest('hex'),
@@ -467,6 +488,24 @@ const holdTimer = setInterval(() => {
 }, 5000);
 holdTimer.unref();
 
+// A reversal whose reply was lost, or which met the posting freeze, is sent again under its stored key and body, at most every
+// 30 seconds; nothing else is ever sent.
+let reversalRun: Promise<void> | null = null;
+const reversalTimer = setInterval(() => {
+  if (!ledgerReversals.active || reversalRun) return;
+  reversalRun = ledgerReversals
+    .resolve()
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      const code = error instanceof OpsError ? error.code : 'ops.reversal_worker_unavailable';
+      app.log.warn({ code }, 'Ledger reversal worker will retry on the next tick');
+    })
+    .finally(() => {
+      reversalRun = null;
+    });
+}, 5000);
+reversalTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
@@ -475,6 +514,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(alertTimer);
       clearInterval(reconciliationTimer);
       clearInterval(holdTimer);
+      clearInterval(reversalTimer);
       clearInterval(relayTimer);
       await app.close();
       await notificationRun;
@@ -482,6 +522,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await alertRun;
       await reconciliationRun;
       await holdRun;
+      await reversalRun;
       await relayRun;
       await reconciliationBus?.close().catch(() => undefined);
       await crmSql?.end({ timeout: 5 });

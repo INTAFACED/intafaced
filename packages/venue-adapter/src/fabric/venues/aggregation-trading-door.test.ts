@@ -6,9 +6,6 @@
  * PUBLIC_MARKET_DATA_VENUE_IDS; unknown ids return null; signed ops refuse
  * without credentials or wired HTTP port.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { VenueCredentialsMissingError } from '@intafaced/venue-contracts';
@@ -31,6 +28,7 @@ import {
   venueOperatorCredentialEnvPrefix,
 } from '../../index.js';
 import { venueAggregationMountVsTrackerBoardCard, venueAggregationTrackerBackendDoneBarMet } from '../../aggregation-mount-vs-tracker.js';
+import * as fabric from '../index.js';
 import { describeVenueAggregationPolicy } from './factory-policy.js';
 import { tradeAdapterRegisteredForAllPublicVenues, shouldRefuseTradeAdapterConstruction } from './trading-half-policy.js';
 import type { HttpPort, HttpResponse } from '../transport.js';
@@ -403,9 +401,9 @@ describe('D27-P4 aggregation trading door — package export + factory trio', ()
   });
 
   it('package index re-exports trading-half policy through fabric', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const pkgIndex = readFileSync(join(here, '..', '..', 'index.ts'), 'utf8');
-    expect(pkgIndex).toMatch(/fabric\/index/);
+    expect(describeTradingHalfPolicy).toBe(fabric.describeTradingHalfPolicy);
+    expect(createVenueTradeAdapter).toBe(fabric.createVenueTradeAdapter);
+    expect(PUBLIC_MARKET_DATA_VENUE_IDS).toBe(fabric.PUBLIC_MARKET_DATA_VENUE_IDS);
     expect(describeTradingHalfPolicy().tradeFactoryCoversAllPublicMarketDataVenues).toBe(true);
   });
 });

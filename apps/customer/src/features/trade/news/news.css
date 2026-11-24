@@ -26,6 +26,14 @@
     align-items: center;
     min-width: 0;
   }
+  /* The app's base reset strips native checkboxes to 0 by 0; the highlight box is drawn at a usable size. */
+  .news-filter--check input[type='checkbox'] {
+    appearance: auto;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--if-accent);
+  }
   .news-list {
     list-style: none;
     margin: 0;
@@ -47,5 +55,18 @@
   }
   .news-table [data-surprise='below'] {
     color: var(--if-down-text);
+  }
+}
+
+@layer components {
+  .news-widget {
+    flex-basis: 100%;
+    padding: var(--if-space-3) var(--if-space-4);
+    border: 0.0625rem solid var(--if-line, currentColor);
+    border-radius: var(--if-r-sm);
+  }
+  .news-widget h2 {
+    margin: 0 0 var(--if-space-2);
+    font-size: 1rem;
   }
 }

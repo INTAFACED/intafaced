@@ -56,7 +56,9 @@ export const ticketEvents = schema.table(
       .references(() => tickets.id, { onDelete: 'restrict' }),
     /** 1-based, dense per ticket. The gap is the evidence a row was lost. */
     sequence: integer('sequence').notNull(),
-    kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated' | 'merged'>().notNull(),
+    kind: text('kind')
+      .$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated' | 'merged' | 'charts_lookup'>()
+      .notNull(),
     actorId: text('actor_id').notNull(),
     actorRole: text('actor_role').$type<'user' | 'operator'>().notNull(),
     fromStatus: text('from_status').$type<'open' | 'pending' | 'resolved' | 'closed'>(),

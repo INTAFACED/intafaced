@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { SERVICE_RUNBOOK, serviceRecordValues } from './ops-console-services.js';
+import { isServiceRunbook, serviceRecordValues } from './ops-console-services.js';
 
 describe('service records', () => {
   it('takes a runbook inside docs/runbooks only', () => {
     for (const ok of ['docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md', 'docs/runbooks/ledger/freeze.md'])
-      expect(SERVICE_RUNBOOK.test(ok)).toBe(true);
+      expect(isServiceRunbook(ok)).toBe(true);
     for (const bad of [
       'https://evil.example/runbook.md',
       '/docs/runbooks/a.md',
@@ -17,7 +17,7 @@ describe('service records', () => {
       `docs/runbooks/${'a'.repeat(200)}.md`,
       'javascript:alert(1)//docs/runbooks/a.md',
     ])
-      expect(SERVICE_RUNBOOK.test(bad)).toBe(false);
+      expect(isServiceRunbook(bad)).toBe(false);
   });
 
   it('trims, treats blank as unset, orders dependencies as the registry does, and names every refused field', () => {

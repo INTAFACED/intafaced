@@ -139,5 +139,5 @@ function main(argv = process.argv.slice(2), env = process.env) {
   process.exit(0);
 }
 
-const invoked = process.argv[1] && /matching-ledger-load-test\.mjs$/.test(process.argv[1].replaceAll('\\', '/'));
+const invoked = process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('matching-ledger-load-test.mjs');
 if (invoked) main();

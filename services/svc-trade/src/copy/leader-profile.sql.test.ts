@@ -157,7 +157,7 @@ describe('copy leader directory filters and lead trades on Postgres', () => {
     ]);
     expect(first.nextCursor).toMatch(/^\d+\.[0-9a-f]{24}$/);
     // The next page goes through the router, as the lead page sends it: the cursor must pass the input schema.
-    const caller = createTradeRouter({} as unknown as TradeService, undefined, copy).createCaller(signedReader());
+    const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signedReader());
     const second = await caller.copy.leaderTrades({ leaderRef: listed.leaderRef, limit: 1, cursor: first.nextCursor! });
     expect(second.trades).toEqual([
       expect.objectContaining({

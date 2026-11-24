@@ -1,7 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
-import { atTick, chartBars, expectLines, F, shownText, STEP_MS } from './charts-desk-studies.mjs';
+import { atTick, chartBars, expectLines, F, shownText, STEP_MS, untradedMarket } from './charts-desk-studies.mjs';
 
 // J-charts-desk-04 "I add advanced studies and market analytics series" (docs/roadmap/journeys.json). One test per step,
 // titled "J-charts-desk-04 #<n>". Each test opens the workbench on its own, so the studies it needs are added inside the
@@ -36,26 +36,6 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: 'Indicators' }).click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill(search);
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
-}
-
-/**
- * An open spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
- * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
- */
-async function untradedMarket() {
-  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
-  expect(res.status).toBe(200);
-  const listed = [];
-  for (const m of await res.json()) {
-    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
-    // Only a market open for trading: a market that is not open has no chart studies to read.
-    const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(m.symbol)}`);
-    if (!life.ok || (await life.json()).state !== 'OPEN') continue;
-    listed.push(m.symbol);
-    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
-    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
-  }
-  throw new Error(`no open spot market is without trades on this stack (open: ${listed.join(', ')})`);
 }
 
 const legend = (page) => page.getByTestId('study-legend');

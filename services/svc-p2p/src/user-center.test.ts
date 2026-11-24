@@ -7,7 +7,7 @@ import { MemoryLedger, formatAmount, parseAmount, recipes } from '@intafaced/led
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
 import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { P2pService, P2pError } from './p2p-service.js';
+import { P2pService } from './p2p-service.js';
 import { rateOf } from './user-center.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';

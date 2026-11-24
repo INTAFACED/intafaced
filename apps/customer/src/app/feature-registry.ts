@@ -1,3 +1,4 @@
+import { betaAccess, betaHides, betaRooms, type BetaNeed } from './beta-volt';
 import { hasPattern, matchPath } from './path-match';
 
 /**
@@ -9,6 +10,10 @@ import { hasPattern, matchPath } from './path-match';
  *
  * `hidden` stays as a mechanism (the lookups below, and every `isHiddenPath` consumer, still honour it) but no row uses
  * it, and no build redirects a hidden path any more: a Docker build behaves exactly like `vite dev`.
+ *
+ * The beta's build alone (owner decision, 23 Nov 2026: "Hide unfinished screens from the beta's menus") also drops from
+ * its menus, lists and links each `blocked` row's rooms and each row whose `needs` the signed-in account lacks
+ * (`betaOffFeatureFor`); the rooms keep their routes, and every other build shows them all.
  */
 export type FeatureStatus = 'live' | 'blocked' | 'hidden';
 export type FeatureTab = 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public';
@@ -28,10 +33,22 @@ export interface Feature {
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
+  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, or the venue door on. */
+  needs?: BetaNeed;
 }
 
-// `/pay/checkout` is the payer-facing hosted checkout: it stays public and is not hidden here.
+// A business's own rooms. `/pay/checkout` is the merchant's checkout room; the payer opens it from a shared link, which
+// the beta's menus rule never touches.
+/** Where a person opens a business account: for someone who has none yet, so the beta's menus never ask for one. */
+const businessOnboardingPaths = [
+  '/pay/onboarding',
+  '/pay/onboarding/business',
+  '/pay/onboarding/verification',
+  '/pay/onboarding/go-live',
+  '/identbusiness',
+];
 const businessPaySlugs = [
+  'checkout',
   'refunds',
   'refunds/new',
   'refunds/:refundId',
@@ -69,10 +86,6 @@ const businessPaySlugs = [
   'developer/webhooks',
   'developer/webhooks/:endpointId',
   'developer/deliveries',
-  'onboarding',
-  'onboarding/business',
-  'onboarding/verification',
-  'onboarding/go-live',
   'team',
   'exports',
   'notifications',
@@ -209,6 +222,26 @@ export const features: readonly Feature[] = [
     reason:
       "The payoff fee and how long a quote holds are owner values: unset, the quote refuses bank.loan_fee_unset or bank.loan_payoff_window_unset. The projection and statement are the bank's own reads",
     unlock: 'J-bank-11 #1 and #6 passing on main',
+    tab: 'money',
+  },
+  {
+    id: 'bank-salary',
+    label: 'Salary',
+    paths: ['/bank/salary'],
+    status: 'blocked',
+    reason:
+      "Salary by direct deposit is rail.bank: the partner bank's account details and the payroll network's credits and reversals; with no network wired every salary read refuses rail.bank, and the reversal window is an owner value: blank, a reversal refuses bank.direct_deposit_reversal_window_unset",
+    unlock: 'J-bank-30 passing on main',
+    tab: 'money',
+  },
+  {
+    id: 'bank-account',
+    label: 'Your bank account',
+    paths: ['/bank/account'],
+    status: 'blocked',
+    reason:
+      "Onboarding, information requests, reviews, closure and data requests are the partner bank's; the owner's requirements, an answer's size cap and the reopen window are owner values: blank, each refuses with its own code",
+    unlock: 'J-bank-17 #1 #2 #4 #5 #6 passing on main',
     tab: 'money',
   },
   {
@@ -543,13 +576,35 @@ export const features: readonly Feature[] = [
   {
     id: 'business-pay',
     label: 'Business Pay and business account',
-    paths: [...businessPaySlugs.map((slug) => `/pay/${slug}`), '/identbusiness'],
+    paths: businessPaySlugs.map((slug) => `/pay/${slug}`),
     status: 'live',
+    needs: 'business',
     reason: 'The rooms open from the signed-in session: business access comes from merchant.myAccess, with no separate provider',
     unlock: 'already live',
     tab: 'pay',
     checked:
       '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs and, since 2026-10-29, the room walk in J-merchant-01-team.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
+  },
+  {
+    id: 'business-onboarding',
+    label: 'Opening a business account',
+    paths: businessOnboardingPaths,
+    status: 'live',
+    reason: 'Setup opens from the signed-in session, as Business Pay does',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: 'as business-pay: J-merchant-01.pw.mjs leads a person with no business to setup.',
+  },
+  {
+    id: 'user-venue',
+    label: "Trading on the customer's own venue account",
+    paths: ['/trade/account', '/trade/positions', '/trade/staking', '/trade/vaults', '/uc/trading-permissions', '/fees'],
+    status: 'live',
+    needs: 'venue',
+    reason:
+      "The rooms read svc-trade's user-venue door (/api/v1/venue/status); with TRADE_USER_VENUE_URL unset it answers off and each room says so",
+    unlock: 'already live where the door is on',
+    tab: 'trade',
   },
   {
     id: 'more-rooms',
@@ -579,8 +634,12 @@ export const features: readonly Feature[] = [
       '/quant/studio',
       '/quant/shared',
       '/quant/shared/:strategyId',
+      '/quant/library',
+      '/quant/library/:listingId',
       '/quant/live',
       '/quant/live/:runId',
+      '/quant/limits',
+      '/quant/data',
       '/quant/backtest',
       '/quant/editor',
       '/quant/tester',
@@ -639,6 +698,7 @@ export const features: readonly Feature[] = [
       '/uc/promotion/mycards',
       '/uc/promotion/mypromotion',
       '/uc/promotion/points',
+      '/uc/promotion/perks',
       '/uc/invitingmining',
       '/uc/paydividends',
     ],
@@ -666,6 +726,16 @@ export const features: readonly Feature[] = [
     tab: 'public',
   },
   {
+    id: 'owner-blank-pages',
+    label: 'Platform status, trading rulebook and support chat',
+    paths: ['/status', '/rulebook', '/support/chat'],
+    status: 'blocked',
+    reason:
+      'Owner values not set: the components the status page reports on, the published rulebook, and support hours, so each page says it is blank',
+    unlock: 'the owner sets the status components, publishes the rulebook and sets support hours',
+    tab: 'public',
+  },
+  {
     id: 'help-support',
     label: 'Help and Support',
     paths: [
@@ -678,7 +748,6 @@ export const features: readonly Feature[] = [
       '/help/section/:id',
       '/support',
       '/support/new',
-      '/support/chat',
       '/support/tickets',
       '/support/tickets/:ticketId',
       '/support/guest/verify',
@@ -748,8 +817,21 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
         })),
   );
 }
+/**
+ * In the beta's build only, the row that keeps `path` out of the menus: one switched off (`blocked`), or one whose `needs`
+ * the signed-in account lacks. A room comes back by itself when its row goes live or the account gains what it needs.
+ */
+export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
+  if (!betaRooms()) return undefined;
+  return features.find(
+    (feature) =>
+      (feature.status === 'blocked' || (feature.needs !== undefined && !access[feature.needs])) &&
+      feature.paths.some((pattern) => patternMatches(pattern, path)),
+  );
+}
+/** Hidden by a feature row, or, in the beta's build only, a room not yet in Volt, switched off, or not the account's (beta-volt.ts). */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHides(path) || betaOffFeatureFor(path) !== undefined;
 }
 
 const tabHomes: Record<FeatureTab, string> = {

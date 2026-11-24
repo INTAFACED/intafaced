@@ -3,7 +3,7 @@ import type { Context } from '@intafaced/contracts';
 import { learnerCardTerm, lookupLearnerCard } from './learner-card.js';
 
 const ctx = (scopes: string[], extra: Record<string, unknown> = {}) =>
-  ({ service: null, principal: { userId: '11111111-1111-4111-8111-111111111111', scopes, mfa: true, ...extra } }) as unknown as Context;
+  ({ service: null, principal: { userId: '11111111-1111-4111-8111-111111111111', scopes, mfa: true, ...extra } }) as Context;
 const noSql = (() => {
   throw new Error('no read may run');
 }) as never;
