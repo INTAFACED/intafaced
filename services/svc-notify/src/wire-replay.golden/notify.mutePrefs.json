@@ -6,10 +6,10 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"notify:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"notify:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":[{\"channel\":\"email\",\"muted\":false},{\"channel\":\"push\",\"muted\":false},{\"channel\":\"sms\",\"muted\":false}]}}",
-    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.mutePrefs\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   ],
   "answers": {
     "notify.mutePrefs": {

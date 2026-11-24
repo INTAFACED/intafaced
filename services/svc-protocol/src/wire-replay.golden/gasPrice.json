@@ -3,8 +3,8 @@
     "gasPrice": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"protocol.gas_percentiles_unset: PROTOCOL_GAS_PERCENTILES and PROTOCOL_GAS_HISTORY_BLOCKS are unset — refusing rather than inventing a gas percentile\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"gasPrice\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"protocol.gas_percentiles_unset\"}}}}",
-    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"gasPrice\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "{\"error\":{\"message\":\"protocol.gas_percentiles_unset: PROTOCOL_GAS_PERCENTILES and PROTOCOL_GAS_HISTORY_BLOCKS are unset — refusing rather than inventing a gas percentile\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"gasPrice\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"protocol.gas_percentiles_unset\"}}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"gasPrice\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   ],
   "answers": {
     "gasPrice": {

@@ -3,8 +3,8 @@
     "me": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"me\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: auth.selfView\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"me\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"me\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: auth.selfView\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"me\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "me": {

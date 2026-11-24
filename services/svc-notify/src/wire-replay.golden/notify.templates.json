@@ -6,8 +6,8 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.templates\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.templates\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.templates\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.templates\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":[{\"key\":\"recovery_code\",\"fields\":[\"brand\",\"antiPhishingCode\",\"code\",\"expiresInMinutes\"],\"current\":null},{\"key\":\"verification_code\",\"fields\":[\"brand\",\"antiPhishingCode\",\"code\",\"expiresInMinutes\"],\"current\":null},{\"key\":\"login_code\",\"fields\":[\"brand\",\"antiPhishingCode\",\"code\",\"expiresInMinutes\"],\"current\":null},{\"key\":\"registration_code\",\"fields\":[\"brand\",\"antiPhishingCode\",\"code\",\"expiresInMinutes\"],\"current\":null},{\"key\":\"security_notice\",\"fields\":[\"brand\",\"antiPhishingCode\",\"eventSummary\",\"occurredAt\"],\"current\":null},{\"key\":\"kyc_decision\",\"fields\":[\"brand\",\"antiPhishingCode\",\"decision\"],\"current\":null}]}}"
   ],
   "answers": {
