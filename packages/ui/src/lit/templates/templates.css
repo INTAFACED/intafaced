@@ -1228,6 +1228,8 @@ button.lt-tab {
   padding: var(--lit-pad-panel);
   inline-size: min(100vw - 1rem, 30rem);
   max-block-size: 85vh;
+  /* a line brought into view inside the sheet (apps/customer shared/reveal.ts) stops clear of its edge, never cut by it */
+  scroll-padding-block: var(--lit-pad-panel);
 }
 
 .lt-sheet::backdrop {
