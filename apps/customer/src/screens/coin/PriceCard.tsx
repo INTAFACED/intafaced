@@ -130,6 +130,11 @@ export function PriceCard({
             <Skeleton shape="figure" />
           ) : ticker.status === 'ready' ? (
             <>
+              {/* Which price the big number is: the last trade, or a candle's close under the crosshair. A buy fills near
+                  the ask and a sell near the bid, so the buy card and its review show those. */}
+              <span className="lt-hint" data-testid="price-label">
+                {scrub ? t('Closing price') : t('Last trade price')}
+              </span>
               <Price value={hero.value} decimals={hero.decimals} scrubText={scrub ? `$${fmtPrice(scrub.c, tickSize)}` : null} />
               <span data-testid="change">
                 <ChangeText value={move ? fmtChangeLine(move.change, move.changeRatio) : null} hidden={false} suffix={suffix} />
