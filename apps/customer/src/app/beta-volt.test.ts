@@ -7,7 +7,7 @@ import { tabSpecs } from './menus';
 import { findRoom, rooms, searchRooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
-import { allServices } from '../screens/more/tiles';
+import { allServices, visibleSections } from '../screens/more/tiles';
 
 const count = voltCount();
 const state = new Map(count.rooms.map((room) => [room.key, room.state]));
@@ -68,6 +68,36 @@ describe("the beta's menus", () => {
     const moreTrade = allServices().find((group) => group.id === 'Trade');
     expect(moreTrade?.rooms.map((room) => room.path)).toContain('/trade/futures');
     expect(searchRooms('perp', 'Personal').map((room) => room.path)).toContain('/trade/futures');
+  });
+
+  it('shows Agents (/agents) and own-agent pages (/agents/:agentId) in Volt, More, All services and search on the beta (J-agents-08)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(state.get('/agents')).toBe('volt');
+    expect(state.get('/agents/:agentId')).toBe('volt');
+    expect(betaHides('/agents', betaList)).toBe(false);
+    expect(betaHides('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/agents')).toBeUndefined();
+    expect(betaOffFeatureFor('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBeUndefined();
+    expect(isHiddenPath('/agents')).toBe(false);
+    expect(isHiddenPath('/agents/7e29890c-6ef9-4155-bb43-403cbfde5c70')).toBe(false);
+    expect(visibleSections().flatMap((group) => group.tiles.map((tile) => tile.href))).toContain('/agents');
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/agents');
+    expect(searchRooms('agents', 'Personal').map((room) => room.path)).toContain('/agents');
+  });
+
+  it('shows Add money (/bank/ramps/new), Supported assets (/uc/assets) and Balance entries (/money/balance/:asset) on the beta (J-wallet-01)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/bank/ramps/new', '/bank/ramps/new'],
+      ['/uc/assets', '/uc/assets'],
+      ['/money/balance/:asset', '/money/balance/USDT'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {

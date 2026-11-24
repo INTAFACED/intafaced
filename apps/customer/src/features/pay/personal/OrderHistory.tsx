@@ -233,8 +233,26 @@ function ExportOrders({ pay }: { pay: PersonalPayApi }) {
           void run();
         }}
       >
-        <Field label={t('exportFrom')} type="date" value={from} required onChange={(event) => setFrom(event.target.value)} />
-        <Field label={t('exportTo')} type="date" value={to} required onChange={(event) => setTo(event.target.value)} />
+        <Field
+          label={t('exportFrom')}
+          type="text"
+          inputMode="numeric"
+          pattern="\d{4}-\d{2}-\d{2}"
+          placeholder="YYYY-MM-DD"
+          value={from}
+          required
+          onChange={(event) => setFrom(event.target.value)}
+        />
+        <Field
+          label={t('exportTo')}
+          type="text"
+          inputMode="numeric"
+          pattern="\d{4}-\d{2}-\d{2}"
+          placeholder="YYYY-MM-DD"
+          value={to}
+          required
+          onChange={(event) => setTo(event.target.value)}
+        />
         <Button type="submit" disabled={busy}>
           {busy ? t('exporting') : t('exportAction')}
         </Button>

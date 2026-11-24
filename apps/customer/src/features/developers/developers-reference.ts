@@ -967,6 +967,24 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
   },
   {
+    name: 'venueChartMarkets',
+    method: 'GET',
+    path: '/api/v1/venue/chart-markets',
+    product: 'accounts',
+
+    summary:
+      'Public chart metadata for every listed venue market (tick and lot size, status, listing routing and offered intervals), signed in or out',
+  },
+  {
+    name: 'venueChartCandles',
+    method: 'GET',
+    path: '/api/v1/venue/chart-candles',
+    product: 'accounts',
+
+    summary:
+      "Candles of the venue's own prints on one listed market, oldest first, up to 720 bars with an optional start time, signed in or out",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1055,6 +1073,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
+  },
+  {
+    name: 'venueArrivals',
+    method: 'GET',
+    path: '/api/v1/venue/arrivals',
+    product: 'accounts',
+
+    summary: 'Credits into your venue account from outside it (deposits and transfers in), as the venue records them',
   },
   {
     name: 'venueDepositRoutes',

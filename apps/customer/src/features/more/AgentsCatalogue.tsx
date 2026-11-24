@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { Button, Field, Select, Tag } from '@intafaced/ui/lit';
 import { Checkbox } from '@intafaced/ui/lit/templates';
-import { Details, Read, Select } from './common';
-import { EmptyNote, ScrollTable, Section, Waiting } from './volt-parts';
+import { Details } from './catalogue-parts';
+import { EmptyNote, KitRead as Read, ScrollTable, Section, Waiting } from './volt-parts';
 import {
   actionLogRows,
   ACTION_LOG_HEADER,

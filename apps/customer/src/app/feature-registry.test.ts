@@ -101,12 +101,13 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(rowFor(path)?.status, path).toBe('live');
       expect(rowFor(path)?.checked, path).toMatch(/Real-app journeys run \d+ .*J-bank-01 #\d/);
     }
+    expect(rowFor('/bank/ramps/new')?.status, '/bank/ramps/new').toBe('live');
+    expect(rowFor('/uc/assets')?.status, '/uc/assets').toBe('live');
     for (const [path, blocker] of [
       ['/bank/earn', /operators/],
       ['/bank/loans', /operators/],
       ['/bank/cards', /bank\.no_card_issuer/],
       ['/bank/ramps', /rail\.bank/],
-      ['/bank/ramps/new', /rail\.bank/],
       ['/bank/analytics', /proves this room/],
       ['/bank/business', /proves this room/],
     ] as const) {

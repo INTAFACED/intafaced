@@ -106,6 +106,21 @@ describe('reading a refusal that has come back', () => {
         .refusedFirst,
     ).toBe(false);
   });
+  it("takes a partner insufficient-funds refusal on a transfer as a definite no in the partner's own words", () => {
+    const message = 'The partner reports 7.345678 USDT in this account, less than 10. Nothing was moved.';
+    for (const procedure of ['transfers.create', 'transfers.toUser'] as const) {
+      const settled = settleRefusal(
+        { ok: false, reason: 'error', status: 409, code: 'bank.partner_insufficient_funds', message },
+        procedure,
+      );
+      expect(settled.refusedFirst, procedure).toBe(true);
+      expect(settled.outcome).toMatchObject({ ok: false, reason: 'error', message });
+    }
+    expect(
+      settleRefusal({ ok: false, reason: 'error', status: 409, code: 'bank.partner_insufficient_funds', message }, 'loans.open')
+        .refusedFirst,
+    ).toBe(false);
+  });
   it('turns a typed refusal made before posting into plain words and a definite no, on a checked write', () => {
     const settled = settleRefusal(failure(400, 'bank.card_limit_exceeded'), 'cards.setLimits');
     expect(settled.refusedFirst).toBe(true);

@@ -3,8 +3,10 @@ import type { ReactNode } from 'react';
 import { OverviewTemplate, type OverviewProps } from '@intafaced/ui/lit/templates';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { usePreferences } from '../../shared/preferences';
+import { isHiddenPath } from './deps';
 import Portfolio from './Portfolio';
 import { WhereItSits } from './WhereItSits';
+import { whereCopy } from './where-it-sits-copy';
 
 /**
  * `/money`, Assets, on the Volt kit's overview template. With svc-trade's user-venue door on (the launch model, OWNER
@@ -22,6 +24,25 @@ export type MoneyOverviewProps = Omit<OverviewProps, 'state' | 'mode'> & {
   state?: OverviewProps['state'];
   hero: ReactNode;
 };
+
+/** Links to the live Money helper rooms reachable from Assets on the hosted beta (J-wallet-01 #3 and #5). */
+export function MoneyRoomLinks() {
+  const { t } = whereCopy.useCopy();
+  const links = [
+    ...(!isHiddenPath('/bank/ramps/new') ? [{ href: '/bank/ramps/new', label: t('Add money') }] : []),
+    ...(!isHiddenPath('/uc/assets') ? [{ href: '/uc/assets', label: t('Supported assets') }] : []),
+  ];
+  if (links.length === 0) return null;
+  return (
+    <div className="lt-actions">
+      {links.map((link) => (
+        <a key={link.href} className="lt-button lt-button-secondary" href={link.href}>
+          {link.label}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /** The overview template as both views of `/money` use it: the person's Simple or Pro choice, and ready by default. */
 export function MoneyOverview({ state = { kind: 'ready' }, ...props }: MoneyOverviewProps) {

@@ -486,6 +486,7 @@ async function startSession(page) {
 test(`${J} #8 starts a trading session and places two orders: one approval after the passkey for a fresh session key that trades and never withdraws, with its expiry; both orders signed by it with no second prompt; signing out or the expiry ends it, and the next session approves a new key, never an old one again`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const s0 = walletState();
@@ -570,6 +571,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     await expect(panel.locator('[data-session-orders] li')).toHaveCount(n, { timeout: 20_000 });
   }
   await expect(panel.getByText(`Order on ${VENUE_NAME}: open. Signed by your session key, with no passkey.`)).toBeVisible();
+  await stepPicture(page);
   expect(prompts).toHaveLength(1);
   const orderPrepares = prepares.filter((b) => b.intent?.kind === 'place_order');
   expect(orderPrepares.map((b) => b.signer)).toEqual([

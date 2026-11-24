@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
@@ -134,44 +134,48 @@ export function VenueAccountPanel({
       {owner && balances
         ? [market.quoteAsset, market.baseAsset].map((asset) => {
             const row = rowOf(asset);
+            const flattenAmount = asset === market.baseAsset ? flattenable(row?.free ?? '0', market.lotSize) : null;
             return (
-              <dl className="lt-kv" key={asset} data-asset={asset}>
-                <div>
-                  <dt>{v('Asset')}</dt>
-                  <dd>{asset}</dd>
-                </div>
-                <div>
-                  <dt>{t('Free')}</dt>
-                  {/* Only the figure keeps to one line: the asset wraps under it in a narrow column, so the panel never widens the desk. */}
-                  <dd data-cell="free">
-                    <span>
-                      <span className="lt-num">{displayAmount(row?.free ?? '0')}</span> {asset}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('Used')}</dt>
-                  <dd data-cell="used">
-                    <span>
-                      <span className="lt-num">{displayAmount(row?.locked ?? '0')}</span> {asset}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('As of')}</dt>
-                  <dd className="lt-num">{clock(balances.asOf)}</dd>
-                </div>
-                {asset === market.baseAsset && flattenable(row?.free ?? '0', market.lotSize) ? (
+              <Fragment key={asset}>
+                <dl className="lt-kv" data-asset={asset}>
                   <div>
-                    <dt className="lt-quiet">{t('Flatten note', { asset })}</dt>
-                    <dd>
-                      <Button tone="secondary" onClick={() => onFlatten(flattenable(row?.free ?? '0', market.lotSize)!)}>
-                        {t('Flatten', { asset })}
-                      </Button>
+                    <dt>{v('Asset')}</dt>
+                    <dd>{asset}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('Free')}</dt>
+                    {/* Only the figure keeps to one line: the asset wraps under it in a narrow column, so the panel never widens the desk. */}
+                    <dd data-cell="free">
+                      <span>
+                        <span className="lt-num">{displayAmount(row?.free ?? '0')}</span> {asset}
+                      </span>
                     </dd>
                   </div>
+                  <div>
+                    <dt>{t('Used')}</dt>
+                    <dd data-cell="used">
+                      <span>
+                        <span className="lt-num">{displayAmount(row?.locked ?? '0')}</span> {asset}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('As of')}</dt>
+                    <dd className="lt-num">{clock(balances.asOf)}</dd>
+                  </div>
+                </dl>
+                {flattenAmount ? (
+                  <>
+                    {/* Stacked below the key/value list so the note and button fit the narrow ticket column. */}
+                    <p className="lt-note">{t('Flatten note', { asset })}</p>
+                    <p>
+                      <Button tone="secondary" onClick={() => onFlatten(flattenAmount)}>
+                        {t('Flatten', { asset })}
+                      </Button>
+                    </p>
+                  </>
                 ) : null}
-              </dl>
+              </Fragment>
             );
           })
         : null}
@@ -199,7 +203,8 @@ export function VenueWalletRow() {
         <div>
           <p>
             {t('Connected')}:{' '}
-            <span className="lt-num" data-testid="venue-wallet-address">
+            {/* An address has no spaces: lt-mono wraps anywhere inside the narrow ticket column, unlike lt-num (nowrap). */}
+            <span className="lt-mono" data-testid="venue-wallet-address">
               {wallet.address.toLowerCase()}
             </span>{' '}
             <Button tone="secondary" onClick={wallet.disconnect}>
@@ -287,11 +292,11 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
             <dl className="lt-kv">
               <div>
                 <dt>{t('Deposit to')}</dt>
-                <dd className="lt-num">{route.address}</dd>
+                <dd className="lt-mono">{route.address}</dd>
               </div>
               <div>
                 <dt>{t('Deposit token')}</dt>
-                <dd className="lt-num">
+                <dd className="lt-mono">
                   {asset} · {route.token}
                 </dd>
               </div>

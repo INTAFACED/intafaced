@@ -698,12 +698,12 @@ export function AuthForm({ register }: { register: boolean }) {
               }}
               onSecurity={() => navigate('/uc/safe', true)}
             />
-          ) : (
+          ) : inviteToken || (authContext.hasReturn && destination !== '/home') ? (
             <div className="lt-note lt-stack-tight" data-testid="public-auth-context">
               <Copy k="after" />
               <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
             </div>
-          )}
+          ) : null}
           {spentCode || ownFreeze || landing ? null : lostAuthenticator ? (
             <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
           ) : waitingDevice ? (
