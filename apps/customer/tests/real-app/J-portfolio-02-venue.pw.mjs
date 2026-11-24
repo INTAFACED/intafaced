@@ -6,6 +6,7 @@ import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { confirm, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -430,14 +431,19 @@ test(`${J} #7 trades between two non-dollar coins on the venue: no dollar figure
   await rest(secondSeller, second.symbol, 'sell', SECOND_AMOUNT, SECOND_PRICE, 'pf2-second');
 
   const since = new Date(Date.now() - 1_000).toISOString();
-  await openVenueDesk(page, s.account, `/trade/spot/${first.symbol}`, s.walletKey);
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${first.symbol}`, s.walletKey);
   await deskOrder(page, 'buy', FIRST_PRICE_7, FIRST_FOR_7, first.base);
   await expect
     .poll(async () => fromUnits(sumOf(await fillsOf(s.owner, first.symbol, 'buy', since), (f) => toUnits(f.amount))), { timeout: 30_000 })
     .toBe(FIRST_FOR_7);
   const firstBefore = toUnits((await venueBalance(s.owner, first.base)).total);
   // Then the second coin bought on its own book, paid in the first: neither leg is in dollars.
-  await openVenueDesk(page, s.account, `/trade/spot/${second.symbol}`, s.walletKey);
+  // The same page and wallet, now on the second coin's desk: the wallet is connected again if the desk asks.
+  await page.goto(`/trade/spot/${second.symbol}`);
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address);
   await deskOrder(page, 'buy', SECOND_PRICE, SECOND_AMOUNT, second.base);
   const bought = () => fillsOf(s.owner, second.symbol, 'buy', since);
   await expect.poll(async () => fromUnits(sumOf(await bought(), (f) => toUnits(f.amount))), { timeout: 30_000 }).toBe(SECOND_AMOUNT);
