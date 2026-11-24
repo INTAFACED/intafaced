@@ -13,7 +13,10 @@ import {
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_SET_LOT_METHOD,
 } from '@intafaced/contracts/tax-procedures';
-import { LOT_METHODS, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
+import { LOT_METHODS, venueMid, type LotBook, type LotMethod, type MissingBasis, type VenuePrices } from './pnl-model';
+import type { Decimal } from '../../data';
+import { useResource } from '../../shared/resource';
+import { useVenueApi } from '../../features/trade';
 import type { PnlOverTime } from './pnl-time-model';
 import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, type BankValueOverTime } from './value-time-model';
 import { BANK_PORTFOLIO_VALUE_OVER_TIME } from '@intafaced/contracts/bank-portfolio-procedures';
@@ -213,3 +216,31 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
     [env],
   );
 }
+
+const DOLLAR_QUOTES = new Set(['USDC', 'USDT']);
+
+/**
+ * The venue's own price now for each coin held in a venue account (J-portfolio-02 #2): the middle of the venue's best bid
+ * and ask on the coin's dollar spot market. A coin with no such market, or a book with an empty side, gets no price, so
+ * its unrealised result stays not known; nothing is read when no venue coin is held.
+ */
+export function useVenuePrices(assets: readonly string[]): VenuePrices {
+  const venue = useVenueApi();
+  const key = [...new Set(assets)].sort().join(',');
+  const { resource } = useResource<VenuePrices>(async (signal) => {
+    if (!key) return { ok: true, data: new Map() };
+    const markets = await venue.markets(signal);
+    if (!markets.ok) return markets;
+    const prices = new Map<string, Decimal>();
+    for (const asset of key.split(',')) {
+      const market = markets.data.value.find((m) => m.kind === 'spot' && m.baseAsset === asset && DOLLAR_QUOTES.has(m.quoteAsset));
+      if (!market) continue;
+      const best = await venue.bestPrices(market.symbol, signal);
+      const mid = best.ok ? venueMid(best.data.value.bid, best.data.value.ask) : null;
+      if (mid !== null) prices.set(asset, mid);
+    }
+    return { ok: true, data: prices };
+  }, `pnl-venue-prices:${key}`);
+  return resource.status === 'ready' ? resource.data : NO_PRICES;
+}
+const NO_PRICES: VenuePrices = new Map();

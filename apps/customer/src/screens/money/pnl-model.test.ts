@@ -16,6 +16,7 @@ import {
   spaceOf,
   viewFromQuery,
   unknownShareOf,
+  venueMid,
   type LotBook,
   type LotBookLot,
   type LotBookSale,
@@ -540,6 +541,23 @@ describe('venue account lots', () => {
       [VENUE, null, null, 'no_price'],
     ]);
     expect(view.unrealisedUsd).toBeNull();
+  });
+
+  it('values the venue coins at the venue’s own price now, never ours: 0.00999 BTC at a 60,100 mid less 600 is +0.399', () => {
+    // TEST, by hand: 0.00999 × 60,100 = 600.399; less the 600 cost is +0.399, a ratio of 0.000665 to the cost.
+    const view = pnlView(withVenue, [row('BTC', '1', '150')], new Map([['BTC', '60100']]));
+    expect(view.assets.map((a) => [a.venueAccount, a.valueUsd, a.unrealisedUsd, a.unrealisedRatio, a.reason])).toEqual([
+      [undefined, '150', '50', '0.5', null],
+      [VENUE, '600.399', '0.399', '0.000665', null],
+    ]);
+    expect(view.unrealisedUsd).toBe('50.399');
+  });
+
+  it('the venue mid is the middle of its best bid and ask, and not known with either side empty', () => {
+    expect(venueMid('60000', '60200')).toBe('60100');
+    expect(venueMid('0.5', '0.6')).toBe('0.55');
+    expect(venueMid(null, '60200')).toBeNull();
+    expect(venueMid('60000', null)).toBeNull();
   });
 
   it('a venue sale picks only among its own account’s lots, and a ledger sale never a venue lot', () => {
