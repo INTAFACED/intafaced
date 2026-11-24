@@ -16,6 +16,12 @@ const messages = {
 
   'Open orders': 'Open orders',
   'No open orders': 'No open orders',
+  'First title': 'No order is open',
+  'First body': 'Every order you place shows here while it is open, with what has filled and a cancel beside it.',
+  'First point orders': 'Open orders, each with its cancel',
+  'First point history': 'Ended orders and fills under History',
+  'First point algo': 'Algo orders and the orders they place',
+  'First action': 'Place an order',
   'Order history': 'Order history',
   'No ended orders': 'No ended orders',
   Fills: 'Fills',

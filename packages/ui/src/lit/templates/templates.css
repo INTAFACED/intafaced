@@ -610,6 +610,54 @@
   color: var(--lit-text-2);
 }
 
+/* A room's first state (FirstState): centred in a dashed well, with what the room is for and one action, so an
+   empty room reads as ready to use rather than unfinished. */
+.lt-empty[data-first] {
+  align-items: center;
+  justify-content: center;
+  gap: var(--lit-gap-item);
+  min-block-size: 14rem;
+  padding-block: var(--lit-gap-section);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px dashed var(--lit-line-strong);
+  background: var(--lit-solid-bg-sunken);
+  text-align: center;
+}
+
+.lt-empty[data-first] .lt-empty-body {
+  max-inline-size: 36rem;
+  text-align: center;
+}
+
+.lt-first-mark {
+  display: grid;
+  place-items: center;
+  inline-size: 3rem;
+  block-size: 3rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-accent-text);
+}
+
+.lt-first-points {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-first-points li {
+  padding-block: calc(var(--lit-gap-item) / 3);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
 .lt-ref {
   margin: 0;
   font-family: var(--lit-font-mono);

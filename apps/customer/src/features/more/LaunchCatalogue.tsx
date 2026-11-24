@@ -6,7 +6,8 @@ import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Select, Tag } from '@intafaced/ui/lit';
-import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
+import { CatalogueTemplate, FirstState } from '@intafaced/ui/lit/templates';
+import { Rocket } from 'lucide-react';
 import { Details, Limit } from './catalogue-parts';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
 import { launchCopy } from './launch-copy';
@@ -107,7 +108,17 @@ export function LaunchCatalogue() {
         <KitRead resource={list.resource} retry={list.reload}>
           {(events) =>
             events.length === 0 ? (
-              <EmptyNote title={filtered ? t('emptyFiltered') : t('emptyAll')}>{filtered ? null : t('emptyAllBody')}</EmptyNote>
+              filtered ? (
+                <EmptyNote title={t('emptyFiltered')} />
+              ) : (
+                <FirstState
+                  icon={<Rocket size={24} />}
+                  title={t('emptyAll')}
+                  body={t('emptyAllBody')}
+                  points={[t('firstPointTypes'), t('firstPointCheck'), t('firstPointBasis')]}
+                  action={{ label: t('firstAction'), href: '/launch/requirements' }}
+                />
+              )
             ) : (
               <>
                 <small className="lt-hint">{t('count', { count: String(events.length), limit: String(limit) })}</small>

@@ -65,6 +65,8 @@ const en = {
   copied: 'Copied',
   copyFailed: 'Copy failed. Select the ID and copy it yourself.',
   noShared: 'No strategy is shared with you.',
+  noSharedBody: 'When a strategy owner shares one with your sharing ID, it is listed here with what you may do with it.',
+  noSharedAction: 'Browse the strategy library',
   owner: 'Owner',
   name: 'Name',
   version: 'Version',

@@ -158,13 +158,28 @@
 <tbody>
 <tr data-testid="dividends-empty" data-kind="airdrop" data-empty="">
 <td colspan="5">
-<strong>
-<span lang="en" dir="ltr" data-i18n="account.dividends.emptyTitle">No records yet</span>
-</strong>
-<br>
-<span class="lt-hint">
-<span lang="en" dir="ltr" data-i18n="account.dividends.emptyBody">You have no distribution records. An airdrop you join is listed here once its snapshot time comes.</span>
+<div class="lt-empty" data-first="" data-kind="empty">
+<span class="lt-first-mark" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-coins" aria-hidden="true">
+<path d="M13.744 17.736a6 6 0 1 1-7.48-7.48">
+</path>
+<path d="M15 6h1v4">
+</path>
+<path d="m6.134 14.768.866-.5 2 3.464">
+</path>
+<circle cx="16" cy="8" r="6">
+</circle>
+</svg>
 </span>
+<h3 class="lt-empty-title">No records yet</h3>
+<p class="lt-empty-body">You have no distribution records. An airdrop you join is listed here once its snapshot time comes.</p>
+<ul class="lt-first-points">
+<li>Each airdrop you join, from its snapshot</li>
+<li>Your share and how it was counted</li>
+<li>Paid to your connected wallet, with its chain reference</li>
+</ul>
+<a class="lt-button lt-button-secondary" href="/campaigns">Find an airdrop to join</a>
+</div>
 </td>
 </tr>
 </tbody>
