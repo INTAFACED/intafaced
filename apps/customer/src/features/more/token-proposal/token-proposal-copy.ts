@@ -17,8 +17,8 @@ const en = {
   cancelled: 'Cancelled · UTC',
   cancelReason: 'Reason given',
   choices: 'Choice tally',
-  choice: 'Choice',
-  weight: 'Weight',
+  rank: 'Rank {rank}',
+  rounds: 'The ranking was counted over {count} rounds; the weights shown are the first round.',
   vote: 'To vote, open this proposal in Token governance.',
   openGovernance: 'Open Token governance',
 } as const;
@@ -40,8 +40,8 @@ const es: Record<keyof typeof en, string> = {
   cancelled: 'Cancelada · UTC',
   cancelReason: 'Motivo indicado',
   choices: 'Recuento por opción',
-  choice: 'Opción',
-  weight: 'Peso',
+  rank: 'Puesto {rank}',
+  rounds: 'La clasificación se contó en {count} rondas; los pesos mostrados son los de la primera ronda.',
   vote: 'Para votar, abre esta propuesta en la gobernanza del token.',
   openGovernance: 'Abrir la gobernanza del token',
 };
@@ -63,8 +63,8 @@ const fr: Record<keyof typeof en, string> = {
   cancelled: 'Annulée · UTC',
   cancelReason: 'Motif indiqué',
   choices: 'Décompte par choix',
-  choice: 'Choix',
-  weight: 'Poids',
+  rank: 'Rang {rank}',
+  rounds: 'Le classement a été compté en {count} tours ; les poids affichés sont ceux du premier tour.',
   vote: 'Pour voter, ouvrez cette proposition dans la gouvernance du jeton.',
   openGovernance: 'Ouvrir la gouvernance du jeton',
 };

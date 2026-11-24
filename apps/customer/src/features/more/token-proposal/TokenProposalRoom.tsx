@@ -15,13 +15,20 @@ import { tokenProposalCopy } from './token-proposal-copy';
 
 type Proposal = ProcedureOutput<typeof TOKEN_GET_PROPOSAL>;
 
-/** A service instant as a UTC minute; the `datetime` attribute keeps the exact value. */
+/** A service instant to the second, in UTC; the `datetime` attribute keeps the exact value. */
 function When({ at }: { at: string }) {
   return (
     <time dateTime={at} lang="zxx">
-      {`${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`}
+      {`${new Date(at).toISOString().slice(0, 19).replace('T', ' ')} UTC`}
     </time>
   );
+}
+
+/** This room's own check over the answer: the proposal asked for, with every instant it shows a real one. */
+function reads(proposalId: string) {
+  return (p: Proposal) =>
+    p.id === proposalId &&
+    [p.createdAt, p.opensAt, p.closesAt, ...(p.cancel ? [p.cancel.at] : [])].every((at) => !Number.isNaN(Date.parse(at)));
 }
 
 /** The author's own title, or the stored terms' title, when either is written. */
@@ -91,7 +98,7 @@ function ProposalRead({ proposalId, back }: { proposalId: string; back: ReactNod
   const api = useApi();
   const { t } = tokenProposalCopy.useCopy();
   const detail = useResource(
-    (signal) => api.call(TOKEN_GET_PROPOSAL, { proposalId }, { signal, accept: (p) => p.id === proposalId }),
+    (signal) => api.call(TOKEN_GET_PROPOSAL, { proposalId }, { signal, accept: reads(proposalId) }),
     `token-proposal:${proposalId}`,
   );
   if (detail.resource.status === 'failed' && detail.resource.failure.code === 'token.proposal_not_found')
@@ -176,7 +183,8 @@ function ProposalBody({ proposal: p }: { proposal: Proposal }) {
         <ChoiceTally choices={p.choices} tally={p.choiceTally} />
       ) : null}
       <p className="lt-hint">
-        {g.t('unit')} {t('vote')}
+        {g.t('unit')}
+        {p.status === 'open' ? ` ${t('vote')}` : null}
       </p>
     </div>
   );
@@ -186,6 +194,7 @@ function ProposalBody({ proposal: p }: { proposal: Proposal }) {
 function ChoiceTally({ choices, tally }: { choices: readonly string[]; tally: NonNullable<Proposal['choiceTally']> }) {
   const { t } = tokenProposalCopy.useCopy();
   const g = governanceCopy.useCopy();
+  const rankOf = new Map(tally.ranking.map((choice, position) => [choice, position + 1]));
   return (
     <Section title={t('choices')}>
       <KeyValue
@@ -193,11 +202,13 @@ function ChoiceTally({ choices, tally }: { choices: readonly string[]; tally: No
           ...choices.map((choice, index) => ({
             label: `${index + 1}. ${choice}`,
             value: <span lang="zxx">{displayAmount(tally.totals[index])}</span>,
+            note: rankOf.has(index) ? t('rank', { rank: rankOf.get(index)! }) : undefined,
           })),
           { label: g.t('abstain'), value: <span lang="zxx">{displayAmount(tally.abstainWeight)}</span> },
           { label: g.t('voters'), value: <span lang="zxx">{tally.voterCount}</span> },
         ]}
       />
+      {tally.rounds ? <p className="lt-hint">{t('rounds', { count: tally.rounds.length })}</p> : null}
     </Section>
   );
 }

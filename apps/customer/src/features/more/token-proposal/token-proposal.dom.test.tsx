@@ -14,8 +14,11 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 vi.mock('../../session/session', () => {
   const api = {
-    async call(record: { path: string }, input: unknown) {
+    // As the real client does: an answer this caller's `accept` refuses reads as an unverified one.
+    async call(record: { path: string }, input: unknown, opts?: { accept?: (data: unknown) => boolean }) {
       asked.push({ path: record.path, input });
+      const reply = answer as { ok: boolean; data?: unknown };
+      if (reply.ok && opts?.accept && !opts.accept(reply.data)) return { ok: false, reason: 'invalid_response', message: 'unverified' };
       return answer;
     },
   };
@@ -49,6 +52,12 @@ const proposal = {
   choiceTally: null,
 };
 
+/** The value a details row shows beside its label. */
+function row(host: HTMLElement, label: string) {
+  const dt = [...host.querySelectorAll('dt')].find((d) => d.textContent === label);
+  return dt?.nextElementSibling?.querySelector('bdi')?.textContent;
+}
+
 async function mount(proposalId: string | null) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -68,16 +77,13 @@ describe('/token/governance/:proposalId', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('TEST lower the maker fee'));
     expect(asked).toEqual([{ path: 'getProposal', input: { proposalId: ID } }]);
     const text = host.textContent ?? '';
-    for (const words of [
-      'Fee parameter',
-      'Open',
-      'For, against or abstain',
-      '2026-11-27 10:00 UTC',
-      'TEST text of the proposal',
-      '"bps": 2',
-      '120.5',
-      '150.5',
-    ])
+    expect(row(host, 'Status')).toBe('Open');
+    expect(row(host, 'Kind')).toBe('Fee parameter');
+    expect(row(host, 'Voting type')).toBe('For, against or abstain');
+    expect(row(host, 'Closes · UTC')).toBe('2026-11-27 10:00:00 UTC');
+    expect(row(host, 'For')).toBe('120.5');
+    expect(row(host, 'Total weight')).toBe('150.5');
+    for (const words of ['TEST text of the proposal', '"bps": 2', 'To vote, open this proposal in Token governance.'])
       expect(text).toContain(words);
     expect(host.querySelector('time[datetime="2026-11-20T10:00:00.000Z"]')).not.toBeNull();
     expect(host.querySelector('a[href="/token/governance"]')?.textContent).toBe('Open Token governance');
@@ -92,6 +98,47 @@ describe('/token/governance/:proposalId', () => {
     answer = { ok: true, data: { ...proposal, id: 'gov:proposal:ifc:u-test:8', discussionLink: 'https://forum.example/t/8' } };
     const linked = await mount('gov:proposal:ifc:u-test:8');
     await vi.waitFor(() => expect(linked.querySelector('a[href="https://forum.example/t/8"]')).not.toBeNull());
+  });
+
+  it('names each choice with its rank on a ranked proposal, says the weights are the first round, and offers no vote once closed', async () => {
+    answer = {
+      ok: true,
+      data: {
+        ...proposal,
+        status: 'closed_ranked',
+        votingType: 'ranked_choice',
+        choices: ['TEST alpha', 'TEST beta', 'TEST gamma'],
+        ranking: [1, 0, 2],
+        choiceTally: {
+          totals: ['40', '35', '25'],
+          abstainWeight: '0',
+          participatingWeight: '100',
+          voterCount: 4,
+          ranking: [1, 0, 2],
+          rounds: [
+            ['40', '35', '25'],
+            ['45', '55', '0'],
+          ],
+        },
+      },
+    };
+    const host = await mount(ID);
+    await vi.waitFor(() => expect(host.textContent).toContain('Choice tally'));
+    expect(row(host, 'Status')).toBe('Closed, ranking stored');
+    const note = (label: string) =>
+      [...host.querySelectorAll('dt')].find((d) => d.textContent === label)?.nextElementSibling?.querySelector('.lt-kv-note')?.textContent;
+    expect(note('2. TEST beta')).toBe('Rank 1');
+    expect(note('1. TEST alpha')).toBe('Rank 2');
+    expect(host.textContent).toContain('counted over 2 rounds');
+    expect(host.textContent).not.toContain('To vote');
+  });
+
+  it('shows a proposal with an instant that is not one as a failed read, not a crash', async () => {
+    answer = { ok: true, data: { ...proposal, createdAt: 'invalid' } };
+    const host = await mount(ID);
+    await vi.waitFor(() => expect(host.textContent).not.toContain('Loading'));
+    expect(host.textContent).not.toContain('TEST lower the maker fee');
+    expect(host.querySelector('[data-room="token-proposal"]')).not.toBeNull();
   });
 
   it("says an id the service doesn't know is no proposal, with its code and the way to governance", async () => {
