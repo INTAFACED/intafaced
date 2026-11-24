@@ -157,6 +157,27 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, s
   expect(price.get('USDC')).toBe(SCALE);
   expect(price.get('USDT')).toBe(SCALE);
   expect(price.has('BTC')).toBe(false);
+  // BTC is valued from the venue's own BTC-USDC spot market print (last trade), and its class comes from svc-bank's
+  // published asset list (`assets.list`): `unclassified` when not yet published, else its published kind.
+  const assetsRes = await (await api(who)).get('/api/bank/trpc/assets.list');
+  expect(assetsRes.status, JSON.stringify(assetsRes.body).slice(0, 300)).toBe(200);
+  const btcPublished = assetsRes.body.result.data.assets.find((a) => a.assetId === 'BTC');
+  const btcClass = btcPublished
+    ? btcPublished.kind === 'fiat'
+      ? 'fiat'
+      : btcPublished.kind === 'commodity'
+        ? 'commodity'
+        : 'crypto'
+    : 'unclassified';
+  const btcClassLabel = { fiat: 'Cash', commodity: 'Commodities', crypto: 'Other crypto', unclassified: 'Unclassified' }[btcClass];
+  const btcFill = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.find((f) => f.symbol === SYMBOL);
+  expect(btcFill, 'the TEST venue recorded the BTC-USDC fill from setup').toBeTruthy();
+  const candlesRes = await testVenue('/candles', { symbol: SYMBOL, interval: '1h', limit: 25 });
+  expect(candlesRes.status, JSON.stringify(candlesRes.body).slice(0, 300)).toBe(200);
+  const candles = [...candlesRes.body.value].sort((a, b) => Date.parse(a.openAt) - Date.parse(b.openAt));
+  expect(candles.length).toBeGreaterThan(0);
+  const btcPrice = toUnits(candles[candles.length - 1].closePrice);
+  expect(btcPrice).toBe(toUnits(btcFill.price));
 
   // Read the venue's own balances directly (never from the page) and compute every grouping by hand.
   const allVenue = (await venueRecord(owner, '/balances')).value;
@@ -171,30 +192,36 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, s
   expect(toUnits(usdc.locked)).toBe((toUnits(RESTING_BUY.amount) * toUnits(RESTING_BUY.price)) / SCALE);
   expect(toUnits(usdc.lockedBy.inOrders)).toBe(toUnits(usdc.locked));
   expect(toUnits(btc.total)).toBeGreaterThan(0n);
+  expect(toUnits(btc.locked)).toBe(0n);
 
   const usdcVal = (toUnits(usdc.total) * price.get('USDC')) / SCALE;
   const usdtVal = (toUnits(usdt.total) * price.get('USDT')) / SCALE;
-  const total = usdcVal + usdtVal;
+  const btcVal = (toUnits(btc.total) * btcPrice) / SCALE;
+  const total = usdcVal + usdtVal + btcVal;
   const earnVal = (toUnits(usdt.lockedBy.staked) * price.get('USDT')) / SCALE;
   const stableVal = usdcVal + (usdtVal - earnVal);
+  const cryptoVal = btcVal;
   const lockedVal = (toUnits(usdc.locked) * price.get('USDC')) / SCALE + (toUnits(usdt.locked) * price.get('USDT')) / SCALE;
   const availableVal = total - lockedVal;
-  expect(earnVal + stableVal).toBe(total);
+  expect(earnVal + stableVal + cryptoVal).toBe(total);
   expect(availableVal + lockedVal).toBe(total);
 
   await openMoney(page);
-  await expect(page.getByTestId('assets-total').getByTestId('standing-figure')).toHaveAttribute('data-total-usd', fixedHalfUp(total, 2));
+  await expect(page.getByTestId('assets-total').getByTestId('standing-figure')).toHaveAttribute('data-total-usd', fixedHalfUp(total, 2), {
+    timeout: 30_000,
+  });
 
   const card = page.getByRole('region', { name: 'Where your money is', exact: true });
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card).toHaveAttribute('data-total-usd', fromUnits(total));
 
-  // By coin: USDC and USDT each show their exact share of the total; BTC is named as unpriced.
+  // By coin: USDC, USDT and BTC (priced from its BTC-USDC venue spot print) each show their exact share of the total.
   await card.getByRole('group', { name: 'Group by', exact: true }).getByRole('button', { name: 'Coin', exact: true }).click();
-  await expect(card.locator('li[data-group]')).toHaveCount(2);
+  await expect(card.locator('li[data-group]')).toHaveCount(3);
   for (const [asset, val] of [
     ['USDC', usdcVal],
     ['USDT', usdtVal],
+    ['BTC', btcVal],
   ]) {
     const shareText = pct(val, total);
     const li = card.locator(`li[data-group="${asset}"]`);
@@ -204,24 +231,33 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, s
     await expect(row).toHaveAttribute('data-value-usd', fromUnits(val));
     await expect(row.locator('td').first()).toHaveText(shareText);
   }
-  await expect(card.getByText('Excludes 1 coin (no USD price)', { exact: true })).toBeVisible();
+  await expect(card.getByText(/Excludes \d+ coin/)).toHaveCount(0);
 
-  // By kind: USDT and USDC as Dollar coins (stablecoin), staked USDT under Earn; groups sum to the total.
+  // By kind: USDT and USDC as Dollar coins (stablecoin), BTC under its published class (or Unclassified), staked USDT under Earn; groups sum to the total.
   await card.getByRole('group', { name: 'Group by', exact: true }).getByRole('button', { name: 'Kind', exact: true }).click();
   await expect(card.getByRole('button', { name: 'Kind', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(card.locator('li[data-group="stablecoin"]')).toContainText('Dollar coins');
   await expect(card.locator('li[data-group="stablecoin"]')).toContainText(pct(stableVal, total));
+  await expect(card.locator(`li[data-group="${btcClass}"]`)).toContainText(btcClassLabel);
+  await expect(card.locator(`li[data-group="${btcClass}"]`)).toContainText(pct(cryptoVal, total));
   await expect(card.locator('li[data-group="earn"]')).toContainText('Earn');
   await expect(card.locator('li[data-group="earn"]')).toContainText(pct(earnVal, total));
   const stableRow = card.locator('tr[data-group-row="stablecoin"]');
+  const btcClassRow = card.locator(`tr[data-group-row="${btcClass}"]`);
   const earnRow = card.locator('tr[data-group-row="earn"]');
   await expect(stableRow.locator('td').nth(0)).toHaveText(pct(stableVal, total));
   await expect(stableRow.locator('td').nth(1)).toContainText('USDT');
   await expect(stableRow.locator('td').nth(1)).toContainText('USDC');
+  await expect(btcClassRow.locator('td').nth(0)).toHaveText(pct(cryptoVal, total));
+  await expect(btcClassRow.locator('td').nth(1)).toContainText('BTC');
   await expect(earnRow.locator('td').nth(0)).toHaveText(pct(earnVal, total));
   await expect(earnRow.locator('td').nth(1)).toContainText('USDT');
   const kindSum = sum(
-    await Promise.all([stableRow.getAttribute('data-value-usd').then(toUnits), earnRow.getAttribute('data-value-usd').then(toUnits)]),
+    await Promise.all([
+      stableRow.getAttribute('data-value-usd').then(toUnits),
+      btcClassRow.getAttribute('data-value-usd').then(toUnits),
+      earnRow.getAttribute('data-value-usd').then(toUnits),
+    ]),
   );
   expect(kindSum).toBe(total);
   await card.scrollIntoViewIfNeeded();
