@@ -127,7 +127,7 @@ export function DividendsView({
                     ) : (
                       <tr data-testid="dividends-empty" data-kind={kind} data-empty="">
                         <td colSpan={headers.length}>
-                          {kind === 'airdrop' ? (
+                          {kind === 'airdrop' && records.status === 'ready' ? (
                             // A new account's first state: what this list holds and where airdrops come from.
                             <FirstState
                               icon={<Coins size={24} />}
@@ -137,9 +137,17 @@ export function DividendsView({
                               action={{ label: t('firstAction'), href: '/campaigns' }}
                             />
                           ) : (
-                            <strong>
-                              <Copy k="dividendEmpty" />
-                            </strong>
+                            <>
+                              <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
+                              {kind === 'airdrop' ? (
+                                <>
+                                  <br />
+                                  <span className="lt-hint">
+                                    <Copy k="emptyBody" />
+                                  </span>
+                                </>
+                              ) : null}
+                            </>
                           )}
                         </td>
                       </tr>

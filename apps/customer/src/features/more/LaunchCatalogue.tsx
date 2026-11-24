@@ -2,6 +2,7 @@
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
 import { useApi, useSession } from '../session';
+import { navigate } from '../../app/location';
 import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
@@ -116,8 +117,12 @@ export function LaunchCatalogue() {
                   title={t('emptyAll')}
                   body={t('emptyAllBody')}
                   points={[t('firstPointTypes'), t('firstPointCheck'), t('firstPointBasis')]}
-                  action={{ label: t('firstAction'), href: '/launch/requirements' }}
-                />
+                >
+                  {/* A button, as the room's own section row opens its sections: the catalogue's links are its events. */}
+                  <Button tone="secondary" onClick={() => navigate('/launch/requirements')}>
+                    {t('firstAction')}
+                  </Button>
+                </FirstState>
               )
             ) : (
               <>
