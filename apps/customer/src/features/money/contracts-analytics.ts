@@ -36,10 +36,4 @@ export const partnerHoldsSchema = z.discriminatedUnion('held', [
 ]);
 export type PartnerHolds = z.infer<typeof partnerHoldsSchema>;
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const analyticsReads = {
-  partnerHolds: partnerHoldsSchema,
-} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const analyticsWrites = {} as const;

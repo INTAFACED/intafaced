@@ -515,6 +515,8 @@ import {
   BANK_BUSINESS_CANCEL,
 } from './bank-business-procedures.js';
 
+import { BANK_CALENDAR_WINDOW } from './bank-calendar-procedures.js';
+
 import { BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS } from './bank-cards-2-procedures.js';
 
 import {
@@ -808,7 +810,12 @@ import {
   BANK_STATEMENTS_TOTALS,
 } from './bank-statements-procedures.js';
 
-import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from './bank-transfers-2-procedures.js';
+import {
+  BANK_TRANSFERS_SCHEDULE,
+  BANK_TRANSFERS_UPDATE_SCHEDULE,
+  BANK_TRANSFERS_CREATE,
+  BANK_TRANSFERS_SCHEDULE_TO_USER,
+} from './bank-transfers-2-procedures.js';
 
 import {
   BANK_TRANSFERS_EXECUTIONS,
@@ -2889,6 +2896,8 @@ const part_bank_business_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_CANCEL,
 ];
 
+const part_bank_calendar_procedures: readonly ProcedureRecord[] = [BANK_CALENDAR_WINDOW];
+
 const part_bank_cards_2_procedures: readonly ProcedureRecord[] = [BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS];
 
 const part_bank_cards_disputes_procedures: readonly ProcedureRecord[] = [
@@ -3201,7 +3210,12 @@ const part_bank_statements_procedures: readonly ProcedureRecord[] = [
   BANK_STATEMENTS_TOTALS,
 ];
 
-const part_bank_transfers_2_procedures: readonly ProcedureRecord[] = [BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE];
+const part_bank_transfers_2_procedures: readonly ProcedureRecord[] = [
+  BANK_TRANSFERS_SCHEDULE,
+  BANK_TRANSFERS_UPDATE_SCHEDULE,
+  BANK_TRANSFERS_CREATE,
+  BANK_TRANSFERS_SCHEDULE_TO_USER,
+];
 
 const part_bank_transfers_procedures: readonly ProcedureRecord[] = [
   BANK_TRANSFERS_EXECUTIONS,
@@ -4917,6 +4931,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_business_books_procedures,
   ...part_bank_business_cards_procedures,
   ...part_bank_business_procedures,
+  ...part_bank_calendar_procedures,
   ...part_bank_cards_2_procedures,
   ...part_bank_cards_disputes_procedures,
   ...part_bank_cards_procedures,
