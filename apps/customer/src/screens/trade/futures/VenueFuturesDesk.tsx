@@ -1363,6 +1363,38 @@ function Ticket({
           extra={
             perp ? (
               <>
+                {reviewTier ? (
+                  <div>
+                    <dt>{r('Margin tier')}</dt>
+                    <dd data-line="margin-tier">
+                      {r('Margin tier value', {
+                        tier: String(reviewTier.projected),
+                        rate: percentOf(reviewTier.maintenanceRate),
+                        maxLeverage: String(reviewTier.maxLeverageBps / 10_000),
+                      })}
+                    </dd>
+                  </div>
+                ) : null}
+                {band ? (
+                  <div>
+                    <dt>{r('Price band')}</dt>
+                    <dd className="lt-num" data-line="price-band">
+                      {r('Price band range', {
+                        low: displayAmount(band.bandLow),
+                        high: displayAmount(band.bandHigh),
+                        quote: market.quoteAsset,
+                        width: bpsToPercent(band.widthBps),
+                      })}
+                      {band.widened
+                        ? ` · ${r('Price band widened', {
+                            width: bpsToPercent(band.widthBps),
+                            usual: bpsToPercent(band.usualWidthBps),
+                            reason: band.reason ?? '',
+                          })}`
+                        : ''}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>{t('Initial margin')}</dt>
                   <dd className="lt-num" data-line="initial-margin">
@@ -1399,43 +1431,11 @@ function Ticket({
                     </dd>
                   </div>
                 ) : null}
-                {band ? (
-                  <div>
-                    <dt>{r('Price band')}</dt>
-                    <dd className="lt-num" data-line="price-band">
-                      {r('Price band range', {
-                        low: displayAmount(band.bandLow),
-                        high: displayAmount(band.bandHigh),
-                        quote: market.quoteAsset,
-                        width: bpsToPercent(band.widthBps),
-                      })}
-                      {band.widened
-                        ? ` · ${r('Price band widened', {
-                            width: bpsToPercent(band.widthBps),
-                            usual: bpsToPercent(band.usualWidthBps),
-                            reason: band.reason ?? '',
-                          })}`
-                        : ''}
-                    </dd>
-                  </div>
-                ) : null}
                 {review.intent.type === 'market' && !review.intent.reduceOnly && slippageCap?.known ? (
                   <div>
                     <dt>{r('Slippage cap')}</dt>
                     <dd className="lt-num" data-line="slippage-cap">
                       {r('Slippage cap bps', { bps: slippageCap.value })}
-                    </dd>
-                  </div>
-                ) : null}
-                {reviewTier ? (
-                  <div>
-                    <dt>{r('Margin tier')}</dt>
-                    <dd data-line="margin-tier">
-                      {r('Margin tier value', {
-                        tier: String(reviewTier.projected),
-                        rate: percentOf(reviewTier.maintenanceRate),
-                        maxLeverage: String(reviewTier.maxLeverageBps / 10_000),
-                      })}
                     </dd>
                   </div>
                 ) : null}
