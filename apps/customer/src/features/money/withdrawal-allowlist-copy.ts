@@ -215,7 +215,7 @@ const fr = {
   turnOff: 'Demander la désactivation',
   modeNote: 'L’activation est immédiate. La désactivation demande l’approbation de ton équipe.',
   entriesTitle: 'Adresses de la liste',
-  entriesWindow: 'Tant que la liste est activée, seules ces adresses peuvent recevoir un retrait.',
+  entriesWindow: 'Avec la liste activée, seules ces adresses peuvent recevoir un retrait.',
   changesWindow: 'Chacun attend que suffisamment de membres de ton équipe l’approuvent.',
   refresh: 'Actualiser',
   label: 'Libellé',
