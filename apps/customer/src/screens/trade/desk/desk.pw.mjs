@@ -1007,6 +1007,7 @@ test('trailing stop is listed, disabled, with one reason; nothing is sent', asyn
   await ready(page);
   await page.getByRole('button', { name: 'Other order types (not available)' }).click();
   const menu = page.getByRole('menu');
+  await expect(menu.getByTestId('dk-type-reason')).toHaveText(['Not offered: the exchange does not take trailing stops on any market.']);
   const items = menu.getByRole('menuitem');
   await expect(items).toHaveText(['Trailing stopNot offered: the exchange does not take trailing stops on any market.']);
   for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
