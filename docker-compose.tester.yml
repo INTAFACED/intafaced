@@ -54,6 +54,12 @@ services:
       IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
   svc-matching:
     ports: ['127.0.0.1:4005:4005']
+  # Publishing a notice spends a four-eyes approval held by identity, as on `pnpm local:stack`; without identity's address
+  # and the internal secret every publish refuses notify.notice_publish_approval_unavailable (Home's TEST notice).
+  svc-notify:
+    environment:
+      IDENTITY_URL: http://svc-identity:4002
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?run local-test-compose-env.mjs}
 
   # Identity mails each sign-in code and confirm link to the LOCAL TEST outbox in the state folder (the transport
   # compose-env copies from the stack, `local-outbox`), where the founder seed reads the confirm links, as
