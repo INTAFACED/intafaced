@@ -7,7 +7,7 @@
  * them at the moment of the call, with the venue's as-of time. Nothing is stored and the ledger posts nothing.
  */
 import { add, formatAmount, type Amount } from '@intafaced/ledger-client/money';
-import { hasSubAccountReads, isTestVenue, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
+import { hasSubAccountReads, isTestVenue, VenueRefusalError, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import type { TradeVenueActivity, TradeVenueOwnMove } from '@intafaced/contracts';
 import type { PreparedActionStore } from './prepared-action-store.js';
 import { OWN_MOVE_PREFIX } from './user-venue-door.js';
@@ -46,11 +46,22 @@ export async function readOwnVenueActivity(deps: {
   const accounts = [];
   for (const { owner, subAccount } of listed) {
     const account = { venueId, owner, subAccount };
-    const [balances, fills, arrivals] = await Promise.all([
+    const readStaking = async () => {
+      if (subAccount !== null || !venue.stakingAccount) return null;
+      try {
+        return await venue.stakingAccount(account);
+      } catch (err) {
+        if (err instanceof VenueRefusalError && err.refusal.code === 'not_offered') return null;
+        throw err;
+      }
+    };
+    const [balances, fills, arrivals, staking] = await Promise.all([
       venue.balances(account),
       venue.fills(account, BEGINNING),
       // The coins credited from outside (J-portfolio-02 #6), when the venue's adapter reads them.
       venue.arrivals ? venue.arrivals(account) : Promise.resolve(null),
+      // Staking rewards credited into the main account (J-portfolio-04 #3), when the venue reports staking.
+      readStaking(),
     ]);
     const spotFills = [];
     for (const f of [...fills.value].sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId))) {
@@ -72,6 +83,17 @@ export async function readOwnVenueActivity(deps: {
         filledAt: f.filledAt.toISOString(),
       });
     }
+    const stakingRewards =
+      staking === null
+        ? []
+        : [...staking.value.rewards.recent].reverse().map((r, index) => ({
+            arrivalId: `staking-reward:${r.validator.toLowerCase()}:${r.rewardedAt.toISOString()}:${index}`,
+            kind: 'reward' as const,
+            asset: staking.value.asset,
+            amount: r.amount,
+            arrivedAt: r.rewardedAt,
+          }));
+    const mergedAsOf = [balances.asOf, fills.asOf, ...(arrivals ? [arrivals.asOf] : []), ...(staking ? [staking.asOf] : [])].reduce(later);
     accounts.push({
       venueId,
       owner,
@@ -82,7 +104,7 @@ export async function readOwnVenueActivity(deps: {
       ...(arrivals === null
         ? {}
         : {
-            arrivals: [...arrivals.value]
+            arrivals: [...arrivals.value, ...stakingRewards]
               .sort((a, b) => a.arrivedAt.getTime() - b.arrivedAt.getTime() || a.arrivalId.localeCompare(b.arrivalId))
               .map((a) => ({
                 arrivalId: a.arrivalId,
@@ -92,7 +114,7 @@ export async function readOwnVenueActivity(deps: {
                 arrivedAt: a.arrivedAt.toISOString(),
               })),
           }),
-      asOf: (arrivals === null ? later(balances.asOf, fills.asOf) : later(later(balances.asOf, fills.asOf), arrivals.asOf)).toISOString(),
+      asOf: mergedAsOf.toISOString(),
     });
   }
   return { state: 'read', test, accounts };
