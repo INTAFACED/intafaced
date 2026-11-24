@@ -45,6 +45,12 @@ export function WalletHomeRoom() {
         panels={
           <>
             {frame.banner}
+            <Panel title={t('section_embedded')}>
+              <p className="lt-hint">{t('embeddedNote')}</p>
+              <a className="lt-link" href={WALLET_SECTIONS.embedded}>
+                {t('embeddedOpen')}
+              </a>
+            </Panel>
             <ConnectPanel />
             <PortfolioPanel positions={<WalletPositions />} />
             <Panel title={t('enableTitle')}>
