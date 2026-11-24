@@ -213,7 +213,11 @@ if (!(await postgresAvailable(TEST_URL))) {
         await a.ready();
         return a;
       }
-      const post = (body: unknown, service: 'svc-support' | 'svc-pay' = 'svc-support', url = IDENTITY_SUPPORT_ACCOUNT_FREEZE.path) => {
+      const post = (
+        body: unknown,
+        service: 'svc-support' | 'svc-pay' = 'svc-support',
+        url: string = IDENTITY_SUPPORT_ACCOUNT_FREEZE.path,
+      ) => {
         const payload = JSON.stringify(body);
         return {
           method: 'POST' as const,
