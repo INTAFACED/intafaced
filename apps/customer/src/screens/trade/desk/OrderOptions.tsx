@@ -2,16 +2,17 @@ import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
 import { Menu } from '@intafaced/ui/lit';
 import { Select } from '@intafaced/ui/lit/templates';
+import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import type { OrderType } from './order-math';
-import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
-
-const TYPE_KEY = REFUSED_TAB_KEY;
+import type { TypeReasonKey } from './order-type-access';
+import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, TYPE_TAB_KEY, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
 /**
- * The order kinds the market does not take (trailing stop), listed in the strip's last slot but disabled: each row is
- * greyed and one line says why.
+ * The order kinds the ticket does not offer here, listed in the strip's last slot but disabled (J-cex-spot-04 #1): the
+ * ticket types this market, its state or this account's mode refuses (`refusedTypes`), then the kinds the service
+ * never takes (trailing stop). Each row is greyed and names its own reason.
  */
-export function MoreOrderTypes() {
+export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, TypeReasonKey> }) {
   const { t } = deskCopy.useCopy();
   return (
     <Menu
@@ -24,8 +25,24 @@ export function MoreOrderTypes() {
           <ChevronDown size={14} aria-hidden="true" />
         </>
       }
-      note={t('Order type unavailable')}
-      items={UNSUPPORTED_TYPES.map((kind) => ({ key: kind, label: t(TYPE_KEY[kind]), disabled: true, onSelect: () => undefined }))}
+      items={[
+        ...SPOT_TICKET_ORDER_TYPES.flatMap((kind) => {
+          const reason = refused.get(kind);
+          return reason === undefined ? [] : [{ kind, name: t(TYPE_TAB_KEY[kind]), reason: t(reason) }];
+        }),
+        ...UNSUPPORTED_TYPES.map((kind) => ({ kind, name: t(REFUSED_TAB_KEY[kind]), reason: t('Type reason trailing stop') })),
+      ].map(({ kind, name, reason }) => ({
+        key: kind,
+        testId: `dk-type-off-${kind}`,
+        label: (
+          <>
+            <span data-testid="dk-type-name">{name}</span>
+            <span data-testid="dk-type-reason">{reason}</span>
+          </>
+        ),
+        disabled: true,
+        onSelect: () => undefined,
+      }))}
     />
   );
 }

@@ -13,7 +13,9 @@ import type { RefusalCopy } from '../../../data/types';
 
 /** What the person is told when a call failed. `network` means we do not know the outcome of what was sent. */
 /** `tradingHold`: the refusal is a trading hold on this account, so the note adds its stored reason (J-identity-14 #2). */
-export type Failure = { kind: 'refusal'; copy: RefusalCopy; tradingHold?: true } | { kind: 'network' };
+/** `band`: a price band refusal's own edges (`trade.price_band`), so the ticket can offer to move the price to the edge. */
+export type Failure =
+  { kind: 'refusal'; copy: RefusalCopy; tradingHold?: true; band?: { readonly low: string; readonly high: string } } | { kind: 'network' };
 
 /** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
  * original frees (the service never caps it), so an edit reads the check without them. */
@@ -56,7 +58,10 @@ export function previewFailure(preview: Preview, context: RefusalContext, tickSi
     ...(data.cap !== undefined ? { cap: data.cap } : {}),
     ...(data.open !== undefined ? { open: data.open } : {}),
   };
-  return refusalFailure(first?.code ?? null, named);
+  const failure = refusalFailure(first?.code ?? null, named);
+  if (failure.kind === 'refusal' && first?.code === 'trade.price_band' && data.low !== undefined && data.high !== undefined)
+    return { ...failure, band: { low: data.low, high: data.high } };
+  return failure;
 }
 
 export function refusalFailure(code: string | null | undefined, context: RefusalContext): Failure {

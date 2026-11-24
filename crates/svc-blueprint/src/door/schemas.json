@@ -100,7 +100,607 @@
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
-    }
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["size", 2],
+        ["width", 32],
+        ["height", 33],
+        ["svg", 34],
+        ["raster", 35],
+        ["shareMode", 45]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "dunion", "disc": "status", "options": [36, 41] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 37],
+        ["url", 38],
+        ["contentType", 39],
+        ["bytes", 40]
+      ]
+    },
+    { "t": "literal", "values": ["rendered"] },
+    { "t": "string", "checks": [{ "k": "url" }] },
+    { "t": "literal", "values": ["image/png"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 42],
+        ["code", 43],
+        ["reason", 44]
+      ]
+    },
+    { "t": "literal", "values": ["unavailable"] },
+    {
+      "t": "enum",
+      "values": ["blueprint.card_renderer_unconfigured", "blueprint.card_renderer_unreachable", "blueprint.card_renderer_protocol"]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "enum", "values": ["svg", "png"] },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 47],
+        ["erasedAt", 48],
+        ["removed", 49]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["blueprints", 50],
+        ["crewMemberships", 51],
+        ["matchRuns", 52],
+        ["mentorMatches", 53],
+        ["emptiedCrews", 54],
+        ["shares", 55],
+        ["cardOpens", 56]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["exportedAt", 58],
+        ["schemaVersion", 59],
+        ["blueprint", 60],
+        ["card", 81],
+        ["crew", 82],
+        ["membership", 92],
+        ["crewmates", 97],
+        ["matchRuns", 101],
+        ["mentorMatches", 114],
+        ["mentoringOthers", 120],
+        ["shares", 121],
+        ["cardsOpened", 135]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "literal", "values": [2] },
+    { "t": "nullable", "in": 61 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 62],
+        ["userId", 63],
+        ["engineVersion", 64],
+        ["profile", 65],
+        ["cardAssetUrl", 78],
+        ["visibility", 24],
+        ["createdAt", 80]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["decisionStyle", 66],
+        ["riskTemperament", 67],
+        ["energyRhythm", 68],
+        ["learningMode", 69],
+        ["crewRole", 70],
+        ["curriculumPath", 71],
+        ["toneRegister", 72],
+        ["guardrails", 73]
+      ]
+    },
+    { "t": "enum", "values": ["analytical", "intuitive", "collaborative", "decisive"] },
+    { "t": "enum", "values": ["guarded", "measured", "assertive", "bold"] },
+    { "t": "enum", "values": ["dawn", "steady", "surge", "nocturnal"] },
+    { "t": "enum", "values": ["visual", "narrative", "hands_on", "systematic"] },
+    { "t": "enum", "values": ["anchor", "scout", "builder", "catalyst"] },
+    { "t": "enum", "values": ["foundations", "markets", "builder", "sovereign"] },
+    { "t": "enum", "values": ["direct", "warm", "socratic", "terse"] },
+    {
+      "t": "object",
+      "shape": [
+        ["maxLeverage", 74],
+        ["dailyLossPromptPct", 75],
+        ["confirmBeforeMarketOrder", 76],
+        ["copyTradingVisible", 77]
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 20, "incl": true }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
+    { "t": "boolean" },
+    { "t": "boolean" },
+    { "t": "nullable", "in": 79 },
+    { "t": "string" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 31 },
+    { "t": "nullable", "in": 83 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 84],
+        ["name", 85],
+        ["formedAt", 86],
+        ["season", 87],
+        ["xp", 88],
+        ["lobbyId", 89],
+        ["capacity", 91]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    { "t": "string" },
+    { "t": "nullable", "in": 90 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    { "t": "nullable", "in": 93 },
+    {
+      "t": "object",
+      "shape": [
+        ["crewId", 94],
+        ["userId", 95],
+        ["role", 70],
+        ["joinedAt", 96]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "array", "el": 98 },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 99],
+        ["role", 70],
+        ["joinedAt", 100]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string" },
+    { "t": "array", "el": 102 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 103],
+        ["candidates", 104],
+        ["scores", 108],
+        ["placedCrewId", 111],
+        ["ts", 113]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "array", "el": 105 },
+    {
+      "t": "object",
+      "shape": [
+        ["crewId", 106],
+        ["size", 107]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "record", "key": 109, "value": 110 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "nullable", "in": 112 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "array", "el": 115 },
+    {
+      "t": "object",
+      "shape": [
+        ["studentId", 116],
+        ["mentorId", 117],
+        ["fitScore", 118],
+        ["status", 119]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    { "t": "enum", "values": ["shortlisted", "accepted", "declined", "ended"] },
+    { "t": "array", "el": 115 },
+    { "t": "array", "el": 122 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 123],
+        ["size", 2],
+        ["createdAt", 124],
+        ["revokedAt", 125],
+        ["state", 127],
+        ["openCount", 128],
+        ["openers", 129]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 126 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "enum", "values": ["active", "revoked"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "array", "el": 130 },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 131],
+        ["firstOpened", 132],
+        ["lastOpened", 133],
+        ["openCount", 134]
+      ]
+    },
+    { "t": "enum", "values": ["crew member", "signed-in account"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    { "t": "array", "el": 136 },
+    {
+      "t": "object",
+      "shape": [
+        ["shareId", 137],
+        ["firstOpened", 138],
+        ["lastOpened", 139],
+        ["openCount", 140]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ok", 142],
+        ["service", 143]
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "literal", "values": ["svc-blueprint"] },
+    { "t": "nullable", "in": 61 },
+    { "t": "array", "el": 115 },
+    {
+      "t": "object",
+      "shape": [
+        ["blueprint", 61],
+        ["placement", 147],
+        ["mentors", 153]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["crewId", 148],
+        ["crewName", 149],
+        ["score", 150],
+        ["matchRunId", 151],
+        ["crewFormed", 152]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "string" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "boolean" },
+    { "t": "array", "el": 115 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 123],
+        ["size", 2],
+        ["createdAt", 124],
+        ["revokedAt", 125],
+        ["state", 127],
+        ["openCount", 128]
+      ]
+    },
+    { "t": "array", "el": 154 },
+    { "t": "array", "el": 130 },
+    { "t": "array", "el": 158 },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 159],
+        ["user_id", 160],
+        ["engine_version", 161],
+        ["profile", 162],
+        ["card_asset_url", 164],
+        ["visibility", 24],
+        ["mentor_available", 166],
+        ["created_at", 167]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["decisionStyle", 66],
+        ["riskTemperament", 67],
+        ["energyRhythm", 68],
+        ["learningMode", 69],
+        ["crewRole", 70],
+        ["curriculumPath", 71],
+        ["toneRegister", 72],
+        ["guardrails", 163]
+      ],
+      "catchall": "passthrough"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["maxLeverage", 74],
+        ["dailyLossPromptPct", 75],
+        ["confirmBeforeMarketOrder", 76],
+        ["copyTradingVisible", 77]
+      ],
+      "catchall": "passthrough"
+    },
+    { "t": "nullable", "in": 165 },
+    { "t": "string" },
+    { "t": "boolean" },
+    { "t": "date" },
+    { "t": "array", "el": 169 },
+    {
+      "t": "object",
+      "shape": [
+        ["student_id", 170],
+        ["mentor_id", 171],
+        ["fit_score", 172],
+        ["status", 173]
+      ]
+    },
+    { "t": "string" },
+    { "t": "string" },
+    { "t": "number" },
+    { "t": "string" }
   ],
-  "inputs": { "card": 0, "cardOf": 3, "onboard": 9, "setVisibility": 27, "shares.create": 28, "shares.openers": 29, "shares.revoke": 29 }
+  "inputs": { "card": 0, "cardOf": 3, "onboard": 9, "setVisibility": 27, "shares.create": 28, "shares.openers": 29, "shares.revoke": 29 },
+  "outputs": {
+    "card": 31,
+    "cardOf": 31,
+    "erase": 46,
+    "export": 57,
+    "health": 141,
+    "me": 144,
+    "mentors": 145,
+    "onboard": 146,
+    "setVisibility": 61,
+    "shares.create": 154,
+    "shares.list": 155,
+    "shares.openers": 156,
+    "shares.revoke": 154
+  },
+  "rows": { "BlueprintRow": 157, "MentorMatchRow": 168 }
 }

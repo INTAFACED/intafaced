@@ -1,7 +1,8 @@
 // Records, from the TypeScript svc-blueprint in this checkout, what the Rust crate's shell is held to:
 //
-// - `src/door/schemas.json`: every call's input schema, as the router mounts it from its records
-//   (`@intafaced/contracts/blueprint-procedures`), as the tree of zod 4 parts the kit's zod engine runs.
+// - `src/door/schemas.json`: every call's input and output schema, as the router mounts it from its records
+//   (`@intafaced/contracts/blueprint-procedures`), and the row schemas the handlers read rows with, as the tree of zod 4
+//   parts the kit's zod engine runs.
 // - `tests/fixtures/input-parity.golden.json`: zod's own verdict on a few hundred inputs, made from each schema.
 // - `tests/fixtures/refusals.golden.json`: what the router answers for every refusal code a handler can throw
 //   (`BlueprintError`, `AttestationSurfaceError`, and any other error), through a guarded call and an unmapped one.
@@ -47,6 +48,7 @@ process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 const { createBlueprintRouter } = await import(`${SVC}router.ts`);
 const { BlueprintService, BlueprintError } = await import(`${SVC}blueprint-service.ts`);
+const { BlueprintRow, MentorMatchRow } = await import(`${SVC}rows.ts`);
 const zeroPii = await import(`${SVC}attestations/zero-pii.ts`);
 // The service's own packages, resolved from the service as its tests resolve them.
 const fromService = createRequire(`${SVC}index.ts`);
@@ -238,6 +240,20 @@ for (const path of paths) {
   if (ins.length > 1) throw new Error(`${path} has ${ins.length} inputs`);
   if (ins.length === 1) inputs[path] = node(ins[0]);
 }
+
+// ── The output schemas and the rows ────────────────────────────────────────────────────────────────────────────────
+// Recorded after the inputs, so an input's parts keep their numbers. Each call's output schema, as tRPC parses what a
+// handler returns (`.output(record.output)`: what leaves is its parse, so a key it does not name is dropped). Each row
+// schema the handlers check rows with as they read them, as `<Row>.array()` (the issue's path starts at the row).
+const outputParts = {};
+for (const path of paths) {
+  const out = procedures[path]._def.output;
+  if (out) outputParts[path] = node(out);
+}
+const rowParts = {
+  BlueprintRow: node(BlueprintRow.array()),
+  MentorMatchRow: node(MentorMatchRow.array()),
+};
 
 if (UNNAMED.size) throw new Error(`unnamed refines:\n${[...UNNAMED].join('\n---\n')}`);
 // ── zod's verdicts ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -781,7 +797,7 @@ const rows = cases.map(([path, input, v]) => {
 });
 
 const outputs = [
-  [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs })}\n`],
+  [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs, outputs: outputParts, rows: rowParts })}\n`],
   [
     `${CRATE}tests/fixtures/input-parity.golden.json`,
     `{"verdicts":${JSON.stringify(verdictList)},"bases":${JSON.stringify(bases)},"cases":[${rows.join(',')}]}\n`,

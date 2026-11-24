@@ -1,4 +1,4 @@
-import { memo, useId, useMemo, useRef, useState } from 'react';
+import { memo, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMounted, useTimeout } from '../../../shared/outside';
 import { useBackoffPoll } from '../../../shared/backoff-poll';
 import { useResource } from '../../../shared/resource';
@@ -20,6 +20,7 @@ import { DecimalInput, Sheet, TabPanel, Tabs } from '@intafaced/ui/lit/templates
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from './deps';
 import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
+import { refusedTypes } from './order-type-access';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -108,7 +109,18 @@ function SessionShut({ market }: { market: DeskMarket }) {
   );
 }
 
-function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
+function RefusalNote({
+  failure,
+  onRetry,
+  onDismiss,
+  children,
+}: {
+  failure: Failure;
+  onRetry?: () => void;
+  onDismiss?: () => void;
+  /** An action the refusal offers (a band refusal's move to the edge), inside the note so nothing covers it. */
+  children?: ReactNode;
+}) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
@@ -137,6 +149,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
           {action.label}
         </a>
       ) : null}
+      {children}
       {reference ? <p className="lt-ref">{reference}</p> : null}
     </div>
   );
@@ -210,6 +223,8 @@ function SideForm({
   const { t } = deskCopy.useCopy();
   const env = useDataEnv();
   const [price, setPrice] = useState('');
+  // The person chose to move a price outside the band to its edge (J-cex-spot-04 #4): flagged while the price is that edge.
+  const [adjusted, setAdjusted] = useState<{ from: string; to: string } | null>(null);
   const [stopPrice, setStopPrice] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLimit, setStopLimit] = useState('');
@@ -330,6 +345,23 @@ function SideForm({
         }
       });
   }
+
+  /** A band refusal's offer to move the price to the band's edge on this side: the person's own choice, never automatic. */
+  const bandEdge = (refusal: Failure) => {
+    if (refusal.kind !== 'refusal' || !refusal.band || price === '') return null;
+    const edge = padDecimals(side === 'buy' ? refusal.band.high : refusal.band.low, pricePlaces);
+    return (
+      <Button
+        type="button"
+        tone="secondary"
+        size="sm"
+        data-testid="dk-band-edge"
+        onClick={() => edit(() => (setAdjusted({ from: price, to: edge }), setPrice(edge), setTotalEdit(null)))}
+      >
+        {t('Move to band edge', { price: edge, asset: market.quote })}
+      </Button>
+    );
+  };
 
   const input = { side, type, price, amount, stopPrice, stopLimit, takeProfit, tif };
   const priced = isPriced(type);
@@ -954,9 +986,20 @@ function SideForm({
         {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
           <p className="lt-note">{t('Checking the order')}</p>
         ) : null}
-        {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
+        {tradable && checked.ok && live.state === 'blocked' ? (
+          <RefusalNote failure={live.failure}>{bandEdge(live.failure)}</RefusalNote>
+        ) : null}
         {tradable && checked.ok && live.state === 'error' ? <RefusalNote failure={{ kind: 'network' }} onRetry={retry} /> : null}
-        {failure ? <RefusalNote failure={failure} onDismiss={() => setFailure(null)} /> : null}
+        {failure ? (
+          <RefusalNote failure={failure} onDismiss={() => setFailure(null)}>
+            {bandEdge(failure)}
+          </RefusalNote>
+        ) : null}
+        {adjusted !== null && price === adjusted.to ? (
+          <p className="lt-callout lt-callout-warn" role="status" data-testid="dk-adjusted">
+            {t('Price adjusted', { from: adjusted.from, to: adjusted.to, asset: market.quote })}
+          </p>
+        ) : null}
         {status ? (
           <p className="lt-callout lt-callout-good" role="status">
             {status}
@@ -1326,13 +1369,10 @@ export const OrderPanel = memo(function OrderPanel({
   const { userId, api: client } = useSession();
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
-  const [type, setType] = useState<OrderType>('limit');
+  const [pickedType, setType] = useState<OrderType>('limit');
   const [pickedTif, setTif] = useState<Tif>('GTC');
-  // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
-  const tif = tifFor(type, pickedTif);
   // A good-till-date pick carries the expiry the trader types (local time); it is sent only once it names a future instant.
   const [expiry, setExpiry] = useState('');
-  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   // The person's own label, kept for the next orders until they clear it; blank sends none.
   const [tagText, setTagText] = useState('');
   const tag = tagText.trim() === '' ? null : tagText.trim();
@@ -1340,6 +1380,15 @@ export const OrderPanel = memo(function OrderPanel({
   const leadMode = useLeadMode();
   const [leadOn, setLeadOn] = useState(() => new URLSearchParams(window.location.search).get('lead') === '1');
   const lead = leadMode.isLead ? leadOn : undefined;
+  // The types this market, its state and this account's mode refuse (J-cex-spot-04 #1) are not tabs; a pick that became
+  // refused (the mode changed, Lead trade turned on) shows as a limit order. A limit is never refused.
+  const refused = refusedTypes(market, { lead }, Date.now());
+  // Flatten (Assets) keeps its market sell, so its own review says what the market takes.
+  const flattening = suggestion?.flatten === true && pickedType === 'market';
+  const type: OrderType = refused.has(pickedType) && !flattening ? 'limit' : pickedType;
+  // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
+  const tif = tifFor(type, pickedTif);
+  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1458,7 +1507,10 @@ export const OrderPanel = memo(function OrderPanel({
         <Tabs
           id="dk-type"
           label={t('Order type')}
-          items={SPOT_TICKET_ORDER_TYPES.map((kind) => ({ value: kind, label: t(TYPE_TAB_KEY[kind]) }))}
+          items={SPOT_TICKET_ORDER_TYPES.filter((kind) => !refused.has(kind)).map((kind) => ({
+            value: kind,
+            label: t(TYPE_TAB_KEY[kind]),
+          }))}
           value={type}
           onChange={(value) => {
             setType(value as OrderType);
@@ -1468,7 +1520,7 @@ export const OrderPanel = memo(function OrderPanel({
             if (value === 'oto') setTif('GTC');
           }}
         />
-        <MoreOrderTypes />
+        <MoreOrderTypes refused={refused} />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
         {market.open && tif === 'GTD' ? (
           <label className="lt-field">

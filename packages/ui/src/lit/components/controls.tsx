@@ -16,6 +16,7 @@ export interface MenuItemSpec {
   label: React.ReactNode;
   disabled?: boolean;
   onSelect: () => void;
+  testId?: string;
 }
 
 /**
@@ -59,7 +60,13 @@ export function Menu({
               </p>
             ) : null}
             {items.map((item) => (
-              <MenuPrimitive.Item key={item.key} className="lt-menu-item" disabled={item.disabled} onClick={item.onSelect}>
+              <MenuPrimitive.Item
+                key={item.key}
+                className="lt-menu-item"
+                disabled={item.disabled}
+                onClick={item.onSelect}
+                data-testid={item.testId}
+              >
                 {item.label}
               </MenuPrimitive.Item>
             ))}

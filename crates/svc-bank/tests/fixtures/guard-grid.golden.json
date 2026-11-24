@@ -5440,6 +5440,16 @@
       ],
       "marks": "000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111223322332233223322332233223322332233223322332233443344334433443344334433443344334433443344334433"
     },
+    "transfers.sent": {
+      "answers": [
+        "UNAUTHORIZED Authentication required",
+        "FORBIDDEN Scope \"bank:read\" is required",
+        "FORBIDDEN Verification tier \"full\" required for bank in DE",
+        "FORBIDDEN The United States is not served at launch.",
+        null
+      ],
+      "marks": "000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111223322332233223322332233223322332233223322332233443344334433443344334433443344334433443344334433"
+    },
     "transfers.settleWithdrawal": {
       "answers": [
         "UNAUTHORIZED This procedure is callable only by another INTAFACED service with valid service credentials (§2)",
