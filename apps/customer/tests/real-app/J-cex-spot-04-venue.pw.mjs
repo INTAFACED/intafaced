@@ -3,8 +3,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, journeyState, tool } from './stack.mjs';
-import { reviewSheet, signUp, verify } from './desk.mjs';
+import { EDGE, ORIGIN, api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { awayBid, held, openDesk, openOrders, placements, previewed, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -187,6 +187,26 @@ function restartTrade(settings) {
   }
 }
 
+/** The own-book pair's published rules from the public market list. */
+async function ownBookRules(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`, { headers: { origin: ORIGIN } });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const market = (Array.isArray(body) ? body : (body.markets ?? body.items ?? [])).find((m) => m.symbol === symbol);
+  expect(market, `${symbol} is listed`).toBeTruthy();
+  const rules = market.pairRules ?? market.info?.pairRules;
+  expect(rules, `${symbol} publishes its rules`).toBeTruthy();
+  return rules;
+}
+
+/** An amount on the lot that clears `cost` at `price`. */
+function ownBookAmount(price, lot, cost = '10') {
+  const one = toUnits('1');
+  const step = toUnits(lot);
+  const raw = (toUnits(cost) * one) / toUnits(price);
+  return fromUnits(((raw + step - 1n) / step) * step);
+}
+
 // ── the steps ──
 
 test(`${J} #2 reads the market's rules on the ticket and in the market list: tick, size step, smallest order value, price band and open-order cap as the venue publishes them, with the venue named`, async ({
@@ -240,12 +260,12 @@ test(`${J} #2 reads the market's rules on the ticket and in the market list: tic
   expect(listed.maxOpenOrders).toBe(own.maxOpenOrders);
 });
 
-test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the owner has not published a band: an unpublished venue rule is shown as not published and left to the venue without defaulting, and a blank owner value refuses by name`, async ({
+test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the owner has not published a band, cap or minimum: an unpublished venue rule is shown as not published and left to the venue without defaulting, and a blank owner value refuses by name`, async ({
   page,
   browser,
   stepPicture,
 }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(480_000);
   const c = customer();
   const client = await api(c.account);
   const venue = await venueInfo();
@@ -348,7 +368,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
       );
       await expect(buyForm(desk).getByRole('button', { name: `Buy ${ruledBase}`, exact: true })).toBeDisabled();
       expect(second.requests).toHaveLength(0);
-      await stepPicture();
+      await stepPicture(desk);
     } finally {
       await desk.context().close();
     }
@@ -364,6 +384,103 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
   } finally {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
   }
+
+  // Blank owner band, cap and minimum on a pair: each blank rule reads "Not published" on the desk and refuses with its
+  // own typed refusal naming the missing rule, before any hold (BTC/USDT stays on the own-book desk while venue mode is on).
+  const ownPair = 'BTC/USDT';
+  const ownPublished = await ownBookRules(ownPair);
+  expect(ownPublished.protection.collar).not.toBe('not set');
+  expect(ownPublished.protection.openOrdersPerMarket).not.toBe('not set');
+  expect(ownPublished.minNotional).not.toBe('not set');
+  expect(fund(c.account.email, 'USDT', '500').tx).toBeTruthy();
+  const beforeUsdt = held(await client.balances(), 'USDT');
+  const ownPrice = await awayBid(95, ownPair);
+  const ownAmount = ownBookAmount(ownPrice, ownPublished.lot);
+  const sendOwn = (key) =>
+    client.post('/api/v1/orders', {
+      symbol: ownPair,
+      type: 'limit',
+      side: 'buy',
+      amount: ownAmount,
+      price: ownPrice,
+      timeInForce: 'GTC',
+      clientOrderId: `${J}-6-own-${key}-${Date.now()}`,
+    });
+  try {
+    tool('local-test-gates.mjs', 'risk', ownPair, 'collar=unset', 'throttle=unset', 'minNotional=unset');
+    await expect
+      .poll(async () => {
+        const r = await ownBookRules(ownPair);
+        return [r.protection.collar, r.protection.openOrdersPerMarket, r.minNotional];
+      })
+      .toEqual(['not set', 'not set', 'not set']);
+
+    const ownDesk = await (await browser.newContext()).newPage();
+    try {
+      await openDesk(ownDesk, c.account, ownPair);
+      const sentOwn = placements(ownDesk);
+      const rulesEl = ownDesk.locator('details[data-testid="dk-rules"]');
+      await rulesEl.locator('summary').click();
+      const ownRow = (name) => rulesEl.locator('dl > div').filter({ has: ownDesk.locator('dt', { hasText: new RegExp(`^${name}$`) }) });
+      await expect(ownRow('Price band').locator('dd')).toHaveText('Not published');
+      await expect(ownRow('Open orders').locator('dd')).toHaveText('Not published');
+      await expect(ownRow('Smallest order value').locator('dd')).toHaveText('Not published');
+      await buyForm(ownDesk).getByRole('textbox', { name: 'Price', exact: true }).fill(ownPrice);
+      await previewed(ownDesk, () => buyForm(ownDesk).getByRole('textbox', { name: 'Amount', exact: true }).fill(ownAmount));
+      const bandNote = buyForm(ownDesk).getByTestId('dk-note--bad');
+      await expect(bandNote).toContainText('No price band is published');
+      await expect(bandNote).not.toContainText('trade.');
+      await expect(buyForm(ownDesk).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+      expect(sentOwn).toHaveLength(0);
+
+      // 1. Blank owner band: 503 trade.price_band_unset naming price band.
+      const noBandRes = await sendOwn('band');
+      expect(noBandRes.status).toBe(503);
+      expect(noBandRes.body.intafacedCode).toBe('trade.price_band_unset');
+
+      // 2. Band back, cap and minimum still blank: 503 trade.open_orders_cap_unset naming open-order cap.
+      tool('local-test-gates.mjs', 'risk', ownPair, `collar=${ownPublished.protection.collar}`);
+      await expect.poll(async () => (await ownBookRules(ownPair)).protection.collar).toBe(ownPublished.protection.collar);
+      const noCapRes = await sendOwn('cap');
+      expect(noCapRes.status).toBe(503);
+      expect(noCapRes.body.intafacedCode).toBe('trade.open_orders_cap_unset');
+
+      // 3. Band and cap back, minimum still blank: desk names missing minimum, and 503 trade.min_notional_unset.
+      tool('local-test-gates.mjs', 'risk', ownPair, `throttle=${ownPublished.protection.openOrdersPerMarket}`);
+      await expect
+        .poll(async () => (await ownBookRules(ownPair)).protection.openOrdersPerMarket)
+        .toBe(ownPublished.protection.openOrdersPerMarket);
+      await openDesk(ownDesk, c.account, ownPair);
+      await buyForm(ownDesk).getByRole('textbox', { name: 'Price', exact: true }).fill(ownPrice);
+      await previewed(ownDesk, () => buyForm(ownDesk).getByRole('textbox', { name: 'Amount', exact: true }).fill(ownAmount));
+      const minNote = buyForm(ownDesk).getByTestId('dk-note--bad');
+      await expect(minNote).toContainText('No minimum order value is published');
+      await expect(minNote).not.toContainText('trade.');
+      await expect(buyForm(ownDesk).getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
+      const noMinRes = await sendOwn('min');
+      expect(noMinRes.status).toBe(503);
+      expect(noMinRes.body.intafacedCode).toBe('trade.min_notional_unset');
+      expect(await openOrders(c.account, ownPair)).toHaveLength(0);
+      expect(held(await client.balances(), 'USDT')).toBe(beforeUsdt);
+    } finally {
+      await ownDesk.context().close();
+    }
+  } finally {
+    tool(
+      'local-test-gates.mjs',
+      'risk',
+      ownPair,
+      `collar=${ownPublished.protection.collar}`,
+      `throttle=${ownPublished.protection.openOrdersPerMarket}`,
+      `minNotional=${ownPublished.minNotional}`,
+    );
+  }
+  const ownRestored = await ownBookRules(ownPair);
+  expect([ownRestored.protection.collar, ownRestored.protection.openOrdersPerMarket, ownRestored.minNotional]).toEqual([
+    ownPublished.protection.collar,
+    ownPublished.protection.openOrdersPerMarket,
+    ownPublished.minNotional,
+  ]);
 
   // Nothing rests and nothing is locked on the venue, on either pair: its own record, read straight from it.
   const after = await venueOwn(c.owner, symbol);

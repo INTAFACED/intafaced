@@ -12,7 +12,13 @@ import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, TYPE_TAB_KEY, UNSUPPORTED_TYPES,
  * ticket types this market, its state or this account's mode refuses (`refusedTypes`), then the kinds the service
  * never takes (trailing stop). Each row is greyed and names its own reason.
  */
-export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, TypeReasonKey> }) {
+export function MoreOrderTypes({
+  refused,
+  regionReason,
+}: {
+  refused: ReadonlyMap<OrderType, TypeReasonKey>;
+  regionReason?: string | null;
+}) {
   const { t } = deskCopy.useCopy();
   return (
     <Menu
@@ -28,7 +34,9 @@ export function MoreOrderTypes({ refused }: { refused: ReadonlyMap<OrderType, Ty
       items={[
         ...SPOT_TICKET_ORDER_TYPES.flatMap((kind) => {
           const reason = refused.get(kind);
-          return reason === undefined ? [] : [{ kind, name: t(TYPE_TAB_KEY[kind]), reason: t(reason) }];
+          if (reason === undefined) return [];
+          const text = reason === 'Type reason region' && regionReason ? regionReason : t(reason);
+          return [{ kind, name: t(TYPE_TAB_KEY[kind]), reason: text }];
         }),
         ...UNSUPPORTED_TYPES.map((kind) => ({ kind, name: t(REFUSED_TAB_KEY[kind]), reason: t('Type reason trailing stop') })),
       ].map(({ kind, name, reason }) => ({
