@@ -1,14 +1,19 @@
+// volt-room: portal:money-top-up
 import { useId, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { Field } from '../../ui-kit';
-import { PaySection } from '../../components';
-import { PortalFailure, PortalLoading } from '../components';
 import { codeOf } from '../refusal';
 import type { PortalApi } from '../api';
-import { TestBanner } from './common';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Failure, Loading, Section } from '../volt/parts';
+import { TestBanner } from './kit-parts';
 import { mc } from './copy';
 import { TOP_UP_OFF } from './refusals';
+
+/** `/pay/money/top-up` on the flow template: every role that reads payments can see it. */
+export function TopUpRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="payments.read">{({ merchantId }) => <TopUp portal={portal} merchantId={merchantId} />}</FlowRoom>;
+}
 
 /**
  * `/pay/money/top-up` (M-money-out-02): ask to add money to the business balance. The form is always here; what a
@@ -16,7 +21,7 @@ import { TOP_UP_OFF } from './refusals';
  * not-live card through `money/refusals.ts`), so Request stays off and the note says why. Nothing on this page moves
  * money or shows a balance it did not read.
  */
-export function TopUp({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function TopUp({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const options = useResource((s) => portal.topUpOptions(merchantId, s), `money:top-up:${merchantId}`);
   return <TopUpView resource={options.resource} retry={options.reload} />;
 }
@@ -33,14 +38,10 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
   const off = r.status !== 'ready';
   const why = r.status === 'ready' ? null : r.status === 'failed' && codeOf(r.failure) === TOP_UP_OFF ? t('tuOffWhy') : t('tuOffPending');
   return (
-    <div className="stack mn-page">
+    <div className="lt-stack">
       <TestBanner />
-      <PaySection title={t('tuFormTitle')} description={t('tuFormBody')}>
-        {r.status === 'loading' ? (
-          <PortalLoading rows={2} />
-        ) : r.status === 'failed' ? (
-          <PortalFailure result={r.failure} retry={retry} />
-        ) : null}
+      <Section title={t('tuFormTitle')} description={t('tuFormBody')}>
+        {r.status === 'loading' ? <Loading rows={2} /> : r.status === 'failed' ? <Failure result={r.failure} retry={retry} /> : null}
         <form data-testid="form-stack" className="lt-stack" noValidate onSubmit={(e) => e.preventDefault()}>
           <Field
             label={t('tuAmount')}
@@ -57,12 +58,12 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
             </Button>
           </div>
           {why && (
-            <p id={whyId} className="muted pp-note" role="note">
+            <p id={whyId} className="lt-hint" role="note">
               {why}
             </p>
           )}
         </form>
-      </PaySection>
+      </Section>
     </div>
   );
 }
