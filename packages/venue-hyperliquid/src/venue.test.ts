@@ -773,6 +773,44 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     ]);
     // A cancelled order locks nothing; the open one still locks its remainder's margin.
     expect(history[1]!.order.locked).toBe(ZERO);
+    expect(history.every((r) => r.order.origin === 'user')).toBe(true);
+  });
+
+  it('order history maps trigger and liquidation orders to their origin (J-derivatives-04 #2)', async () => {
+    const fake = fakeVenue();
+    const base = {
+      coin: 'ETH',
+      side: 'A',
+      limitPx: '2900',
+      sz: '0',
+      origSz: '0.1',
+      tif: 'Ioc',
+      reduceOnly: true,
+      timestamp: NOW,
+    };
+    fake.info.historicalOrders = () => [
+      {
+        order: { ...base, oid: 11, cloid: `0x${'1'.repeat(32)}`, orderType: 'Stop Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 12, cloid: `0x${'2'.repeat(32)}`, orderType: 'Take Profit Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 13, cloid: `0x${'3'.repeat(32)}`, orderType: 'Liquidation', isLiquidation: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+    ];
+    const history = (await venueWith(fake).orderHistory(account)).value;
+    expect(history.map((r) => [r.order.venueOrderId, r.order.origin])).toEqual([
+      ['11', 'stop'],
+      ['12', 'take_profit'],
+      ['13', 'liquidation'],
+    ]);
   });
 
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
