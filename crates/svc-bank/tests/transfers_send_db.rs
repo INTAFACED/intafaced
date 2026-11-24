@@ -2110,6 +2110,108 @@ fn holds_a_send_above_the_line_in_review_with_its_reason_class_nothing_taken_and
     assert_eq!(b.ledger.available(BOB), "50");
 }
 
+/// J-pay-01 #6: a send whose partner answer was lost reads Confirming while the partner does not answer, and Completed
+/// under the partner's one move once it does; the read never moves money, and the send's own retry answers that move.
+#[test]
+fn a_send_whose_partner_answer_was_lost_reads_confirming_until_the_partner_answers_then_completed_under_its_one_move()
+ {
+    let Some(b) = bank_with(pay_owner()) else {
+        return;
+    };
+    let set = |user: &str, input: &str| call(&b, user, RW, "testPartner.set", input).ok();
+    set(ADA, r#"{"custody":"off"}"#);
+    set(BOB, r#"{"custody":"off"}"#);
+    let from = primary(&b, ADA);
+    primary(&b, BOB);
+    b.sql(
+        "INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) \
+         VALUES ('USDT', 1000, 10000, 0)",
+    );
+    call(
+        &b,
+        ADA,
+        RW,
+        "testPartner.fund",
+        r#"{"fundId":"fund-confirming-1","assetId":"USDT","amount":"100"}"#,
+    )
+    .ok();
+    let send = with_field(
+        &send_of("confirming-send-1", &from, BOB, "2"),
+        "note",
+        Json::str("Coffee, TEST"),
+    );
+    // The partner makes the move and its answer is lost: the bank keeps the send reserved.
+    set(ADA, r#"{"nextReply":"lost"}"#);
+    to_user(&b, ADA, &send).refused("SERVICE_UNAVAILABLE", "did not answer");
+    let key = "bank.transfer.p2p:confirming-send-1:0";
+    let partner = b.door.partner().partner.as_ref().unwrap();
+    let made = partner.lock().book.by_key(key).cloned().unwrap();
+    let read = |user: &str| {
+        call(
+            &b,
+            user,
+            READ,
+            "transfers.sent",
+            r#"{"transferId":"confirming-send-1"}"#,
+        )
+    };
+    // While the partner does not answer, the bank cannot know: Confirming, with no reference and nothing posted.
+    set(ADA, r#"{"down":true}"#);
+    let confirming = read(ADA).ok();
+    for (k, v) in [
+        ("transferId", "confirming-send-1"),
+        ("status", "confirming"),
+        ("amount", "2"),
+        ("assetId", "USDT"),
+        ("note", "Coffee, TEST"),
+        ("toHandle", "bob"),
+        ("partnerMove", "null"),
+        ("ledgerTxId", "null"),
+        ("postedAt", "null"),
+    ] {
+        assert_eq!(s(&confirming, k), v, "{k}");
+    }
+    assert_eq!(
+        b.count("SELECT count(*) FROM bank.personal_transfers WHERE status = 'reserved'"),
+        1
+    );
+    // Only the sender reads it: the recipient and a stranger get the same not-found as a missing id.
+    for who in [BOB, CY] {
+        read(who).refused("NOT_FOUND", "bank.personal_transfer_not_found");
+    }
+    // The partner answers: the read adopts its one move under the send's key, and the send reads Completed.
+    set(ADA, r#"{"down":false}"#);
+    let completed = read(ADA).ok();
+    assert_eq!(s(&completed, "status"), "completed");
+    assert_eq!(
+        completed.get("partnerMove").map(|m| s(m, "id")),
+        Some(made.id.clone())
+    );
+    assert_ne!(s(&completed, "postedAt"), "null");
+    assert_eq!(read(ADA).ok(), completed);
+    // The send's own retry answers that move; the partner made exactly one, and the ledger posted nothing.
+    let retried = to_user(&b, ADA, &send).ok();
+    assert_eq!(
+        retried.get("partnerMove").map(|m| s(m, "id")),
+        Some(made.id.clone())
+    );
+    let moves = partner.lock().moves(
+        ADA,
+        &svc_bank::partner::MovesQuery {
+            limit: 100,
+            before: None,
+            asset_id: None,
+            pay_ins: false,
+        },
+    );
+    assert_eq!(moves.iter().filter(|m| m.key == key).count(), 1);
+    assert_eq!(
+        b.count("SELECT count(*) FROM bank.personal_transfers WHERE status = 'posted'"),
+        1
+    );
+    assert!(b.ledger.p2p().is_empty());
+}
+
 #[test]
 fn only_the_sender_reads_a_held_send_anyone_else_gets_the_same_not_found_as_a_missing_id() {
     let Some(b) = bank_with(review_owner()) else {

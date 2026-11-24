@@ -33,10 +33,9 @@ describe('customer rooms in Volt', () => {
     );
   });
 
-  it('counts no room that shows only a placeholder: the three stubs counted on 22 Nov 2026', () => {
+  it('counts no room that shows only a placeholder: the stubs counted on 22 Nov 2026 that still read nothing', () => {
     const placeholders = count.rooms.filter((r) => r.state === 'placeholder').map((r) => r.key);
-    for (const key of ['/mining/workers/:workerId', '/token/governance/:proposalId', '/chain/validators/:validatorId'])
-      expect(placeholders, key).toContain(key);
+    for (const key of ['/mining/workers/:workerId', '/chain/validators/:validatorId']) expect(placeholders, key).toContain(key);
     console.info(`Rooms on the kit that show only a placeholder: ${placeholders.length} (${placeholders.join(', ')})`);
   });
 

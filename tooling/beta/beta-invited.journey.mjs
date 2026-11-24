@@ -218,6 +218,21 @@ try {
   check(took <= 60, `invited: within a minute (${took} s)`);
   const granted = JSON.parse(fs.readFileSync(paths.granted, 'utf8'));
   check(granted[invited.userId]?.amount === GRANT.amount, `invited: ${GRANT.amount} TEST ${GRANT.asset} granted once`);
+  // Home and Money read the person's TEST partner account (#10632): the grant is held there, as their own bank reads it.
+  let held = null;
+  const own = await login(invited);
+  for (let i = 0; i < 20 && !held; i++) {
+    const spaces = data(await ctx.edge.query('bank', 'spaces.list', { limit: 200 }, own)) ?? [];
+    held =
+      spaces.find(
+        (s) => s.kind === 'primary' && s.assetId === GRANT.asset && s.heldAt && /^(\d+)(?:\.0*)?$/.exec(s.balance)?.[1] === GRANT.amount,
+      ) ?? null;
+    if (!held) await sleep(2_000);
+  }
+  check(
+    Boolean(held),
+    `invited: ${GRANT.amount} TEST ${GRANT.asset} held at ${held?.heldAt?.label ?? 'no partner'}, which Home and Money read`,
+  );
 
   // The uninvited person waits a whole minute of passes and gets nothing: still pending, no grant, the order refused.
   while (Date.now() - uninvitedAt < 65_000) await sleep(1_000);

@@ -829,6 +829,7 @@ import {
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_QUOTE,
   BANK_TRANSFERS_HELD,
+  BANK_TRANSFERS_SENT,
   BANK_TRANSFERS_TO_USER,
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_RESUME,
@@ -951,6 +952,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
   IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES, IDENTITY_ACCOUNT_DIRECTORY_SEARCH } from './identity-account-directory-procedures.js';
@@ -1197,6 +1201,8 @@ import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedure
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
 
 import { IDENTITY_STAFF_ACCEPT_INVITE, IDENTITY_STAFF_INVITATION, IDENTITY_STAFF_LIST } from './identity-staff-procedures.js';
+
+import { IDENTITY_STAFF_TEST_STATUS } from './identity-staff-test-status-procedures.js';
 
 import {
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -2111,6 +2117,13 @@ import {
 import { QUANT_TEMPLATE_LIST, QUANT_TEMPLATE_GET } from './quant-template-procedures.js';
 
 import { QUANT_TIER_LIST } from './quant-tier-procedures.js';
+
+import {
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE,
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE_RECORDS,
+  SUPPORT_REQUEST_ACCOUNT_FREEZE,
+  SUPPORT_ACCOUNT_FREEZE_RECORDS,
+} from './support-account-freeze.js';
 
 import {
   SUPPORT_CATEGORIES,
@@ -3264,6 +3277,7 @@ const part_bank_transfers_procedures: readonly ProcedureRecord[] = [
   BANK_TRANSFERS_LIST_SCHEDULES,
   BANK_TRANSFERS_QUOTE,
   BANK_TRANSFERS_HELD,
+  BANK_TRANSFERS_SENT,
   BANK_TRANSFERS_TO_USER,
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_RESUME,
@@ -3390,6 +3404,9 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE,
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
   IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [
@@ -3672,6 +3689,8 @@ const part_identity_staff_procedures: readonly ProcedureRecord[] = [
   IDENTITY_STAFF_INVITATION,
   IDENTITY_STAFF_LIST,
 ];
+
+const part_identity_staff_test_status_procedures: readonly ProcedureRecord[] = [IDENTITY_STAFF_TEST_STATUS];
 
 const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SUB_ACCOUNTS_CREATE,
@@ -4620,6 +4639,13 @@ const part_quant_template_procedures: readonly ProcedureRecord[] = [QUANT_TEMPLA
 
 const part_quant_tier_procedures: readonly ProcedureRecord[] = [QUANT_TIER_LIST];
 
+const part_support_account_freeze: readonly ProcedureRecord[] = [
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE,
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE_RECORDS,
+  SUPPORT_REQUEST_ACCOUNT_FREEZE,
+  SUPPORT_ACCOUNT_FREEZE_RECORDS,
+];
+
 const part_support_customer_procedures: readonly ProcedureRecord[] = [
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
@@ -5128,6 +5154,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
   ...part_identity_staff_procedures,
+  ...part_identity_staff_test_status_procedures,
   ...part_identity_sub_accounts_procedures,
   ...part_identity_support_recovery_procedures,
   ...part_identity_totp_manage_procedures,
@@ -5222,6 +5249,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_quant_team_procedures,
   ...part_quant_template_procedures,
   ...part_quant_tier_procedures,
+  ...part_support_account_freeze,
   ...part_support_customer_procedures,
   ...part_support_desk_procedures,
   ...part_support_desk_settings_procedures,

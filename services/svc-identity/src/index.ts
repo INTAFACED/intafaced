@@ -139,6 +139,7 @@ import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
 import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
+import { registerSupportAccountFreezeRoutes, relaySupportAccountFreezeEvents } from './auth/support-account-freeze.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -1391,6 +1392,9 @@ registerSupportWithdrawalFreezeRoute(app, {
   records: (input) => supportWithdrawalFreezeRecords(sql, input),
 });
 
+/** A support agent's account freeze from a customer's request (J-support-public-20 #7): svc-support only. */
+registerSupportAccountFreezeRoutes(app, { sql, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+
 /**
  * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a
  * withdrawal address reads it per request and refuses while `frozen` is true; it keeps no copy. Service credentials only.
@@ -1511,6 +1515,17 @@ setInterval(() => {
     .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
     .finally(() => {
       selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
+// A support agent's account freeze (J-support-public-20 #7): announced from its own row once it commits, at least once.
+let supportFreezeRelayRunning = false;
+setInterval(() => {
+  if (supportFreezeRelayRunning) return;
+  supportFreezeRelayRunning = true;
+  void relaySupportAccountFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.support_account_freeze_relay_failed'))
+    .finally(() => {
+      supportFreezeRelayRunning = false;
     });
 }, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.

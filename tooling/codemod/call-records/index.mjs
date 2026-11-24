@@ -156,11 +156,9 @@ function plan(opts) {
       hand.push({ site: s, why: s.problem });
       continue;
     }
-    if (s.shape === 'founderEdgeCall' && softlyParsed(load(s.file), s.node)) {
-      hand.push({
-        site: s,
-        why: 'its answer is read with .safeParse(), which decides what an unreadable answer means; its record call would refuse it instead',
-      });
+    // A soft read (RECORD_FORMS) has no sign-in form: founderEdgeRecordRead takes no browser.
+    if (s.shape === 'founderEdgeCall' && s.node.arguments[6] && softlyParsed(load(s.file), s.node)) {
+      hand.push({ site: s, why: 'a sign-in call whose answer is read with .safeParse(): founderEdgeRecordRead takes no browser' });
       continue;
     }
     const arg = schemaArgOf(s);
@@ -774,7 +772,14 @@ export function schemaArgOf(s) {
 
 /** Each wrapper's record form, and what it keeps of the call after its record and input. */
 const RECORD_FORMS = {
-  founderEdgeCall: (s, a) => ({ fn: 'founderEdgeRecordCall', head: [a[0]], tail: a.slice(5) }),
+  // A founder call whose answer is read with `.safeParse()` decides what an unreadable answer means (a staff check reads it
+  // as "not staff"): `founderEdgeRecordRead` hands it `undefined` for an answer its record refuses, where
+  // `founderEdgeRecordCall` would throw a 502.
+  founderEdgeCall: (s, a) => ({
+    fn: softlyParsed(load(s.file), s.node) ? 'founderEdgeRecordRead' : 'founderEdgeRecordCall',
+    head: [a[0]],
+    tail: a.slice(5),
+  }),
   payCall: (s, a) => (s.reader ? { fn: 'payRecordRead', head: [a[0]], tail: [a[4]] } : { fn: 'payRecordCall', head: [a[0]], tail: [] }),
   useBankRead: (s, a) => ({ fn: 'useBankRecord', head: [], tail: a.slice(2) }),
 };

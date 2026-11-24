@@ -229,7 +229,7 @@ function MoreRooms({ path }: { path: string }) {
         volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
-        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
+        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} proposalId={hit.invalid ? null : (hit.id ?? null)} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'market' && hit.id && !hit.invalid)
         volt = <MarketListingPage key={hit.id} listingId={hit.id} />;
       else if (hit.route.kind === 'detail' && room === 'launch' && hit.id && !hit.invalid)

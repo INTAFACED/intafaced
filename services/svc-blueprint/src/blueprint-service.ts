@@ -26,15 +26,14 @@ import {
   crewRoleSchema,
   decisionStyleSchema,
   energyRhythmSchema,
-  guardrailsSchema,
   learningModeSchema,
   openerKindSchema,
   riskTemperamentSchema,
-  visibilitySchema,
 } from '@intafaced/contracts/blueprint';
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
+import { BlueprintRow, MentorMatchRow, StoredProfile } from './rows.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
 import { deterministicUuid } from './deterministic.js';
@@ -181,23 +180,6 @@ export interface BlueprintServiceOptions {
   opensListLimit?: number;
 }
 
-/**
- * `blueprints.profile` as stored. Every write goes through
- * `blueprintProfileSchema` first; `loose` keeps any key a row holds beyond it,
- * so a read returns the stored object unchanged.
- */
-const StoredProfile = blueprintProfileSchema.extend({ guardrails: guardrailsSchema.loose() }).loose();
-
-const BlueprintRow = z.object({
-  id: z.string(),
-  user_id: z.string(),
-  engine_version: z.string(),
-  profile: StoredProfile,
-  card_asset_url: z.string().nullable(),
-  visibility: visibilitySchema,
-  mentor_available: z.boolean(),
-  created_at: z.date(),
-});
 type BlueprintRow = z.infer<typeof BlueprintRow>;
 
 const ShareRow = z.object({
@@ -251,7 +233,6 @@ const CrewRow = z.object({
   capacity: z.number(),
 });
 
-const MentorMatchRow = z.object({ student_id: z.string(), mentor_id: z.string(), fit_score: z.number(), status: z.string() });
 type MentorMatchRow = z.infer<typeof MentorMatchRow>;
 
 export class BlueprintService implements BlueprintContract {

@@ -960,11 +960,15 @@
   .dk-type-menu {
     min-width: 300px;
   }
+  .dk-type-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--if-space-0-5);
+  }
   .dk-type-reason {
-    margin: 0;
-    padding: var(--if-space-1-5) var(--if-space-3) var(--if-space-2-5);
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
+    white-space: normal;
   }
   .dk-tif {
     display: inline-flex;

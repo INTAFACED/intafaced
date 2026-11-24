@@ -11,7 +11,8 @@
 //! - From "keeps a physical card inactive until it is activated": the two `authorize` checks (`card-ops`).
 //! - From "on a lost report closes the card once, reverses its open hold once": the hold and its reversal (`card-ops`;
 //!   a card with no open hold, as here, needs nothing from it) and the ledger's balance.
-//! - "gives every same-id replace call at once the one replacement card": `cards.replace` is `core`'s, not this part's.
+//! - "gives every same-id replace call at once the one replacement card": `cards.replace` is `core`'s, ported in
+//!   `cards_core_db.rs`.
 //!
 //! The checks past the TypeScript's (the job door's signature, shape and programme; a delivery read by another person;
 //! the router's own refusals) are named for what they hold. Without `TEST_DATABASE_URL` each test skips; with

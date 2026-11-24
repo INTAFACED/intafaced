@@ -4,9 +4,12 @@
 //! The door (`door`) holds every call of svc-blueprint's records: who may call it and its input check, held to the
 //! TypeScript's recorded answers by `tests/wire_replay.rs`. Past those checks a call is its slice's (`door::Slice`).
 //! `env` is the environment, `errors` the refusals and how the router answers them, `refines` the input schemas' own
-//! checks.
+//! checks, `db` the pool and `migrate` the migrations. `profile` is the first ported slice.
 
+pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
+pub mod migrate;
+pub mod profile;
 pub mod refines;

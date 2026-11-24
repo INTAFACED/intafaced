@@ -455,6 +455,36 @@ export function listAccountsAndTiers(secrets) {
   return { users, approved, pending };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Read-only: each named account's newest live session (not revoked, not expired), as a Map userId -> sessionId. */
+export function liveSessions(secrets, userIds) {
+  const ids = userIds.filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return new Map();
+  const rows = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT DISTINCT ON (user_id) user_id::text, id::text FROM identity.sessions
+       WHERE user_id IN (${ids.map((id) => `'${id}'`).join(', ')}) AND revoked = false AND expires_at > now()
+       ORDER BY user_id, created_at DESC, id`,
+  );
+  return new Map(rows.map(([userId, sessionId]) => [userId, sessionId]));
+}
+
+/**
+ * A short-lived TEST access token on a person's own live session (`liveSessions`), no scopes, so a TEST tool can make a
+ * person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the session is live.
+ */
+export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120) {
+  if (!UUID_RE.test(userId) || !UUID_RE.test(sessionId)) throw new Error('personToken needs a user id and a live session id');
+  return (
+    await ctx.tokens.issueAccessToken(
+      { userId, sessionId, scopes: [], tier: 'none', mfa: false },
+      { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
+    )
+  ).token;
+}
+
 /**
  * Moves one journey account's sign-up time, referral relationship, latest fee event and ended relationships `seconds`
  * into the past. Only `@local-test.invalid` accounts.

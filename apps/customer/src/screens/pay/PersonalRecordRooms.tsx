@@ -11,6 +11,8 @@ import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
 import { useSession } from '../../features/session/session';
 import { fetchHeldSend, type HeldSend } from '../../features/pay/held-send';
+import { fetchSentSend, SENT_NOT_FOUND, type SentSend } from '../../features/pay/sent-send';
+import { createPersonalPayApi } from '../../features/pay/pay-api';
 import { decodedSegment, type PersonalRoomMatch } from '../../features/pay/personal/rooms/rooms';
 import { roomsCopy } from '../../features/pay/personal/rooms/rooms-copy';
 
@@ -153,6 +155,76 @@ function HeldStatus({ held }: { held: HeldSend }) {
   );
 }
 
+/**
+ * The sender's own send as the bank knows it (J-pay-01 #6): Confirming while the bank does not yet know the move was
+ * made, then Completed with the partner's or the ledger's reference. Confirming has one control, to ask again.
+ */
+function SentStatus({ sent, checkAgain }: { sent: SentSend; checkAgain: () => void }) {
+  const { t } = roomsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  const done = sent.status === 'completed';
+  const state = done ? t('sentCompleted') : t('sentConfirming');
+  const rows: KeyValueRow[] = [
+    { label: t('heldStatusRow'), value: <span data-testid="payment-status-word">{state}</span> },
+    {
+      label: t('requestAmount'),
+      value: (
+        <span lang="zxx">
+          {fmtAmount(sent.amount, { places: 18 })} {sent.assetId}
+        </span>
+      ),
+    },
+    { label: t('heldTo'), value: sent.toHandle ? `@${sent.toHandle}` : t('notSet'), unset: !sent.toHandle },
+    ...(sent.note ? [{ label: t('requestNote'), value: sent.note }] : []),
+    { label: t('requestMade'), value: <span lang="zxx">{stamp(sent.createdAt, timeZone, Date.now())}</span> },
+    ...(sent.partnerMove
+      ? [
+          {
+            label: t('sentPartnerReference', { bank: sent.partnerMove.label }),
+            value: (
+              <span lang="zxx" data-testid="payment-partner-reference">
+                {sent.partnerMove.id}
+              </span>
+            ),
+            ltr: true,
+          },
+        ]
+      : []),
+    ...(sent.ledgerTxId
+      ? [
+          {
+            label: t('reference'),
+            value: (
+              <span lang="zxx" data-testid="payment-ledger-reference">
+                {sent.ledgerTxId}
+              </span>
+            ),
+            ltr: true,
+          },
+        ]
+      : []),
+    { label: t('sentTransferId'), value: <span lang="zxx">{sent.transferId}</span>, ltr: true },
+  ];
+  return (
+    <>
+      <p role="status" data-testid="payment-status" data-status={sent.status}>
+        {state}
+      </p>
+      <KeyValue rows={rows} />
+      <p className="lt-hint" data-testid="payment-sent-note">
+        {done ? t('sentCompletedNote') : t('sentConfirmingNote')}
+      </p>
+      {done ? null : (
+        <div className="lt-actions">
+          <Button onClick={checkAgain} data-testid="payment-check-again">
+            {t('sentCheckAgain')}
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** A read that failed, with its one way to try again. */
 function ReadFailed({ title, retry }: { title: string; retry: () => void }) {
   const { t } = roomsCopy.useCopy();
@@ -170,27 +242,40 @@ function PaymentRoom({ id, slice }: { id: string | null; slice: string }) {
   const { timeZone } = usePreferences();
   // A send the review holds is not in the ledger's activity: the bank's own record of it is read first. Not found means
   // it was never held, and the activity is read; any other failure says so, never "not in your activity".
-  const [held, setHeld] = useState<{ state: 'loading' } | { state: 'none' } | { state: 'failed' } | { state: 'held'; data: HeldSend }>({
+  // Then the bank's record of the person's own send by its id: Confirming until the bank knows the move was made.
+  const [held, setHeld] = useState<
+    { state: 'loading' } | { state: 'none' } | { state: 'failed' } | { state: 'held'; data: HeldSend } | { state: 'sent'; data: SentSend }
+  >({
     state: 'loading',
   });
   const [heldTry, retryHeld] = useState(0);
+  const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   useEffect(() => {
     if (!id) return setHeld({ state: 'none' });
     setHeld({ state: 'loading' });
     const controller = new AbortController();
-    void fetchHeldSend(api, id, controller.signal).then((result) => {
+    void (async () => {
+      const result = await fetchHeldSend(api, id, controller.signal);
       if (controller.signal.aborted) return;
-      if (result.ok) setHeld({ state: 'held', data: result.data });
-      else setHeld(result.code === 'bank.held_send_not_found' ? { state: 'none' } : { state: 'failed' });
-    });
+      if (result.ok) return setHeld({ state: 'held', data: result.data });
+      if (result.code !== 'bank.held_send_not_found') return setHeld({ state: 'failed' });
+      const sent = await fetchSentSend(api, id, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!sent.ok) return setHeld(sent.code === SENT_NOT_FOUND ? { state: 'none' } : { state: 'failed' });
+      setHeld({ state: 'sent', data: sent.data });
+      // The send this device was still confirming is settled by the bank's own Completed for it, so Send stops waiting.
+      if (sent.data.status === 'completed' && pay.unsettledSend() === id) await pay.settleSend(() => !controller.signal.aborted);
+    })();
     return () => controller.abort();
-  }, [api, id, userId, heldTry]);
+  }, [api, id, userId, heldTry, pay]);
   const source = useMemo(() => createActivityFeed(api, { pageSize: 50 }), [api, userId]);
   const feed = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
   const item = feed.status === 'ready' && id ? (feed.data.items.find((row) => row.id === id || row.txId === id) ?? null) : null;
   const body =
     held.state === 'held' ? (
       <HeldStatus held={held.data} />
+    ) : held.state === 'sent' ? (
+      <SentStatus sent={held.data} checkAgain={() => retryHeld((n) => n + 1)} />
     ) : held.state === 'failed' ? (
       <ReadFailed title={t('paymentFailed')} retry={() => retryHeld((n) => n + 1)} />
     ) : held.state === 'loading' || feed.status === 'loading' ? (
