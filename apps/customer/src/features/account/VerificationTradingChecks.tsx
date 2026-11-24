@@ -27,7 +27,20 @@ const REFUSED: Readonly<Record<string, Words>> = {
  * at sign-up comes pre-filled); identity runs the checks. Cleared reads "Verified for trading"; a hold reads a neutral
  * "under review". No document, photo or outside check is asked for here. `onDone` reads the page again.
  */
-export function VerificationTradingChecks({ disabled, onDone }: { disabled: boolean; onDone: () => void }) {
+export function VerificationTradingChecks({
+  disabled,
+  onDone,
+  levelHeld = false,
+}: {
+  disabled: boolean;
+  onDone: () => void;
+  /**
+   * Whether the account already holds a verification level (any level above none), read from `kyc.status`; `null` while
+   * that read is in flight. A held level already covers trading, and identity refuses the checks with `kyc.level_held`,
+   * so the form is never offered to a verified person.
+   */
+  levelHeld?: boolean | null;
+}) {
   const { api, userId } = useSession();
   const { t, Copy, requestedLocale } = copy.useCopy();
   const countries = useMemo(() => countryOptions(requestedLocale), [requestedLocale]);
@@ -41,7 +54,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<{ code: string | null; failure: Parameters<typeof Failure>[0]['result'] } | null>(null);
 
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading' || levelHeld === null) return <Loading />;
   if (resource.status === 'failed')
     return (
       <section className="lt-stack" aria-label={t('form')} data-testid="verification__trading">
@@ -79,6 +92,18 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
         </h2>
         <p role="status">
           <Copy k={view.state === 'cleared' ? 'clearedBody' : 'heldBody'} />
+        </p>
+      </section>
+    );
+
+  if (levelHeld)
+    return (
+      <section className="lt-stack" aria-label={t('form')} data-testid="verification__trading" data-state="level_held">
+        <h2>
+          <Copy k="cleared" />
+        </h2>
+        <p role="status">
+          <Copy k="levelHeldBody" />
         </p>
       </section>
     );
