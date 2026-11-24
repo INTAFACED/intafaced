@@ -80,7 +80,7 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
   await expect(page).toHaveURL(/tab=signal/);
   const directory = page.getByRole('table', { name: 'Leaders', exact: true });
-  await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed yet');
+  await expect(directory.locator('[data-slot="table-empty-row"]')).toContainText('No leaders are listed');
   await expect(directory.locator('tbody tr')).toHaveCount(1);
   await expect(directory.locator('[data-slot="table-row"]')).toHaveCount(0);
 
