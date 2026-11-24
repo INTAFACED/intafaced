@@ -1471,7 +1471,7 @@ async function cmdDiff(dir) {
     const t = process.env.PROJECT_STATE_READ_TOKEN;
     if (!t)
       throw new Error(
-        'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
+        'no project-state read token (the App token minted in ci-review.yml), so the step words are unreadable and nothing is decided',
       );
     return readWordsApi(t);
   };
@@ -1492,7 +1492,7 @@ async function cmdDiff(dir) {
         const t = process.env.PROJECT_STATE_READ_TOKEN;
         if (!t)
           throw new Error(
-            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
+            "no project-state read token (the App token minted in ci-review.yml), so the owner's record is unreadable and nothing is decided",
           );
         return readOwnerRecord(t, getText, rows);
       },
