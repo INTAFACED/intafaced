@@ -5,7 +5,7 @@
  * reason (`trade.order_type_unsupported`) and makes no draft.
  */
 import { memo, useId, useState } from 'react';
-import { fmtPrice, refusalCopy } from './deps';
+import { Button, fmtPrice, refusalCopy } from './deps';
 import { flowCopy } from './order-flow-copy';
 import { spreadOf, type FlowMarket } from './order-flow';
 import { scaled, type Reference } from './order-math';
@@ -84,10 +84,10 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
   };
 
   return (
-    <div className="of-trade" role="group" aria-label={t('Trade from the chart')} data-testid="of-chart-trade">
-      <button
-        type="button"
-        className="of-sell"
+    <div className="lt-row" role="group" aria-label={t('Trade from the chart')} data-testid="of-chart-trade">
+      <Button
+        tone="down"
+        size="sm"
         data-testid="of-chart-sell"
         data-price={bid ?? ''}
         aria-describedby={spreadId}
@@ -95,13 +95,13 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         onClick={() => press('sell')}
       >
         {t('Chart sell', { price: bid === null ? t('Chart no price') : fmtPrice(bid, market.tickSize) })}
-      </button>
-      <span id={spreadId} className="of-spread" data-testid="of-chart-spread" data-spread={spread ?? ''}>
+      </Button>
+      <span id={spreadId} className="lt-num lt-note" data-testid="of-chart-spread" data-spread={spread ?? ''}>
         {spread === null ? t('Spread none') : t('Spread', { spread: fmtPrice(spread, market.tickSize) })}
       </span>
-      <button
-        type="button"
-        className="of-buy"
+      <Button
+        tone="up"
+        size="sm"
         data-testid="of-chart-buy"
         data-price={ask ?? ''}
         aria-describedby={spreadId}
@@ -109,8 +109,8 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         onClick={() => press('buy')}
       >
         {t('Chart buy', { price: ask === null ? t('Chart no price') : fmtPrice(ask, market.tickSize) })}
-      </button>
-      <label className="of-field">
+      </Button>
+      <label className="lt-field">
         <span>{t('Order type')}</span>
         <select
           value={type}
@@ -128,7 +128,7 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
           ))}
         </select>
       </label>
-      <label className="of-field">
+      <label className="lt-field">
         <span>{t('Click amount', { asset: market.base })}</span>
         <input
           type="text"
@@ -142,7 +142,7 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         />
       </label>
       {note ? (
-        <p className="of-trade-note" role="status" data-testid="of-chart-note" data-tone={note.tone} data-code={note.code}>
+        <p className="lt-note lt-note-bad" role="status" data-testid="of-chart-note" data-tone={note.tone} data-code={note.code}>
           {note.text}
         </p>
       ) : null}

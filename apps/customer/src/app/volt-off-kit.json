@@ -30,7 +30,6 @@
   "/bank/ramps/new",
   "/bank/ramps/cash-out",
   "/bank/business/books",
-  "/trade/spot/:pair",
   "/charts",
   "/charts/:symbol",
   "/trade/buy",
