@@ -128,6 +128,9 @@ export const JOURNEY_CI = [
   // What finds the journeys run's reach among tooling no rule places (quietTooling).
   'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
+  // Which steps the menus reach on the hosted beta's build, from the crawl's record (menu-reach.pw.mjs).
+  'tooling/ci/menu-reach.mjs',
+  'tooling/ci/menu-reach.test.mjs',
   'tooling/ci/review-marker.mjs',
   // The paths that draw a Customer room or kit part, read by the seal's review rule and the journeys pick.
   'tooling/ci/look-paths.mjs',

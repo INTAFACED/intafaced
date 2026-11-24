@@ -313,6 +313,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'menu-reach.mjs':
+    "which journey steps showed a screen no link path reaches from the front page or Home on the hosted beta's build, from a journeys run's crawl record (menu-reach.pw.mjs) and recorded screens, for project-state's count. Not a doctrine gate: it judges nothing and needs a run's report; real-app-journeys.yml runs it with its tests, menu-reach.test.mjs.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'brief-cases.mjs':
     "not a gate: scores the CI review's and the proof reader's briefs on the real cases beside them, by hand, on the signed-in reviewer CLI (project-state#2847: nothing runs on every push). Its tests are brief-cases.test.mjs.",
