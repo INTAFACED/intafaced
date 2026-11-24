@@ -156,10 +156,13 @@ async function approve(onrampId) {
   const res = await fetch(`${BANK}/test/payin-sim/pay/${onrampId}/approve`, { method: 'POST', redirect: 'manual' });
   expect(res.status).toBe(303);
 }
+/** The desk's words for the partner's health (apps/admin src/components/bank-service/desk.tsx). */
+const HEALTH_WORDS = { operational: 'Operational' };
 const counts = (report) => Object.fromEntries(report.orders.map((o) => [o.state, o.count]));
 
 test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expiries as the partner reports; with no partner, "no data"`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const who = await partnerHeldPerson(browser, 'jb28ramp');
@@ -198,7 +201,9 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   const page = await desk(browser);
   const metrics = page.getByTestId('ramp-metrics');
   await expect(metrics.getByTestId('ramp-source')).toContainText(`As ${report.label} reports it`);
-  await expect(metrics.getByTestId('ramp-health-state')).toHaveText('Operational');
+  // Partner health is the partner's own word in its report, shown as the desk words it ('operational' reads Operational).
+  expect(report.health).toBe('operational');
+  await expect(metrics.getByTestId('ramp-health-state')).toHaveText(HEALTH_WORDS[report.health]);
   for (const { state, count } of report.orders) {
     await expect(metrics.locator(`[data-testid="ramp-order-state"][data-state="${state}"] [data-testid="ramp-order-count"]`)).toHaveText(
       String(count),
@@ -221,6 +226,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
     const none = await desk(browser);
     await expect(none.getByTestId('ramps-no-data')).toContainText('No data');
     await expect(none.getByTestId('ramp-metrics')).toHaveCount(0);
+    await stepPicture(none);
     await none.context().close();
   } finally {
     restartBank({ LOCAL_STACK_BANK_ONRAMP_PARTNER: undefined });
