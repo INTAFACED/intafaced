@@ -157,8 +157,6 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
           ) : (
             <Waiting label={t('positionsLoading')} />
           )
-        ) : live.length === 0 ? (
-          <p>{t('positionsNone')}</p>
         ) : (
           <Reduce
             owner={owner}
@@ -282,32 +280,42 @@ function Reduce({
   const done = review !== null && review.every((row) => results[rowId(row.position)] && !keepsDraft(results[rowId(row.position)]!));
   return (
     <>
-      <ul className="lt-rows" data-testid="risk-venue-positions">
-        {positions.map((p) => (
-          <li key={rowId(p)} data-symbol={p.symbol}>
-            <Checkbox checked={picked.has(rowId(p))} disabled={review !== null} onCheckedChange={() => toggle(rowId(p))}>
-              {t('positionRow', { symbol: p.symbol, side: t(p.side === 'long' ? 'sideLong' : 'sideShort'), size: displayAmount(p.size) })}
-            </Checkbox>
-          </li>
-        ))}
-      </ul>
-      <div className="lt-actions">
-        <Button tone="secondary" disabled={review !== null} onClick={() => setPicked(new Set(positions.map(rowId)))}>
-          {t('reduceSelectAll')}
-        </Button>
-        <Button tone="secondary" disabled={review !== null || picked.size === 0} onClick={() => setPicked(new Set())}>
-          {t('reduceSelectNone')}
-        </Button>
-        <span className="lt-hint" role="status">
-          {t('reduceSelected', { count: String(chosen.length) })}
-        </span>
-      </div>
-      <div className="lt-actions">
-        <Button tone="primary" disabled={review !== null || chosen.length === 0} onClick={() => void open()}>
-          {t('reduceButton')}
-        </Button>
-        {chosen.length === 0 ? <span className="lt-hint">{t('reduceNeedsSelection')}</span> : null}
-      </div>
+      {positions.length === 0 ? (
+        <p>{t('positionsNone')}</p>
+      ) : (
+        <>
+          <ul className="lt-rows" data-testid="risk-venue-positions">
+            {positions.map((p) => (
+              <li key={rowId(p)} data-symbol={p.symbol}>
+                <Checkbox checked={picked.has(rowId(p))} disabled={review !== null} onCheckedChange={() => toggle(rowId(p))}>
+                  {t('positionRow', {
+                    symbol: p.symbol,
+                    side: t(p.side === 'long' ? 'sideLong' : 'sideShort'),
+                    size: displayAmount(p.size),
+                  })}
+                </Checkbox>
+              </li>
+            ))}
+          </ul>
+          <div className="lt-actions">
+            <Button tone="secondary" disabled={review !== null} onClick={() => setPicked(new Set(positions.map(rowId)))}>
+              {t('reduceSelectAll')}
+            </Button>
+            <Button tone="secondary" disabled={review !== null || picked.size === 0} onClick={() => setPicked(new Set())}>
+              {t('reduceSelectNone')}
+            </Button>
+            <span className="lt-hint" role="status">
+              {t('reduceSelected', { count: String(chosen.length) })}
+            </span>
+          </div>
+          <div className="lt-actions">
+            <Button tone="primary" disabled={review !== null || chosen.length === 0} onClick={() => void open()}>
+              {t('reduceButton')}
+            </Button>
+            {chosen.length === 0 ? <span className="lt-hint">{t('reduceNeedsSelection')}</span> : null}
+          </div>
+        </>
+      )}
       {review && !signing ? (
         <section className="lt-stack" aria-label={t('venueCloseTitle')} data-testid="risk-venue-close">
           <h3>{t('venueCloseTitle')}</h3>
