@@ -19,12 +19,14 @@
  *        meta.json; a step with none is NOT READ (step-read.mjs), never a pass
  *   node tooling/ci/step-pictures.mjs fetch --run <id> <pictures dir>     one run's shards, for a read made off CI
  */
+import { runJobsSync } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { downloadShards, pause } from './shard-download.mjs';
+import { countCall } from './api-count.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
 /** The name of the whole-page picture of a test's own page (journey.mjs `stepPicture`). */
@@ -147,7 +149,10 @@ export function attach(readDir, picDir) {
   return `pictures: ${have} of ${meta.required.length} step(s)`;
 }
 
-const api = (path) => JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+const api = (path) => {
+  countCall();
+  return JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+};
 
 /** One shard's zip, downloaded and unpacked into `dir`, every link it held deleted. */
 const unpack = (repo, artifact, dir) =>
@@ -197,7 +202,7 @@ export function fetchRun(repo, run, picDir, { list = shards, get = unpack, wait 
 
 /** Whether a finished run was deferred for main (it ran nothing now and is re-run later; main-first.mjs). */
 const deferred = (repo, run) =>
-  (api(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`).jobs ?? [])
+  (runJobsSync(`repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, api) ?? [])
     .find((j) => j?.name === TOUCH_JOB)
     ?.steps?.some((s) => s?.name === DEFER_MARK && s?.conclusion === 'success') ?? false;
 

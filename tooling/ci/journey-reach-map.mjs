@@ -27,8 +27,9 @@
  * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
  * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
  * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
- * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
- * read-only token and keeps it as an artifact; nothing pushes it to main.
+ * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml, started by Main trust after each green journeys
+ * run on main) builds it in CI with the workflow's own read-only token and keeps it as an artifact; nothing pushes it to
+ * main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -69,6 +70,7 @@ import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
@@ -593,7 +595,7 @@ export function nodeTargets(text, file) {
       if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
       else if (at >= 0) out.add(posix.normalize(s.slice(at)));
       else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
-      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling|crates)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
     }
   }
   return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
@@ -889,31 +891,45 @@ export function runsBehind(map, runs, repo = REPO) {
 /** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
 export const MAP_WORKFLOW = 'journey-reach-map.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
+/** Who starts a counted dispatch: the workflow token of Main trust's `map` job. A person's or an agent's dispatch never
+ *  counts. Read from the run's `actor`, its first dispatcher, never `triggering_actor`, which a re-run changes. */
+export const MAP_STARTER = 'github-actions[bot]';
 
 /**
- * Which build of the map speaks for main, from a list of MAP_WORKFLOW's runs: the newest one that succeeded (so its
- * verify step passed) and was started by main's own journeys run (`workflow_run`, which always runs the default
- * branch's workflow and skips its build for any other branch's run; a dispatch runs whatever ref it names, so it never
- * counts), in this repository, and was created no later than `before` (ms; the journeys run's own creation,
- * so its touch job and the seal pick the same build), or null. (Failure it prevents: on 9 Nov 2026 the committed map
- * was built from runs up to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's
- * journeys ran all 33 shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
+ * The builds of the map that may speak for main, newest first, from a list of MAP_WORKFLOW's runs: each succeeded (so
+ * its verify step passed), ran on main in this repository, was created no later than `before` (ms; the journeys run's
+ * own creation, so its touch job and the seal pick the same build), and was started either by main's own journeys run
+ * (`workflow_run`, which always runs the default branch's workflow; its builds until 24 Nov 2026) or by a dispatch on
+ * main by MAP_STARTER (Main trust's `map` job starts one after each green journeys run on main, project-state#4001 step
+ * 4a). A dispatch runs whatever ref it names, and a tag called main reads as branch main, so builtMap takes a dispatched
+ * build only when its commit is in main's history (onMain). (Failure it prevents: on 9 Nov 2026 the committed map was built from runs up
+ * to 8 Nov 20:39 UTC, and since nobody pays for a map pull request, every product pull request's journeys ran all 33
+ * shards from 18:00 UTC: the OG on project-state#1574, 23:51 UTC.) Pure.
  */
-export function mapBuild(runs, { before = Infinity, repo = REPO } = {}) {
-  return (
-    (runs ?? [])
-      .filter(
-        (r) =>
-          r?.status === 'completed' &&
-          r?.conclusion === 'success' &&
-          r?.head_branch === 'main' &&
-          r?.head_repository?.full_name === repo &&
-          r?.event === 'workflow_run' &&
-          String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
-          Date.parse(r?.created_at) <= before,
-      )
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
-  );
+export function mapBuilds(runs, { before = Infinity, repo = REPO } = {}) {
+  return (runs ?? [])
+    .filter(
+      (r) =>
+        r?.status === 'completed' &&
+        r?.conclusion === 'success' &&
+        r?.head_branch === 'main' &&
+        r?.head_repository?.full_name === repo &&
+        (r?.event === 'workflow_run' || (r?.event === 'workflow_dispatch' && r?.actor?.login === MAP_STARTER)) &&
+        String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
+        Date.parse(r?.created_at) <= before,
+    )
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** The newest of mapBuilds, or null. Pure. */
+export const mapBuild = (runs, opts) => mapBuilds(runs, opts)[0] ?? null;
+
+/** Whether commit `sha` is in main's history: branch main (refs/heads/main, never a tag of that name) is identical to it
+ *  or ahead of it (`get` returns the API's JSON; a read that fails throws, and builtMap then reads null). */
+export async function onMain(sha, { get, repo = REPO }) {
+  if (!/^[0-9a-f]{40}$/i.test(String(sha ?? ''))) return false;
+  const status = (await get(`/repos/${repo}/compare/${sha}...refs/heads/main?per_page=1`))?.status;
+  return status === 'identical' || status === 'ahead';
 }
 
 /** Whether a map holds what mapProblem needs before its age: version, reach mode, enough runs, journeys. Pure. */
@@ -942,7 +958,14 @@ export async function builtMap({ get, raw, before = Date.now(), repo = REPO }) {
   try {
     const runs = (await get(`/repos/${repo}/actions/workflows/${MAP_WORKFLOW}/runs?branch=main&status=success&per_page=100`))
       ?.workflow_runs;
-    const run = mapBuild(runs, { before, repo });
+    // The newest build, a dispatched one only when its commit is main's: one that isn't counts for nothing, never a stop.
+    let run = null;
+    for (const r of mapBuilds(runs, { before, repo })) {
+      if (r.event === 'workflow_run' || (await onMain(r.head_sha, { get, repo }))) {
+        run = r;
+        break;
+      }
+    }
     if (!run) return null;
     const art = ((await get(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${MAP_ARTIFACT}`))?.artifacts ?? []).find(
       (a) => a?.name === MAP_ARTIFACT && !a?.expired,
@@ -1137,7 +1160,10 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
 
 // ---- The builder's I/O ----
 
-const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+const gh = (args) => {
+  countCall();
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+};
 
 /** The journey files at a commit, from git (the commit must be fetched). */
 export const filesAt = (sha, root = ROOT) =>

@@ -110,6 +110,11 @@ export interface RecurringStore {
   slots(ruleId: string): Promise<readonly RecurringSlot[]>;
   /** Writes the slot unless (rule, slot) exists; answers the stored one. */
   insertSlot(slot: RecurringSlot): Promise<RecurringSlot>;
+  /**
+   * Writes a due slot and moves the next slot time on, both or neither: a failed write leaves the slot due for the next
+   * pass. Null, writing nothing, when the next slot time is no longer `move.from` (another pass took this slot).
+   */
+  scheduleSlot(move: NextRunMove, slot: RecurringSlot): Promise<RecurringSlot | null>;
   setSlotOutcome(ruleId: string, slot: number, outcome: SlotOutcome): Promise<void>;
   orders(ruleId: string): Promise<readonly RecurringOrder[]>;
   /** Writes the order row unless its key exists; answers the stored one. */
@@ -169,6 +174,13 @@ export class InMemoryRecurringStore implements RecurringStore {
     if (had) return had;
     this.slotRows.set(key, slot);
     return slot;
+  }
+  async scheduleSlot(move: NextRunMove, slot: RecurringSlot) {
+    const rule = this.rules.get(move.ruleId);
+    if (!rule || !sameTime(rule.nextRunAt, move.from)) return null;
+    const stored = await this.insertSlot(slot);
+    await this.setNextRun(move);
+    return stored;
   }
   async setSlotOutcome(ruleId: string, slot: number, outcome: SlotOutcome) {
     const key = `${ruleId}:${slot}`;
@@ -395,6 +407,25 @@ export class SqlRecurringStore implements RecurringStore {
     const stored = (await this.slots(s.ruleId)).find((x) => x.slot === s.slot);
     if (!stored) throw new Error(`recurring buy slot ${s.ruleId}:${s.slot} was not stored`);
     return stored;
+  }
+
+  async scheduleSlot({ ruleId, from, to, at }: NextRunMove, s: RecurringSlot) {
+    return this.sql.begin(async (tx) => {
+      const moved = await tx`
+        UPDATE trade.recurring_buy_rules SET next_run_at = ${to}, updated_at = ${at}
+        WHERE rule_id = ${ruleId} AND next_run_at IS NOT DISTINCT FROM ${from}::timestamptz`;
+      if (moved.count !== 1) return null;
+      await tx`
+        INSERT INTO trade.recurring_buy_slots (rule_id, slot, amount, outcome, at)
+        VALUES (${s.ruleId}, ${s.slot}, ${formatAmount(s.amount)}, ${s.outcome}, ${s.at})
+        ON CONFLICT DO NOTHING`;
+      const [row] = SlotRow.array().parse(
+        await tx`SELECT rule_id, slot, amount::text AS amount, outcome, at FROM trade.recurring_buy_slots
+          WHERE rule_id = ${s.ruleId} AND slot = ${s.slot}`,
+      );
+      if (!row) throw new Error(`recurring buy slot ${s.ruleId}:${s.slot} was not stored`);
+      return { ruleId: row.rule_id, slot: row.slot, amount: parseAmount(row.amount), outcome: row.outcome, at: row.at };
+    });
   }
 
   async setSlotOutcome(ruleId: string, slot: number, outcome: SlotOutcome) {

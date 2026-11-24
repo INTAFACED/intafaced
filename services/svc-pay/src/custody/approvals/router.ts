@@ -7,19 +7,24 @@ import {
   configProposeInputSchema,
   decideInputSchema,
   initiateInputSchema,
-  listInputSchema,
-  pendingInputSchema,
   quorumQueryInputSchema,
   quorumViewSchema,
   registerApproverInputSchema,
   revokeApproverInputSchema,
   setQuorumInputSchema,
   settleResultSchema,
-  taskDetailSchema,
-  taskIdInputSchema,
   taskViewSchema,
 } from './schemas.js';
 import type { CustodyApprovalService } from './service.js';
+import {
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 async function wrap<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -53,18 +58,19 @@ export function createCustodyApprovalRouters(
         .input(decideInputSchema)
         .output(taskViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.reject(actorOf(ctx), input.taskId, input.payloadHash))),
-      cancel: founder
-        .input(taskIdInputSchema)
-        .output(taskViewSchema)
-        .mutation(({ ctx, input }) => wrap(() => service.cancel(actorOf(ctx), input.taskId))),
-      get: founder
-        .input(taskIdInputSchema)
-        .output(taskDetailSchema)
-        .query(({ ctx, input }) => wrap(() => service.get(actorOf(ctx), input.taskId))),
-      list: founder
-        .input(listInputSchema)
-        .output(z.array(taskViewSchema))
-        .query(({ ctx, input }) => wrap(() => service.list(actorOf(ctx), input))),
+      cancel: mountRecord(
+        PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
+        ({ ctx, input }) => wrap(() => service.cancel(actorOf(ctx), input.taskId)),
+        { refusalOf: payRefusal, founder },
+      ),
+      get: mountRecord(PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET, ({ ctx, input }) => wrap(() => service.get(actorOf(ctx), input.taskId)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
+      list: mountRecord(PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST, ({ ctx, input }) => wrap(() => service.list(actorOf(ctx), input)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
       settleDue: founder
         .input(z.object({}).strict())
         .output(settleResultSchema)
@@ -93,14 +99,15 @@ export function createCustodyApprovalRouters(
         .input(revokeApproverInputSchema)
         .output(approverViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.revokeApprover(actorOf(ctx), input.userId))),
-      list: founder
-        .input(z.object({}).strict())
-        .output(z.array(approverViewSchema))
-        .query(() => wrap(() => service.listApprovers())),
-      pending: founder
-        .input(pendingInputSchema)
-        .output(z.array(taskViewSchema))
-        .query(({ ctx, input }) => wrap(() => service.pending(actorOf(ctx), input))),
+      list: mountRecord(PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST, () => wrap(() => service.listApprovers()), {
+        refusalOf: payRefusal,
+        founder,
+      }),
+      pending: mountRecord(
+        PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_PENDING,
+        ({ ctx, input }) => wrap(() => service.pending(actorOf(ctx), input)),
+        { refusalOf: payRefusal, founder },
+      ),
     }),
     approvalSettings: router({
       setQuorum: founder

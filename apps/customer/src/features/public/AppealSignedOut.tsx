@@ -1,3 +1,4 @@
+// volt-room: /appeal
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
@@ -95,12 +96,12 @@ export function AppealSignedOut() {
             <p>
               <strong>{t(`status_${done.status}`)}</strong> {t('sentBody')}
             </p>
-            <a className="text-link" href="/login">
+            <a className="lt-link" href="/login">
               {t('signIn')}
             </a>
           </div>
         ) : (
-          <form className="stack" onSubmit={(e) => void send(e)} data-testid="appeal-signed-out__form" noValidate>
+          <form className="lt-stack" onSubmit={(e) => void send(e)} data-testid="appeal-signed-out__form" noValidate>
             <p>{t('intro')}</p>
             <label htmlFor="appeal-identifier">{t('identifier')}</label>
             <input id="appeal-identifier" name="appeal-identifier" autoComplete="username" />
@@ -125,7 +126,7 @@ export function AppealSignedOut() {
       }
       help={
         <p>
-          <a className="text-link" href="/help">
+          <a className="lt-link" href="/help">
             {t('help')}
           </a>
         </p>

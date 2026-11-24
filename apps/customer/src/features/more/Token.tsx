@@ -19,6 +19,7 @@ import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Panel, Tabs } from '../../shared/ui';
 import { TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, presentActionFailure, useAction } from './common';
+import { formatBpsPercent } from './catalogue-parts';
 import { governanceCopy as G } from './token-governance-copy';
 import { GovernanceDelegation, GovernanceProposals, GovernanceSpace, GovernanceTreasury } from './GovernanceRoom';
 import { BuybackRuns } from './BuybackRuns';
@@ -60,7 +61,7 @@ const governanceProposal = proposalSchema.extend({ opensAt: iso, closesAt: iso, 
 const tierLabel = (tier: string): string => (tier === 'flex' || tier === 'm3' || tier === 'm12' ? copyText(`token.tier.${tier}`) : tier);
 const ballotKey = (actor: string) => `intafaced:token:ballot:${actor}`;
 const selectionKey = (actor: string) => `intafaced:token:proposal:${actor}`;
-function selectedFor(actor: string | null) {
+export function selectedFor(actor: string | null) {
   if (!actor) return '';
   try {
     const value = localStorage.getItem(selectionKey(actor));
@@ -189,17 +190,13 @@ function proposalDetailSchema(id: string) {
 const detailReads = (id: string) => (p: unknown) => proposalDetailSchema(id).safeParse(p).success;
 const powerReads = (p: unknown) => powerSchema.safeParse(p).success;
 export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
-/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
-export function Token({ tab: first }: { tab?: TokenTab } = {}) {
-  const { hideBalances } = usePreferences();
+/**
+ * The staking view's reads: my token access, my stakes by status within `limit`, and the recorded burned supply. Shared
+ * by this room and the /token room on the kit (`token-room/TokenRoom.tsx`).
+ */
+export function useTokenReads(status: string, limit: number) {
   const api = useApi(),
-    { userId } = useSession(),
-    action = useAction('token');
-  const selection = useOriginalProposal(userId);
-  const ballot = useSavedBallot(userId);
-  const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
-    [status, setStatus] = useState('all'),
-    [limit, setLimit] = useState(50);
+    { userId } = useSession();
   const access = useResource(
       (signal) => api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => decimalSchema.safeParse(access.staked).success }),
       `token-access:${userId}`,
@@ -214,8 +211,22 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
       `token-stakes:${userId}:${status}:${limit}`,
     ),
     burned = useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
+  return { access, stakes, burned };
+}
+
+/** `tab`: the section an address such as /token/economy or /token/burn opens on. */
+export function Token({ tab: first }: { tab?: TokenTab } = {}) {
+  const { hideBalances } = usePreferences();
+  const { userId } = useSession(),
+    action = useAction('token');
+  const selection = useOriginalProposal(userId);
+  const ballot = useSavedBallot(userId);
+  const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
+    [status, setStatus] = useState('all'),
+    [limit, setLimit] = useState(50);
+  const { access, stakes, burned } = useTokenReads(status, limit);
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Tabs
         items={['Staking', 'Governance', 'Economy', 'Burn']}
         labels={{
@@ -243,7 +254,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                           : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
                       [copyText('token.access.tier'), tierLabel(a.tier)],
-                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
+                      [copyText('token.fee.discount'), copyText('token.basis.points', { bps: formatBpsPercent(a.feeDiscountBps) })],
                     ]}
                   />
                 )}
@@ -284,7 +295,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                           <td>{copyText(`token.status.${row.status}`)}</td>
                           <td>{row.unlocksAt ?? copyText('token.flexible')}</td>
                           <td>
-                            <span className="muted">
+                            <span className="lt-muted">
                               <Text k="token.unstake.unavailable.asset.identity.missing" />
                             </span>
                           </td>
@@ -302,11 +313,8 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
             <p role="status">
               <Text k="token.staking.and.unstaking.are.unavailable.until.the" />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="token.the.token.asset.is.deployment.configurable.stake" />
-            </p>
-            <p className="muted">
-              <Text k="token.your.existing.stake.records.remain.readable.a" />
             </p>
             {action.feedback}
           </Panel>
@@ -399,13 +407,13 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
               : []),
           ]}
         />
-        <p className="muted">{G.t(b.status === 'unknown' ? 'lookup' : b.status === 'recorded' ? 'saved' : 'refusedBoundary')}</p>
-        <div className="actions">
+        <p className="lt-muted">{G.t(b.status === 'unknown' ? 'lookup' : b.status === 'recorded' ? 'saved' : 'refusedBoundary')}</p>
+        <div className="lt-actions">
           <Button variant="secondary" onClick={() => choose(b.proposalId)}>
             {G.t('readOriginal')}
           </Button>
           {b.status === 'unknown' && (
-            <a className="button button--secondary" href="/support">
+            <a className="lt-button lt-button-secondary" href="/support">
               {G.t('support')}
             </a>
           )}
@@ -488,14 +496,14 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
               [G.t('stakeEstimate'), currentPreferences().hideBalances ? G.t('hidden') : displayAmount(weight)],
             ]}
           />
-          <p className="muted">
+          <p className="lt-muted">
             {G.t('unit')} {G.t('weightBoundary')}
           </p>
           <details>
             <summary>{G.t('body')}</summary>
             <pre lang="und">{body}</pre>
           </details>
-          <p className="muted">{G.t('preflight')}</p>
+          <p className="lt-muted">{G.t('preflight')}</p>
         </div>
       ),
       run: async (canDispatch) => {
@@ -629,19 +637,19 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   </div>
                 ))}
               </dl>
-              <p className="muted">{G.t('aggregate')}</p>
+              <p className="lt-muted">{G.t('aggregate')}</p>
             </section>
             <section className="token-proposal-section">
-              <p className="muted">
+              <p className="lt-muted">
                 {G.t('unit')} {G.t('weightBoundary')}
               </p>
               {!activeWindow(p, now) && (
-                <p role="status" className="muted">
+                <p role="status" className="lt-muted">
                   {G.t('inactive')}
                 </p>
               )}
               {powerView.status === 'ready' && !canWeigh && (
-                <p role="status" className="muted">
+                <p role="status" className="lt-muted">
                   {G.t('noWeight')}
                 </p>
               )}
@@ -658,7 +666,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                   onCast={refresh}
                 />
               )}
-              <div className="actions">
+              <div className="lt-actions">
                 {(p.votingType === 'basic' ? choiceSchema.options : []).map((choice) => (
                   <Button
                     key={choice}

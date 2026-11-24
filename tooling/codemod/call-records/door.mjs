@@ -6,7 +6,7 @@
 // (`src/slices/*.rs`) or in any function it reaches; a code the door sends as INTERNAL_SERVER_ERROR is a failure, not a
 // named refusal, and an unguarded call names none (its refusals reach the caller as a 500).
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -146,28 +146,142 @@ function catalogueOf(crateDir) {
   return new Map([...src.matchAll(/\(\s*"(\w+\.[a-z0-9_]+)",\s*"([A-Z_]+)"/g)].map((m) => [m[1], m[2]]));
 }
 
-/** `calls.rs`: path -> { kind, scope (null for a public call), guarded }. */
-export function callsOf(crateDir) {
-  const src = readFileSync(join(crateDir, 'src/door/calls.rs'), 'utf8');
-  const out = new Map();
-  for (const m of src.matchAll(/Call \{([^}]*)\}/g)) {
-    const body = m[1];
-    const path = body.match(/path: "([^"]+)"/)?.[1];
-    const kind = body.match(/kind: Kind::(Query|Mutation)/)?.[1];
-    const access = body.match(/access: Access::(Public|Scope\("([^"]+)"\))/);
-    const guarded = body.match(/guarded: (true|false)/)?.[1];
-    if (!path || !kind || !access || !guarded) throw new Error(`calls.rs: a call this reader can't read: ${body.trim()}`);
-    out.set(path, { kind: kind.toLowerCase(), scope: access[2] ?? null, guarded: guarded === 'true' });
+/** Each `Call { ... }` body in `src`, its nested braces (`Scoped { ... }`, `Post { ... }`) kept whole. */
+function callBodies(src) {
+  const out = [];
+  for (const m of src.matchAll(/\bCall \{/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < src.length && depth; i++) depth += src[i] === '{' ? 1 : src[i] === '}' ? -1 : 0;
+    out.push(src.slice(m.index + m[0].length, i - 1));
   }
   return out;
+}
+
+/** The text inside the braces that open at `opener` (its last character a `{`), nested braces kept whole; or undefined. */
+function nested(src, opener) {
+  const at = src.indexOf(opener);
+  if (at < 0) return undefined;
+  let depth = 1;
+  let i = at + opener.length;
+  for (; i < src.length && depth; i++) depth += src[i] === '{' ? 1 : src[i] === '}' ? -1 : 0;
+  return src.slice(at + opener.length, i - 1);
+}
+
+/**
+ * Who may call, as a record's `access` names it (`packages/contracts/src/procedure.ts`), or why no record can: the
+ * row's `access` and its `pre`. `Access::Scope("x")` is a scope checked in the module's region (svc-academy);
+ * `Access::Scope(Scoped { scope, person, module })` names each (svc-agents); `Access::Scope(Scoped { scope, tier, person,
+ * region, own_session })` is svc-bank's `scopedProcedure(scope, guards)`: `region: Some(Region { .. })` is `guards.module`
+ * (its `kyc`, the module's own tier rule, is what `module` checks; `kyc: None` only beside the call's own `tier`), `tier`
+ * is `guards.tier`, `own_session` is `ownSession`. `Pre::PersonOnly(code)` is the record's `ownSession`; any other unit
+ * `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). Anything else (svc-agents' `Settle`) is named, not guessed.
+ */
+function accessOf(body, module) {
+  const pre = body.match(/pre: (Pre::[^\n]*?),?\n/)?.[1].trim();
+  const ownSession = pre?.match(/^Pre::PersonOnly\("([^"]+)"\)$/)?.[1];
+  // Any other unit middleware of the door's own (`Pre::CoachRun`) is the service's own check, named in the record's
+  // `access.check` by its variant (`coachRun`): the door runs it, the record names it, as a mounted service's does.
+  const unit = pre && pre !== 'Pre::None' && !ownSession ? pre.match(/^Pre::([A-Z]\w*)$/)?.[1] : undefined;
+  if (pre && pre !== 'Pre::None' && !ownSession && !unit) return { why: `its own middleware ${pre}, which a record cannot name` };
+  const check = unit ? unit[0].toLowerCase() + unit.slice(1) : undefined;
+  if (/access: Access::Public\b/.test(body))
+    return ownSession || check ? { why: `a public call with ${pre}` } : { access: { caller: 'public' } };
+  const flat = body.match(/access: Access::Scope\("([^"]+)"\)/);
+  if (flat)
+    return { access: { caller: 'scope', scope: flat[1], module, ...(ownSession ? { ownSession } : {}), ...(check ? { check } : {}) } };
+  const scoped = nested(body, 'access: Access::Scope(Scoped {');
+  if (scoped !== undefined) {
+    const text = scoped.replace(/\s+/g, ' ').trim();
+    const odd = { why: `access Scoped { ${text} }, which this reader does not map to a record's` };
+    // Each field the reader knows, taken out of the text; anything left over is a field it would be guessing at.
+    let rest = text;
+    const take = (re) => {
+      const m = re.exec(rest);
+      if (m) rest = rest.replace(m[0], '');
+      return m;
+    };
+    const scope = take(/\bscope: "([^"]+)",?/)?.[1];
+    const person = take(/\bperson: (true|false),?/)?.[1];
+    const flag = take(/\bmodule: (true|false),?/)?.[1];
+    const tierM = take(/\btier: (?:None|Some\("([^"]+)"\)),?/);
+    const regionM = take(
+      /\bregion: (?:None|Some\(Region \{ kyc: (?:None|Some\(Kyc \{ module: "([^"]+)", min_tier: "[^"]+",? \}\)),? \}\)),?/,
+    );
+    const ownM = take(/\bown_session: (?:None|Some\("([^"]+)"\)),?/);
+    if (!scope || !person || rest.trim() !== '' || (flag !== undefined && regionM)) return odd;
+    const tier = tierM?.[1];
+    const region = regionM && !regionM[0].startsWith('region: None');
+    // `kyc: None` is the door's mark that the call's own tier already asks what the module asks: without a tier, it names
+    // a region checked with no tier rule, which no record names.
+    if (region && regionM[1] === undefined && !tier) return odd;
+    if (regionM?.[1] !== undefined && regionM[1] !== module) return odd;
+    const own = ownM?.[1];
+    if (own && ownSession && own !== ownSession) return odd;
+    const session = own ?? ownSession;
+    return {
+      access: {
+        caller: 'scope',
+        scope,
+        ...(flag === 'true' || region ? { module } : {}),
+        ...(tier ? { tier } : {}),
+        ...(person === 'true' ? { person: true } : {}),
+        ...(session ? { ownSession: session } : {}),
+        ...(check ? { check } : {}),
+      },
+    };
+  }
+  const other = body.match(/access: Access::(\w+)/)?.[1];
+  return other ? { why: `access Access::${other}, which this reader does not map to a record's` } : undefined;
+}
+
+/**
+ * `calls.rs`: path -> { kind, access (the record's, or null with `why`), guarded (null when the door has no such flag:
+ * its refusals are not read) }. A row with no path, kind or access stops it.
+ */
+export function callsOf(crateDir, module) {
+  const src = readFileSync(join(crateDir, 'src/door/calls.rs'), 'utf8');
+  const out = new Map();
+  for (const body of callBodies(src)) {
+    const path = body.match(/path: "([^"]+)"/)?.[1];
+    const kind = body.match(/kind: Kind::(Query|Mutation)/)?.[1];
+    const who = accessOf(body, module);
+    const guarded = body.match(/guarded: (true|false)/)?.[1];
+    if (!path || !kind || !who) throw new Error(`calls.rs: a call this reader can't read: ${body.trim()}`);
+    out.set(path, {
+      kind: kind.toLowerCase(),
+      access: who.access ?? null,
+      ...(who.why ? { why: who.why } : {}),
+      guarded: guarded === undefined ? null : guarded === 'true',
+    });
+  }
+  return out;
+}
+
+/** A record's `access` as its source writes it, keys in the order the records do. */
+export function accessText(a) {
+  const v = (x) => (typeof x === 'string' ? `'${x}'` : String(x));
+  return `{ ${Object.entries(a)
+    .map(([k, x]) => `${k}: ${v(x)}`)
+    .join(', ')} }`;
 }
 
 /**
  * The door of the crate at `crateDir` (`crates/svc-x`): `calls` as `calls.rs` writes them, and `refusals(path)`, the
  * named refusals (code -> tRPC code) a call's handler can send. Indexing the crate takes rust-analyzer a minute or two.
  */
-export function doorOf(crateDir) {
-  const calls = callsOf(crateDir);
+export function doorOf(crateDir, module) {
+  const calls = callsOf(crateDir, module);
+  // A door with no error table (svc-agents: each slice's guard maps its own codes) names no refusals: a record lists
+  // none, as one written mid-port does, and an unlisted refusal reaches the caller as the door sends it.
+  if (!existsSync(join(crateDir, 'src/door/errors_table.rs')))
+    return {
+      calls,
+      refusals: (call) => {
+        if (!calls.get(call)) throw new Error(`${call}: not a call the door serves`);
+        return {};
+      },
+    };
   const catalogue = catalogueOf(crateDir);
   const tmp = mkdtempSync(join(tmpdir(), 'door-scip-'));
   let docs;

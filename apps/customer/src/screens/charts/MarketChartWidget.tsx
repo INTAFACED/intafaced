@@ -35,6 +35,12 @@ import { ChartTrading } from './trading/ChartTrading';
 import { ChartAlerts } from './alerts/ChartAlerts';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
+import { DateInput } from '@intafaced/ui/lit';
+
+/** The chart's tools start open, except on a phone-width screen (charts.css's phone width), where the chart comes first. */
+function toolsOpenAtFirst(): boolean {
+  return typeof window === 'undefined' || typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 760px)').matches;
+}
 
 /** What an add-on is drawn over: the price scale or percent mode, and whether a bar replay is cut. */
 export interface AddonView {
@@ -160,6 +166,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const drawnBars = replayBars(all, replay.replay);
   const [percent, setPercent] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(toolsOpenAtFirst);
   const [replayNote, setReplayNote] = useState<string | null>(null);
   useEffect(() => {
     if (command?.kind === 'replay') setReplayOpen((open) => !open);
@@ -369,64 +376,71 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           ))}
         </div>
       </div>
-      <div className="cw-bar cw-bar--options">
-        {onScheme && (
+      {/* On a phone the chart's own tools fold under one line, so the chart comes before them; wider, they start open. */}
+      <details className="cw-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
+        <summary className="cw-tools-summary">
+          {t('Chart tools')}
+          <span aria-hidden="true"> ▾</span>
+        </summary>
+        <div className="cw-bar cw-bar--options">
+          {onScheme && (
+            <label className="cw-select cw-select--inline">
+              <span>{t('Colours')}</span>
+              <select value={scheme} onChange={(event) => onScheme(event.target.value as ColourScheme)}>
+                {COLOUR_SCHEMES.map((id) => (
+                  <option key={id} value={id}>
+                    {t(SCHEME_LABEL[id])}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="cw-select cw-select--inline">
-            <span>{t('Colours')}</span>
-            <select value={scheme} onChange={(event) => onScheme(event.target.value as ColourScheme)}>
-              {COLOUR_SCHEMES.map((id) => (
+            <span>{t('Price source')}</span>
+            <select
+              value="last"
+              onChange={(event) => {
+                const basis = event.target.value as PriceBasis;
+                setBasisRefused(PUBLISHED_BASES.includes(basis) ? null : basis);
+              }}
+            >
+              {PRICE_BASES.map((id) => (
                 <option key={id} value={id}>
-                  {t(SCHEME_LABEL[id])}
+                  {t(BASIS_LABEL[id])}
                 </option>
               ))}
             </select>
           </label>
+          <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
+            {t('Bar replay')}
+          </button>
+          <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+            {t('Chart settings')}
+          </button>
+          <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
+            {t('Price line')}
+          </button>
+          <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
+            <label className="cw-select cw-select--inline">
+              <span>{t('Go to date')}</span>
+              <DateInput type="datetime-local" name="date" required />
+            </label>
+            <button type="submit">{t('Go')}</button>
+          </form>
+        </div>
+        {markets && (
+          <CompareTools
+            host={host}
+            market={market}
+            markets={markets}
+            interval={interval}
+            style={mode}
+            bars={drawnBars}
+            percent={percent}
+            onPercent={setPercent}
+          />
         )}
-        <label className="cw-select cw-select--inline">
-          <span>{t('Price source')}</span>
-          <select
-            value="last"
-            onChange={(event) => {
-              const basis = event.target.value as PriceBasis;
-              setBasisRefused(PUBLISHED_BASES.includes(basis) ? null : basis);
-            }}
-          >
-            {PRICE_BASES.map((id) => (
-              <option key={id} value={id}>
-                {t(BASIS_LABEL[id])}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
-          {t('Bar replay')}
-        </button>
-        <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
-          {t('Chart settings')}
-        </button>
-        <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
-          {t('Price line')}
-        </button>
-        <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
-          <label className="cw-select cw-select--inline">
-            <span>{t('Go to date')}</span>
-            <input type="datetime-local" name="date" required />
-          </label>
-          <button type="submit">{t('Go')}</button>
-        </form>
-      </div>
-      {markets && (
-        <CompareTools
-          host={host}
-          market={market}
-          markets={markets}
-          interval={interval}
-          style={mode}
-          bars={drawnBars}
-          percent={percent}
-          onPercent={setPercent}
-        />
-      )}
+      </details>
       {basisRefused && (
         <p className="cw-note" role="status" data-code={BASIS_UNPUBLISHED}>
           {t('Basis refused', { basis: t(BASIS_LABEL[basisRefused]) })}
@@ -502,7 +516,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
               <button type="submit">{t('Start replay')}</button>
             </form>
           )}
-          <span className="cw-replay-note">{t('Replay note')}</span>
+          <span className="lt-muted">{t('Replay note')}</span>
           {replayNote && (
             <span role="status" data-testid="replay-note">
               {replayNote}

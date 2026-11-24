@@ -3,18 +3,8 @@ import { scopedProcedure } from '@intafaced/contracts/trpc';
 import {
   OPS_RESOLVE_NOTE_REQUIRED,
   opsAlertAcceptInputSchema,
-  opsAlertAcknowledgeInputSchema,
   opsAlertDetailSchema,
-  opsAlertGetInputSchema,
-  opsAlertListInputSchema,
-  opsAlertListSchema,
   opsAlertResolveInputSchema,
-  opsAlertSnoozeInputSchema,
-  opsAlertUnsnoozeInputSchema,
-  opsPlatformIncidentsInputSchema,
-  opsPlatformIncidentsSchema,
-  opsReconciliationPeriodsInputSchema,
-  opsReconciliationPeriodsSchema,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import {
   OPS_ALERT_ACTOR_UNSET,
@@ -28,6 +18,17 @@ import {
 } from '../codes.js';
 import { assertIdempotencyKey } from '../operator-desks.js';
 import type { ReconciliationAlertStore } from './store.js';
+import {
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+  OPS_ALERTS_ACKNOWLEDGE,
+  OPS_ALERTS_SNOOZE,
+  OPS_ALERTS_UNSNOOZE,
+} from '@intafaced/contracts/ops-alerts-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -72,34 +73,25 @@ export function createReconciliationAlertRoutes(
     if (!id) throw new OpsError(OPS_ALERT_ACTOR_UNSET, 'The operator id is blank. Nothing was saved.');
     return id;
   };
-  const reader = scopedProcedure('admin:read', guards);
-  const writer = scopedProcedure('admin:write', guards);
   const treasury = scopedProcedure('admin:treasury', guards);
 
   return {
-    list: reader
-      .input(opsAlertListInputSchema)
-      .output(opsAlertListSchema)
-      .query(({ input }) => run((desk) => desk.list(input))),
-    get: reader
-      .input(opsAlertGetInputSchema)
-      .output(opsAlertDetailSchema)
-      .query(({ input }) => run((desk) => desk.get(input.alertId))),
-    acknowledge: writer
-      .input(opsAlertAcknowledgeInputSchema)
-      .output(opsAlertDetailSchema)
-      .mutation(({ ctx, input }) =>
+    list: mountRecord(OPS_ALERTS_LIST, ({ input }) => run((desk) => desk.list(input)), opsRefusal),
+    get: mountRecord(OPS_ALERTS_GET, ({ input }) => run((desk) => desk.get(input.alertId)), opsRefusal),
+    acknowledge: mountRecord(
+      OPS_ALERTS_ACKNOWLEDGE,
+      ({ ctx, input }) =>
         run((desk) => {
           const by = actor(ctx.principal);
           const note = input.note.trim();
           if (!note) throw new OpsError(OPS_ALERT_NOTE_REQUIRED, 'An acknowledgement needs a note. Nothing was changed.');
           return desk.acknowledge({ alertId: input.alertId, actor: by, note, key: assertIdempotencyKey(input.idempotencyKey) });
         }),
-      ),
-    snooze: writer
-      .input(opsAlertSnoozeInputSchema)
-      .output(opsAlertDetailSchema)
-      .mutation(({ ctx, input }) =>
+      opsRefusal,
+    ),
+    snooze: mountRecord(
+      OPS_ALERTS_SNOOZE,
+      ({ ctx, input }) =>
         run((desk) =>
           desk.snooze({
             alertId: input.alertId,
@@ -109,15 +101,16 @@ export function createReconciliationAlertRoutes(
             key: assertIdempotencyKey(input.idempotencyKey),
           }),
         ),
-      ),
-    unsnooze: writer
-      .input(opsAlertUnsnoozeInputSchema)
-      .output(opsAlertDetailSchema)
-      .mutation(({ ctx, input }) =>
+      opsRefusal,
+    ),
+    unsnooze: mountRecord(
+      OPS_ALERTS_UNSNOOZE,
+      ({ ctx, input }) =>
         run((desk) =>
           desk.unsnooze({ alertId: input.alertId, actor: actor(ctx.principal), key: assertIdempotencyKey(input.idempotencyKey) }),
         ),
-      ),
+      opsRefusal,
+    ),
     resolve: treasury
       .input(opsAlertResolveInputSchema)
       .output(opsAlertDetailSchema)
@@ -154,13 +147,11 @@ export function createReconciliationAlertRoutes(
           });
         }),
       ),
-    platformIncidents: reader
-      .input(opsPlatformIncidentsInputSchema)
-      .output(opsPlatformIncidentsSchema)
-      .query(({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) }))),
-    periods: reader
-      .input(opsReconciliationPeriodsInputSchema)
-      .output(opsReconciliationPeriodsSchema)
-      .query(({ input }) => run((desk) => desk.periods(input))),
+    platformIncidents: mountRecord(
+      OPS_ALERTS_PLATFORM_INCIDENTS,
+      ({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) })),
+      opsRefusal,
+    ),
+    periods: mountRecord(OPS_ALERTS_PERIODS, ({ input }) => run((desk) => desk.periods(input)), opsRefusal),
   };
 }

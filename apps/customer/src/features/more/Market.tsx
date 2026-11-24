@@ -1,10 +1,10 @@
-import { SubNav } from '@intafaced/ui';
-import { copy, t as copyText, Text } from './copy';
+import { Tabs } from '@intafaced/ui/lit/templates';
+import { Store } from 'lucide-react';
+import { t as copyText, Text } from './copy';
 import { useRef, useState } from 'react';
 import {
   MARKET_APPLY_AS_VENDOR,
   MARKET_ARCHIVE_LISTING,
-  MARKET_CANCEL_SUBSCRIPTION,
   MARKET_COMMERCE_PROGRAMME,
   MARKET_CREATE_LISTING,
   MARKET_CREATE_STRATEGY_LISTING,
@@ -13,13 +13,9 @@ import {
   MARKET_MINE,
   MARKET_MY_LISTINGS,
   MARKET_MY_PURCHASES,
-  MARKET_PURCHASE,
-  MARKET_REFUND,
   MARKET_REFUND_REQUESTS,
   MARKET_RELEASE_SLOT,
-  MARKET_REQUEST_REFUND,
   MARKET_SLOTS,
-  type ListingReviewState,
   type MarketListing,
   type MarketPurchase,
 } from '@intafaced/contracts/market-procedures';
@@ -32,25 +28,23 @@ import { MarketPurchaseRecords } from './MarketPurchaseRecords';
 import { CategorySelect, ListingDetail, MarketDoors, MarketFilters, SellerDirectory } from './MarketExplorer';
 import { marketListingCopy } from './market-listing-copy';
 import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer';
-import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
-import type { ApiResult, RefusalReason } from '../../shared/api';
-type MarketFailureKey =
-  | 'market.original.purchase.is.still.pending.settlement.is'
-  | 'market.the.original.settlement.evidence.is.incomplete.keep'
-  | 'market.the.original.purchase.is.not.present.in'
-  | 'market.the.listing.terms.changed.reload.the.catalogue'
-  | 'market.the.account.changed.review.this.purchase.again';
-function marketRefusal(reason: RefusalReason, key: MarketFailureKey) {
-  return presentActionFailure({ ok: false as const, reason, message: copyText(key) }, (locale) => {
-    const current = copy.forLocale(locale);
-    return { message: current.t(key), language: current.languageFor(key) };
-  });
-}
+import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { formatBpsPercent } from './catalogue-parts';
+import {
+  cancelMarketSubscription,
+  purchaseListing,
+  recoverMarketAction,
+  refundMarketPurchase,
+  requestMarketRefund,
+  REVIEW_COPY,
+} from './market-room/market-calls';
+// MarketPrice below keeps its own sheet; the purchase records draw from the kit.
+import './market-purchases.css';
 function MarketPrice({ price, assetId }: { price: string; assetId: string }) {
   return (
-    <div className="market-purchases-value" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+    <div className="lt-stack" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
       <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={copyText('market.price')}>
-        <strong className="numeric" lang="zxx">
+        <strong className="lt-num" lang="zxx">
           {displayAmount(price)}
         </strong>
       </div>{' '}
@@ -58,59 +52,11 @@ function MarketPrice({ price, assetId }: { price: string; assetId: string }) {
     </div>
   );
 }
-const REVIEW_COPY = {
-  in_review: 'market.review.state.in.review',
-  approved: 'market.review.state.approved',
-  rejected: 'market.review.state.rejected',
-  suspended: 'market.review.state.suspended',
-  taken_down: 'market.review.state.taken.down',
-} as const satisfies Record<ListingReviewState, string>;
-function originalPurchaseOutcome(row: MarketPurchase): ApiResult<MarketPurchase> {
-  if (row.status === 'pending') return marketRefusal('uncertain', 'market.original.purchase.is.still.pending.settlement.is');
-  if (row.status === 'settled' && row.ledgerTxId && row.settledAt) return { ok: true, data: row };
-  // A held purchase is paid into the buyer's held pot (MC-market-02); its release or refund comes later.
-  if ((row.status === 'held' || row.status === 'released' || row.status === 'refunded') && row.ledgerTxId) return { ok: true, data: row };
-  // The service marks rejected only for a definitive failed ledger admission;
-  // it retains the rejection code and has no settlement evidence for that row.
-  if (row.status === 'rejected' && row.rejectionCode && row.ledgerTxId === null && row.settledAt === null) return { ok: true, data: row };
-  return marketRefusal('uncertain', 'market.the.original.settlement.evidence.is.incomplete.keep');
-}
-/** The service's typed refusal while the refund policy is blank, shown in the room's own words; nothing moved. */
-const refundPolicyUnset = <T,>(result: ApiResult<T>): ApiResult<T> =>
-  !result.ok && result.code === 'owner.decision'
-    ? presentActionFailure(result, (locale) => {
-        const current = copy.forLocale(locale);
-        return { message: current.t('market.refund.policy.is.not.set'), language: current.languageFor('market.refund.policy.is.not.set') };
-      })
-    : result;
 export function Market({ mine = false, strategy = false }: { mine?: boolean; strategy?: boolean }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('market', {
-      recover: async (reference) => {
-        // A refund: the service's refund is keyed on the purchase, so asking again returns the stored outcome
-        // (the whole price returns once); a purchase that is no longer held is a known outcome, not a pending one. So is
-        // owner.decision: the service refuses it only before any refund was claimed, so nothing moved.
-        if (reference.startsWith('refund:')) {
-          const id = reference.slice('refund:'.length);
-          const again = await api.call(MARKET_REFUND, { purchaseId: id }, { accept: (p) => p.id === id && p.status === 'refunded' });
-          return !again.ok && (again.code === 'market.refund_not_held' || again.code === 'owner.decision')
-            ? { ok: true, data: null }
-            : again;
-        }
-        const requested = reference.startsWith('refund-request:') ? reference.slice('refund-request:'.length) : null;
-        const rows = await api.call(MARKET_MY_PURCHASES, { limit: 50 }, { accept: (rows) => rows.every((r) => r.buyerId === userId) });
-        if (!rows.ok) return rows;
-        if (requested) {
-          const held = rows.data.find((r) => r.id === requested);
-          if (!held) return marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
-          if (held.refundRequestedAt || held.status !== 'held') return { ok: true, data: held };
-          // The request never landed: it is still the buyer's to send, so the original is known to have failed.
-          return { ok: true, data: null };
-        }
-        const row = rows.data.find((r) => r.id === reference);
-        return row ? originalPurchaseOutcome(row) : marketRefusal('uncertain', 'market.the.original.purchase.is.not.present.in');
-      },
+      recover: (reference) => recoverMarketAction(api, userId, reference),
       done: () => purchases.reload(),
     });
   const [limit, setLimit] = useState(50),
@@ -199,43 +145,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           ]}
         />
       ),
-      run: async (canDispatch) => {
-        const fresh = await api.call(MARKET_LISTINGS, { limit: 50 });
-        if (!fresh.ok) return fresh;
-        const current = fresh.data.find((r) => r.id === row.id);
-        if (
-          !current ||
-          current.status !== 'active' ||
-          current.vendorId !== row.vendorId ||
-          current.price !== row.price ||
-          current.assetId !== row.assetId ||
-          current.periodSeconds !== row.periodSeconds ||
-          current.offerType !== row.offerType
-        )
-          return marketRefusal('error', 'market.the.listing.terms.changed.reload.the.catalogue');
-        if (!canDispatch()) return marketRefusal('aborted', 'market.the.account.changed.review.this.purchase.again');
-        const result = await api.call(
-          MARKET_PURCHASE,
-          { listingId: row.id, purchaseId },
-          {
-            accept: (p) =>
-              p.id === purchaseId &&
-              p.listingId === row.id &&
-              p.buyerId === userId &&
-              p.vendorId === row.vendorId &&
-              p.assetId === row.assetId &&
-              p.price === row.price,
+      run: (canDispatch) =>
+        purchaseListing(api, {
+          userId,
+          row,
+          purchaseId,
+          canDispatch,
+          onOutcome: (outcome) => {
+            bought.current = outcome;
           },
-        );
-        if (result.ok) {
-          bought.current = result.data.status === 'held' ? 'held' : 'paid';
-          return originalPurchaseOutcome(result.data);
-        }
-        if (result.reason === 'aborted' || result.status === 401 || result.status === 403) return result;
-        // The existing pending banner supplies authored recovery guidance.
-        // Retain the original service explanation or transport copy descriptor.
-        return { ...result, reason: 'uncertain' };
-      },
+        }),
       done: purchases.reload,
     });
   }
@@ -256,14 +175,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           {row.refundWindowEndsAt && <p>{copyText('market.refund.request.body', { value1: when(row.refundWindowEndsAt) })}</p>}
         </>
       ),
-      run: async () =>
-        refundPolicyUnset(
-          await api.call(
-            MARKET_REQUEST_REFUND,
-            { purchaseId: row.id },
-            { accept: (p) => p.id === row.id && p.buyerId === userId && p.status === 'held' && Boolean(p.refundRequestedAt) },
-          ),
-        ),
+      run: () => requestMarketRefund(api, userId, row),
       done: purchases.reload,
     });
   }
@@ -287,43 +199,35 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           </p>
         </>
       ),
-      run: async () =>
-        refundPolicyUnset(
-          await api.call(
-            MARKET_REFUND,
-            { purchaseId: row.id },
-            { accept: (p) => p.id === row.id && p.buyerId === row.buyerId && p.status === 'refunded' },
-          ),
-        ),
+      run: () => refundMarketPurchase(api, row),
       done: refundRequests.reload,
     });
   }
   // Read from the service: null means the owner has not decided it, so the room names that blocker beside the refund controls.
   const policyUnset = programme.resource.status === 'ready' && programme.resource.data.refundPolicy === null;
   const policyNote = (
-    <p className="muted" role="note" data-code="owner.decision">
+    <p className="lt-muted" role="note" data-code="owner.decision">
       <Text k="market.refund.policy.is.not.set" /> <code lang="zxx">owner.decision</code>
     </p>
   );
   const validPrice = decimalSchema.safeParse(price).success && parseAmount(price) > 0n;
   const validPeriod = /^[1-9]\d*$/.test(period) && Number.isSafeInteger(Number(period));
   return (
-    <div className="more-grid">
-      <SubNav
-        aria-label={copyText('market.catalogue')}
-        active={strategy ? 'strategy' : mine ? 'mine' : 'catalogue'}
-        className="px-0"
+    <div className="lt-stack">
+      <Tabs
+        label={copyText('market.catalogue')}
+        current={strategy ? '/market/strategy' : mine ? '/market/mine' : '/market'}
         items={[
-          { id: 'catalogue', label: copyText('market.catalogue'), href: '/market' },
-          { id: 'mine', label: copyText('market.my.listings'), href: '/market/mine' },
-          { id: 'strategy', label: copyText('market.publish.a.strategy.subscription'), href: '/market/strategy' },
+          { label: copyText('market.catalogue'), href: '/market' },
+          { label: copyText('market.my.listings'), href: '/market/mine' },
+          { label: copyText('market.publish.a.strategy.subscription'), href: '/market/strategy' },
         ]}
       />
       <Read resource={programme.resource} retry={programme.reload}>
         {(p) => (
-          <p className="muted">
+          <p className="lt-muted">
             {p.commissionConfigured && p.commissionBps !== null
-              ? copyText('market.published.house.commission.basis.points.charged.to', { value1: p.commissionBps })
+              ? copyText('market.published.house.commission.basis.points.charged.to', { value1: formatBpsPercent(p.commissionBps) })
               : copyText('market.the.house.commission.is.unpublished.the.service')}
           </p>
         )}
@@ -333,7 +237,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
         {mine || strategy ? null : (
           <div className="depth-filters">
             <CategorySelect value={category} onChange={setCategory} allLabel={marketListingCopy.t('categoryAll')} />
-            <p className="muted">{marketListingCopy.t('categoryNote')}</p>
+            <p className="lt-muted">{marketListingCopy.t('categoryNote')}</p>
           </div>
         )}
         <Read
@@ -345,6 +249,22 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               : category
                 ? marketListingCopy.t('categoryEmpty')
                 : copyText('market.no.listings.are.available')
+          }
+          first={
+            strategy || category
+              ? undefined
+              : {
+                  icon: <Store size={24} />,
+                  body: mine ? marketListingCopy.t('firstMineBody') : marketListingCopy.t('firstBody'),
+                  points: mine
+                    ? undefined
+                    : [
+                        marketListingCopy.t('firstPointOneTime'),
+                        marketListingCopy.t('firstPointSubscriptions'),
+                        marketListingCopy.t('firstPointSellers'),
+                      ],
+                  action: { label: marketListingCopy.t('firstAction'), href: '/market/strategy' },
+                }
           }
         >
           {(allRows) => {
@@ -365,11 +285,11 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       }}
                     >
                       <div className="market-catalogue-price">
-                        <span className="muted">
+                        <span className="lt-muted">
                           <Text k="market.price" />
                         </span>
                         <div role="group" aria-label={copyText('market.price')}>
-                          <strong className="numeric" lang="zxx">
+                          <strong className="lt-num" lang="zxx">
                             {displayAmount(detail.price)}
                           </strong>{' '}
                           <span lang="zxx">{detail.assetId}</span>
@@ -437,13 +357,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       </div>
                       <div className="market-catalogue-decision">
                         <div className="market-catalogue-price">
-                          <span className="muted">
+                          <span className="lt-muted">
                             <Text k="market.price" />
                           </span>
                           <MarketPrice price={row.price} assetId={row.assetId} />
                         </div>
                         <div className="market-catalogue-access">
-                          <span className="muted">
+                          <span className="lt-muted">
                             <Text k="market.access" />
                           </span>
                           <p>
@@ -452,7 +372,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                               : copyText('market.one.time.purchase')}
                           </p>
                           {row.offerType === 'subscription' && (
-                            <p className="muted">
+                            <p className="lt-muted">
                               <Text k="market.automatic.recurring.charges.are.not.built" />
                             </p>
                           )}
@@ -653,7 +573,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
             </Panel>
           </div>
           <Panel title={strategy ? copyText('market.publish.a.strategy.subscription') : copyText('market.create.a.listing')}>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="market.approval.and.stake.capacity.are.enforced.by" />
             </p>
             <form
@@ -673,7 +593,12 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                         [copyText('market.title'), <span lang="und">{title}</span>],
                         [copyText('market.description'), <span lang="und">{description}</span>],
                         [copyText('market.price'), <MarketPrice price={price} assetId={asset} />],
-                        [copyText('market.offer'), strategy ? copyText('market.strategy.subscription') : <span lang="zxx">{offer}</span>],
+                        [
+                          copyText('market.offer'),
+                          strategy || offer === 'subscription'
+                            ? copyText('market.strategy.subscription')
+                            : copyText('market.one.time.purchase'),
+                        ],
                         [
                           copyText('market.period'),
                           offer === 'subscription' || strategy
@@ -716,7 +641,15 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
               <Field label={copyText('market.listing.title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
               <TextArea label={copyText('market.listing.description')} value={description} onChange={setDescription} maxLength={4000} />
               {!strategy && (
-                <Select label={copyText('market.offer.type')} value={offer} onChange={setOffer} options={['one_time', 'subscription']} />
+                <Select
+                  label={copyText('market.offer.type')}
+                  value={offer}
+                  onChange={setOffer}
+                  options={[
+                    { value: 'one_time', label: copyText('market.one.time.purchase') },
+                    { value: 'subscription', label: copyText('market.strategy.subscription') },
+                  ]}
+                />
               )}
               {!strategy && offer === 'one_time' && (
                 <CategorySelect value={newCategory} onChange={setNewCategory} allLabel={marketListingCopy.t('categoryNone')} />
@@ -750,7 +683,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       )}
       {(mine || strategy) && (
         <Panel title={copyText('market.refund.requests')}>
-          <p className="muted">
+          <p className="lt-muted">
             <Text k="market.refund.requests.meaning" />
           </p>
           {policyUnset && policyNote}
@@ -833,12 +766,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                       <Text k="market.this.does.not.issue.a.refund" />
                     </p>
                   ),
-                  run: () =>
-                    api.call(
-                      MARKET_CANCEL_SUBSCRIPTION,
-                      { listingId: row.listingId },
-                      { accept: (result) => result.listingId === row.listingId && result.buyerId === userId },
-                    ),
+                  run: () => cancelMarketSubscription(api, userId, row),
                   done: purchases.reload,
                 })
               }

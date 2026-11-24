@@ -107,7 +107,7 @@ function setValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const input = (label: string) =>
-  [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+  [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
 const button = (name: string) =>
   [...document.querySelectorAll('button')].find((b) => b.textContent === name) as HTMLButtonElement | undefined;
 const click = async (name: string) => act(async () => void button(name)!.click());

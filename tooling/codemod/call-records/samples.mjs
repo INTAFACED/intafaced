@@ -1,19 +1,23 @@
 #!/usr/bin/env node
 // The samples step of the call-records codemod: for each record it wrote (still holding its placeholder samples), an
-// input the record accepts and one it refuses, each found by trying candidates against the record's own built schema.
+// input the record accepts, one it refuses, and for each input check it names one that check alone refuses, each found by
+// trying candidates against the record's own built schema.
 // Run after `pnpm --filter @intafaced/contracts build`; it rewrites the placeholder in the record's source file.
 //
 //   node tooling/codemod/call-records/samples.mjs <record file.ts> ...
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { KEY_MAPS, quietIssue, quietRefineAt } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 // The records' own zod: the one @intafaced/contracts resolves.
 const { z } = await import(pathToFileURL(createRequire(join(REPO, 'packages/contracts/package.json')).resolve('zod')).href);
-// The placeholder index.mjs writes, however prettier wrapped it.
-const PLACEHOLDER = /samples: \[\s*\{ verdict: 'accept', input: \{\} \},\s*\{ verdict: 'refuse', input: 42 \},?\s*\]/;
+// The placeholder index.mjs writes, however prettier wrapped it, with one refused placeholder per input check portable.mjs
+// named (`{ verdict: 'refuse', input: 42, by: 'name' }`).
+const PLACEHOLDER =
+  /samples: \[\s*\{ verdict: 'accept', input: \{\} \},\s*\{ verdict: 'refuse', input: 42 \}(?:,\s*\{ verdict: 'refuse', input: 42, by: '[\w.]+' \})*,?\s*\]/;
 
 const STRINGS = [
   'USDC',
@@ -21,6 +25,9 @@ const STRINGS = [
   'a',
   '1',
   '0',
+  // A self-declaring placeholder ahead of 'abc': a `key` or `token` field sampled 'abc' reads as a committed credential to
+  // the secret scan (tooling/ci/secret-scan.mjs PLACEHOLDER_VALUES), 'sample' says what it is.
+  'sample',
   'abc',
   'ethereum',
   '11111111-1111-4111-8111-111111111111',
@@ -68,7 +75,9 @@ function candidates(schema, depth = 0, key = '') {
       return n === 0 ? [[], [item[0]]] : [Array.from({ length: n }, (_, i) => item[i % item.length])];
     }
     case 'string': {
-      if (schema.format === 'uuid') return ['11111111-1111-4111-8111-111111111111'];
+      // A uuid can't say it is a placeholder, so a credential-named one gets no sample: the secret scan would read the
+      // literal as a committed credential, and its call stays by name (no accepted input) rather than land one.
+      if (schema.format === 'uuid') return CREDENTIAL_KEY.test(key) ? [] : ['11111111-1111-4111-8111-111111111111'];
       if (schema.format === 'date-time') return ['2026-01-01T00:00:00.000Z'];
       if (schema.format === 'date') return ['2026-01-01'];
       if (schema.format === 'email') return ['a@example.com'];
@@ -114,21 +123,131 @@ function candidates(schema, depth = 0, key = '') {
 
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
+/** Values tried where an input check sits: blanks, short and long strings, numbers, absence, and maps of growing size. */
+const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}, ...KEY_MAPS];
+
+/** zod's own words for a custom issue: what a `.refine` written with no message raises. */
+const QUIET = z
+  .unknown()
+  .refine(() => false)
+  .safeParse(0).error.issues[0].message;
+
+/** `v` with the value at `steps` (`.reason`, `[]`) set to `value`, or undefined when the path is not there. */
+function setAt(v, steps, value) {
+  if (!steps.length) return value;
+  const [step, ...rest] = steps;
+  if (step === '[]') {
+    if (!Array.isArray(v) || !v.length) return undefined;
+    const inner = setAt(v[0], rest, value);
+    return inner === undefined && rest.length ? undefined : [inner, ...v.slice(1)];
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  if (rest.length && !(step in v)) return undefined;
+  const inner = rest.length ? setAt(v[step], rest, value) : value;
+  if (inner === undefined && rest.length) return undefined;
+  const out = { ...v };
+  if (inner === undefined) delete out[step];
+  else out[step] = inner;
+  return out;
+}
+
+/** `input.items[].reason` after the root as steps: `['items', '[]', 'reason']`. */
+const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g)].map((m) => m[1] ?? '[]');
+
 /**
- * A Rust door's own accepted input for each call: the `valid` request its wire replay sends (`tests/fixtures/
- * wire-replay.golden.json`), when the operator's answer to it, with the store down, is not a 400. A handler may check
- * its input past the schema (a date range, a slug), so only a request the door itself let through is an accepted sample.
+ * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
+ * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
+ * Tried from every candidate the schema allows, with the value where the check sits replaced. A check that sits on a
+ * `.refine` written with no message (a door's, named by the door: door-refine.mjs) raises zod's own words, and is known
+ * by them at the very place the value was tried.
  */
-function doorAccepts(crateDir) {
-  const golden = JSON.parse(readFileSync(join(REPO, crateDir, 'tests/fixtures/wire-replay.golden.json'), 'utf8'));
-  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
+function checkRefusals(record, bases) {
+  const out = [];
+  for (const [name, check] of Object.entries(record.checks ?? {})) {
+    const says = new Set(check.says.split('; '));
+    const alone = (v, steps) => {
+      const quiet = quietRefineAt(record.input, steps);
+      const r = record.input.safeParse(v);
+      return (
+        !r.success && r.error.issues.every((i) => i.code === 'custom' && (says.has(i.message) || (quiet && quietIssue(i, steps, QUIET))))
+      );
+    };
+    let found;
+    for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
+      const steps = stepsOf(at);
+      const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
+      found = tries.find((v) => v !== undefined && alone(v, steps));
+      if (found !== undefined) break;
+    }
+    if (found === undefined)
+      throw new Error(`${record.name}: no input found that input check ${name} alone refuses; write its samples by hand`);
+    out.push(`{ verdict: 'refuse', by: '${name}', input: ${JSON.stringify(found)} }`);
+  }
+  return out;
+}
+
+/**
+ * A Rust door's own accepted input for each call: the `valid` request its wire replay sends, when the door let it through.
+ * A handler may check its input past the schema (a date range, a slug), so only a request the door itself let through is
+ * an accepted sample. Two recordings: svc-academy's one file (`tests/fixtures/wire-replay.golden.json`), read by the
+ * operator's answer with the store down, not a 400; svc-agents' directory of parts (`tests/fixtures/
+ * wire-replay.golden/*.json`), where some caller's answer to it is past the door's checks: not a 400, 401 or 403; and
+ * svc-bank's parts, each with its `bodies`, which send each call six inputs (`bankAccepted`).
+ */
+export function doorAccepts(crateDir) {
+  const dir = join(REPO, crateDir, 'tests/fixtures/wire-replay.golden');
   const out = new Map();
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir)
+      .filter((x) => x.endsWith('.json'))
+      .sort()) {
+      const part = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      if (part.bodies) {
+        for (const [path, byInput] of Object.entries(part.answers ?? {})) {
+          const valid = bankAccepted(part.inputs?.[path], byInput);
+          if (valid !== NONE) out.set(path, valid);
+        }
+        continue;
+      }
+      for (const [path, valid] of Object.entries(part.inputs ?? {})) {
+        const answers = Object.entries(part.answers ?? {}).filter(([k]) => k.startsWith(`${path} valid `));
+        if (answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
+      }
+    }
+    return out;
+  }
+  const golden = JSON.parse(readFileSync(`${dir}.json`, 'utf8'));
+  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
   for (const c of golden.calls) {
     const answer = golden.answers[c.path]?.['store-down valid'];
     const body = answer === undefined ? undefined : golden.bodies[answer[operator]];
     if (body !== undefined && !body.startsWith('400 ')) out.set(c.path, c.valid);
   }
   return out;
+}
+
+const NONE = Symbol('none');
+/**
+ * svc-bank's recording (`crates/svc-bank/tests/wire_replay.rs`): each call is sent absent, null, a wrong type, `{}`, the
+ * schema's sample and the sample with every field null (the last two as JSON text in `inputs[path]`), and
+ * `answers[path]['<input> <caller>']` is `[status, body]`. The first of the sample, `{}`, absent and the sample with nulls
+ * that some caller's answer is past the door's checks (not a 400, 401 or 403), or NONE.
+ */
+export function bankAccepted(inputs, byInput) {
+  const sent = [
+    ['sample', inputs?.sample],
+    ['empty', '{}'],
+    ['absent', undefined],
+    ['sample-nulls', inputs?.['sample-nulls']],
+  ];
+  for (const [name, text] of sent) {
+    if (name.startsWith('sample') && typeof text !== 'string') continue;
+    const statuses = Object.entries(byInput ?? {})
+      .filter(([k]) => k.startsWith(`${name} `))
+      .map(([, a]) => a[0]);
+    if (statuses.some((st) => ![400, 401, 403].includes(st))) return text === undefined ? undefined : JSON.parse(text);
+  }
+  return NONE;
 }
 
 export function samplesFor(record, doorValid) {
@@ -155,7 +274,8 @@ export function samplesFor(record, doorValid) {
   if (accept === undefined && (doorValid || !ok(undefined)))
     throw new Error(`${record.name}: no accepted input found${doorValid ? ' the door lets through' : ''}; write its samples by hand`);
   const a = accept === undefined ? "{ verdict: 'accept' }" : `{ verdict: 'accept', input: ${JSON.stringify(accept)} }`;
-  return `[${a}, { verdict: 'refuse', input: ${JSON.stringify(refuse)} }]`;
+  const byCheck = checkRefusals(record, [...(accept === undefined ? [] : [accept]), ...tries.filter((v) => v !== undefined)]);
+  return `[${[a, `{ verdict: 'refuse', input: ${JSON.stringify(refuse)} }`, ...byCheck].join(', ')}]`;
 }
 
 async function main() {

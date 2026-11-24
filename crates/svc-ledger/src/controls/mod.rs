@@ -24,7 +24,7 @@ use crate::db::{Store, StoreError};
 use crate::door;
 use judge::{Drift, Evidence, Status, Threshold, Tolerance, Totals};
 use schedule::{Bounds, Period, Schedule};
-use sources::{OpenItem, OpenItemsRead, SnapshotRead, Sources};
+use sources::{OpenItem, OpenItemsRead, ReportRead, SnapshotRead, Sources};
 
 pub const POLICY_UNSET: &str = "ops.control_policy_unset";
 pub const MARGIN_UNSET: &str = "ops.control_margin_unset";
@@ -38,6 +38,7 @@ pub const CONTROL_NOT_FOUND: &str = "ledger.reconcile_control_not_found";
 pub const RAIL_SOURCE_UNSET: &str = "ledger.reconcile_rail_source_unset";
 pub const ITEMS_NOW_ONLY: &str = "ledger.reconcile_items_now_only";
 pub const ITEMS_MOVED: &str = "ledger.reconcile_items_moved";
+pub const NOT_REPORTED: &str = "ledger.reconcile_not_reported";
 pub const IDEMPOTENCY_CONFLICT: &str = "ledger.idempotency_conflict";
 
 /// `RECONCILIATION_RUN_LIST_DEFAULT`: how many runs a list returns when it names no limit.
@@ -907,6 +908,9 @@ pub fn run_fields(row: &RunRow) -> Json {
         Some(Json::String(s)) if s.is_empty() => {}
         Some(items) => run.push(("reconcilingItems".to_owned(), items.clone())),
     }
+    if let Some(reports @ Json::Array(_)) = row.evidence.get("reports") {
+        run.push(("reports".to_owned(), reports.clone()));
+    }
     Json::Object(run)
 }
 
@@ -988,6 +992,35 @@ fn like_prefix(prefix: &str) -> String {
     out
 }
 
+/// `RECONCILIATION_REPORT_ACCOUNTS`: the owner id prefixes of the ledger's own records each reporter answers for.
+pub fn report_prefixes(reporter: &str) -> &'static [&'static str] {
+    match reporter {
+        "venue" => &["venue-builder-fee:", "venue-builder-account:"],
+        "partner" => &["partner-reserve:", "partner-fee-receivable:"],
+        _ => &[],
+    }
+}
+
+/// Each account's owner id, for a run over `reports` that splits its book by reporter.
+fn owners_of(c: &mut impl GenericClient, ids: &[String]) -> Result<Vec<(String, String)>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    c.query(
+        "SELECT id::text, owner_id FROM accounts WHERE id = ANY($1::text[]::uuid[])",
+        &[&ids],
+    )
+    .map_err(|e| e.to_string())?
+    .iter()
+    .map(|r| {
+        Ok((
+            r.try_get(0).map_err(|e| e.to_string())?,
+            r.try_get(1).map_err(|e| e.to_string())?,
+        ))
+    })
+    .collect()
+}
+
 /// `accountsInSet(sql, accountSet, readAt)`: each account's id and asset.
 fn accounts_in_set(
     c: &mut impl GenericClient,
@@ -1019,6 +1052,23 @@ fn accounts_in_set(
         _ => {
             let mut sql = head;
             let mut params: Vec<String> = vec![read_at.to_owned()];
+            if let Some(reports) = set.get("reports") {
+                params.push("treasury".to_owned());
+                let owner_type = params.len();
+                let mut owners = Vec::new();
+                for reporter in crate::env::REPORTERS {
+                    if let Some(place) = text(reports, reporter) {
+                        for prefix in report_prefixes(reporter) {
+                            params.push(format!("{prefix}{place}"));
+                            owners.push(format!("${}", params.len()));
+                        }
+                    }
+                }
+                sql.push_str(&format!(
+                    " AND owner_type = ${owner_type}::text::owner_type AND owner_id IN ({})",
+                    owners.join(", ")
+                ));
+            }
             let mut bind = |sql: &mut String, clause: &str, value: String| {
                 params.push(value);
                 sql.push_str(&clause.replace("$?", &format!("${}", params.len())));
@@ -1068,7 +1118,7 @@ fn accounts_in_set(
 type Amounts = Vec<(String, Amount)>;
 
 fn amounts(rows: &[postgres::Row], ids: &[String]) -> Result<Amounts, String> {
-    let mut out: Amounts = ids.iter().map(|id| (id.clone(), 0)).collect();
+    let mut out: Amounts = ids.iter().map(|id| (id.clone(), Amount::ZERO)).collect();
     for r in rows {
         let id: String = r.try_get(0).map_err(|e| e.to_string())?;
         let v: String = r.try_get(1).map_err(|e| e.to_string())?;
@@ -1144,6 +1194,8 @@ fn replayed_at(
 /// What a run read (`Book`).
 struct Book {
     accounts: Vec<(String, String)>,
+    /// Each account's owner id: read only for a set over `reports`.
+    owners: Vec<(String, String)>,
     account_ids: Vec<String>,
     balances: Amounts,
     replayed: Amounts,
@@ -1173,6 +1225,7 @@ fn read_book_on(
     if !with_balances {
         return Ok(Book {
             accounts,
+            owners: Vec::new(),
             account_ids,
             balances: Vec::new(),
             replayed: Vec::new(),
@@ -1184,6 +1237,11 @@ fn read_book_on(
         account_ids: ids.to_vec(),
     };
     let balances = balances_at(c, &account_ids, read_at).map_err(|_| ledger(&account_ids))?;
+    let owners = if set.get("reports").is_some() {
+        owners_of(c, &account_ids).map_err(|_| ledger(&account_ids))?
+    } else {
+        Vec::new()
+    };
     let replayed = if replays {
         replayed_at(c, &account_ids, Some(read_at)).map_err(|_| ledger(&account_ids))?
     } else {
@@ -1199,6 +1257,7 @@ fn read_book_on(
     };
     Ok(Book {
         accounts,
+        owners,
         account_ids,
         balances,
         replayed,
@@ -1264,6 +1323,8 @@ pub struct Verdict {
     pub outside_side: &'static str,
     pub sources: Json,
     pub reconciling_items: Option<Vec<Json>>,
+    /// A run over `reports`: each reporter's side (`reconciliationReportSideSchema`).
+    pub reports: Option<Vec<Json>>,
 }
 
 fn sources_json(ledger: &str, outside: &str, parity: &str) -> Json {
@@ -1292,6 +1353,7 @@ fn verdict(
         outside_side,
         sources,
         reconciling_items: None,
+        reports: None,
     }
 }
 
@@ -1389,11 +1451,18 @@ fn evaluate(
 }
 
 fn amount_of(list: &Amounts) -> impl Fn(&str) -> Amount + '_ {
-    move |id| list.iter().find(|(k, _)| k == id).map_or(0, |(_, v)| *v)
+    move |id| {
+        list.iter()
+            .find(|(k, _)| k == id)
+            .map_or(Amount::ZERO, |(_, v)| *v)
+    }
 }
 
 fn zeros(totals: &Totals) -> Totals {
-    totals.iter().map(|(a, _)| (a.clone(), 0)).collect()
+    totals
+        .iter()
+        .map(|(a, _)| (a.clone(), Amount::ZERO))
+        .collect()
 }
 
 #[expect(
@@ -1593,6 +1662,9 @@ fn judge(
     }
 
     let outside_template = row.template == "outside_balance";
+    if outside_template && set.get("reports").is_some() {
+        return judge_reports(set, book, &ledger_totals, read_at_ms, sources, tolerance);
+    }
     // A control over one rail's boundary reads that rail's statement only.
     let rail = if text(set, "mode").as_deref() == Some("query") {
         text(set, "rail")
@@ -1777,6 +1849,159 @@ fn judge(
     })
 }
 
+/// Each asset the ledger holds, with no outside figure to judge it against: an unset side, never a zero.
+fn unset_rows(totals: &Totals, tolerance: Option<&Tolerance>) -> Result<Vec<Evidence>, String> {
+    let mut sorted: Vec<&(String, Amount)> = totals.iter().collect();
+    sorted.sort_by(|a, b| judge::locale_compare(&a.0, &b.0));
+    sorted
+        .into_iter()
+        .map(|(asset, amount)| {
+            Ok(Evidence {
+                asset_id: asset.clone(),
+                observed: Some(*amount),
+                expected: None,
+                difference: None,
+                tolerance: Tolerance::for_asset(tolerance, asset)?,
+                reconciling_items: None,
+                residual: None,
+                missing: None,
+            })
+        })
+        .collect()
+}
+
+/// A control over `reports`: the ledger's own records at each named place against that reporter's own report for the
+/// same instant, each with its as-of. A reporter with no report published by then is `not_reported` and one with no
+/// address `unset`: either leaves the run UNSET, never a match. A report that cannot be read is ERROR. Each reporter is
+/// judged on its own accounts, and the per-asset rows on the sums, so a break at one place never cancels another's.
+fn judge_reports(
+    set: &Json,
+    book: &Book,
+    ledger_totals: &Totals,
+    read_at_ms: i64,
+    sources: &dyn Sources,
+    tolerance: Option<&Tolerance>,
+) -> Result<Verdict, String> {
+    let read_at = iso(read_at_ms);
+    let reports = set.get("reports").cloned().unwrap_or(Json::Null);
+    let only_asset = text(set, "assetId");
+    let mut sides: Vec<Json> = Vec::new();
+    let mut each: Vec<Evidence> = Vec::new();
+    let mut expected: Totals = Vec::new();
+    let mut not_reported = false;
+    let mut unset = false;
+    for reporter in crate::env::REPORTERS {
+        let Some(place) = text(&reports, reporter) else {
+            continue;
+        };
+        let owners: Vec<String> = report_prefixes(reporter)
+            .iter()
+            .map(|p| format!("{p}{place}"))
+            .collect();
+        let accounts: Vec<(String, String)> = book
+            .accounts
+            .iter()
+            .filter(|(id, _)| {
+                book.owners
+                    .iter()
+                    .any(|(i, o)| i == id && owners.contains(o))
+            })
+            .cloned()
+            .collect();
+        let ledger = judge::sum_by_asset(&accounts, &amount_of(&book.balances))?;
+        let (as_of, rows) = match sources.report(read_at_ms, reporter, &place) {
+            ReportRead::Unavailable => {
+                return Ok(verdict(
+                    Status::Error,
+                    "outside",
+                    SOURCE_UNAVAILABLE,
+                    Vec::new(),
+                    "unavailable",
+                    sources_json(&read_at, "unset", "unset"),
+                ));
+            }
+            ReportRead::Unset => {
+                unset = true;
+                ("unset".to_owned(), unset_rows(&ledger, tolerance)?)
+            }
+            ReportRead::NotReported => {
+                not_reported = true;
+                ("not_reported".to_owned(), unset_rows(&ledger, tolerance)?)
+            }
+            ReportRead::Reported { as_of, balances } => {
+                let mut figures: Totals = Vec::new();
+                for (asset, amount) in &balances {
+                    if only_asset.as_ref().is_none_or(|o| o == asset) {
+                        let v = parse_amount(amount)?;
+                        match figures.iter_mut().find(|(a, _)| a == asset) {
+                            Some((_, slot)) => *slot = v,
+                            None => figures.push((asset.clone(), v)),
+                        }
+                        match expected.iter_mut().find(|(a, _)| a == asset) {
+                            Some((_, slot)) => {
+                                *slot = slot.checked_add(v).ok_or_else(|| {
+                                    "a reconciliation figure does not fit the ledger's arithmetic"
+                                        .to_owned()
+                                })?;
+                            }
+                            None => expected.push((asset.clone(), v)),
+                        }
+                    }
+                }
+                let rows = judge::equal_assets(&ledger, &figures, tolerance, false, false)?;
+                (as_of, rows)
+            }
+        };
+        sides.push(Json::obj([
+            ("reporter", Json::str(reporter)),
+            ("place", Json::str(place)),
+            ("asOf", Json::str(as_of)),
+            (
+                "assets",
+                Json::Array(rows.iter().map(Evidence::json).collect()),
+            ),
+        ]));
+        each.extend(rows);
+    }
+    let sources_seen = sources_json(&read_at, "unset", "unset");
+    if unset || not_reported {
+        return Ok(Verdict {
+            reports: Some(sides),
+            ..verdict(
+                Status::Unset,
+                "outside",
+                if not_reported { NOT_REPORTED } else { "" },
+                unset_rows(ledger_totals, tolerance)?,
+                "unset",
+                sources_seen,
+            )
+        });
+    }
+    let assets = judge::equal_assets(ledger_totals, &expected, tolerance, false, false)?;
+    let judged: Vec<Evidence> = assets.iter().chain(each.iter()).cloned().collect();
+    // A reporter's rows only split the run's own: a break in either fails the run.
+    let status = judge::fold_assets(&judged, false)?;
+    Ok(Verdict {
+        reports: Some(sides),
+        ..verdict(
+            status,
+            match status {
+                Status::Fail => "outside",
+                Status::Error => "tolerance",
+                _ => "",
+            },
+            if status == Status::Error {
+                POLICY_UNSET
+            } else {
+                ""
+            },
+            assets,
+            "snapshot",
+            sources_seen,
+        )
+    })
+}
+
 // ── a run's row ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 /// `finishRun`: a started row is the only one a later pass may finish; a terminal row is returned as stored.
@@ -1800,6 +2025,9 @@ fn finish_run(
     ];
     if let Some(items) = &v.reconciling_items {
         evidence.push(("reconcilingItems".to_owned(), Json::Array(items.clone())));
+    }
+    if let Some(reports) = &v.reports {
+        evidence.push(("reports".to_owned(), Json::Array(reports.clone())));
     }
     let evidence = Json::Object(evidence).compact();
     client(store, |c| {

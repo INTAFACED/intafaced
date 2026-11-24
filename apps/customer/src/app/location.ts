@@ -1,6 +1,13 @@
 import { useSyncExternalStore } from 'react';
+import { betaShownHref } from './beta-volt';
+import { betaHidden } from './feature-registry';
 
-export function navigate(path: string, replace = false) {
+/**
+ * Every move the app makes in code goes through here or leaveTo(), never history.pushState or location.assign directly
+ * (beta-nav.test.ts): in the beta's build a target the beta hides becomes its nearest shown room (betaShownHref).
+ */
+export function navigate(to: string, replace = false) {
+  const path = betaShownHref(to, undefined, betaHidden);
   if (replace) history.replaceState(null, '', path);
   else history.pushState(null, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
@@ -27,4 +34,9 @@ export function currentReturnLocation() {
 }
 export function useReturnLocation() {
   return useSyncExternalStore(subscribeReturnLocation, currentReturnLocation);
+}
+
+/** A full page load to `href` (another site, or an app page that must load afresh), with navigate()'s beta rule for app paths. */
+export function leaveTo(href: string) {
+  location.assign(betaShownHref(href, undefined, betaHidden));
 }

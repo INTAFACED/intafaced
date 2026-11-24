@@ -63,20 +63,20 @@ export function ConfirmEmail() {
       {done ? (
         <p role="status">
           {t('doneBody')}{' '}
-          <a className="text-link" href="/uc/account">
+          <a className="lt-link" href="/uc/account">
             {t('toAccount')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t(`${dead}Body`)}</p>
-          <a className="text-link" href="/uc/account">
+          <a className="lt-link" href="/uc/account">
             {t('toAccount')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           <Button onClick={() => void confirm()} disabled={busy}>
             {busy ? t('confirming') : t('confirm')}
           </Button>

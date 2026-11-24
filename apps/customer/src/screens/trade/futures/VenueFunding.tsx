@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { DataTable } from '../../../shared/ui';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import type { VenueFundingPayment, VenueMarket } from '../../../features/trade/venue-api';
@@ -25,13 +24,13 @@ export function VenueFunding({ market, owner, venueName, test }: { market: Venue
   const read = usePolled((signal) => venue.fundingPayments(owner, since, signal), `funding:${owner}`, VENUE_POLL_MS);
   const payments = read.data?.value ?? null;
   return (
-    <div className="form-stack" data-testid="venue-funding-tab">
+    <div className="lt-stack" data-testid="venue-funding-tab">
       <FundingNow market={market} test={test} />
       <section aria-label={t('Payments title')} data-testid="venue-funding-payments">
-        <h3 className="dk-tab-title">
+        <h3 className="lt-panel-title">
           {t('Payments title')} <TestMark test={test} />
         </h3>
-        <p className="muted">{t('Payments note', { venue: venueName })}</p>
+        <p className="lt-quiet">{t('Payments note', { venue: venueName })}</p>
         {payments === null ? null : payments.length === 0 ? (
           <p data-testid="venue-funding-none">{t('Payments none')}</p>
         ) : (
@@ -50,14 +49,14 @@ function FundingNow({ market, test }: { market: VenueMarket; test: boolean }) {
   const left = funding ? countdown(funding.nextFundingAt, Date.now()) : null;
   return (
     <section aria-label={t('Funding title', { symbol: market.symbol })} data-testid="venue-funding-now">
-      <h3 className="dk-tab-title">
+      <h3 className="lt-panel-title">
         {t('Funding title', { symbol: market.symbol })} <TestMark test={test} />
       </h3>
       {funding ? (
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('Rate now')}</dt>
-            <dd className="numeric" data-line="rate" data-value={funding.rate}>
+            <dd className="lt-num" data-line="rate" data-value={funding.rate}>
               {t('Rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
             </dd>
           </div>
@@ -71,31 +70,31 @@ function FundingNow({ market, test }: { market: VenueMarket; test: boolean }) {
             <>
               <div>
                 <dt>{t('Premium')}</dt>
-                <dd className="numeric" data-line="premium" data-value={inputs.premium}>
+                <dd className="lt-num" data-line="premium" data-value={inputs.premium}>
                   {percentOf(inputs.premium)}%
                 </dd>
               </div>
               <div>
                 <dt>{t('Interest')}</dt>
-                <dd className="numeric" data-line="interest" data-value={inputs.interestRate}>
+                <dd className="lt-num" data-line="interest" data-value={inputs.interestRate}>
                   {percentOf(inputs.interestRate)}%
                 </dd>
               </div>
               <div>
                 <dt>{t('Cap')}</dt>
-                <dd className="numeric" data-line="cap" data-value={inputs.rateCap}>
+                <dd className="lt-num" data-line="cap" data-value={inputs.rateCap}>
                   {t('Cap value', { percent: percentOf(inputs.rateCap) })}
                 </dd>
               </div>
               <div>
                 <dt>{t('Built from mark')}</dt>
-                <dd className="numeric" data-line="mark" data-value={inputs.markPrice}>
+                <dd className="lt-num" data-line="mark" data-value={inputs.markPrice}>
                   {inputs.markPrice}
                 </dd>
               </div>
               <div>
                 <dt>{t('Built from index')}</dt>
-                <dd className="numeric" data-line="index" data-value={inputs.indexPrice}>
+                <dd className="lt-num" data-line="index" data-value={inputs.indexPrice}>
                   {inputs.indexPrice}
                 </dd>
               </div>
@@ -120,40 +119,44 @@ const unsigned = (amount: string) => (amount.startsWith('-') ? amount.slice(1) :
 function Payments({ payments }: { payments: readonly VenueFundingPayment[] }) {
   const { t } = venueFundingCopy.useCopy();
   return (
-    <DataTable
-      label={t('Payments title')}
-      headers={[
-        t('Payment market'),
-        t('Payment period'),
-        t('Payment position'),
-        t('Payment mark'),
-        t('Payment rate'),
-        t('Payment direction'),
-        t('Payment amount'),
-      ]}
-    >
-      {[...payments].reverse().map((p) => (
-        <tr key={p.paymentId} data-payment={p.paymentId} data-symbol={p.symbol} data-period={p.periodAt} data-amount={p.amount}>
-          <td>{p.symbol}</td>
-          <td data-cell="period">
-            <time dateTime={p.periodAt}>{p.periodAt}</time>
-          </td>
-          <td className="numeric" data-cell="position">
-            {t('Position value', { side: t(`side_${p.side}`), size: p.size })}
-          </td>
-          <td className="numeric" data-cell="mark">
-            {p.markPrice}
-          </td>
-          <td className="numeric" data-cell="rate">
-            {percentOf(p.rate)}%
-          </td>
-          <td data-cell="direction">{parseAmount(p.amount) < 0n ? t('paid') : t('received')}</td>
-          <td className="numeric" data-cell="amount">
-            {t('Amount value', { amount: unsigned(p.amount), asset: p.asset })}
-          </td>
-        </tr>
-      ))}
-    </DataTable>
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Payments title')}>
+      <table className="lt-table lt-table-dense">
+        <thead>
+          <tr>
+            <th scope="col">{t('Payment market')}</th>
+            <th scope="col">{t('Payment period')}</th>
+            <th scope="col">{t('Payment position')}</th>
+            <th scope="col">{t('Payment mark')}</th>
+            <th scope="col">{t('Payment rate')}</th>
+            <th scope="col">{t('Payment direction')}</th>
+            <th scope="col">{t('Payment amount')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...payments].reverse().map((p) => (
+            <tr key={p.paymentId} data-payment={p.paymentId} data-symbol={p.symbol} data-period={p.periodAt} data-amount={p.amount}>
+              <td>{p.symbol}</td>
+              <td data-cell="period">
+                <time dateTime={p.periodAt}>{p.periodAt}</time>
+              </td>
+              <td className="lt-num" data-cell="position">
+                {t('Position value', { side: t(`side_${p.side}`), size: p.size })}
+              </td>
+              <td className="lt-num" data-cell="mark">
+                {p.markPrice}
+              </td>
+              <td className="lt-num" data-cell="rate">
+                {percentOf(p.rate)}%
+              </td>
+              <td data-cell="direction">{parseAmount(p.amount) < 0n ? t('paid') : t('received')}</td>
+              <td className="lt-num" data-cell="amount">
+                {t('Amount value', { amount: unsigned(p.amount), asset: p.asset })}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -169,43 +172,55 @@ function Statement({ payments, venueName, test }: { payments: readonly VenueFund
   for (const p of payments) totals.set(p.asset, (totals.get(p.asset) ?? 0n) + parseAmount(p.amount));
   return (
     <section aria-label={t('Statement title')} data-testid="venue-funding-statement">
-      <h3 className="dk-tab-title">
+      <h3 className="lt-panel-title">
         {t('Statement title')} <TestMark test={test} />
       </h3>
-      <p className="muted">{t('Statement note', { venue: venueName })}</p>
+      <p className="lt-quiet">{t('Statement note', { venue: venueName })}</p>
       {[...positions.entries()].map(([key, rows]) => {
         const first = rows[0]!;
         const sum = rows.reduce((total, r) => total + parseAmount(r.amount), 0n);
         return (
-          <DataTable
+          <div
             key={key}
-            label={t('Statement position', { symbol: first.symbol, side: t(`side_${first.side}`) })}
-            headers={[t('Payment period'), t('Payment amount')]}
+            className="lt-table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label={t('Statement position', { symbol: first.symbol, side: t(`side_${first.side}`) })}
           >
-            {rows.map((r) => (
-              <tr key={r.paymentId} data-statement-period={r.periodAt} data-position={key}>
-                <td>
-                  <time dateTime={r.periodAt}>{r.periodAt}</time>
-                </td>
-                <td className="numeric" data-cell="amount">
-                  {t('Amount value', { amount: r.amount, asset: r.asset })}
-                </td>
-              </tr>
-            ))}
-            <tr data-position-total={key}>
-              <th scope="row">{t('Statement position total')}</th>
-              <td className="numeric" data-cell="amount">
-                {t('Amount value', { amount: formatAmount(sum), asset: first.asset })}
-              </td>
-            </tr>
-          </DataTable>
+            <table className="lt-table lt-table-dense">
+              <thead>
+                <tr>
+                  <th scope="col">{t('Payment period')}</th>
+                  <th scope="col">{t('Payment amount')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.paymentId} data-statement-period={r.periodAt} data-position={key}>
+                    <td>
+                      <time dateTime={r.periodAt}>{r.periodAt}</time>
+                    </td>
+                    <td className="lt-num" data-cell="amount">
+                      {t('Amount value', { amount: r.amount, asset: r.asset })}
+                    </td>
+                  </tr>
+                ))}
+                <tr data-position-total={key}>
+                  <th scope="row">{t('Statement position total')}</th>
+                  <td className="lt-num" data-cell="amount">
+                    {t('Amount value', { amount: formatAmount(sum), asset: first.asset })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         );
       })}
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         {[...totals.entries()].map(([asset, total]) => (
           <div key={asset}>
             <dt>{t('Statement total')}</dt>
-            <dd className="numeric" data-testid="venue-funding-total" data-asset={asset} data-value={formatAmount(total)}>
+            <dd className="lt-num" data-testid="venue-funding-total" data-asset={asset} data-value={formatAmount(total)}>
               {t('Amount value', { amount: formatAmount(total), asset })}
             </dd>
           </div>

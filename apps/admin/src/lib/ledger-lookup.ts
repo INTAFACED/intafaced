@@ -52,6 +52,10 @@ export interface LedgerTransaction {
   readonly previousHash: string | null;
   readonly booking: LedgerBooking;
   readonly postings: readonly LedgerPosting[];
+  /** The operator reversal that reversed this transaction, or null (OPS-ledger-desk-02: a transaction is reversed once). */
+  readonly reversedBy: string | null;
+  /** When this transaction is an operator reversal: the transaction it reverses; otherwise null. */
+  readonly reverses: string | null;
 }
 
 export type LedgerLookupAnswer =
@@ -108,6 +112,12 @@ function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
   if (t.previousHash !== null && !str(t.previousHash)) return null;
   const booking = parseBooking(t.booking);
   if (!booking) return null;
+  // A ledger from before the reversal links answers neither field: read as no link. Present, each is an id or null.
+  const link = (value: unknown): string | null | undefined =>
+    value === undefined || value === null ? null : typeof value === 'string' && LOOKUP_TX_ID.test(value) ? value.toLowerCase() : undefined;
+  const reversedBy = link(t.reversedBy);
+  const reverses = link(t.reverses);
+  if (reversedBy === undefined || reverses === undefined) return null;
   if (!Array.isArray(t.postings) || t.postings.length === 0) return null;
   const postings = t.postings.map(parsePosting);
   if (postings.some((p) => p === null)) return null;
@@ -121,6 +131,8 @@ function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
     previousHash: t.previousHash,
     booking,
     postings: postings as LedgerPosting[],
+    reversedBy,
+    reverses,
   };
 }
 

@@ -6,6 +6,9 @@
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import { DateOrInput } from './date-input.js';
+import type { DataMarks } from './b2-table.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
@@ -55,17 +58,38 @@ export function Surface({
 }
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. */
-  tone?: 'primary' | 'secondary' | 'quiet';
-  size?: 'md' | 'lg';
+  /**
+   * primary: the metal pill, one per view. secondary: the dark pill. quiet: text only. up and down: a desk's Buy and
+   * Sell, in the market's gain and loss colours (with their words, never colour alone).
+   */
+  tone?: 'primary' | 'secondary' | 'quiet' | 'up' | 'down';
+  /** sm: a dense desk or table control. */
+  size?: 'sm' | 'md' | 'lg';
   block?: boolean;
+  /** Working: the button stays in focus order, says it is busy and takes no click (no second submit, no second action). */
+  busy?: boolean;
 };
 
-export function Button({ tone = 'secondary', size = 'md', block, className, type = 'button', ...rest }: ButtonProps) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { tone = 'secondary', size = 'md', block, busy = false, className, type = 'button', onClick, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
+      disabled={rest.disabled && !busy}
+      aria-busy={busy || rest['aria-busy'] || undefined}
+      aria-disabled={busy || rest['aria-disabled'] || undefined}
+      onClick={
+        busy
+          ? (event) => {
+              // Busy: no second submit and no second action, while focus stays where it was.
+              event.preventDefault();
+            }
+          : onClick
+      }
       className={clsx('lit-button', className)}
       data-slot="button"
       data-variant={tone === 'quiet' ? 'ghost' : tone}
@@ -74,7 +98,7 @@ export function Button({ tone = 'secondary', size = 'md', block, className, type
       data-block={block || undefined}
     />
   );
-}
+});
 
 export type ActionKeyProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: React.ReactNode; label: string; lit?: boolean };
 
@@ -114,18 +138,33 @@ export function Switch({ checked, onChange, label, className, onClick, ...rest }
 }
 
 export type SegmentedProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
+  /** Each pill's words, and its full name where the words are short (`1D` named "One day", also its tooltip). `disabled`: a choice listed but not open now (the room says why beside it). */
+  options: readonly { value: T; label: string; name?: string; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
   className?: string;
+  /** The row's own marks (`data-testid`), where a room's tests find it. */
+  marks?: DataMarks;
 };
 
-export function Segmented<T extends string>({ options, value, onChange, label, className }: SegmentedProps<T>) {
+/**
+ * One choice that is always made (a chart's range, Buy or Sell, Simple or Pro): a named group of pressed buttons
+ * (`aria-pressed`), one pressed at a time. The arrow keys move focus between them (`arrow-focus.ts`).
+ */
+export function Segmented<T extends string>({ options, value, onChange, label, className, marks }: SegmentedProps<T>) {
   return (
-    <div className={clsx('lit-segmented', className)} role="group" aria-label={label}>
+    <div {...marks} className={clsx('lit-segmented', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {options.map((o) => (
-        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          aria-label={o.name}
+          title={o.name}
+          disabled={o.disabled}
+          onClick={() => onChange(o.value)}
+        >
           {o.label}
         </button>
       ))}
@@ -133,17 +172,73 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
   );
 }
 
-export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string };
+export type ToggleChipsProps<T extends string> = {
+  options: readonly { value: T; label: string }[];
+  /** The chip in force, or null when the filter is off. */
+  value: T | null;
+  onChange: (next: T | null) => void;
+  /** The group's name (`Filter by change`). */
+  label: string;
+  /** Pressing the chip in force again turns the filter off (`onChange(null)`); without it one chip always stays on. */
+  clearable?: boolean;
+  className?: string;
+};
 
-export function Field({ label, hint, error, id, className, ...rest }: FieldProps) {
+/**
+ * A row of filter chips: a named group of pressed buttons (`aria-pressed`), one on at a time, wrapping to a second line
+ * rather than scrolling. Segmented is for a choice that is always made (a range, Buy or Sell); chips filter a list. The
+ * arrow keys move focus between the chips (`arrow-focus.ts`).
+ */
+export function ToggleChips<T extends string>({ options, value, onChange, label, clearable = false, className }: ToggleChipsProps<T>) {
+  return (
+    <div className={clsx('lit-chips', className)} role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          onClick={() => (o.value !== value ? onChange(o.value) : clearable ? onChange(null) : undefined)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  hint?: string;
+  error?: string;
+  /** A mark inside the box before the text (the @ of a handle). Decorative: the label says what the box holds. */
+  before?: React.ReactNode;
+  /** A control inside the box after the text (a Paste key). */
+  after?: React.ReactNode;
+};
+
+export function Field({ label, hint, error, before, after, id, className, ...rest }: FieldProps) {
   const auto = React.useId();
   const inputId = id ?? auto;
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+  const own = { ...rest, id: inputId, 'aria-invalid': error ? true : rest['aria-invalid'], 'aria-describedby': describedBy };
+  const input = <DateOrInput {...own} />;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>
-      <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />
+      {before || after ? (
+        <div data-part="box">
+          {before ? (
+            <span data-part="before" aria-hidden="true">
+              {before}
+            </span>
+          ) : null}
+          {input}
+          {after}
+        </div>
+      ) : (
+        input
+      )}
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}
@@ -167,12 +262,17 @@ export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'o
   hint?: string;
 };
 
-/** A choice from a short list: the browser's own select, in the kit's field, its words above it. */
+/**
+ * A choice from a short list: the browser's own select, in the kit's field, its words above it. The words name it
+ * through `aria-labelledby` (unless the caller names it with `aria-label`): a select inside its label would otherwise be named by the label and its chosen option
+ * ("Status All statuses").
+ */
 export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
+  const labelId = `${React.useId()}-label`;
   return (
     <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <select {...rest} onChange={(e) => onChange?.(e.target.value)}>
+      <span id={labelId}>{label}</span>
+      <select aria-labelledby={rest['aria-label'] ? undefined : labelId} {...rest} onChange={(e) => onChange?.(e.target.value)}>
         {options.map((o) => {
           const value = typeof o === 'string' ? o : o.value;
           return (
@@ -298,12 +398,18 @@ export type ChangeProps = {
   className?: string;
 };
 
-/** Up or down as words and an arrow, never colour alone. The figures are left to right on any page. */
+/**
+ * Up or down as words and an arrow, never colour alone. The figures are left to right on any page. The arrow is drawn
+ * (lt-arrow-up / lt-arrow-down, templates.css), never typed: Volt's faces carry no ▲ ▼ glyphs.
+ */
 export function Change({ text, dir, spoken, className }: ChangeProps) {
-  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
-      {arrow && <span aria-hidden="true">{arrow} </span>}
+      {dir !== 'flat' && (
+        <>
+          <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+        </>
+      )}
       <span className="lit-sr">{spoken} </span>
       <span dir="ltr" data-ltr="">
         {text}
@@ -317,11 +423,12 @@ export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanE
   <span {...rest} className={clsx('lit-fine', className)} />
 );
 
+/** A small tag with words, toned by what it marks (colour is never the only cue: the words say it). */
 export const Tag = ({
   tone,
   className,
   ...rest
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' }) => (
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: 'accent' | 'up' | 'down' | 'neutral' | 'warn' | 'error' }) => (
   <span {...rest} className={clsx('lit-tag', className)} data-tone={tone} />
 );
 

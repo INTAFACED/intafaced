@@ -273,3 +273,45 @@ export const factorProofSchema = z.union([
 
 /** Optional on the wire so a missing proof is the typed refusal, not a parse error. */
 export const optionalFactorProof = factorProofSchema.optional();
+
+export const credentialDescriptor = z.object({ id: z.string(), type: z.literal('public-key'), transports: z.array(z.string()).optional() });
+
+export const authenticationOptions = z.object({
+  challenge: z.string(),
+  timeout: z.number().optional(),
+  rpId: z.string().optional(),
+  allowCredentials: z.array(credentialDescriptor).optional(),
+  userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
+});
+
+/** svc-identity `webauthn.registerOptions`: what `navigator.credentials.create()` is given, ids base64url. */
+export const registrationOptions = z.object({
+  challenge: z.string(),
+  rp: z.object({ id: z.string().optional(), name: z.string() }),
+  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
+  pubKeyCredParams: z.array(z.object({ type: z.literal('public-key'), alg: z.number().int() })),
+  timeout: z.number().optional(),
+  excludeCredentials: z.array(credentialDescriptor).optional(),
+  authenticatorSelection: z
+    .object({
+      authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+      residentKey: z.enum(['discouraged', 'preferred', 'required']).optional(),
+      requireResidentKey: z.boolean().optional(),
+      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
+    })
+    .optional(),
+  attestation: z.enum(['none', 'indirect', 'direct', 'enterprise']).optional(),
+});
+
+export const stateOut = z.object({
+  activeKeyId: z.string(),
+  previousKeyIds: z.array(z.string()),
+  activatedAt: z.string().nullable(),
+  nextRemoval: z.array(z.string()).nullable(),
+  availableKeyIds: z.array(z.string()),
+});
+
+export const approval = {
+  approvalId: z.string().min(1).max(128),
+  operationId: z.string().min(1).max(128),
+};

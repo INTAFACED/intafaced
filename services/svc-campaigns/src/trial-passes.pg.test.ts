@@ -117,6 +117,13 @@ describe.skipIf(!available)('trial pass campaigns', () => {
     });
   });
 
+  it('a live trial pass is listed and opens for a customer with no budget line, since it pays nothing (J-campaigns-01 #3)', async () => {
+    const c = await live();
+    const listed = (await campaigns.catalogue(ANN)).campaigns.find((v) => v.id === c.id);
+    expect(listed).toMatchObject({ id: c.id, type: 'trial_pass', state: 'active', budget: null, reward: null });
+    expect(await campaigns.get({ id: c.id, accountId: ANN })).toMatchObject({ id: c.id, budget: null, reward: null });
+  });
+
   it("grants the live campaign's pass to one account through svc-trade's door, with the operator's reason audited", async () => {
     const c = await live();
     const grant = await new TrialPassService({ sql: db!.sql, door }).grant(c.id, ANN, { actor: A, reason: 'TEST reward for the trial' });

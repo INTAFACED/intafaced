@@ -121,6 +121,19 @@ export async function openOrders(who, symbol = 'BTC/USDT') {
   return Array.isArray(body) ? body : (body.orders ?? body.items ?? []);
 }
 
+/**
+ * One TEST limit buy of 0.0002 BTC at 90% of the best bid, so it rests on the book: an order of `who`'s own, above the
+ * 5 USDT minimum order value and within 20 USDT of funding. Its id.
+ */
+export async function restingBuy(who, clientOrderId) {
+  const res = await (
+    await api(who)
+  ).post('/api/v1/orders', { symbol: 'BTC/USDT', type: 'limit', side: 'buy', price: await awayBid(90), amount: '0.0002', clientOrderId });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  expect(res.body.id).toMatch(/^[0-9a-f-]{36}$/);
+  return res.body.id;
+}
+
 /** A whole-USDT price at `percent` of the best bid: a buy there rests, far from anything that would fill it. */
 export async function awayBid(percent = 90, symbol = 'BTC/USDT') {
   const { bid } = await bestPrices(symbol);
@@ -178,16 +191,4 @@ export function placements(page) {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/orders') sent.push(request.postDataJSON());
   });
   return sent;
-}
-
-/**
- * The step's picture from the top of the page with nothing focused, so the bar that stays at the top covers nothing of the
- * step's answer (a whole-page picture of a scrolled page draws that bar over the middle) and the skip link stays hidden.
- */
-export async function pictureFromTop(page, stepPicture) {
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
-  await stepPicture(page);
 }

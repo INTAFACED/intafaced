@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { shownCode } from '../../../shared/reference';
 import { ArrowDownUp, ChevronDown, History, Info } from 'lucide-react';
 import '../buy/buy.css';
 import './convert.css';
@@ -170,8 +171,8 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
 
   return (
     <>
-      <TradeSubNav active="convert" />
       <div data-testid="if-convert" className="if-convert">
+        <TradeSubNav />
         <div className="cvt-grid">
           <header data-testid="cvt-hero" className="cvt-hero">
             <h1>
@@ -443,7 +444,7 @@ function ConvertCard({
       case 'refused': {
         const action = outcome.copy.action;
         setDialogMessage({
-          text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
+          text: `${outcome.copy.title}. ${outcome.copy.body}${shownCode(outcome.code) ? ` (Ref ${outcome.code!.trim().slice(0, 80)})` : ''}`,
           action,
           code: outcome.code,
         });
@@ -587,7 +588,7 @@ function ConvertCard({
         <>
           <div className="cvt-fields">
             <div className="cvt-field" data-testid="from-field">
-              <span className="cvt-field__label">{t('From')}</span>
+              <span className="lt-hint">{t('From')}</span>
               <div className="cvt-field__main">
                 <button type="button" className="cvt-asset" onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
                   <CoinIcon asset={from} size={28} />
@@ -625,7 +626,7 @@ function ConvertCard({
             </button>
 
             <div className="cvt-field" data-testid="to-field">
-              <span className="cvt-field__label">{t('To')}</span>
+              <span className="lt-hint">{t('To')}</span>
               <div className="cvt-field__main">
                 <button type="button" className="cvt-asset" onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
                   <CoinIcon asset={to} size={28} />
@@ -656,7 +657,7 @@ function ConvertCard({
           {insufficient ? (
             <div className="cvt-note" role="alert" data-testid="cvt-short">
               <p>{shortText}</p>
-              <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+              <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
                 {t('Deposit {asset}', { asset: from })}
               </a>
             </div>
@@ -666,7 +667,7 @@ function ConvertCard({
               <p>
                 <strong>{t('Paused title')}.</strong> {t('Paused body')}
               </p>
-              <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
+              <a className="lt-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
                 {t('Use Spot')}
               </a>
             </div>
@@ -678,7 +679,7 @@ function ConvertCard({
                 {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: market.quote })}
               </p>
               <a
-                className="text-link"
+                className="lt-link"
                 href={`#${OTC_DESK_ID}`}
                 onClick={(event) => {
                   event.preventDefault();
@@ -734,7 +735,7 @@ function ConvertCard({
               className="buy-state"
               title={state.copy.title}
               body={state.copy.body}
-              code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
+              code={state.copy.reference ?? (shownCode(state.code) ? `Ref ${state.code!.trim().slice(0, 80)}` : undefined)}
               action={state.copy.action}
             />
           ) : null}

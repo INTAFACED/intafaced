@@ -9,6 +9,7 @@ import {
   type VenueTimeInForce,
   type VenueMarginMode,
   type VenueAccountMode,
+  type VenuePositionMode,
   venueMarketSchema,
   venueMarketMarginSchema,
   venueScheduledCancelSchema,
@@ -26,13 +27,17 @@ import {
   venueOrderRecordSchema,
   venueOrderPageSchema,
   venueFillSchema,
+  venueArrivalSchema,
   venuePositionSchema,
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
   venueAccountSummarySchema,
   venueAccountModeSchema,
+  venuePositionModeSchema,
   venueVaultSchema,
   venueVaultHoldingsSchema,
+  venueStakingSchema,
+  venueStakingAccountSchema,
   venueLiquidationSchema,
   venueLiquidationStatusSchema,
   venueInsuranceFundSchema,
@@ -150,6 +155,8 @@ export interface OrderIntent {
   price: string;
   timeInForce: VenueTimeInForce;
   reduceOnly: boolean;
+  /** Optional trader label stored with the order by our door (J-derivatives-04 #2). */
+  label?: string | null;
   clientOrderKey: string;
   /** Our builder fee is the door's (the owner value), never the browser's. */
   builderFee: null;
@@ -193,8 +200,16 @@ export type VenueIntent =
   // the person's own signed venue action.
   | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
   | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string }
+  // J-derivatives-05 #3 #7: one perpetual switched between one-way and hedge mode, and an open position moved between the
+  // main account and a sub-account, each offered only where the venue offers it and signed by the person's wallet.
+  | { kind: 'set_position_mode'; symbol: string; mode: VenuePositionMode; changeKey: string }
+  | { kind: 'move_position'; subAccount: string; direction: 'into_sub_account' | 'out_of_sub_account'; symbol: string; moveKey: string }
   // J-derivatives-31 #2 #5: USDC put into a venue vault or taken out of it, the person's own signed venue transfer.
-  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string };
+  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string }
+  // J-cex-spot-21: HYPE moved between spot and staking, and delegated to or undelegated from a validator, each the person's
+  // own signed venue action.
+  | { kind: 'staking_transfer'; direction: 'to_staking' | 'to_spot'; asset: string; amount: string; moveKey: string }
+  | { kind: 'staking_delegate'; validator: string; direction: 'delegate' | 'undelegate'; asset: string; amount: string; moveKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -254,9 +269,20 @@ export const keys = {
     `class-move:${part(owner)}:${direction === 'perps_to_spot' ? 'to-spot' : 'to-perps'}:${draft}`,
   /** One reviewed change of the account's mode (J-derivatives-29 #7 #8). */
   accountMode: (owner: string, mode: VenueAccountMode, draft: string) => `account-mode:${part(owner)}:${part(mode)}:${draft}`,
+  /** One switch of a perpetual's position mode (J-derivatives-05 #3). */
+  positionMode: (owner: string, symbol: string, mode: VenuePositionMode, draft: string) =>
+    `position-mode:${part(owner)}:${part(symbol)}:${mode === 'hedge' ? 'hedge' : 'one-way'}:${draft}`,
+  /** One move of an open position between the main account and a sub-account (J-derivatives-05 #7). */
+  positionMove: (owner: string, draft: string) => `position-move:${part(owner)}:${draft}`,
   /** One reviewed move into or out of a vault (J-derivatives-31 #2 #5): the same move sent again is the same key. */
   vaultMove: (owner: string, vault: string, direction: 'deposit' | 'withdraw', draft: string) =>
     `vault-move:${part(owner)}:${part(vault)}:${direction}:${draft}`,
+  /** One reviewed move between spot and staking (J-cex-spot-21 #2 #7 #9): the same move sent again is the same key. */
+  stakeMove: (owner: string, direction: 'to_staking' | 'to_spot', draft: string) =>
+    `stake-move:${part(owner)}:${direction === 'to_staking' ? 'to-staking' : 'to-spot'}:${draft}`,
+  /** One reviewed delegation or undelegation (J-cex-spot-21 #3 #6). */
+  delegation: (owner: string, validator: string, direction: 'delegate' | 'undelegate', draft: string) =>
+    `delegation:${part(owner)}:${part(validator)}:${direction}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -361,6 +387,9 @@ export function venueApi(api: ApiClient) {
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
+    arrivals: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/arrivals', asOf(z.array(venueArrivalSchema)), { owner, ...at }, signal),
     /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
     positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
@@ -388,6 +417,9 @@ export function venueApi(api: ApiClient) {
     /** The account's mode, its spot and perps balances in standard mode, and the day's action count (J-derivatives-29). */
     accountMode: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
+    /** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
+    positionMode: (owner: string, q: { symbol: string; venueId: string }, signal?: AbortSignal) =>
+      read('/position-mode', asOf(venuePositionModeSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
     /** The position's liquidation state on one market and the venue's rules (J-derivatives-07 #1 #3). */
     liquidation: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
       read('/liquidation', asOf(venueLiquidationStatusSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
@@ -404,6 +436,11 @@ export function venueApi(api: ApiClient) {
     /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
     vaultHoldings: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/vault-holdings', asOf(venueVaultHoldingsSchema), { owner, venueId }, signal),
+    /** The venue's staking terms: validators, reward rate, discount tiers, lock-up, queue and limit (J-cex-spot-21 #1). */
+    staking: (signal?: AbortSignal, venueId?: string) => read('/staking', asOf(venueStakingSchema), { venueId }, signal),
+    /** The account's staking balance, delegations, queued and arrived withdrawals and rewards (J-cex-spot-21). */
+    stakingAccount: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/staking-account', asOf(venueStakingAccountSchema), { owner, venueId }, signal),
     /** The venue's public liquidation and auto-deleveraging alerts, newest first (J-derivatives-07 #7). */
     liquidationAlerts: (q: { symbol?: string; limit?: number; venueId?: string }, signal?: AbortSignal) =>
       read(

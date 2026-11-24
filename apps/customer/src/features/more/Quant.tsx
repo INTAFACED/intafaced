@@ -62,6 +62,8 @@ const stamp = z.object({
   simulated: z.literal(true),
 });
 type SandboxLanguage = (typeof QUANT_SANDBOX_LANGUAGES)[number];
+/** Each sandbox language by its own name, as its makers write it. */
+const LANGUAGE_NAME: Record<SandboxLanguage, string> = { javascript: 'JavaScript', typescript: 'TypeScript', python: 'Python' };
 const runSchema = stamp.extend({
   ok: z.literal(true),
   language: z.enum(['javascript', 'typescript', 'python']),
@@ -274,7 +276,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   }, [api]);
   return (
     <div className="more-grid">
-      <QuantRooms active={mode} paper={paper} />
+      {mode === 'backtest' ? null : <QuantRooms paper={paper} />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
@@ -283,7 +285,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           <Panel title={copyText('quant.strategy.sandbox')}>
             <Read resource={capabilities.resource} retry={capabilities.reload}>
               {(c) => (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k={c.isolate === 'wired' ? 'quant.isolate' : 'quant.runner.off'} />{' '}
                   <Text k={c.venueVault === 'trade-only' ? 'quant.trade.only.vault' : 'quant.exchange.off'} />
                   {c.refuse && <span lang="zxx"> {RAW_CODE.test(c.refuse) ? refusalCopy(c.refuse).body : c.refuse}</span>}
@@ -301,7 +303,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   content: () => (
                     <Details
                       items={[
-                        [copyText('quant.language'), <span lang="zxx">{language}</span>],
+                        [copyText('quant.language'), <span lang="zxx">{LANGUAGE_NAME[language]}</span>],
                         [copyText('quant.starting.cash'), copyText('quant.simulated.units', { amount: cash })],
                         [copyText('quant.environment'), copyText('quant.paper.never.live.performance')],
                       ]}
@@ -345,7 +347,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   const picked = QUANT_SANDBOX_LANGUAGES.find((option) => option === value);
                   if (picked) setLanguage(picked);
                 }}
-                options={QUANT_SANDBOX_LANGUAGES}
+                options={QUANT_SANDBOX_LANGUAGES.map((option) => ({ value: option, label: LANGUAGE_NAME[option] }))}
               />
               <Field
                 label={copyText('quant.simulated.starting.cash')}
@@ -357,7 +359,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
               <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
                 <h4>{researchCopy.t('pyTitle')}</h4>
-                <p className="muted">{researchCopy.t('pyIntro')}</p>
+                <p className="lt-muted">{researchCopy.t('pyIntro')}</p>
                 <Button
                   type="button"
                   variant="secondary"
@@ -368,7 +370,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 >
                   {researchCopy.t('pyTemplate')}
                 </Button>{' '}
-                <a className="text-link" href="/developers/quant#python" data-testid="quant-python-package">
+                <a className="lt-link" href="/developers/quant#python" data-testid="quant-python-package">
                   {researchCopy.t('pyPackage')}
                 </a>
               </section>
@@ -385,7 +387,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Text k="quant.review.simulation" />
               </Button>
             </form>
-            <p className="muted">
+            <p className="lt-muted">
               <Text k="quant.live.deployment.requires.a.separate.approved.execution" />
             </p>
           </Panel>
@@ -455,7 +457,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 )}
               </>
             ) : (
-              <p className="muted">
+              <p className="lt-muted">
                 <Text k="quant.run.the.connected.isolate.to.receive.its" />
               </p>
             )}
@@ -499,7 +501,10 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       label={copyText('quant.block.side', { value1: i + 1 })}
                       value={b.side}
                       onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                      options={['buy', 'sell']}
+                      options={[
+                        { value: 'buy', label: copyText('quant.side.buy') },
+                        { value: 'sell', label: copyText('quant.side.sell') },
+                      ]}
                     />
                     <Field
                       label={copyText('quant.block.symbol', { value1: i + 1 })}
@@ -614,14 +619,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Copy k="originalAttempt" />
               </p>
               <code lang="zxx">{action.unresolvedId}</code>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="unknownBody" />
               </p>
-              <div className="actions">
-                <a className="button button--secondary" href="/support">
+              <div className="lt-actions">
+                <a className="lt-button lt-button-secondary" href="/support">
                   <Copy k="contact" />
                 </a>
-                <a className="button button--secondary" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="lt-button lt-button-secondary" href={preservePaperHref('/quant/studio', paper)}>
                   <Text k="quant.studio" />
                 </a>
               </div>
@@ -642,13 +647,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             </div>
             <div className="quant-analysis-draft" ref={draft}>
               <Panel title={t('draft')}>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="draftBody" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="fullStrategy" />
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="utc" />
                 </p>
                 <form
@@ -711,7 +716,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                               ),
                             ]}
                           />
-                          <p className="muted">
+                          <p className="lt-muted">
                             <Copy k="fullStrategy" />
                           </p>
                         </>
@@ -747,16 +752,16 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                           ...strategyNames.map((name) => ({ value: name, label: name })),
                         ]}
                       />
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="strategyNote" />
                       </p>
                     </>
                   ) : (
-                    <div className="field" role="group" aria-label={t('strategyLabel')}>
+                    <div className="lt-field" role="group" aria-label={t('strategyLabel')}>
                       <span>{t('strategyLabel')}</span>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
-                        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                        <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
                           <Copy k="strategyOpenStudio" />
                         </a>
                       </p>
@@ -792,7 +797,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
                     options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
                   />
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="hypothesisNote" />
                   </p>
                   <Field
@@ -820,7 +825,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     </fieldset>
                   ))}
                   {!validAnalysis && (
-                    <p className="muted" id="quant-backtest-reason">
+                    <p className="lt-muted" id="quant-backtest-reason">
                       <Copy k="invalid" />
                     </p>
                   )}

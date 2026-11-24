@@ -97,21 +97,24 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="dividends" lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div lang="en">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Dividend records</h1>
-<p class="muted">Payouts recorded to your account: airdrops of INTAFACED’s own pool, and dividends.</p>
+<h1 class="lt-title">Dividend records</h1>
+<p class="lt-description">Payouts recorded to your account: airdrops of INTAFACED’s own pool, and dividends.</p>
 </div>
 </header>
-<div class="dividends__columns">
+<div class="lt-body">
+<div class="lt-toolbar">
+</div>
+<section class="lt-region" data-region="summary" aria-label="Summary">
 <section aria-labelledby="dividends-what">
 <h2 id="dividends-what">
 <span lang="en" dir="ltr" data-i18n="account.dividends.whatTitle">What an airdrop is here</span>
 </h2>
 <p>
-<span lang="en" dir="ltr" data-i18n="account.dividends.whatBody">An airdrop shares a pool of INTAFACED’s own money among the accounts that joined it, each by its venue equity at the snapshot time. Each share is paid once to your connected wallet, and its record shows the payment on the chain.</span>
+<span lang="en" dir="ltr" data-i18n="account.dividends.whatBody">An airdrop shares a pool of INTAFACED’s own money among the accounts that joined it, each by the value of its trading account at a set time (the snapshot). Each share is paid once to your connected wallet, and its record shows the payment on the chain.</span>
 </p>
 </section>
 <section aria-labelledby="dividends-need">
@@ -119,32 +122,30 @@
 <span lang="en" dir="ltr" data-i18n="account.dividends.needTitle">Dividends</span>
 </h2>
 <p>
-<span lang="en" dir="ltr" data-i18n="account.dividends.needBody">Dividends to holders of a token are not paid: they wait for an owner decision. No dividend is listed here, and that is not a statement that you were owed one or paid nothing.</span>
+<span lang="en" dir="ltr" data-i18n="account.dividends.needBody">Dividends to token holders are not paid, so none is listed here. That doesn’t mean you were owed one or paid nothing.</span>
 </p>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.dividends.needToken">Token holdings and earning activity are in their own rooms.</span>
 </p>
 </section>
-</div>
+</section>
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
 <section aria-labelledby="dividends-history">
 <h2 id="dividends-history">
 <span lang="en" dir="ltr" data-i18n="account.dividends.historyTitle">Your records</span>
 </h2>
-<div class="actions" role="group" aria-label="Kind of payout" data-testid="dividends-kind">
-<button type="button" class="button button--primary " aria-pressed="true" data-kind="airdrop">Airdrops</button>
-<button type="button" class="button button--secondary " aria-pressed="false" data-kind="dividend">Dividends</button>
+<div class="lt-actions" role="group" aria-label="Kind of payout" data-testid="dividends-kind">
+<button aria-pressed="true" data-kind="airdrop" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Airdrops</button>
+<button aria-pressed="false" data-kind="dividend" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Dividends</button>
 </div>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
-<div class="table-scroll" tabindex="0" role="region" aria-label="Distribution records">
-<table>
+<div>
+<table class="lt-table" aria-label="Distribution records">
 <thead>
 <tr>
 <th scope="col">Date</th>
@@ -155,13 +156,13 @@
 </tr>
 </thead>
 <tbody>
-<tr data-testid="dividends-empty" data-kind="airdrop">
+<tr data-testid="dividends-empty" data-kind="airdrop" data-empty="">
 <td colspan="5">
 <strong>
 <span lang="en" dir="ltr" data-i18n="account.dividends.emptyTitle">No records yet</span>
 </strong>
 <br>
-<span class="muted">
+<span class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="account.dividends.emptyBody">You have no distribution records. An airdrop you join is listed here once its snapshot time comes.</span>
 </span>
 </td>
@@ -170,16 +171,19 @@
 </table>
 </div>
 </section>
-<div class="actions">
-<a class="text-link" href="/token">
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/token">
 <span lang="en" dir="ltr" data-i18n="account.dividends.token">Open Token →</span>
 </a>
-<a class="text-link" href="/bank/earn">
+<a class="lt-button lt-button-secondary" href="/bank/earn">
 <span lang="en" dir="ltr" data-i18n="account.dividends.earn">Open Earn →</span>
 </a>
-<a class="text-link" href="/money/activity">
+<a class="lt-button lt-button-secondary" href="/money/activity">
 <span lang="en" dir="ltr" data-i18n="account.dividends.activity">Open money activity →</span>
 </a>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

@@ -26,6 +26,7 @@
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs chart-count <key> <whole number>   one TEST charts count (`charts` puts the TEST map back)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
@@ -64,7 +65,7 @@
  *   - open: svc-matching POST /markets/:id/open consumes an identity action approval proposed by
  *     operator A and approved by a different signed-in operator B who passed a TOTP second factor
  *     (services/svc-identity/src/action-approval-router.ts). Only svc-trade may call that route, so the
- *     stack signs as svc-trade with its own internal secret (services/svc-matching/src/router.ts, TRADE_ONLY).
+ *     stack signs as svc-trade with its own internal secret (crates/svc-matching/src/door/mod.rs, TRADE_ONLY).
  *   - verify: identity kyc.submit by the account itself, then kyc.approve by operator A, which needs
  *     scope admin:compliance, a TOTP session and a consumed approval from operator B
  *     (services/svc-identity/src/router.ts, kyc.approve). User sessions never carry admin:compliance, so the
@@ -84,7 +85,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
+import { COMPOSE_RUNTIME, localStackState, assertActiveLocalStack, composeSqlRead, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
@@ -222,7 +223,7 @@ export function lifecycleIsFresh(publication, now = new Date(), renewBelowDays =
   return Date.parse(publication.expiresAt) - now.getTime() > renewBelowDays * 86_400_000;
 }
 
-/** Same hash services/svc-matching/src/action-approval-consume.ts computes for a matching action. */
+/** Same hash crates/svc-matching/src/approval.rs computes for a matching action. */
 export function matchingPayloadHash(actionType, fields) {
   return `sha256:${crypto
     .createHash('sha256')
@@ -237,7 +238,7 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (crates/svc-matching/src/door/venue.rs). */
 export function bookProposal(action, marketId) {
   if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
@@ -396,6 +397,10 @@ function sandboxFunds(ctx, on) {
 }
 
 function psqlRead(secrets, role, sql) {
+  // A tester compose stack (its marker in the state folder) has its own Postgres on the marker's port and no psql in its
+  // image: the same read goes through composeSqlRead.
+  const marker = readJson(gatePaths().marker, null);
+  if (marker?.runtime === COMPOSE_RUNTIME) return composeSqlRead(marker, role, sql);
   const r = spawnSync(
     PSQL,
     [
@@ -452,6 +457,43 @@ export function listAccountsAndTiers(secrets) {
     `SELECT id::text, user_id::text, tier::text FROM identity.kyc_records WHERE status = 'pending' ORDER BY created_at`,
   ).map(([id, userId, tier]) => ({ id, userId, tier }));
   return { users, approved, pending };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Read-only: each named account's newest live session (not revoked, not expired), as a Map userId -> sessionId. */
+export function liveSessions(secrets, userIds) {
+  const ids = userIds.filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return new Map();
+  const rows = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT DISTINCT ON (user_id) user_id::text, id::text FROM identity.sessions
+       WHERE user_id IN (${ids.map((id) => `'${id}'`).join(', ')}) AND revoked = false AND expires_at > now()
+       ORDER BY user_id, created_at DESC, id`,
+  );
+  return new Map(rows.map(([userId, sessionId]) => [userId, sessionId]));
+}
+
+/**
+ * The scopes of a person's TEST partner token: the bank's own, which svc-bank's `testPartner.*` calls require
+ * (`testPartner.set` and `testPartner.fund` refuse a token without `bank:write`, #10632). Nothing else.
+ */
+export const PERSON_TEST_PARTNER_SCOPES = Object.freeze(['bank:read', 'bank:write']);
+
+/**
+ * A short-lived TEST access token on a person's own live session (`liveSessions`), with only the bank scopes, so a TEST
+ * tool can make a person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the
+ * session is live.
+ */
+export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120) {
+  if (!UUID_RE.test(userId) || !UUID_RE.test(sessionId)) throw new Error('personToken needs a user id and a live session id');
+  return (
+    await ctx.tokens.issueAccessToken(
+      { userId, sessionId, scopes: [...PERSON_TEST_PARTNER_SCOPES], tier: 'none', mfa: false },
+      { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
+    )
+  ).token;
 }
 
 /**
@@ -1815,7 +1857,8 @@ export async function publishWithdrawQuotePolicy(ctx) {
 
 /**
  * LOCAL TEST custody transaction policy (svc-pay `founderAdmin.custody.policy`, W-custody-ops-07), not an owner value: allow a
- * TEST send out to a wallet on the crypto-native rail, which on this stack is the in-memory MemoryChain. svc-pay refuses every
+ * TEST send out to a wallet on the TEST withdrawal networks (`TEST_DEPOSIT_NETWORKS`; on this stack the crypto-native rail's
+ * in-memory MemoryChain). A rule's `networks` names the withdrawal's chain network, never the rail id (#10148). svc-pay refuses every
  * send out of the platform while no policy is published (`pay.guard_custody_policy_unset`; PAY_CUSTODY_POLICY defaults to
  * required), so J-wallet-05 #6 and #4 need one. A send inside the platform (J-wallet-07) is not a custody transaction and never
  * reads it. Published the way the service requires: a draft, then a `policy` config task that founder a proposes and founder b,
@@ -1825,7 +1868,7 @@ export const TEST_CUSTODY_POLICY_RULES = Object.freeze([
   Object.freeze({
     id: 'TEST-allow-wallet-sends',
     action: 'allow',
-    match: Object.freeze({ networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] }),
+    match: Object.freeze({ networks: TEST_DEPOSIT_NETWORKS.map((n) => n.networkId), destinationKinds: ['crypto'], txTypes: ['transfer'] }),
   }),
 ]);
 export const TEST_CUSTODY_CONFIG_QUORUM = Object.freeze({ kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
@@ -2776,12 +2819,16 @@ async function readChartValues(ctx, token) {
   return view;
 }
 
-/** Set each TEST count that is not set yet. One write per count, each under a business key, each with a reason. */
-export async function publishChartCounts(ctx, sessions = null) {
+/**
+ * Set each TEST count that differs from `counts` (the TEST map by default). One write per count, each under a business key,
+ * each with a reason. A journey step that needs another count (J-charts-desk-02 #2 widens the stale age so a real-time
+ * market can be read between the two ages) calls this through `chart-count`, and puts the TEST map back with `charts`.
+ */
+export async function publishChartCounts(ctx, sessions = null, counts = TEST_CHART_COUNTS) {
   const pair = sessions ?? (await approverSessions(ctx));
   let view = await readChartValues(ctx, await pair.a.tradeOpsToken());
   const out = [];
-  for (const [key, value] of Object.entries(TEST_CHART_COUNTS)) {
+  for (const [key, value] of Object.entries(counts)) {
     if (view.scalars.values[key] === value) {
       out.push({ key, value, changed: false, version: view.scalars.version });
       continue;
@@ -3404,6 +3451,11 @@ export async function scopedConsoleSession(ctx, without) {
   };
 }
 
+/** The CLI's help: every command and its arguments, printed for one this script does not know. */
+export function gatesUsage() {
+  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | chart-count <key> <n> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -3412,6 +3464,11 @@ async function main() {
   if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
     die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   if (cmd === 'engine-drop' && (!process.argv[3] || !process.argv[4])) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
+  if (cmd === 'chart-count') {
+    const [key, raw] = process.argv.slice(3);
+    if (!Object.hasOwn(TEST_CHART_COUNTS, key ?? '') || !/^[1-9]\d*$/.test(raw ?? ''))
+      die(`usage: local-test-gates.mjs chart-count <${Object.keys(TEST_CHART_COUNTS).join('|')}> <whole number>`, 2);
+  }
   if (cmd === 'trade-audit') {
     const args = process.argv.slice(3);
     const value = (name) => (args.indexOf(name) >= 0 ? args[args.indexOf(name) + 1] : undefined);
@@ -3582,6 +3639,12 @@ async function main() {
       say(
         `  charts    ${d.symbol.padEnd(24)} ${d.changed ? `data class ${d.dataClass} (TEST), approval ${d.approvalId}` : `already ${d.dataClass} (TEST)`}`,
       );
+    } else if (cmd === 'chart-count') {
+      // chart-count <key> <n>: one TEST charts count on the local stack, through the same door as `charts`.
+      const [key, raw] = process.argv.slice(3);
+      const value = Number(raw);
+      const [r] = await publishChartCounts(ctx, null, { [key]: value });
+      say(`  charts    ${key.padEnd(24)} ${r.changed ? `${value} (TEST), version ${r.version}` : `already ${value} (TEST)`}`);
     } else if (cmd === 'risk') {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];
@@ -3605,10 +3668,7 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
-        2,
-      );
+      die(gatesUsage(), 2);
     }
   } catch (err) {
     die(String(err.message ?? err));

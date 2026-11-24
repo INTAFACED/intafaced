@@ -123,7 +123,9 @@ describe('Session keys (D-portfolio-wallet-02)', () => {
     expect(wallet.sendSequence.mock.calls[0]![0].steps).toHaveLength(1);
   });
 
-  it('a scope with withdrawal power is refused before anything is signed', async () => {
+  it('a scope with withdrawal power is refused before anything is signed, and the refusal is brought into view', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
     api.buildSessionGrant.mockResolvedValue({
       ok: false,
       reason: 'refused',
@@ -155,6 +157,8 @@ describe('Session keys (D-portfolio-wallet-02)', () => {
     expect(doc().querySelector('dialog [role="alert"]')?.textContent).toContain(
       'a session key can never call a function that moves tokens',
     );
+    // The refusal sits under the form's last field, below a short window's fold: it is scrolled into the sheet's view.
+    expect(scrolled.mock.contexts).toContain(doc().querySelector('dialog [role="alert"]'));
   });
 
   it('converts a cap to wei exactly and refuses anything that is not a plain number', () => {

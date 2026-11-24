@@ -16,6 +16,7 @@ import {
 import {
   actionHash,
   HyperliquidNetworkRefusedError,
+  recoverTypedDataSigner,
   typedDataDigest,
   type HlTypedData,
   type L1TypedData,
@@ -28,6 +29,7 @@ import {
   InMemoryNonceSource,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
+  withCancelReason,
   type FetchLike,
   type HyperliquidNonceSource,
 } from './venue.js';
@@ -299,6 +301,25 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('0.05') } })), 'not_offered');
   });
 
+  it('#10657: a perp order and a spot sell each carry their own builder fee, each refused above its own protocol cap', async () => {
+    const fake = fakeVenue();
+    fake.info.maxBuilderFee = () => 10_000; // the trader approved 1000 bps: only the venue's cap binds here
+    const venue = venueWith(fake);
+    const perp = await venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10') } }));
+    expect(perp.builderFee).toEqual({ builder: BUILDER, feeBps: a('10') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ builderFee: { builder: BUILDER, feeBps: a('10.1') } })),
+      'builder_fee_above_cap',
+    );
+    const spotSell = order({ symbol: 'PURR-USDC', side: 'sell', amount: a('10'), price: a('0.1') });
+    const spot = await venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100') } });
+    expect(spot.builderFee).toEqual({ builder: BUILDER, feeBps: a('100') });
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { ...spotSell, builderFee: { builder: BUILDER, feeBps: a('100.1') } }),
+      'builder_fee_above_cap',
+    );
+  });
+
   it('an agent: refused when the venue does not list it, refused owner-only actions', async () => {
     const fake = fakeVenue();
     const venue = venueWith(fake);
@@ -351,7 +372,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     const prepared = await venue.prepare(account, ownerSigner, withdraw);
     const typed = prepared.typedData as UserSignedTypedData;
     expect(typed.primaryType).toBe('HyperliquidTransaction:Withdraw');
-    expect(typed.domain.chainId).toBe(0x66eee);
+    expect(typed.domain.chainId).toBe(84532);
     expect(typed.message).toEqual({ hyperliquidChain: 'Testnet', destination: OWNER, amount: '12.5', time: BigInt(NOW) });
     expect(prepared.venueClientOrderId).toBeNull();
     await refusedWith(
@@ -362,6 +383,36 @@ describe('prepare builds exactly what the wallet signs', () => {
     // withdraw3 draws on the perp account: spot USDC (reported by balances() as `USDC`) is a different balance, refused.
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, asset: 'USDC' }), 'not_offered');
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, amount: a('1.0000001') }), 'venue_rejected');
+  });
+
+  // The customer's wallet is held on the app chain (Base Sepolia, 84532: apps/customer eip1193.ts APP_CHAIN_ID), and
+  // the app's signing sheet refuses a typed-data domain on any other chain before the wallet is asked; a wallet such as
+  // MetaMask refuses one too. Hyperliquid takes the chain the action names in `signatureChainId` (the SDK signs under the
+  // wallet's own chain when none is set), so every user-signed action is built for the wallet's chain.
+  it('user-signed actions are signed under the wallet chain (84532 by default, else the one passed in), and the venue gets that chain', async () => {
+    const intents = [
+      { kind: 'approve_agent', agentAddress: AGENT, agentName: 'TEST bot', validUntil: null },
+      { kind: 'approve_builder_fee', builder: AGENT, maxFeeBps: a('1') },
+      { kind: 'withdraw', asset: PERP_COLLATERAL_ASSET, amount: a('12.5'), destination: OWNER, withdrawalKey: 'withdraw:test-user:9' },
+    ] as const;
+    for (const [walletChainId, hex] of [
+      [undefined, '0x14a34'],
+      [31337, '0x7a69'],
+    ] as const) {
+      const fake = fakeVenue();
+      const venue = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(NOW), walletChainId });
+      expect(venue.chainId).toBe(walletChainId ?? 84532);
+      for (const intent of intents) {
+        const prepared = await venue.prepare(account, ownerSigner, intent);
+        const typed = prepared.typedData as UserSignedTypedData;
+        expect(typed.domain.chainId).toBe(walletChainId ?? 84532);
+        const signed = await sign(ownerKey, prepared);
+        await venue.submit(prepared, signed);
+        expect((fake.exchangeBodies.at(-1)!.action as Record<string, unknown>).signatureChainId).toBe(hex);
+        expect(await recoverTypedDataSigner(typed, signed.signature)).toBe(OWNER);
+      }
+    }
+    expect(() => new HyperliquidTestnetUserVenue({ appEnv: 'test', walletChainId: 0 })).toThrow(/wallet chain/);
   });
 
   it('approveBuilderFee and approveAgent: the testnet typed data; an agent expiry, revoke and amend refuse', async () => {
@@ -384,7 +435,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     await venue.submit(agent, await sign(ownerKey, agent));
     expect(fake.exchangeBodies[0]!.action).toEqual({
       type: 'approveAgent',
-      signatureChainId: '0x66eee',
+      signatureChainId: '0x14a34',
       hyperliquidChain: 'Testnet',
       agentAddress: AGENT,
       agentName: 'TEST bot',
@@ -685,6 +736,14 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(() => mapOrderStatus('somethingNew')).toThrow();
   });
 
+  it('a self-trade cancel is named as one; any other cancel word leaves the reason unsaid (J-derivatives-04 #7)', () => {
+    const order = { venueClientOrderId: '0x1', status: 'canceled', cancelReason: null };
+    expect(mapOrderStatus('selfTradeCanceled')).toBe('canceled');
+    expect(withCancelReason(order, 'selfTradeCanceled').cancelReason).toBe('self_trade');
+    expect(withCancelReason(order, 'marginCanceled')).toBe(order);
+    expect(withCancelReason(order, 'canceled')).toBe(order);
+  });
+
   it('order history: every state the venue reports, newest placed first, with when it was placed (J-cex-spot-06 #1)', async () => {
     const fake = fakeVenue();
     const order = (oid: number, sz: string, origSz: string, timestamp: number) => ({
@@ -714,6 +773,44 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     ]);
     // A cancelled order locks nothing; the open one still locks its remainder's margin.
     expect(history[1]!.order.locked).toBe(ZERO);
+    expect(history.every((r) => r.order.origin === 'user')).toBe(true);
+  });
+
+  it('order history maps trigger and liquidation orders to their origin (J-derivatives-04 #2)', async () => {
+    const fake = fakeVenue();
+    const base = {
+      coin: 'ETH',
+      side: 'A',
+      limitPx: '2900',
+      sz: '0',
+      origSz: '0.1',
+      tif: 'Ioc',
+      reduceOnly: true,
+      timestamp: NOW,
+    };
+    fake.info.historicalOrders = () => [
+      {
+        order: { ...base, oid: 11, cloid: `0x${'1'.repeat(32)}`, orderType: 'Stop Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 12, cloid: `0x${'2'.repeat(32)}`, orderType: 'Take Profit Market', isTrigger: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+      {
+        order: { ...base, oid: 13, cloid: `0x${'3'.repeat(32)}`, orderType: 'Liquidation', isLiquidation: true },
+        status: 'filled',
+        statusTimestamp: NOW,
+      },
+    ];
+    const history = (await venueWith(fake).orderHistory(account)).value;
+    expect(history.map((r) => [r.order.venueOrderId, r.order.origin])).toEqual([
+      ['11', 'stop'],
+      ['12', 'take_profit'],
+      ['13', 'liquidation'],
+    ]);
   });
 
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
@@ -872,8 +969,9 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { known: true, value: a('1') },
     ]);
     expect((await venue.markets(account)).value.find((m) => m.symbol === 'PURR-USDC')!.takerFeeBps).toEqual({ known: false });
-    // The venue publishes no builder-fee cap through info, so none is typed in: every market reads "not known".
-    expect(anon.map((m) => m.builderFeeCapBps)).toEqual(anon.map(() => ({ known: false })));
+    // The builder-fee cap is the venue's protocol-wide one by kind: 0.1% on perps, 1% on spot.
+    expect(eth.builderFeeCapBps).toEqual({ known: true, value: a('10') });
+    expect(anon.find((m) => m.symbol === 'PURR-USDC')!.builderFeeCapBps).toEqual({ known: true, value: a('100') });
     expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { edgeActionPayloadHash } from '../../../../../services/svc-edge/src/action-approval-consume';
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
-import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import {
@@ -23,6 +24,22 @@ import {
 import { createInputFor, draftPayload, readLaunchEventPayload } from '@/lib/launch-issuers';
 import { readDeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
+
+/**
+ * What svc-bank (crates/svc-bank) binds an ops approval to, as its own test writes and holds it
+ * (crates/svc-bank/tests/ops_approval_golden.rs): the hash for an action and its fields.
+ */
+const bankBinds: { hashes: { actionType: string; fields: Record<string, string>; payloadHash: string }[] } = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../../../../crates/svc-bank/tests/fixtures/ops-approval.golden.json', import.meta.url)), 'utf8'),
+);
+function bankActionPayloadHash(actionType: string, fields: Record<string, string>): string {
+  const same = (a: Record<string, string>, b: Record<string, string>) =>
+    Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, v]) => b[k] === v);
+  const found = bankBinds.hashes.find((h) => h.actionType === actionType && same(h.fields, fields));
+  if (!found)
+    throw new Error(`no svc-bank hash for ${actionType} ${JSON.stringify(fields)}: add it to crates/svc-bank/tests/ops_approval_golden.rs`);
+  return found.payloadHash;
+}
 
 /**
  * svc-academy is Rust (crates/svc-academy), so its hash function cannot be imported here. These are the hashes its

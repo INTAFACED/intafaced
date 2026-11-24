@@ -25,6 +25,7 @@ fn door() -> BankDoor {
         services: ServiceAuth::unwired(),
         env,
         now: door::system_now,
+        store: svc_bank::db::Store::Down("no database".to_owned()),
     })
     .unwrap()
 }
@@ -53,6 +54,9 @@ fn principal(p: &Json, every_scope: &[String]) -> Option<Principal> {
         mfa: matches!(p.get("mfa"), Some(Json::Bool(true))),
         kid: (session == "key").then(|| "key-1".to_owned()),
         sub_account: (session == "sub-account").then(|| SUB.to_owned()),
+        sid: "22222222-2222-4222-8222-222222222222".to_owned(),
+        fam: None,
+        dev: None,
     })
 }
 

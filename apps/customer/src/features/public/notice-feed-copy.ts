@@ -7,6 +7,10 @@ export const noticeFeedCopy = defineCopy('notice-feed', {
   none: 'No public notices are published',
   noneBody:
     'Announcements, fee changes, maintenance windows and incident reports appear here when one is published. None is published right now.',
+  firstPointAnnouncements: 'Announcements and fee changes',
+  firstPointMaintenance: 'Maintenance windows',
+  firstPointIncidents: 'Incident reports',
+  firstAction: 'See the service status now',
   kind_announcement: 'Announcement',
   kind_maintenance: 'Maintenance',
   kind_incident: 'Incident',

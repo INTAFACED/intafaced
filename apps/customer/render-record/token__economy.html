@@ -97,134 +97,111 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="monitor" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Token economy</h1>
-<p class="muted">Exact stake records, access and governance.</p>
+<h1 class="lt-title">Token economy</h1>
+<p class="lt-description">Your stakes, access tier and governance.</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Token sections">
-<button type="button" class="" aria-pressed="false">Staking</button>
-<button type="button" class="" aria-pressed="false">Governance</button>
-<button type="button" class="selected" aria-pressed="true">Economy</button>
-<button type="button" class="" aria-pressed="false">Burn</button>
+<div class="lt-body">
+<section class="lt-region" data-region="actions" aria-label="Actions">
+<div class="lt-tabs" role="group" aria-label="Token sections">
+<button type="button" class="lt-tab" aria-pressed="false">Staking</button>
+<button type="button" class="lt-tab" aria-pressed="false">Governance</button>
+<button type="button" class="lt-tab" aria-pressed="true">Economy</button>
+<button type="button" class="lt-tab" aria-pressed="false">Burn</button>
 </div>
-<div class="more-columns">
-<section class="if-panel" data-live="false" aria-label="Emission schedule">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Emission schedule</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="panels" aria-label="Details">
+<div class="lt-grid">
+<section aria-label="Emission schedule">
+<h2>Emission schedule</h2>
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.token.economy.emissionBody">New tokens are minted once per epoch, by the schedule the owner publishes: a reward for the first epoch that halves after a fixed number of epochs, up to a supply cap. These are the figures the token service holds.</span>
 </p>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div lang="und">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div lang="und">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 <p data-testid="emission-minter">
 <span lang="en" dir="ltr" data-i18n="more.token.economy.minterRule">Only the token service mints, and only the scheduled reward of the next epoch, once per epoch and never above the cap, so near the cap an epoch mints only what is left of its scheduled reward. No person can start a mint, and an epoch with no published schedule mints nothing.</span>
 </p>
-</div>
 </section>
-<section class="if-panel" data-live="false" aria-label="Supply and distribution">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Supply and distribution</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">
+<section aria-label="Supply and distribution">
+<h2>Supply and distribution</h2>
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.token.economy.supplyBody">Each figure is the one the token service reports. A figure it does not report reads "not reported" and shows no number.</span>
 </p>
 <div data-testid="supply-figures">
-<dl class="more-details">
+<dl class="lt-kv">
 <div>
 <dt>Maximum supply (the published cap)</dt>
-<dd style="min-width: 0;">cannot be read</dd>
+<dd>cannot be read</dd>
 </div>
 <div>
 <dt>Minted by emission</dt>
-<dd style="min-width: 0;">cannot be read</dd>
+<dd>cannot be read</dd>
 </div>
 <div>
 <dt>Burned</dt>
-<dd style="min-width: 0;">cannot be read</dd>
+<dd>cannot be read</dd>
 </div>
 <div>
 <dt>Buyback share of house fees</dt>
-<dd style="min-width: 0;">cannot be read</dd>
+<dd>cannot be read</dd>
 </div>
 <div>
 <dt>Share of each buyback burned</dt>
-<dd style="min-width: 0;">cannot be read</dd>
+<dd>cannot be read</dd>
 </div>
 <div>
 <dt>Distribution</dt>
-<dd style="min-width: 0;">not reported</dd>
+<dd>not reported</dd>
 </div>
 </dl>
 </div>
 <p role="status" data-testid="supply-distribution">
 <span lang="en" dir="ltr" data-i18n="more.token.economy.distributionUnset">Distribution is not reported: no allocation schedule is published to the token service, so no holder group, share or vesting is shown.</span>
 </p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </section>
-<section class="if-panel" data-live="false" aria-label="Your real yield">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Your real yield</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">
+<section aria-label="Your real yield">
+<h2>Your real yield</h2>
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.token.economy.yieldBody">Each week the token service pays stakers a share of house fees, pro rata to each stake and its multiplier, once per window. These are the payouts to this account, each read from its ledger posting.</span>
 </p>
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<div lang="und">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 </section>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Economy boundaries</h2>
-</header>
-<div class="if-panel__body">
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<section>
+<h2>Economy boundaries</h2>
 <p>
 <span lang="en" dir="ltr" data-i18n="customer.more.token.emission.buyback.and.revenue.distribution.windows.are">Emission, buyback and revenue-distribution runs are carried out by INTAFACED itself. You cannot start them.</span>
 </p>
@@ -234,7 +211,7 @@
 <p>
 <span lang="en" dir="ltr" data-i18n="customer.more.token.governance.closure.depends.on.published.quorum.and">A vote closes under the published quorum and pass threshold. A passed listing or grant is not carried out, because nothing is connected to carry it out.</span>
 </p>
-</div>
+</section>
 </section>
 </div>
 </div>

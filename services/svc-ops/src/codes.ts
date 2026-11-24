@@ -77,6 +77,15 @@ import {
   STAFF_HOLD_NOT_FOUND,
 } from '@intafaced/contracts/ops-staff-holds';
 import {
+  OPS_REVERSAL_STORAGE_UNCONFIGURED,
+  OPS_REVERSAL_LEDGER_UNCONFIGURED,
+  OPS_REVERSAL_ALREADY_REVERSED,
+  OPS_REVERSAL_NOT_FOUND,
+  OPS_REVERSAL_STATE_ILLEGAL,
+  OPS_REVERSAL_REQUESTER_ONLY,
+  OPS_REVERSAL_SAME_PERSON,
+} from '@intafaced/contracts/ops-ledger-reversals';
+import {
   OPS_COST_AMOUNT_INVALID,
   OPS_COST_CATEGORY_INVALID,
   OPS_COST_PERIOD_INVALID,
@@ -84,6 +93,13 @@ import {
 } from '@intafaced/contracts/ops-venue-economics';
 
 export {
+  OPS_REVERSAL_STORAGE_UNCONFIGURED,
+  OPS_REVERSAL_LEDGER_UNCONFIGURED,
+  OPS_REVERSAL_ALREADY_REVERSED,
+  OPS_REVERSAL_NOT_FOUND,
+  OPS_REVERSAL_STATE_ILLEGAL,
+  OPS_REVERSAL_REQUESTER_ONLY,
+  OPS_REVERSAL_SAME_PERSON,
   STAFF_HOLD_STORAGE_UNCONFIGURED,
   STAFF_HOLD_LEDGER_UNCONFIGURED,
   STAFF_HOLD_STATE_ILLEGAL,
@@ -154,6 +170,11 @@ import {
   OPS_SILENCE_ID_TAKEN,
   OPS_SILENCE_NOT_FOUND,
 } from '@intafaced/contracts/ops-alert-notify';
+import {
+  OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+  OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_RESTORE_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-call-schemas';
 
 export {
   OPS_ALERT_CHANNEL_KEY_UNSET,
@@ -219,9 +240,6 @@ export const OPS_STRUCTURED_LIST_LIMIT_UNSET = 'ops.structured_list_limit_unset'
 export const OPS_CUSTODY_LIST_LIMIT_UNSET = 'ops.custody_list_limit_unset' as const;
 export const OPS_CUSTODY_LEDGER_UNWIRED = 'ops.custody_ledger_unwired' as const;
 export const OPS_CUSTODY_KEYS_UNPUBLISHED = 'ops.custody_keys_unpublished' as const;
-export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigured' as const;
-export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
-export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 /** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
 export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
@@ -429,6 +447,13 @@ export type OpsRefuseCode =
   | typeof STAFF_HOLD_EXPIRY_TOO_LONG
   | typeof STAFF_HOLD_CONFIRM_ACCOUNT_UNSET
   | typeof STAFF_HOLD_NOT_FOUND
+  | typeof OPS_REVERSAL_STORAGE_UNCONFIGURED
+  | typeof OPS_REVERSAL_LEDGER_UNCONFIGURED
+  | typeof OPS_REVERSAL_ALREADY_REVERSED
+  | typeof OPS_REVERSAL_NOT_FOUND
+  | typeof OPS_REVERSAL_STATE_ILLEGAL
+  | typeof OPS_REVERSAL_REQUESTER_ONLY
+  | typeof OPS_REVERSAL_SAME_PERSON
   | typeof INCIDENT_NOT_FOUND
   | typeof INCIDENT_ASSIGNEE_NOT_PARTICIPANT
   | typeof INCIDENT_SEVERITY_UNKNOWN
@@ -448,3 +473,4 @@ export class OpsError extends Error {
     this.code = code;
   }
 }
+export { OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED, OPS_RESTORE_STORAGE_UNCONFIGURED };

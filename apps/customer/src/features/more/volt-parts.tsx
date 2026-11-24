@@ -5,36 +5,13 @@
  */
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import type { ApiResult } from '../../shared/api';
-import { useFailureWords } from '../../shared/failure-words';
+import { FailureNote } from '../../shared/failure-note';
+import { FirstState, type FirstStateProps } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../shared/resource';
 import { uiCopy } from '../../shared/ui-copy';
+import { t as copyText } from './copy';
 
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** A failed read or write: what happened in plain words, the support reference, and Try again when it can help. */
-export function FailureNote({ result, retry }: { result: Failed; retry?: () => void }) {
-  const words = useFailureWords()(result);
-  return (
-    <div data-testid="failure" className="lt-refusal" role={words.role}>
-      <h3 className="lt-refusal-title">{words.title}</h3>
-      <p className="lt-refusal-body" lang={words.bodyLang}>
-        {words.body}
-      </p>
-      {words.action ? (
-        <a className="lt-link" href={words.action.href}>
-          {words.action.label}
-        </a>
-      ) : null}
-      {words.reference ? <p className="lt-ref">{words.reference}</p> : null}
-      {retry && words.retry ? (
-        <Button tone="secondary" onClick={retry}>
-          {words.retryLabel}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
+export { FailureNote };
 
 /** Data on its way; `label` says what, when it is more than loading. */
 export function Waiting({ label }: { label?: ReactNode }) {
@@ -58,11 +35,14 @@ export function KitRead<T>({
   resource,
   retry,
   empty,
+  first,
   children,
 }: {
   resource: Resource<T>;
   retry: () => void;
   empty?: string;
+  /** With `empty`: the room's first state (what it is for and one action) in place of the bare line. */
+  first?: Omit<FirstStateProps, 'title'>;
   children: (data: T) => ReactNode;
 }) {
   if (resource.status === 'loading') return <Waiting />;
@@ -72,7 +52,8 @@ export function KitRead<T>({
         <FailureNote result={resource.failure} retry={retry} />
       </div>
     );
-  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0))) return <EmptyNote title={empty} />;
+  if (empty && (resource.data === null || (Array.isArray(resource.data) && resource.data.length === 0)))
+    return first ? <FirstState title={empty} {...first} /> : <EmptyNote title={empty} />;
   return <>{children(resource.data)}</>;
 }
 
@@ -102,6 +83,43 @@ export function ScrollTable({ label, headers, children }: { label: string; heade
         </thead>
         <tbody>{children}</tbody>
       </table>
+    </div>
+  );
+}
+
+/** How many rows a read returned of the window asked for, and a larger window while the service's cap allows one. */
+export function KitLimit({
+  count,
+  limit,
+  cap,
+  onChange,
+}: {
+  count: number;
+  limit: number;
+  cap: number;
+  onChange: (limit: number) => void;
+}) {
+  if (count < limit) return null;
+  return (
+    <div className="lt-stack">
+      <small className="lt-hint">
+        {copyText('common.showing')}
+        {count}
+        {copyText('common.requested.limit')}
+        {limit}
+        {copyText('common.this.service.publishes.no.continuation.cursor')}
+      </small>
+      {count >= limit && limit < cap ? (
+        <Button tone="secondary" onClick={() => onChange(Math.min(cap, limit + 50))}>
+          {copyText('common.load.a.larger.window')}
+        </Button>
+      ) : count >= cap ? (
+        <small className="lt-hint">
+          {copyText('common.the.published.limit.is')}
+          {cap}
+          {copyText('common.older.rows.cannot.be.requested.here')}
+        </small>
+      ) : null}
     </div>
   );
 }

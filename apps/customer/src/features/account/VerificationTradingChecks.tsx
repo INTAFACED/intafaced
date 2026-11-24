@@ -2,7 +2,8 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { countryOptions } from '../public';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { verificationTradingCopy as copy } from './verification-trading-copy';
 import { IDENTITY_KYC_TRADING_CHECKS_READ, IDENTITY_KYC_TRADING_CHECKS_RUN } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -26,7 +27,20 @@ const REFUSED: Readonly<Record<string, Words>> = {
  * at sign-up comes pre-filled); identity runs the checks. Cleared reads "Verified for trading"; a hold reads a neutral
  * "under review". No document, photo or outside check is asked for here. `onDone` reads the page again.
  */
-export function VerificationTradingChecks({ disabled, onDone }: { disabled: boolean; onDone: () => void }) {
+export function VerificationTradingChecks({
+  disabled,
+  onDone,
+  levelHeld = false,
+}: {
+  disabled: boolean;
+  onDone: () => void;
+  /**
+   * Whether the account already holds a verification level (any level above none), read from `kyc.status`; `null` while
+   * that read is in flight. A held level already covers trading, and identity refuses the checks with `kyc.level_held`,
+   * so the form is never offered to a verified person.
+   */
+  levelHeld?: boolean | null;
+}) {
   const { api, userId } = useSession();
   const { t, Copy, requestedLocale } = copy.useCopy();
   const countries = useMemo(() => countryOptions(requestedLocale), [requestedLocale]);
@@ -40,10 +54,10 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<{ code: string | null; failure: Parameters<typeof Failure>[0]['result'] } | null>(null);
 
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading' || levelHeld === null) return <Loading />;
   if (resource.status === 'failed')
     return (
-      <section className="verification__trading" aria-label={t('form')} data-testid="verification__trading">
+      <section className="lt-stack" aria-label={t('form')} data-testid="verification__trading">
         <h2>
           <Copy k="failedTitle" />
         </h2>
@@ -72,7 +86,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
 
   if (view.state !== 'not_run')
     return (
-      <section className="verification__trading" aria-label={t('form')} data-testid="verification__trading" data-state={view.state}>
+      <section className="lt-stack" aria-label={t('form')} data-testid="verification__trading" data-state={view.state}>
         <h2>
           <Copy k={view.state === 'cleared' ? 'cleared' : 'held'} />
         </h2>
@@ -82,14 +96,26 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
       </section>
     );
 
+  if (levelHeld)
+    return (
+      <section className="lt-stack" aria-label={t('form')} data-testid="verification__trading" data-state="level_held">
+        <h2>
+          <Copy k="cleared" />
+        </h2>
+        <p role="status">
+          <Copy k="levelHeldBody" />
+        </p>
+      </section>
+    );
+
   const words = refused?.code ? REFUSED[refused.code] : undefined;
   return (
-    <section className="verification__trading" data-testid="verification__trading" data-state="not_run">
-      <form className="form-stack" aria-label={t('form')} onSubmit={(event) => void submit(event)}>
+    <section className="lt-stack" data-testid="verification__trading" data-state="not_run">
+      <form className="lt-stack" aria-label={t('form')} onSubmit={(event) => void submit(event)}>
         <h2>
           <Copy k="form" />
         </h2>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="intro" />
         </p>
         <Field
@@ -104,7 +130,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
           onChange={(event) => setLegalName(event.target.value)}
           hint={t('legalNameHint')}
         />
-        <label className="field">
+        <label className="lt-field">
           <span>
             <Copy k="country" />
           </span>
@@ -128,22 +154,15 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
             ))}
           </select>
         </label>
-        <label className="verification__trading-confirm">
-          <input
-            type="checkbox"
-            required
-            checked={confirmed}
-            disabled={disabled || busy || !chosen}
-            onChange={(event) => setConfirmed(event.target.checked)}
-          />
-          <span>{t('confirm', { country: chosenName || '…' })}</span>
-        </label>
-        <Button type="submit" disabled={disabled || busy || !chosen || !confirmed || legalName.trim().length < 2}>
+        <Checkbox required checked={confirmed} disabled={disabled || busy || !chosen} onCheckedChange={setConfirmed}>
+          {t('confirm', { country: chosenName || '…' })}
+        </Checkbox>
+        <Button tone="primary" type="submit" disabled={disabled || busy || !chosen || !confirmed || legalName.trim().length < 2}>
           <Copy k={busy ? 'running' : 'run'} />
         </Button>
         {refused ? (
           words ? (
-            <p className="failure" role="alert" data-code={refused.code ?? undefined}>
+            <p className="lt-refusal" role="alert" data-code={refused.code ?? undefined}>
               {words === 'regionBlocked' ? t('regionBlocked', { country: chosenName }) : <Copy k={words} />}
             </p>
           ) : (

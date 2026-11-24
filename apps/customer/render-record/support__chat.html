@@ -97,27 +97,28 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>
-<span lang="en" dir="ltr" data-i18n="support-chat.pageTitle">Chat with support</span>
-</h1>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="support-chat.pageDescription">Talk to a person on our support team</span>
-</p>
+<h1 class="lt-title">Chat with support</h1>
+<p class="lt-description">Talk to a person on our support team</p>
 </div>
 </header>
-<section class="support-chat" data-testid="support-chat" data-chat-status="none" aria-labelledby="support-chat-title">
-<h2 id="support-chat-title">Chat with support</h2>
-<p class="muted">Write to a person on our support team. When the chat ends, it is saved as a request with everything you both wrote.</p>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<section class="lt-stack" data-testid="support-chat" data-chat-status="none">
+<p class="lt-muted">Write to a person on our support team. When the chat ends, it is saved as a request with everything you both wrote.</p>
 <div role="alert" data-testid="support-chat-unread">
 <p>We could not check who is available. Try again in a moment, or send a request instead.</p>
-<button type="button" class="button button--secondary ">Try again</button>
-<a class="text-link" href="/support/new">Send a request instead</a>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+<a class="lt-link" href="/support/new">Send a request instead</a>
 </div>
 </section>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

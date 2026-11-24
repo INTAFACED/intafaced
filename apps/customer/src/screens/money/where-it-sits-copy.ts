@@ -16,6 +16,11 @@ export const whereCopy = defineCopy('money.where', {
   'Venue title': 'In your venue account on {venue}',
   'Venue source': 'The venue’s own figures.',
   'Venue empty': 'Your venue account holds nothing.',
+  Delegated: 'Delegated {amount}',
+  Unstaking: 'Unstaking {amount}',
+  'Staking rewards': 'Staking rewards {venue} paid you: {amount} {asset}, as {venue} reports them.',
+  'Staking parts add up': 'Free, locked and each part of the lock add up to {venue}’s total of {amount} {asset}.',
+  'Staking parts differ': 'The parts shown don’t add up to {venue}’s total of {amount} {asset}.',
   'Vaults title': 'In vaults on your venue account',
   Vault: 'Vault',
   'Lock-up ends': 'Lock-up ends',
@@ -71,5 +76,8 @@ export const whereCopy = defineCopy('money.where', {
   TEST: 'TEST',
   'TEST note': 'Every venue figure here is a TEST figure from a TEST venue.',
   'Connect first': 'Connect your wallet to see what it holds and your venue account.',
+  'Holdings change rule':
+    'What your venue account held then and now, worked out from its balances, fills and credits. Valued only where a price is published.',
+  'Holdings change credits unavailable': 'The venue did not report its credits from outside, so starting amounts cannot be worked out.',
   Reading: 'Reading…',
 });

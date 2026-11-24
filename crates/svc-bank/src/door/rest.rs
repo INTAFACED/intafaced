@@ -90,14 +90,14 @@ impl RestDoor {
     }
 }
 
-fn reply(status: u16, error: &str, code: &str) -> Response {
+pub(crate) fn reply(status: u16, error: &str, code: &str) -> Response {
     Response {
         status,
         body: Json::obj([("error", Json::str(error)), ("code", Json::str(code))]).compact(),
     }
 }
 
-fn fastify_error(status: u16, code: &str, error: &str, message: &str) -> Response {
+pub(super) fn fastify_error(status: u16, code: &str, error: &str, message: &str) -> Response {
     Response {
         status,
         body: Json::obj([
@@ -125,7 +125,7 @@ fn poisoned(v: &Json) -> bool {
 }
 
 /// Fastify's body parsers: the body as the handler reads it (`undefined` when absent), or Fastify's refusal.
-fn read_body(req: &Request<'_>) -> Result<Value, Response> {
+pub(crate) fn read_body(req: &Request<'_>) -> Result<Value, Response> {
     let unsupported = || {
         fastify_error(
             415,
@@ -170,6 +170,69 @@ fn read_body(req: &Request<'_>) -> Result<Value, Response> {
         "text/plain" => Ok(Value::String(req.body.to_owned())),
         _ => Err(unsupported()),
     }
+}
+
+/// What a `/trpc` request is answered before anything else reads it: Fastify's body parsers as the tRPC plugin sets
+/// them (JSON and multipart kept as text, Fastify's own text parser, anything else its 415), then tRPC's
+/// `getRequestInfo`, which serves a call other than a GET only in JSON (multipart, which no call takes, is not
+/// modelled). tRPC answers before it makes the context, so its refusal names no path and no request.
+pub(crate) fn trpc_media(req: &Request<'_>, dev: bool) -> Option<Response> {
+    let unsupported = || {
+        fastify_error(
+            415,
+            "FST_ERR_CTP_INVALID_MEDIA_TYPE",
+            "Unsupported Media Type",
+            "Unsupported Media Type",
+        )
+    };
+    let content_type = service_kit::trpc::header(req, "content-type");
+    let media = content_type.as_deref().map(|c| {
+        c.split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+    });
+    match media.as_deref() {
+        None if !req.body.is_empty() => return Some(unsupported()),
+        None | Some("application/json" | "multipart/form-data" | "text/plain") => {}
+        Some(_) => return Some(unsupported()),
+    }
+    if req.method == "GET"
+        || matches!(
+            media.as_deref(),
+            Some("application/json" | "multipart/form-data")
+        )
+    {
+        return None;
+    }
+    let message = content_type.map_or_else(
+        || "Missing content-type header".to_owned(),
+        // tRPC's own words, its missing closing quote included.
+        |c| format!("Unsupported content-type \"{c}"),
+    );
+    let mut data = vec![
+        ("code".to_owned(), Json::str("UNSUPPORTED_MEDIA_TYPE")),
+        ("httpStatus".to_owned(), Json::int(415)),
+    ];
+    if dev {
+        data.push((
+            "stack".to_owned(),
+            Json::str(format!("TRPCError: {message}\n    at svc-bank (Rust)")),
+        ));
+    }
+    Some(Response {
+        status: 415,
+        body: Json::obj([(
+            "error",
+            Json::obj([
+                ("message", Json::str(message)),
+                ("code", Json::int(-32015)),
+                ("data", Json::Object(data)),
+            ]),
+        )])
+        .compact(),
+    })
 }
 
 /// `UUID` of `closure-check.ts`: any case, versions 1 to 8, the RFC variant.
@@ -252,6 +315,23 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(reply(403, rest.forbidden.0, rest.forbidden.1));
     }
     Some(match body_ok(rest, &body) {
+        Ok(true) if rest.slice == Slice::Partner => {
+            let parsed = inputs::parse_named(&rest.name(), body)
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(Value::Undefined);
+            crate::partner::usage_payment::answer(door.partner(), door.store(), &parsed, door.now())
+        }
+        Ok(true) if rest.slice == Slice::Business => {
+            let parsed = inputs::parse_named(&rest.name(), body)
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(Value::Undefined);
+            crate::business::team::answer(door.store(), &parsed)
+        }
+        Ok(true) if rest.slice == Slice::PartnerAccount => {
+            crate::partner_account::closure_check(&door.partner_account(), &body)
+        }
         Ok(true) => Response {
             status: 500,
             body: Json::obj([(

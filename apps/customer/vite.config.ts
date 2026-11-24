@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv, runnerImport, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { homeBoot } from './src/app/boot';
+import { testBanner } from './deployment/test-banner.mjs';
 import { localWorkers } from '../../tooling/scripts/local-jobs.mjs';
+import { nodeStorageOff, testResults } from '../../tooling/vitest/budget.mjs';
 
 /**
  * Production guard. `VITE_LOCAL_TEST=1` turns on the dev-only screens (`/dev/features`) in a build. It no longer changes
@@ -103,11 +105,56 @@ export function developerDocs(): Plugin {
   };
 }
 
+const VOLT_COUNT = fileURLToPath(new URL('./src/app/volt-count.ts', import.meta.url));
+const BETA_VOLT = fileURLToPath(new URL('./src/app/beta-volt.ts', import.meta.url));
+const NAVIGATION = fileURLToPath(new URL('./src/app/navigation.ts', import.meta.url));
+
+/**
+ * The beta's switch (`INTAFACED_BETA_VOLT_ONLY=1`, set only by tooling/beta/beta-host.mjs): the build reads the Volt count
+ * as it stands and gives the app `__BETA_VOLT_ROOMS__`, so the menus and links hide each room not yet in Volt
+ * (src/app/beta-volt.ts). Off, nothing is defined and every room shows, as on the test stack and in CI.
+ */
+export function betaVolt(env: Record<string, string | undefined> = process.env): Plugin {
+  const on = env.INTAFACED_BETA_VOLT_ONLY === '1';
+  return {
+    name: 'intafaced-beta-volt',
+    enforce: 'pre',
+    config: async () => ({ define: await betaVoltDefine(env) }),
+    // On, every module's JSX (the rooms' and the kit's) gets the beta's runtime, which draws no link to a hidden room
+    // (src/app/beta-links.ts); that runtime alone reaches React's own. Off, nothing is swapped.
+    resolveId: (source, importer) => (on && JSX_RUNTIMES.includes(source) && !importer?.startsWith(BETA_JSX) ? BETA_JSX + source : null),
+    load: (id) => (id.startsWith(BETA_JSX) ? betaJsxSource(id.slice(BETA_JSX.length)) : null),
+  };
+}
+const JSX_RUNTIMES = ['react/jsx-runtime', 'react/jsx-dev-runtime'];
+const BETA_JSX = '\0intafaced-beta:';
+const BETA_LINKS = fileURLToPath(new URL('./src/app/beta-links.ts', import.meta.url));
+export function betaJsxSource(runtime: string): string {
+  const names = runtime === 'react/jsx-dev-runtime' ? ['jsxDEV'] : ['jsx', 'jsxs'];
+  return [
+    `import * as real from ${JSON.stringify(runtime)};`,
+    `import { betaRuntime } from ${JSON.stringify(BETA_LINKS)};`,
+    `const runtime = betaRuntime({ ${names.map((name) => `${name}: real.${name}`).join(', ')}, Fragment: real.Fragment });`,
+    ...names.map((name) => `export const ${name} = runtime.${name};`),
+    'export const Fragment = runtime.Fragment;',
+  ].join('\n');
+}
+export async function betaVoltDefine(env: Record<string, string | undefined> = process.env): Promise<Record<string, string>> {
+  if (env.INTAFACED_BETA_VOLT_ONLY !== '1') return {};
+  const load = <T>(file: string) =>
+    runnerImport<T>(file, { configFile: false, root: fileURLToPath(new URL('.', import.meta.url)), logLevel: 'error' });
+  const { module: count } = await load<typeof import('./src/app/volt-count')>(VOLT_COUNT);
+  const { module: beta } = await load<typeof import('./src/app/beta-volt')>(BETA_VOLT);
+  const { module: navigation } = await load<typeof import('./src/app/navigation')>(NAVIGATION);
+  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(count.voltCount().rooms, navigation.rooms)) };
+}
+
 export default defineConfig(({ mode }) => {
-  assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
+  const env = { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env };
+  assertLocalTestBuildAllowed(mode, env);
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt(), developerDocs()],
+    plugins: [tailwindcss(), homeBoot(), testBanner(env), hostDispatchReceipt(), developerDocs(), betaVolt()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },
@@ -118,7 +165,10 @@ export default defineConfig(({ mode }) => {
     // local test stack asks: the journeys' reach recorder maps the functions a page ran back to source lines with them
     // (tooling/scripts/journey-reach.mjs). Every other build has none.
     build: { target: 'es2022', sourcemap: process.env.INTAFACED_SOURCEMAP === 'hidden' ? 'hidden' : false, assetsInlineLimit },
-    // vitest reads this config too: on a shared machine at most INTAFACED_LOCAL_JOBS workers (tooling/scripts/local-jobs.mjs).
-    test: { ...localWorkers() },
+    // vitest reads this config too: on a shared machine at most INTAFACED_LOCAL_JOBS workers (tooling/scripts/local-jobs.mjs),
+    // and on Node 25+ the workers' own localStorage off, so happy-dom's stands (tooling/vitest/budget.mjs nodeStorageOff),
+    // and in CI's Tests job the reporter that records what failed (tooling/vitest/budget.mjs testResults).
+    // vitest.render.config.ts merges this, its own execArgv added after.
+    test: { ...localWorkers(), ...nodeStorageOff(), ...testResults() },
   };
 });

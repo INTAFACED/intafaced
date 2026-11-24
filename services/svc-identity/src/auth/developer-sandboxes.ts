@@ -32,7 +32,15 @@ import { transaction, type Queryable } from '@intafaced/db';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { guardedApiKeyAction } from './api-key-fresh-factor.js';
-import { checkCreate, DeveloperKeyError, KEY_COLUMNS, toRecord, type DeveloperKeysDeps, type KeyRow } from './developer-keys.js';
+import {
+  assertKeyBudgetSet,
+  checkCreate,
+  DeveloperKeyError,
+  KEY_COLUMNS,
+  toRecord,
+  type DeveloperKeysDeps,
+  type KeyRow,
+} from './developer-keys.js';
 import { linkSandboxKey } from './sandbox-key-link.js';
 
 export type DeveloperSandboxRefusal =
@@ -262,6 +270,7 @@ export async function createSandboxKey(
   try {
     await assertKeyNameFree(deps.sql, caller.userId, checked.name);
     await assertUnderKeyCap(deps, caller.userId, deps.sql);
+    assertKeyBudgetSet(deps.ratePolicy, 'sandbox');
   } catch (err) {
     // The twin of this request may have committed since the replay read: its key is this request's answer, not a clash.
     const twin = await keyReplay(deps.sql, caller.userId, requestId, fingerprint);

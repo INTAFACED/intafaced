@@ -166,6 +166,9 @@
 <button type="button" aria-pressed="false">Heikin Ashi</button>
 </div>
 </div>
+<details class="cw-tools" open="">
+<summary class="cw-tools-summary">Chart tools<span aria-hidden="true"> ▾</span>
+</summary>
 <div class="cw-bar cw-bar--options">
 <label class="cw-select cw-select--inline">
 <span>Colours</span>
@@ -189,7 +192,11 @@
 <form class="cw-date">
 <label class="cw-select cw-select--inline">
 <span>Go to date</span>
+<span class="lit-date" data-empty="">
 <input required="" type="datetime-local" name="date">
+<span data-part="shown" aria-hidden="true" data-shown="mo day, yr, hr:min" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
+</span>
+</span>
 </label>
 <button type="submit">Go</button>
 </form>
@@ -219,6 +226,7 @@
 <button type="button" class="cw-option">Public page</button>
 </span>
 </div>
+</details>
 <p class="cw-banner" role="status" data-testid="chart-banner" data-kind="lifecycle">Market state unavailable. Order entry is refused until the market state can be read.</p>
 <div class="cw-canvas">
 <div class="wc-root">
@@ -344,7 +352,7 @@
 <section class="st" aria-label="Studies on this chart" data-testid="studies">
 <div class="st-bar">
 <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Indicators</button>
-<div class="st-chips" role="group" aria-label="Studies on this chart">
+<div class="lt-actions" role="group" aria-label="Studies on this chart">
 <button type="button" class="st-chip" aria-label="Settings for Volume">Volume</button>
 </div>
 <label class="st-check">
@@ -369,7 +377,7 @@
 </div>
 </div>
 </section>
-<div class="ct-bar" data-testid="chart-trading" data-locked="true">
+<div class="lt-toolbar" data-testid="chart-trading" data-locked="true">
 <p class="cw-note" role="status" data-testid="chart-trading-refusal" data-code="trade.chart.order_entry_refused">Order entry is refused: the market state can’t be read.</p>
 <button type="button" aria-expanded="false" disabled="">Order on chart</button>
 </div>
@@ -393,7 +401,7 @@
 </label>
 </div>
 </header>
-<p role="alert" class="wl-note">Could not read your lists. Nothing can be changed until they load. <button type="button" class="wl-btn">Try again</button>
+<p role="alert" class="lt-hint">Could not read your lists. Nothing can be changed until they load. <button type="button" class="wl-btn">Try again</button>
 </p>
 </section>
 </div>

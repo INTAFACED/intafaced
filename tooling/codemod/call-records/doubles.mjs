@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { applyEdits, forget, keyOf, load, resolveRelative, walk } from './ast.mjs';
+import { businessDoubleEdits, callsBusinessRecord } from './pay-business.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
@@ -98,9 +99,23 @@ export function doublesIn(file) {
     const keys = node.properties.filter((pr) => pr.type === 'Property').map(keyOf);
     if (keys.includes('call')) return;
     if (keys.includes('query') && keys.includes('mutate')) out.push(node);
-    else if ((keys.includes('query') || keys.includes('mutate')) && fromUseApi(p, node)) out.push(node);
+    else if ((keys.includes('query') || keys.includes('mutate')) && (fromUseApi(p, node) || handedAsApi(p, node))) out.push(node);
   });
   return { p, out };
+}
+
+/** Whether an object is a const the file hands on as an `api` (`useSession: () => ({ userId, api })`). */
+function handedAsApi(p, node) {
+  let n = p.parents.get(node);
+  while (n?.type === 'ParenthesizedExpression' || n?.type === 'TSAsExpression' || n?.type === 'TSSatisfiesExpression') n = p.parents.get(n);
+  if (n?.type !== 'VariableDeclarator' || n.id.type !== 'Identifier') return false;
+  const name = n.id.name;
+  let found = false;
+  walk(p.program, (m) => {
+    if (found) return false;
+    if (m.type === 'Property' && keyOf(m) === 'api' && m.value.type === 'Identifier' && m.value.name === name) found = true;
+  });
+  return found;
 }
 
 /** Whether an object is what a `useApi` mock returns: `useApi: () => ({ ... })`. */
@@ -139,21 +154,20 @@ function addCall(p, node) {
 function run({ write = false } = {}) {
   const files = tracked('apps').filter((f) => /^apps\/[^/]+\/(src|tests)\/.*\.tsx?$/.test(relative(REPO, f)));
   const targets = recordCallers(files);
+  // The Business API's own record callers (`pay.queryRecord(RECORD, ...)`): their doubles get its record forms (pay-business.mjs).
+  const businessTargets = new Set(files.filter((f) => !isTest(f) && callsBusinessRecord(readFileSync(f, 'utf8'))));
   const memo = new Map();
+  const businessMemo = new Map();
   const changed = [];
   for (const file of files.filter(isTest)) {
     if (!/\b(query|mutate)\b/.test(readFileSync(file, 'utf8'))) continue;
     const { p, out } = doublesIn(file);
-    if (!out.length || !reaches(file, targets, memo)) continue;
-    changed.push({ file: relative(REPO, file), doubles: out.length });
+    const apiEdits = out.length && reaches(file, targets, memo) ? out.map((node) => addCall(p, node)) : [];
+    const businessEdits = reaches(file, businessTargets, businessMemo) ? businessDoubleEdits(p) : [];
+    if (!apiEdits.length && !businessEdits.length) continue;
+    changed.push({ file: relative(REPO, file), doubles: apiEdits.length + businessEdits.length });
     if (write) {
-      writeFileSync(
-        file,
-        applyEdits(
-          p.src,
-          out.map((node) => addCall(p, node)),
-        ),
-      );
+      writeFileSync(file, applyEdits(p.src, [...apiEdits, ...businessEdits]));
       forget(file);
     }
   }

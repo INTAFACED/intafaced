@@ -89,6 +89,9 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // `LOCAL_STACK_IDENTITY_REGISTRATION=closed` on a start or restart publishes sign-up as closed, so its refusal can be
     // seen too (J-identity-01 #1).
     REGISTRATION_OPEN: process.env.LOCAL_STACK_IDENTITY_REGISTRATION === 'closed' ? 'false' : 'true',
+    // `LOCAL_STACK_IDENTITY_INVITED=<email,...>` on a start or restart is the invited list a closed sign-up opens to, as a
+    // founder sets it on a host for an invite-only beta (J-identity-01 #1; docs/runbooks/beta-founders.md).
+    ...(process.env.LOCAL_STACK_IDENTITY_INVITED ? { REGISTRATION_EMAIL_ALLOWLIST: process.env.LOCAL_STACK_IDENTITY_INVITED } : {}),
     // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
     // http://localhost:3210 for passkeys. Not the production relying party.
     WEBAUTHN_ENABLED: 'true',
@@ -184,7 +187,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
     IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
     IDENTITY_KYC_REJECT_REASONS: testValue('IDENTITY_KYC_REJECT_REASONS'),
-    IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL'),
+    // `LOCAL_STACK_IDENTITY_KYC_CAPABILITIES=unset` on a start or restart leaves the level-to-capability mapping blank, as a
+    // build is before the owner publishes one, so an approval granting nothing can be seen (J-identity-20 #6).
+    ...(process.env.LOCAL_STACK_IDENTITY_KYC_CAPABILITIES === 'unset'
+      ? {}
+      : { IDENTITY_KYC_CAPABILITIES_BY_LEVEL: testValue('IDENTITY_KYC_CAPABILITIES_BY_LEVEL') }),
     IDENTITY_KYC_CAPABILITY_REASONS: testValue('IDENTITY_KYC_CAPABILITY_REASONS'),
     IDENTITY_TRADING_RESTRICTION_REASONS: testValue('IDENTITY_TRADING_RESTRICTION_REASONS'),
     IDENTITY_APPEAL_WINDOW_DAYS: testValue('IDENTITY_APPEAL_WINDOW_DAYS'),
@@ -378,8 +385,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_DEPTH === 'off'
       ? {}
       : { IDENTITY_PARTNER_PROGRAMME_DEPTH: testValue('IDENTITY_PARTNER_PROGRAMME_DEPTH') }),
-    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
-    IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
+    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset):
+    // `LOCAL_STACK_IDENTITY_WAVE_SIZE=off` on a restart leaves it blank, so #3 can see that; a plain restart puts it back.
+    ...(process.env.LOCAL_STACK_IDENTITY_WAVE_SIZE === 'off'
+      ? {}
+      : { IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE') }),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
     // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
     ...identityFounderEnv(),

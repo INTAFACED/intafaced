@@ -149,7 +149,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
     // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
     TRADE_FUTURES_ENABLED: 'true',
-    TRADE_FUTURES_TEST_SEED: 'true',
+    // `LOCAL_STACK_TEST_MARKETS=off` (the beta's stack, tooling/beta/beta-host.mjs) keeps every `test = true` listing off
+    // the board and refuses it by symbol: the journeys' TEST fixtures (an untraded book, a shut session, a delisting) are
+    // not markets a tester can use (#10599). The rows stay in the database and come back with the switch.
+    TRADE_FUTURES_TEST_SEED: process.env.LOCAL_STACK_TEST_MARKETS === 'off' ? 'false' : 'true',
     TRADE_FUTURES_JOBS_ENABLED: 'true',
     TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
     // `LOCAL_STACK_TRADE_FUTURES_LADDER=off` on a restart leaves the ladder blank, so J-derivatives-02 #2 sees "tiers
@@ -243,6 +246,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // proving. Production leaves it off until an operator turns it on.
     // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so J-copy-bots-otc-23 #2 sees the scheduler-off refusal.
     TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
+    // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region AA
+    // (packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs then stamps every request from AA, so the
+    // venue door's region gate blocks this account, named on the gated list (J-derivatives-01 #2), as bank.mjs does.
+    ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
     // LOCAL TEST, not owner decisions: the quote desk's law and its reference price, read from the labelled TEST profile
     // so the OTC journeys price, accept and settle on TEST money against the house inventory.
     // Each one blank refuses by name (services/svc-trade/src/otc/); production stays blank until the owner sets it.

@@ -17,9 +17,6 @@
 //!   `core_book_without_the_spread_hitch_a_spread_order_never_rests_or_matches_without_its_legs`.
 //! - `spread-fill-publisher.test.ts`, "index.ts, the file the container runs, wires the publisher into the engine":
 //!   the binary is the `serve` slice's and is not written yet.
-//! - "a reused client order id refuses client_order_id_reuse": `core-tif.ts` claims each client order id per account
-//!   and environment in `submit`, and that claim is the `serve` slice's (its admission), not ported yet. The spread
-//!   order journals its client order id here, so the claim has what it reads.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -64,7 +61,7 @@ use svc_matching::journal::{decode_all, encode};
 
 // ═══ harness ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::ONE;
 
 /// Calendar: buying the spread sells the near leg and buys the far leg. Spread = far - near. Near is the anchor.
 const CAL: &str = "BTC-CAL-MAR-JUN";
@@ -332,7 +329,7 @@ fn place(engine: &mut MatchingEngine, spread_id: &str, s: &Spec) -> SubmitResult
     submit_spread(engine, spread_id, &s.input())
 }
 
-fn sign(side: Side) -> Amount {
+fn sign(side: Side) -> i128 {
     match side {
         Side::Buy => 1,
         Side::Sell => -1,
@@ -343,14 +340,14 @@ fn sign(side: Side) -> Amount {
 fn expect_whole_spread(fill: &Fill, instrument: &SpreadInstrument) {
     let legs = fill.legs.as_ref().expect("a spread fill carries its legs");
     assert_eq!(legs.len(), instrument.legs.len());
-    let mut spread: Amount = 0;
+    let mut spread = Amount::ZERO;
     for (leg, printed) in instrument.legs.iter().zip(legs) {
         assert_eq!(printed.symbol, leg.symbol);
         assert_eq!(
-            printed.qty.checked_mul(SCALE).unwrap(),
-            fill.qty.checked_mul(leg.ratio).unwrap()
+            printed.qty.scaled().checked_mul(SCALE.scaled()).unwrap(),
+            fill.qty.scaled().checked_mul(leg.ratio.scaled()).unwrap()
         );
-        assert!(printed.price > 0);
+        assert!(printed.price > Amount::ZERO);
         let taker_side = if fill.taker_side == Side::Buy {
             leg.side
         } else {
@@ -1187,6 +1184,25 @@ mod idempotency {
             order.get("clientOrderId"),
             Some(&service_kit::json::Json::str("spread:mm:1"))
         );
+    }
+
+    #[test]
+    fn a_reused_client_order_id_refuses_client_order_id_reuse() {
+        let mut built = listed(&[cal_listing()]);
+        let first = place(
+            &mut built.engine,
+            CAL,
+            &spec(Side::Sell, "1", "150").client_order_id("spread:mm:1"),
+        );
+        assert!(first.accepted);
+        let records = journal_len(&built.engine);
+        let again = place(
+            &mut built.engine,
+            CAL,
+            &spec(Side::Sell, "1", "150").client_order_id("spread:mm:1"),
+        );
+        assert_eq!(code(&again), Some("client_order_id_reuse"));
+        assert_eq!(journal_len(&built.engine), records);
     }
 
     #[test]

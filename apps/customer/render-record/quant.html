@@ -103,21 +103,25 @@
 <div>
 <p class="eyebrow">More</p>
 <h1>Algo dev</h1>
-<p class="muted">Build a strategy, test it on history and run it on paper. Nothing here trades live.</p>
+<p class="lt-muted">Build a strategy, test it on history and run it on paper. Nothing here trades live.</p>
 </div>
 </header>
-<div class="more-grid">
-<nav data-slot="sub-nav" aria-label="Algo dev rooms" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/quant" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Start</a>
-<a href="/quant/strategies" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Strategies</a>
-<a href="/quant/studio" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Studio</a>
-<a href="/quant/backtest" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Backtest</a>
-<a href="/quant/sandbox" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Sandbox</a>
-<a href="/quant/editor" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Editor</a>
-<a href="/quant/tester" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Tester</a>
-<a href="/quant/optimise" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Optimiser</a>
-<a href="/quant/data" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Data</a>
-<a href="/execution" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Execution</a>
+<div class="lt-stack">
+<nav class="lt-tabs" aria-label="Algo dev rooms" data-region="section-tabs">
+<a href="/quant" class="lt-tab" aria-current="page">Start</a>
+<a href="/quant/strategies" class="lt-tab">Strategies</a>
+<a href="/quant/shared" class="lt-tab">Shared with me</a>
+<a href="/quant/library" class="lt-tab">Library</a>
+<a href="/quant/live" class="lt-tab">Live runs</a>
+<a href="/quant/limits" class="lt-tab">Limits</a>
+<a href="/quant/studio" class="lt-tab">Studio</a>
+<a href="/quant/backtest" class="lt-tab">Backtest</a>
+<a href="/quant/sandbox" class="lt-tab">Sandbox</a>
+<a href="/quant/editor" class="lt-tab">Editor</a>
+<a href="/quant/tester" class="lt-tab">Tester</a>
+<a href="/quant/optimise" class="lt-tab">Optimiser</a>
+<a href="/quant/data" class="lt-tab">Data</a>
+<a href="/execution" class="lt-tab">Execution</a>
 </nav>
 <p class="more-badge">Simulated only. Every figure here is a simulation, never live performance.</p>
 <div class="more-columns">
@@ -126,17 +130,25 @@
 <h2 class="if-panel__title">Quick start</h2>
 </header>
 <div class="if-panel__body">
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
-</div>
+<p role="status" data-testid="quant-quick-start-count">0 of 3 steps done</p>
+<ol data-testid="quant-quick-start" class="quant-quick-start">
+<li data-done="false">
+<strong>Save your first strategy</strong> · <span>To do</span>
+<p class="lt-muted">Build one in Studio and save it to your library.</p>
+<a class="lt-link" href="/quant/studio">Open Studio</a>
+</li>
+<li data-done="false">
+<strong>Run your first backtest</strong> · <span>To do</span>
+<p class="lt-muted">Test a saved strategy on historical prices.</p>
+<a class="lt-link" href="/quant/backtest">Open Backtest</a>
+</li>
+<li data-done="false">
+<strong>Run your first paper run</strong> · <span>To do</span>
+<p class="lt-muted">Run strategy code on the paper book in the sandbox.</p>
+<a class="lt-link" href="/quant/sandbox">Open Sandbox</a>
+</li>
+</ol>
+<a class="lt-link" href="/academy">Learn how strategies work in Academy</a>
 </div>
 </section>
 <section class="if-panel" data-live="false">
@@ -144,16 +156,11 @@
 <h2 class="if-panel__title">Your strategies</h2>
 </header>
 <div class="if-panel__body">
-<div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
-</div>
+<div class="empty-state">
+<span class="empty-mark" aria-hidden="true">↗</span>
+<h3>No strategy is saved yet.</h3>
+<p>Strategies you save in Studio are listed here.</p>
+<a class="lt-link" href="/quant/studio">Open Studio</a>
 </div>
 </div>
 </section>

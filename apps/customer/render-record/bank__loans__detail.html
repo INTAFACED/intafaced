@@ -97,50 +97,51 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="empty" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Loan details</h1>
-<p class="muted">The payoff quote, a projection of interest and the monthly statement for one of your loans.</p>
+<h1 class="lt-title">Loan details</h1>
+<p class="lt-description">The payoff quote, a projection of interest and the monthly statement for one of your loans.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
-</a>
+<div class="lt-room-action">
+<a class="lt-button lt-button-secondary" href="/bank">Bank overview</a>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
-</nav>
-<p role="note">Choose a loan on the loans page to see its details. <a class="text-link" href="/bank/loans">Back to loans</a>
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
 </p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab" aria-current="page">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
+</nav>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<a class="lt-link" href="/bank/loans">Back to loans</a>
+</section>
+<section class="lt-region" data-region="sections" data-holds-state="" aria-label="Settings">
+<div class="lt-empty" data-first="">
+<p class="lt-empty-title">Choose a loan on the loans page to see its details.</p>
+<p class="lt-empty-body">Each of your loans opens here with what it would take to pay it off today, the interest still to come and its monthly statement.</p>
+<a class="lt-button lt-button-primary" href="/bank/loans">Back to loans</a>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Everything here comes from the bank for this loan: the terms you agreed when it opened, what it costs to pay it off today, an estimate of future interest (not a payment plan), each day’s interest with any correction, the bank’s own check that the figures add up, and the monthly statement.</p>
+</section>
+</div>
+</div>
 </div>
 </div>
 </div>

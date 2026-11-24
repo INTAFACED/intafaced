@@ -97,16 +97,16 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div data-slot="page" data-width="full" data-density="comfortable" class="w-full min-w-0 px-(--if-gutter) text-fg py-6 max-w-none cb-page">
-<nav data-slot="sub-nav" aria-label="Trading rooms" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/trade/spot/BTC-USDT" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Spot</a>
-<a href="/trade/margin" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Margin</a>
-<a href="/trade/futures" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Futures</a>
-<a href="/trade/options" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Options</a>
-<a href="/trade/copy" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Copy</a>
-<a href="/trade/bots" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Bots</a>
-<a href="/trade/convert" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Convert</a>
-<a href="/execution" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Execution</a>
-<a href="/otc" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Quote desk</a>
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
+<a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
+<a href="/trade/margin" class="lt-tab">Margin</a>
+<a href="/trade/futures" class="lt-tab">Futures</a>
+<a href="/trade/options" class="lt-tab">Options</a>
+<a href="/trade/copy" class="lt-tab">Copy</a>
+<a href="/trade/bots" class="lt-tab" aria-current="page">Bots</a>
+<a href="/trade/convert" class="lt-tab">Convert</a>
+<a href="/execution" class="lt-tab">Execution</a>
+<a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
 <header data-slot="page-header" data-density="comfortable" class="flex flex-col gap-3 pb-4">
 <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
@@ -135,20 +135,10 @@
 </div>
 </div>
 </header>
-<div class="cb-note" role="alert" data-tone="warn">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-exclamation-point lucide-alert-triangle lucide-triangle-alert" aria-hidden="true">
-<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3">
-</path>
-<path d="M12 9v4">
-</path>
-<path d="M12 17h.01">
-</path>
-</svg>
-<div>
-<p class="cb-note-title">Can’t reach the service</p>
-<p class="cb-note-body">Nothing was changed. Check your connection and try again.</p>
-</div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
+<div class="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
+<p class="lt-refusal-title">Can’t reach the service</p>
+<p class="lt-refusal-body">Nothing was changed. Check your connection and try again.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 <section data-slot="page-section" data-density="comfortable" aria-labelledby="_r_3_" class="flex min-w-0 flex-col gap-6">
 <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
@@ -209,13 +199,13 @@
 <table role="grid" style="min-width: 940px;" class="w-full table-fixed border-separate border-spacing-0 text-fg">
 <caption class="sr-only">My bots</caption>
 <colgroup>
+<col>
+<col style="width: 88px;">
+<col style="width: 140px;">
+<col style="width: 112px;">
+<col style="width: 140px;">
 <col style="width: 200px;">
-<col>
-<col>
-<col>
-<col>
-<col style="width: 200px;">
-<col>
+<col style="width: 120px;">
 </colgroup>
 <thead>
 <tr class="h-(--if-table-head-h)">
@@ -231,20 +221,10 @@
 <tbody>
 <tr data-slot="table-error-row">
 <td colspan="7" class="p-0">
-<div class="cb-note" role="alert" data-tone="warn">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-exclamation-point lucide-alert-triangle lucide-triangle-alert" aria-hidden="true">
-<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3">
-</path>
-<path d="M12 9v4">
-</path>
-<path d="M12 17h.01">
-</path>
-</svg>
-<div>
-<p class="cb-note-title">Can’t reach the service</p>
-<p class="cb-note-body">Nothing was changed. Check your connection and try again.</p>
-</div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
+<div class="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
+<p class="lt-refusal-title">Can’t reach the service</p>
+<p class="lt-refusal-body">Nothing was changed. Check your connection and try again.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </td>
 </tr>
@@ -252,28 +232,18 @@
 </table>
 </div>
 </div>
-<div class="cb-note" role="alert" data-tone="warn">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-exclamation-point lucide-alert-triangle lucide-triangle-alert" aria-hidden="true">
-<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3">
-</path>
-<path d="M12 9v4">
-</path>
-<path d="M12 17h.01">
-</path>
-</svg>
-<div>
-<p class="cb-note-title">Can’t reach the service</p>
-<p class="cb-note-body">Nothing was changed. Check your connection and try again.</p>
+<div class="lt-refusal" role="alert" data-refusal="refused" data-tone="warn">
+<p class="lt-refusal-title">Can’t reach the service</p>
+<p class="lt-refusal-body">Nothing was changed. Check your connection and try again.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Try again</button>
-</div>
-<p class="cb-note" role="note" data-tone="neutral">
-<span>My bots lists the bots you started in the last 3 months. Open an older one by its ID.</span>
+<p class="lt-hint" role="note" data-tone="neutral">
+<span>My bots lists the bots you started in the last 3 months. Open an older one below with its reference.</span>
 </p>
 <form class="cb-byid">
 <div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5">
 <div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
-<label id="base-ui-_r_5_" for="base-ui-_r_6_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Open a bot by ID</label>
+<label id="base-ui-_r_5_" for="base-ui-_r_6_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm">Open a bot that isn’t listed</label>
 </div>
 <div class="min-w-0">
 <div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
@@ -285,9 +255,9 @@
 </form>
 </section>
 <div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Bot sections" class="relative flex items-stretch gap-6 border-b border-line">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_7_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_8_">Catalogue</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_9_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Paper strategies</button>
+<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Bot sections" class="relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none] border-b border-line">
+<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_7_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_8_">Catalogue</button>
+<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_9_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Paper strategies</button>
 <span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
 </span>
 </div>
@@ -318,108 +288,108 @@
 </thead>
 <tbody>
 <tr data-slot="table-row" data-row-index="0" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Time-weighted (TWAP)</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Time-weighted (TWAP)</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Splits one order into equal slices over a set time</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Market, side, amount, run time, gap between slices</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="warn" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-warn/15 text-warn">Unknown</span>
 <small>The bot service did not answer. Try again in a moment.</small>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill" data-disabled="" disabled="">Set up</button>
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<span class="lt-muted">Not available</span>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Volume-weighted (VWAP)</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Volume-weighted (VWAP)</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Sizes slices to follow the market’s usual trading volume</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Same as TWAP, plus enough volume history</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="warn" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-warn/15 text-warn">Unknown</span>
 <small>The bot service did not answer. Try again in a moment.</small>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill" data-disabled="" disabled="">Set up</button>
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<span class="lt-muted">Not available</span>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="2" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Participation (POV)</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Participation (POV)</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Trades a fixed share of the market’s live volume</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Same as TWAP, plus a volume share</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="warn" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-warn/15 text-warn">Unknown</span>
 <small>The bot service did not answer. Try again in a moment.</small>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill" data-disabled="" disabled="">Set up</button>
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<span class="lt-muted">Not available</span>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="3" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Grid</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Grid</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Buys low and sells high inside a price range</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Market, investment, a price range and a grid count</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="warn" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-warn/15 text-warn">Can’t reach the service</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill" data-disabled="" disabled="">Set up</button>
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<span class="lt-muted">Not available</span>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="4" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Recurring buy (DCA)</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Recurring buy (DCA)</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Buys a fixed amount on a schedule</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">An amount, a schedule, and USDC on your own venue account. Set it up from a coin page.</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="lime" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-lime-soft text-accent-text">Ready</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill">Set up</button>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="5" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Strategy from Quant Studio</td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Bot" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">Strategy from Quant Studio</td>
+<td data-align="start" data-label="What it does" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">Runs your own rules on paper, with no money</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="What you provide" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-wrap">A saved strategy in Quant Studio</span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Status" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
 <span data-slot="badge" data-tone="warn" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-warn/15 text-warn">Paper only</span>
 <small>A strategy can’t trade live. It runs on paper.</small>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+<td data-align="start" data-label="Action" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">See strategies</button>
 </td>
 </tr>
@@ -427,7 +397,7 @@
 </table>
 </div>
 </div>
-<p class="cb-note" role="note" data-tone="neutral">
+<p class="lt-hint" role="note" data-tone="neutral">
 <span>Bots that are not built show their real status. Nothing here is simulated unless it says Paper.</span>
 </p>
 </section>

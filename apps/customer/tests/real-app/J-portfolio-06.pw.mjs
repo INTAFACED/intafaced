@@ -5,7 +5,10 @@ import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './de
 
 // J-portfolio-06, in the running app (docs/roadmap/journeys.json): "I see my allocation, pick a display currency and
 // choose which account to view". One test per step, titled "J-portfolio-06 #<n>", run in order on one TEST account.
-// Step 1 builds the starting state through the real product: TEST 1000 USDT, a buy of 0.002 BTC on the desk, TEST 50 USDT
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1 and #3 read the venue account,
+// not our ledger: those steps are J-portfolio-06-venue.pw.mjs's. The tests here keep #1's and #3's ledger branch
+// (the custodial layer, kept and switched off) as it is, titled for the door off; #2 #4 #5 #6 stay steps of this file.
+// The first test builds the starting state through the real product: TEST 1000 USDT, a buy of 0.002 BTC on the desk, TEST 50 USDT
 // in the stack's seeded instant-access savings (an earn position) and TEST 100 USDT moved into a named space. Every
 // grouping is checked against the bank's own answer and against the ledger balances: the groups add up to the total
 // exactly, the earn group is the saved USDT at par, and the screen names what each group holds.
@@ -63,7 +66,7 @@ async function grouped(page, by) {
   return card;
 }
 
-test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, the savings under earn, spendable and locked; each grouping adds up to the total`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens allocation: by coin, kind and place; USDT as dollar coins, the savings under earn, spendable and locked; each grouping adds up to the total`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -188,7 +191,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   for (const asset of ['BTC', 'USDT']) {
     await expect(coin.locator(`li[data-group="${asset}"]`)).toContainText(asset);
     await expect
-      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .money-alloc__pct`), coinShare(asset)), { timeout: 30_000 })
+      .poll(agreesWith(coin.locator(`li[data-group="${asset}"] .lt-parts-value`), coinShare(asset)), { timeout: 30_000 })
       .toBe('agree');
   }
   const kind = await grouped(page, 'Kind');
@@ -203,7 +206,7 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
   for (const type of ['available', 'locked'])
     await expect
       .poll(
-        agreesWith(place.locator(`li[data-group="${type}"] .money-alloc__pct`), (answer) =>
+        agreesWith(place.locator(`li[data-group="${type}"] .lt-parts-value`), (answer) =>
           Number(answer.types.find((row) => row.type === type).share),
         ),
         { timeout: 30_000 },
@@ -243,7 +246,9 @@ test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and s
   ).toBeVisible();
 });
 
-test(`${J} #3 reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({
+  page,
+}) => {
   // Up to five minutes of it is the wait for the bank's next 5-minute edge, below.
   test.setTimeout(600_000);
   const who = account();
@@ -261,8 +266,8 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     const row = card.locator(`tr[data-change-asset="${asset}"]`);
     // The account did not exist 7 days ago: nothing held then, so everything held now is what rose.
     await expect(row).toHaveAttribute('data-start', '0');
-    expect(toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
-    expect(toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
     await expect(row.locator('td').nth(0)).toHaveText('No holding yet');
     await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^\\+[\\d,.]+ ${asset}$`));
   }
@@ -526,7 +531,7 @@ test(`${J} #6 reads cash by currency and presses Convert: each currency's balanc
     const step = 10n ** BigInt(18 - places);
     expect(toUnits(shown[1].replaceAll(',', ''))).toBe((toUnits(row.amount) / step) * step);
   }
-  await card.locator('tr[data-testid="money-row"][data-asset="USDT"]').getByRole('button', { name: 'Convert USDT' }).click();
+  await card.locator('tr[data-testid="money-row"][data-asset="USDT"]').getByRole('link', { name: 'Convert USDT' }).click();
   await expect(page).toHaveURL(/\/trade\/convert\?from=USDT/);
   await expect(page.getByTestId('from-field').getByRole('button', { name: 'Change the From asset' })).toContainText('USDT');
 });

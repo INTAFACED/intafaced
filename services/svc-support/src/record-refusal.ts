@@ -3,6 +3,7 @@ import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { SupportError } from './support-service.js';
 import { userCopy } from './user-copy.js';
 import { WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
+import { SUPPORT_ACCOUNT_FREEZE_UNAVAILABLE } from '@intafaced/contracts/support-account-freeze';
 
 /** A SupportError in its wire form: the status and the words each code is sent with. */
 export function supportTrpcError(err: SupportError): TRPCError {
@@ -93,6 +94,7 @@ export function supportTrpcError(err: SupportError): TRPCError {
     err.code === 'support.category_unknown' ||
     err.code === 'vendor.email' ||
     err.code === WITHDRAWAL_FREEZE_UNAVAILABLE ||
+    err.code === SUPPORT_ACCOUNT_FREEZE_UNAVAILABLE ||
     err.code.startsWith('guest.')
   ) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message });

@@ -47,6 +47,11 @@ import { TokenService } from './token-service.js';
  */
 
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded file, by name (`doors`, `set-trpc`). */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 /** One golden file stays under the CI review's 400 KB diff part, so a change to it can be read. */
@@ -420,10 +425,12 @@ async function writeGolden(g: Golden) {
 }
 
 function readGolden(): Golden {
-  const doors = JSON.parse(readFileSync(new URL('./wire-replay.golden/doors.json', import.meta.url), 'utf8')) as Omit<Golden, 'answers'>;
+  const doors = JSON.parse(
+    readFileSync(new URL('./wire-replay.golden/doors.json', import.meta.url), 'utf8').replaceAll(RECORDED_STACK, ''),
+  ) as Omit<Golden, 'answers'>;
   const answers: Golden['answers'] = {};
   for (const file of readdirSync(GOLDEN).filter((f) => f.endsWith('.json') && f !== 'doors.json')) {
-    const part = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8')) as {
+    const part = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8').replaceAll(RECORDED_STACK, '')) as {
       bodies: string[];
       answers: Record<string, [number, number]>;
     };

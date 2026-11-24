@@ -505,13 +505,13 @@ export function ChartTrading({
 
   if (!signedIn)
     return (
-      <div className="ct-bar" data-testid="chart-trading">
+      <div className="lt-toolbar" data-testid="chart-trading">
         <p className="cw-note">{t('Chart trading signed out')}</p>
       </div>
     );
 
   return (
-    <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-toolbar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal === null && replaying && (
         <p className="cw-note" role="status" data-testid="chart-trading-replay">
@@ -574,7 +574,7 @@ export function ChartTrading({
         </form>
       )}
       {review && (
-        <div className="ct-review" role="dialog" aria-label={t('Chart review order')} data-testid="chart-order-review">
+        <div className="lt-toolbar" role="dialog" aria-label={t('Chart review order')} data-testid="chart-order-review">
           <p>
             {t('Chart review line', {
               side: t(review.draft.side === 'buy' ? 'Buy' : 'Sell'),
@@ -605,7 +605,7 @@ export function ChartTrading({
         </button>
       )}
       {move?.stage === 'protect' && (
-        <div className="ct-review" role="alertdialog" aria-label={t('Chart protection title')} data-testid="chart-protection">
+        <div className="lt-toolbar" role="alertdialog" aria-label={t('Chart protection title')} data-testid="chart-protection">
           <p>{t('Chart protection ask', { price: fmtPrice(move.price, market.tickSize), distance: move.distance, limit: move.limit })}</p>
           <button type="button" disabled={busy || locked} onClick={() => void run(() => reviewMove(move.order, move.price))}>
             {t('Chart protection continue')}
@@ -616,7 +616,7 @@ export function ChartTrading({
         </div>
       )}
       {move?.stage === 'review' && (
-        <div className="ct-review" role="dialog" aria-label={t('Chart review move')} data-testid="chart-move-review">
+        <div className="lt-toolbar" role="dialog" aria-label={t('Chart review move')} data-testid="chart-move-review">
           <p>
             {t('Chart move line', {
               side: t(move.order.side === 'buy' ? 'Buy' : 'Sell'),

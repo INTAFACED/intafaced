@@ -5,11 +5,14 @@
  */
 import { classifyRefusal } from '../../../data';
 import { refusalCopy, refusalSupportCode } from './ui';
+import { needsVerification } from '../../../shared/api';
 
 export interface Words {
   title: string;
   body: string;
   code?: string;
+  /** A refusal for want of identity verification: drawn as the app's one ask to verify (`VerifyFirstNote`), with no code. */
+  verify?: true;
 }
 
 const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
@@ -30,8 +33,11 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no size range for conversions at its price, so none can be priced. Nothing was priced or held.',
   },
   'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
-  'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
-  'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
+  'trade.otc_quote_missing': {
+    title: "We couldn't find that quote",
+    body: 'Check the quote reference. You can only open your own quotes.',
+  },
+  'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote reference. You can only open your own quotes.' },
   'trade.otc_last_look_forbidden': {
     title: 'The price must match the quote',
     body: 'The desk fills at the quoted price only. Nothing was accepted.',
@@ -224,6 +230,9 @@ export function roomWords(input: RefusalInput): Words {
       body: 'The connection dropped before an answer arrived. Check status before trying again.',
       ...(code ? { code: refusalSupportCode(code) } : {}),
     };
+  // Never the gate's tier, module, region or code: the app's one sentence and the way to Verification.
+  if (needsVerification(code, input.message))
+    return { title: 'Verify your identity first', body: 'Verify your identity to use this.', verify: true };
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };

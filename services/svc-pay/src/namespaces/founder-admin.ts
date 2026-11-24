@@ -12,41 +12,6 @@ import {
   conversionLateFillSweepResultSchema,
   conversionHoldSweepResultSchema,
 } from '@intafaced/contracts/conversion';
-import {
-  founderMerchantListInputSchema,
-  founderMerchantListSchema,
-  founderMerchantDrilldownInputSchema,
-  founderMerchantDrilldownSchema,
-  founderMerchantSectionInputSchema,
-  founderMerchantSectionSchema,
-  founderRecentMerchantsInputSchema,
-  founderRecentMerchantsSchema,
-  founderPayoutListInputSchema,
-  founderPayoutListSchema,
-  founderDisputeListInputSchema,
-  founderDisputeListSchema,
-  founderLiveSummarySchema,
-  founderRiskSummaryInputSchema,
-  founderRiskSummarySchema,
-  founderGlobalMetricsInputSchema,
-  founderGlobalMetricsSchema,
-  founderChangeSubmitInputSchema,
-  founderChangeSubmitResultSchema,
-  founderChangeConfirmInputSchema,
-  founderPendingChangeListInputSchema,
-  founderPendingChangeListSchema,
-  founderApprovalQueueInputSchema,
-  founderApprovalQueueSchema,
-  founderApprovalDestinationInputSchema,
-  founderApprovalDestinationSchema,
-  founderTreasuryExposureSchema,
-} from '@intafaced/contracts/founder-admin';
-import {
-  merchantMetricsInputSchema,
-  merchantMetricsSnapshotSchema,
-  merchantMetricsSeriesInputSchema,
-  merchantMetricsSeriesSchema,
-} from '@intafaced/contracts/merchant-metrics';
 import { TRPCError, router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -85,6 +50,22 @@ import { PayError } from '../payment-service.js';
 import type { PayService } from '../payment-service.js';
 import type { MerchantStarterFee } from '../starter-fee.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
+import {
+  PAY_FOUNDER_ADMIN_MERCHANTS_SECTION,
+  PAY_FOUNDER_ADMIN_MERCHANTS_RECENT,
+  PAY_FOUNDER_ADMIN_PAYOUTS_LIST,
+  PAY_FOUNDER_ADMIN_DISPUTES_LIST,
+  PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
+  PAY_FOUNDER_ADMIN_RISK_SUMMARY,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_METRICS_GLOBAL,
+  PAY_FOUNDER_ADMIN_MERCHANTS_LIST,
+  PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES,
+  PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN,
+  PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `founderAdmin.*` — the global founder panel (W2 fills `merchants.list` and `metrics.*`; W4 the rest).
@@ -257,14 +238,14 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
       ops,
       merchants: router({
-        list: founder
-          .input(founderMerchantListInputSchema)
-          .output(founderMerchantListSchema)
-          .query(({ input }) => (metrics ? wrap(() => metrics.reader.merchantList(input)) : notBuilt('founderAdmin.merchants.list'))),
-        drilldown: founder
-          .input(founderMerchantDrilldownInputSchema)
-          .output(founderMerchantDrilldownSchema)
-          .query(({ input }) => {
+        list: mountRecord(
+          PAY_FOUNDER_ADMIN_MERCHANTS_LIST,
+          ({ input }) => (metrics ? wrap(() => metrics.reader.merchantList(input)) : notBuilt('founderAdmin.merchants.list')),
+          { refusalOf: payRefusal, founder },
+        ),
+        drilldown: mountRecord(
+          PAY_FOUNDER_ADMIN_MERCHANTS_DRILLDOWN,
+          ({ input }) => {
             if (!metrics || !control || !halts) return notBuilt('founderAdmin.merchants.drilldown');
             return wrap(() =>
               guarded(() =>
@@ -277,99 +258,75 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
                 }),
               ),
             );
-          }),
-        section: founder
-          .input(founderMerchantSectionInputSchema)
-          .output(founderMerchantSectionSchema)
-          .query(({ ctx, input }) => {
+          },
+          { refusalOf: payRefusal, founder },
+        ),
+        section: mountRecord(
+          PAY_FOUNDER_ADMIN_MERCHANTS_SECTION,
+          ({ ctx, input }) => {
             if (!reads) return notBuilt('founderAdmin.merchants.section');
             if (PAY_SECTIONS.has(input.section) && !reads.hasPay) return notBuilt('founderAdmin.merchants.section');
             return readWrap(() => reads.section((ctx as FounderContext).founderUserId, input));
-          }),
-        recent: founder
-          .input(founderRecentMerchantsInputSchema)
-          .output(founderRecentMerchantsSchema)
-          .query(({ input }) => (reads ? readWrap(() => reads.recent(input)) : notBuilt('founderAdmin.merchants.recent'))),
+          },
+          { refusalOf: payRefusal, founder },
+        ),
+        recent: mountRecord(
+          PAY_FOUNDER_ADMIN_MERCHANTS_RECENT,
+          ({ input }) => (reads ? readWrap(() => reads.recent(input)) : notBuilt('founderAdmin.merchants.recent')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
       payouts: router({
-        list: founder
-          .input(founderPayoutListInputSchema)
-          .output(founderPayoutListSchema)
-          .query(({ input }) => (reads ? readWrap(() => reads.payoutList(input)) : notBuilt('founderAdmin.payouts.list'))),
+        list: mountRecord(
+          PAY_FOUNDER_ADMIN_PAYOUTS_LIST,
+          ({ input }) => (reads ? readWrap(() => reads.payoutList(input)) : notBuilt('founderAdmin.payouts.list')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
       disputes: router({
-        list: founder
-          .input(founderDisputeListInputSchema)
-          .output(founderDisputeListSchema)
-          .query(({ input }) => (reads ? readWrap(() => reads.disputeList(input)) : notBuilt('founderAdmin.disputes.list'))),
+        list: mountRecord(
+          PAY_FOUNDER_ADMIN_DISPUTES_LIST,
+          ({ input }) => (reads ? readWrap(() => reads.disputeList(input)) : notBuilt('founderAdmin.disputes.list')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
       live: router({
-        summary: founder
-          .input(z.object({}).strict())
-          .output(founderLiveSummarySchema)
-          .query(() => (reads ? readWrap(() => reads.live()) : notBuilt('founderAdmin.live.summary'))),
+        summary: mountRecord(
+          PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
+          () => (reads ? readWrap(() => reads.live()) : notBuilt('founderAdmin.live.summary')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
       risk: router({
-        summary: founder
-          .input(founderRiskSummaryInputSchema)
-          .output(founderRiskSummarySchema)
-          .query(({ input }) => (reads ? readWrap(() => reads.risk(input)) : notBuilt('founderAdmin.risk.summary'))),
+        summary: mountRecord(
+          PAY_FOUNDER_ADMIN_RISK_SUMMARY,
+          ({ input }) => (reads ? readWrap(() => reads.risk(input)) : notBuilt('founderAdmin.risk.summary')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
       metrics: router({
-        global: founder
-          .input(founderGlobalMetricsInputSchema)
-          .output(founderGlobalMetricsSchema)
-          .query(({ input }) =>
-            metrics ? wrap(() => metrics.reader.globalMetrics(input.window)) : notBuilt('founderAdmin.metrics.global'),
-          ),
+        global: mountRecord(
+          PAY_FOUNDER_ADMIN_METRICS_GLOBAL,
+          ({ input }) => (metrics ? wrap(() => metrics.reader.globalMetrics(input.window)) : notBuilt('founderAdmin.metrics.global')),
+          { refusalOf: payRefusal, founder },
+        ),
         /** Any merchant's snapshot (the same figures the merchant sees). Founder authority replaces ownership. */
-        merchant: founder
-          .input(merchantMetricsInputSchema)
-          .output(merchantMetricsSnapshotSchema)
-          .query(({ input }) =>
+        merchant: mountRecord(
+          PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+          ({ input }) =>
             metrics
               ? wrap(() => metrics.reader.merchantSnapshot(input.merchantId, input.window))
               : notBuilt('founderAdmin.metrics.merchant'),
-          ),
-        merchantSeries: founder
-          .input(merchantMetricsSeriesInputSchema)
-          .output(merchantMetricsSeriesSchema)
-          .query(({ input }) =>
-            metrics ? wrap(() => metrics.reader.merchantSeries(input)) : notBuilt('founderAdmin.metrics.merchantSeries'),
-          ),
+          { refusalOf: payRefusal, founder },
+        ),
+        merchantSeries: mountRecord(
+          PAY_FOUNDER_ADMIN_METRICS_MERCHANT_SERIES,
+          ({ input }) => (metrics ? wrap(() => metrics.reader.merchantSeries(input)) : notBuilt('founderAdmin.metrics.merchantSeries')),
+          { refusalOf: payRefusal, founder },
+        ),
       }),
-      changes: router(
-        control
-          ? founderChangeProcedures(founder, control)
-          : {
-              submit: founder
-                .input(founderChangeSubmitInputSchema)
-                .output(founderChangeSubmitResultSchema)
-                .mutation(() => notBuilt('founderAdmin.changes.submit')),
-              confirm: founder
-                .input(founderChangeConfirmInputSchema)
-                .output(founderChangeSubmitResultSchema)
-                .mutation(() => notBuilt('founderAdmin.changes.confirm')),
-              pending: founder
-                .input(founderPendingChangeListInputSchema)
-                .output(founderPendingChangeListSchema)
-                .query(() => notBuilt('founderAdmin.changes.pending')),
-            },
-      ),
-      approvals: router(
-        control
-          ? founderApprovalProcedures(founder, control)
-          : {
-              list: founder
-                .input(founderApprovalQueueInputSchema)
-                .output(founderApprovalQueueSchema)
-                .query(() => notBuilt('founderAdmin.approvals.list')),
-              destination: founder
-                .input(founderApprovalDestinationInputSchema)
-                .output(founderApprovalDestinationSchema)
-                .mutation(() => notBuilt('founderAdmin.approvals.destination')),
-            },
-      ),
+      changes: router(founderChangeProcedures(founder, control)),
+      approvals: router(founderApprovalProcedures(founder, control)),
       // W1 control room (tier definitions, pricing layers, usage, founder payout approvals). Mounted only with a ControlService.
       ...(control ? { control: createFounderControlRouter(founder, control) } : {}),
       conversion: router({
@@ -471,15 +428,16 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
         }),
       }),
       treasury: router({
-        exposure: founder
-          .input(z.object({}).strict())
-          .output(founderTreasuryExposureSchema)
-          .query(async () => {
+        exposure: mountRecord(
+          PAY_FOUNDER_ADMIN_TREASURY_EXPOSURE,
+          async () => {
             if (!treasury) return notBuilt('founderAdmin.treasury.exposure');
             // Computed live from the payout book, withdrawals and the conversion reader: "as of" is now.
             const perAsset = await treasuryExposureView(treasury.sql, treasury.limits, treasury.inventory);
             return { freshness: { asOf: new Date().toISOString(), lagSeconds: 0 }, perAsset };
-          }),
+          },
+          { refusalOf: payRefusal, founder },
+        ),
       }),
     }),
   });

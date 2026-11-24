@@ -220,11 +220,11 @@ export function FollowWizard({
         ) : null}
 
         {step === 1 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {listed ? (
               <KeyValue items={[{ label: t('Leader'), value: listed.displayName }]} />
             ) : (
-              <Field label={t('Leader ID')} hint={t('The ID the leader shares with you')} error={show(problems.leader)} required>
+              <Field label={t('Leader’s code')} hint={t('The code the leader gave you')} error={show(problems.leader)} required>
                 <Input kind="text" value={leader} onValueChange={setLeader} maxLength={120} autoComplete="off" />
               </Field>
             )}
@@ -240,7 +240,7 @@ export function FollowWizard({
         ) : null}
 
         {step === 2 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <fieldset className="cb-fieldset">
               <legend className="cb-label">{t('Markets you allow')}</legend>
               {markets.length === 0 ? (
@@ -273,7 +273,7 @@ export function FollowWizard({
         ) : null}
 
         {step === 3 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <Field label={t('Most per order ({asset})', { asset })} error={show(problems.perOrder)} required>
               <Input kind="decimal" value={perOrder} onValueChange={setPerOrder} precision={8} trailing={asset} />
             </Field>
@@ -352,7 +352,7 @@ export function FollowWizard({
         ) : null}
 
         {step === 4 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
             <KeyValue
               items={[

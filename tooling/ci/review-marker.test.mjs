@@ -6,6 +6,7 @@ import {
   REVIEW_WORKFLOW,
   STATUS_CONTEXT,
   groupPulls,
+  missingWhy,
   queueRefPr,
   reviewJob,
   reviewReason,
@@ -29,8 +30,12 @@ const reasonCases = [
   [['tooling/scripts/local-test-gates.mjs'], false], // tooling without a package.json: likewise
   [['tooling/pay-sim/src/cli.ts'], false],
   [['tooling/coverage.yaml'], false],
-  [['apps/customer/src/assets/logo.png'], false],
-  [['apps/customer/src/screens/home/index.tsx'], false],
+  [['apps/customer/src/assets/logo.png'], true], // draws a Customer room: its pictures' review (#9910)
+  [['apps/customer/src/screens/home/index.tsx'], true],
+  [['packages/ui/src/button.tsx'], true], // a kit part
+  [['apps/customer/README.md'], false], // a doc draws nothing
+  [['apps/customer/tests/real-app/J-bank-02.pw.mjs'], false], // a test draws nothing: its own judge reads it
+  [['apps/customer/src/app/volt-count.test.ts'], false],
   [['.github/CODEOWNERS'], true], // gate files
   [['.github/workflows/ci.yml'], true],
   [['tooling/ci/dependency-audit.mjs'], true],
@@ -39,7 +44,7 @@ const reasonCases = [
   [['services/svc-pay/src/a.ts', 'services/svc-pay/CLAUDE.md'], true], // money plus a gate file
   [['pnpm-lock.yaml'], false], // security code in AGENTS.md (owner decision 2026-11-06)
   [['.npmrc'], false], // the seal's old security list
-  [['apps/customer/Dockerfile'], false],
+  [['apps/customer/Dockerfile'], true], // not as supply chain: the look gate draws the rooms it builds
   [['docker-compose.apps.yml'], false],
   [['tsconfig.base.json'], false],
   [['.github/actions/test-infra/action.yml'], false], // .github/ outside GATE_PATHS
@@ -51,7 +56,7 @@ const reasonCases = [
   [[], true],
 ];
 
-test('reviewReason: gate files and look baselines need the review, nothing else does', () => {
+test('reviewReason: gate files, look baselines and Customer rooms need the review, nothing else does', () => {
   for (const [files, want] of reasonCases)
     assert.equal(reviewReason(files) !== null, want, `review-reason case failed for ${JSON.stringify(files)}`);
 });
@@ -144,4 +149,14 @@ test('sealMergeGroup: each queued pull request is held to its own seal, offline'
   const bad = await sealMergeGroup({ commits: [{ commit: { message: 'Merge pull request #4' } }], headRef: ref(4), io });
   assert.equal(bad.ok, false, 'an unreadable group fails closed');
   assert.ok(bad.lines[0].includes('could not be read whole'), 'an unreadable group fails closed');
+});
+
+test('a draft missing its review is told to go ready, never to re-run a review that skips drafts (missingWhy)', () => {
+  const why = 'no CI review on abc passed its Verdict step (it did not finish, or failed before a verdict; re-run it)';
+  assert.equal(missingWhy(why, { number: 12, draft: false }), why);
+  assert.equal(missingWhy(why, null), why, 'not a pull request: as before');
+  const draft = missingWhy(why, { number: 12, draft: true });
+  assert.match(draft, /is a draft and the CI review skips drafts/);
+  assert.match(draft, /run `gh pr ready 12`/);
+  assert.doesNotMatch(draft, /re-run/);
 });

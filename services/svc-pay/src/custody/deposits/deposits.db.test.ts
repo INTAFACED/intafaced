@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { payCustodyDepositCatalogueSchema, serviceAuthHeadersForBody, type PayCustodyDepositCatalogue } from '@intafaced/contracts';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryChain, UnconfiguredChain } from '../../rails/chain-port.js';
@@ -22,7 +22,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_custody_deposits_test')
     .withUsername('intafaced')
     .withPassword('intafaced')

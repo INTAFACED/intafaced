@@ -56,7 +56,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 && result.code === 'pay.withdrawal_not_found')
     return (
-      <div data-testid="failure" className="failure" role="status">
+      <div data-testid="failure" className="lt-refusal" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>
@@ -181,7 +181,7 @@ function List({ current }: { current: () => boolean }) {
         }
       >
         <div className="withdrawal-filters" data-testid="withdrawal-filters">
-          <label className="field">
+          <label className="lt-field">
             <span>{t('filterCoin')}</span>
             <select
               name="withdrawal-coin"
@@ -198,7 +198,7 @@ function List({ current }: { current: () => boolean }) {
             </select>
             {assets.resource.status === 'failed' && <small id="withdrawal-coins-unread">{t('coinsUnread')}</small>}
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('status')}</span>
             <select
               name="withdrawal-status"
@@ -233,7 +233,7 @@ function List({ current }: { current: () => boolean }) {
                     {items.map((item) => (
                       <li data-testid="withdrawal-row" className="withdrawal-row" key={item.id} data-withdrawal-id={item.id}>
                         <div className="withdrawal-row-main">
-                          <strong className="numeric" lang="und" data-withdrawal-amount>
+                          <strong className="lt-num" lang="und" data-withdrawal-amount>
                             {hideBalances ? `•••• ${item.assetId}` : amount(item.amount, item.assetId)}
                           </strong>
                           <span
@@ -321,7 +321,7 @@ function ReturnedPart({ record, current }: { record: WithdrawalRecord; current: 
   if (resource.status === 'loading') return null;
   if (resource.status === 'failed')
     return (
-      <p className="muted" role="status" data-testid="withdrawal-returned-unread">
+      <p className="lt-muted" role="status" data-testid="withdrawal-returned-unread">
         {t('returnedReadFailed')}
       </p>
     );
@@ -391,7 +391,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
             : t('heldUnknownNote');
     return (
       <div className="withdrawal-cancel" data-testid="withdrawal-cancel" data-cancellable={may}>
-        <p className="muted" id={`withdrawal-cancel-note-${record.id}`}>
+        <p className="lt-muted" id={`withdrawal-cancel-note-${record.id}`}>
           {note}
         </p>
         <Button
@@ -462,14 +462,14 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
         {(record) => (
           <div className="withdrawal-detail">
             <div className="withdrawal-detail-value">
-              <strong className="numeric" lang="und" data-withdrawal-amount>
+              <strong className="lt-num" lang="und" data-withdrawal-amount>
                 {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
               </strong>
               <span className={inMotion(record) ? 'accent' : undefined} data-testid="withdrawal-status" data-status={record.customerStatus}>
                 {t(statusKey(record))}
               </span>
             </div>
-            <p className="muted">{t('statusNote')}</p>
+            <p className="lt-muted">{t('statusNote')}</p>
             {canceled && (
               <p role="status" data-testid="withdrawal-canceled">
                 {canceled.holdReleased === true
@@ -486,7 +486,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
             )}
             {cancelPart(record)}
             {record.status === 'sent' && <ReturnedPart key={record.id} record={record} current={current} />}
-            {inMotion(record) && <p className="muted">{t('irreversible')}</p>}
+            {inMotion(record) && <p className="lt-muted">{t('irreversible')}</p>}
             <dl data-testid="withdrawal-facts" className="withdrawal-facts">
               {facts(record).map(([label, value]) => (
                 <div key={label}>

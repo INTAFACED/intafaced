@@ -5,7 +5,16 @@ import { test, expect } from './journey.mjs';
 import { signIn } from './desk.mjs';
 import { TOKEN_USD } from './dex.mjs';
 import { api, journeyState, stepState } from './stack.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import {
+  chainBalance,
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  testVenue,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import { data, myRewards, operatorPair, traderOf, usdUnits } from './campaign-desk.mjs';
@@ -200,6 +209,21 @@ const notionalOf = (f) => {
   return frac ? `${n.slice(0, -18)}.${frac}` : n.slice(0, -18);
 };
 
+/**
+ * The person's competition volume as the TEST venue itself reports it: the notional of each venue fill, since the
+ * competition opened, of an order placed through INTAFACED (with our builder fee), and how many such fills there are.
+ */
+async function venueVolume(p, since) {
+  const { ours } = await venueFills(p, since);
+  return { volume: sumDecimal(ours.map(notionalOf)), fills: ours.length };
+}
+
+/** A decimal string as 18-place units, to compare sizes. */
+const units18 = (x) => {
+  const [w, f = ''] = String(x).split('.');
+  return BigInt(w + f.padEnd(18, '0'));
+};
+
 async function boardOf(who, campaignId) {
   const res = await (
     await api(who)
@@ -234,6 +258,8 @@ async function shownStandings(page) {
 test(`${J} starts: signed in; an active volume competition with a threshold, seats and a prize pool`, async ({ browser }) => {
   test.setTimeout(900_000);
   run.reset({});
+  // The competition's opening: every step reads the venue's fills since then.
+  const since = new Date(Date.now() - 60_000).toISOString();
   // INTAFACED's TEST reward pot and rewards wallet: builder fees this file's own TEST sells earned us.
   const house = await trader(browser, 'jc11h');
   const fees = await funds.earnBuilderFees(house.who, 6);
@@ -249,16 +275,25 @@ test(`${J} starts: signed in; an active volume competition with a threshold, sea
   expect(joined.body?.result?.data?.created, JSON.stringify(joined.body).slice(0, 300)).toBe(true);
   const board = await boardOf(rival.who, campaign.id);
   expect(board).toMatchObject({ basis: 'volume', seats: 2, seatsLeft: 1, closed: false, pool: POOL, prizeAsset: ASSET });
-  run.write({ campaignId: campaign.id, rival, ann, cat });
+  run.write({ campaignId: campaign.id, since, rival, ann, cat });
 });
 
 test(`${J} #1 opens a competition at /campaigns/<id>: rules, threshold, prize table, seats left and the ranking basis (volume)`, async ({
   browser,
 }) => {
-  const { campaignId, ann } = state('campaignId', 'ann');
+  const { campaignId, since, ann, rival } = state('campaignId', 'since', 'ann', 'rival');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, ann.who);
   const room = await openCompetition(page, campaignId);
+  // The ranking basis is the venue's own record: the one entrant so far (the rival, seat 1) shows exactly the volume and
+  // fill count the TEST venue reports for their wallet's orders placed through INTAFACED. Nobody has traded yet.
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(rivalOnVenue).toEqual({ volume: '0', fills: 0 });
+  const [standing] = await shownStandings(page);
+  expect(await shownStandings(page)).toHaveLength(1);
+  expect(standing.slice(0, 3)).toEqual([1, 1, false]);
+  expect(sameDecimal(standing[3], rivalOnVenue.volume), `shown ${standing[3]}, venue ${rivalOnVenue.volume}`).toBe(true);
+  expect(standing[4]).toBe(rivalOnVenue.fills);
   await expect(page.getByTestId('campaign-type-name')).toHaveText('Competition');
   await expect(page.getByTestId('campaign-rules')).toContainText(`a place needs ${THRESHOLD} ${ASSET} of volume`);
   await expect(room.getByTestId('competition-basis')).toHaveAttribute('data-basis', 'volume');
@@ -303,6 +338,17 @@ test(`${J} #2 joins when only one seat is left, together with another account: o
   expect(board.mine).toMatchObject({ seat: 2 });
   expect(board.seatsLeft).toBe(0);
   expect(board.standings.map((s) => s.seat)).toEqual([1, 2]);
+  // Each seat's figures are the venue's own record of its holder's wallet: seat 1 the rival's, seat 2 the winner's.
+  const { since, rival } = state('since', 'rival');
+  for (const [seat, holder] of [
+    [1, rival],
+    [2, winner],
+  ]) {
+    const onVenue = await venueVolume(holder, since);
+    const row = board.standings.find((s) => s.seat === seat);
+    expect(sameDecimal(row.volume, onVenue.volume), `seat ${seat}: shown ${row.volume}, venue ${onVenue.volume}`).toBe(true);
+    expect(row.fills).toBe(onVenue.fills);
+  }
   // The other account presses Join on the page: the typed seat refusal, and no seat.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, loser.who);
@@ -407,10 +453,18 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
 
 test(`${J} #4 reaches a milestone tier: the milestone shows reached, and its prize is queued once`, async ({ browser }) => {
   test.setTimeout(120_000);
-  const { campaignId, winner, rival } = state('campaignId', 'winner', 'rival');
+  const { campaignId, since, winner, rival } = state('campaignId', 'since', 'winner', 'rival');
+  // The tier is reached on the venue's own record: the winner's volume there is at or over the milestone, and the
+  // rival's is under it.
+  const winnerOnVenue = await venueVolume(winner, since);
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(units18(winnerOnVenue.volume) >= units18(MILESTONE.volume), JSON.stringify(winnerOnVenue)).toBe(true);
+  expect(units18(rivalOnVenue.volume) < units18(MILESTONE.volume), JSON.stringify(rivalOnVenue)).toBe(true);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
+  // The volume the room counts toward the milestone is exactly the venue's.
+  await expect(room.getByTestId('competition-mine')).toHaveAttribute('data-volume', winnerOnVenue.volume);
   const tier = room.locator('[data-testid="competition-milestone"][data-tier="1"]');
   await expect(tier).toHaveAttribute('data-reached', 'true', { timeout: 30_000 });
   await expect(tier.getByTestId('competition-milestone-state')).toHaveText('Reached: prize queued');
@@ -438,7 +492,17 @@ test(`${J} #5 the period closes: prizes are paid once each to the winners' conne
   browser,
 }) => {
   test.setTimeout(420_000);
-  const { campaignId, winner, rival, milestoneKey } = state('campaignId', 'winner', 'rival', 'milestoneKey');
+  const { campaignId, since, winner, rival, milestoneKey } = state('campaignId', 'since', 'winner', 'rival', 'milestoneKey');
+  // Places follow the venue's own record: the winner's venue volume is over the rival's, both over the threshold.
+  const winnerOnVenue = await venueVolume(winner, since);
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(units18(winnerOnVenue.volume) > units18(rivalOnVenue.volume)).toBe(true);
+  expect(units18(rivalOnVenue.volume) >= units18(THRESHOLD)).toBe(true);
+  // What the TEST chain itself holds in each winner's connected wallet before any prize is paid.
+  const before = new Map([
+    [winner.wallet, await chainBalance(TOKEN_USD.address, winner.wallet)],
+    [rival.wallet, await chainBalance(TOKEN_USD.address, rival.wallet)],
+  ]);
   // The founders close the period.
   const { ctx, pair } = await operators();
   const ended = data(
@@ -492,6 +556,11 @@ test(`${J} #5 the period closes: prizes are paid once each to the winners' conne
     prize.rewardKey = row.rewardKey;
   }
   expect(new Set(prizes.map((p) => p.chainTx)).size).toBe(3);
+  // The TEST chain's own balance of each connected wallet grew by exactly that wallet's prizes, once each.
+  for (const p of [winner, rival]) {
+    const owed = prizes.filter((x) => x.p === p).reduce((n, x) => n + usdUnits(x.amount), 0n);
+    expect(await chainBalance(TOKEN_USD.address, p.wallet)).toBe(before.get(p.wallet) + owed);
+  }
   // On screen: the competition's results, and the winner's prizes in My Rewards with their chain reference.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, winner.who);
