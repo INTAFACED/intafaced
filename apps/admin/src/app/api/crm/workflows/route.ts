@@ -4,7 +4,6 @@ import {
   adminSessionErrorResponse,
   AdminSessionError,
   authorizeAdminRequest,
-  founderEdgeCall,
   founderEdgeRecordCall,
   type AdminSessionConfig,
 } from '@/lib/founder-session';
@@ -23,6 +22,11 @@ import {
   OPS_OUTREACH_TRANSITION_TASK,
   OPS_OUTREACH_UPSERT_CAMPAIGN,
   OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+  OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+  OPS_OUTREACH_METRICS,
+  OPS_OUTREACH_LIST_DUPLICATES,
+  OPS_OUTREACH_MERGE_CONTACTS,
+  OPS_OUTREACH_EXPORT_SUBMISSIONS,
 } from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
@@ -41,43 +45,12 @@ function viaRecord<R extends EdgeRecord>(record: R): Call {
       founderEdgeRecordCall(config, record, (takesNone ? undefined : input) as ProcedureInput<R>, accessToken),
   ];
 }
-// The calls still by name are those whose record the codemod can't write yet: an answer with a `.refine` the record's
-// export refuses (duplicates, provenance, exports), or an input check no sample shows (metrics, merges).
 const reads: Record<string, Call> = {
-  metrics: [
-    crm.crmMetricsInputSchema,
-    crm.crmMetricsSchema,
-    (config, input, accessToken) =>
-      founderEdgeCall(config, 'ops', 'outreach.metrics', 'GET', input as Parameters<crm.CrmWorkflowsContract['metrics']>[0], accessToken),
-  ],
+  metrics: viaRecord(OPS_OUTREACH_METRICS),
   listCampaigns: viaRecord(OPS_OUTREACH_LIST_CAMPAIGNS),
   listSourceMappings: viaRecord(OPS_OUTREACH_LIST_SOURCE_MAPPINGS),
-  listDuplicates: [
-    crm.crmDuplicateListInputSchema,
-    crm.crmDuplicatePageSchema,
-    (config, input, accessToken) =>
-      founderEdgeCall(
-        config,
-        'ops',
-        'outreach.listDuplicates',
-        'GET',
-        input as Parameters<crm.CrmWorkflowsContract['listDuplicates']>[0],
-        accessToken,
-      ),
-  ],
-  getContactProvenance: [
-    crm.crmContactProvenanceInputSchema,
-    crm.crmContactProvenanceSchema.nullable(),
-    (config, input, accessToken) =>
-      founderEdgeCall(
-        config,
-        'ops',
-        'outreach.getContactProvenance',
-        'GET',
-        input as Parameters<crm.CrmWorkflowsContract['getContactProvenance']>[0],
-        accessToken,
-      ),
-  ],
+  listDuplicates: viaRecord(OPS_OUTREACH_LIST_DUPLICATES),
+  getContactProvenance: viaRecord(OPS_OUTREACH_GET_CONTACT_PROVENANCE),
   listTasks: viaRecord(OPS_OUTREACH_LIST_TASKS),
   listMessages: viaRecord(OPS_OUTREACH_LIST_MESSAGES),
   listWorkflowAudit: viaRecord(OPS_OUTREACH_LIST_WORKFLOW_AUDIT),
@@ -86,32 +59,8 @@ const reads: Record<string, Call> = {
 const writes: Record<string, Call> = {
   upsertCampaign: viaRecord(OPS_OUTREACH_UPSERT_CAMPAIGN),
   upsertSourceMapping: viaRecord(OPS_OUTREACH_UPSERT_SOURCE_MAPPING),
-  mergeContacts: [
-    crm.crmMergeInputSchema,
-    crm.crmMergeReceiptSchema,
-    (config, input, accessToken) =>
-      founderEdgeCall(
-        config,
-        'ops',
-        'outreach.mergeContacts',
-        'POST',
-        input as Parameters<crm.CrmWorkflowsContract['mergeContacts']>[0],
-        accessToken,
-      ),
-  ],
-  exportSubmissions: [
-    crm.crmExportInputSchema,
-    crm.crmExportPageSchema,
-    (config, input, accessToken) =>
-      founderEdgeCall(
-        config,
-        'ops',
-        'outreach.exportSubmissions',
-        'POST',
-        input as Parameters<crm.CrmWorkflowsContract['exportSubmissions']>[0],
-        accessToken,
-      ),
-  ],
+  mergeContacts: viaRecord(OPS_OUTREACH_MERGE_CONTACTS),
+  exportSubmissions: viaRecord(OPS_OUTREACH_EXPORT_SUBMISSIONS),
   createTask: viaRecord(OPS_OUTREACH_CREATE_TASK),
   transitionTask: viaRecord(OPS_OUTREACH_TRANSITION_TASK),
   recordInteraction: viaRecord(OPS_OUTREACH_RECORD_INTERACTION),
