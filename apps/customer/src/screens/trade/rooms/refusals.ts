@@ -5,11 +5,14 @@
  */
 import { classifyRefusal } from '../../../data';
 import { refusalCopy, refusalSupportCode } from './ui';
+import { needsVerification } from '../../../shared/api';
 
 export interface Words {
   title: string;
   body: string;
   code?: string;
+  /** A refusal for want of identity verification: drawn as the app's one ask to verify (`VerifyFirstNote`), with no code. */
+  verify?: true;
 }
 
 const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
@@ -227,6 +230,9 @@ export function roomWords(input: RefusalInput): Words {
       body: 'The connection dropped before an answer arrived. Check status before trying again.',
       ...(code ? { code: refusalSupportCode(code) } : {}),
     };
+  // Never the gate's tier, module, region or code: the app's one sentence and the way to Verification.
+  if (needsVerification(code, input.message))
+    return { title: 'Verify your identity first', body: 'Verify your identity to use this.', verify: true };
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };

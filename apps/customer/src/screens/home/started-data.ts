@@ -7,7 +7,8 @@ import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/proce
 import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { useSession } from '../../features/session/session';
 import { venueApi } from '../../features/trade';
-import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, isVerifyFirst, type ApiResult, type AppProcedure } from '../../shared/api';
+import type { UiMessage } from '../../shared/ui-copy';
 import { useResource, type Resource } from '../../shared/resource';
 import {
   alertStatus,
@@ -35,8 +36,10 @@ type ActivityKind = (typeof ACTIVITY_KINDS)[number];
  * jurisdiction guard in front of the bank answers a bare FORBIDDEN whose message names the tier, so that message is
  * matched too (any other 403, such as a region block, stays a failure).
  */
-const notVerified = (failure: { code?: string; status?: number; message?: string }): boolean =>
-  failure.code === 'tier.insufficient' || (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
+const notVerified = (failure: { code?: string; status?: number; message?: string; messageCopy?: UiMessage }): boolean =>
+  failure.code === 'tier.insufficient' ||
+  isVerifyFirst(failure) ||
+  (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
 
 /**
  * The bank scans a bounded window of the history per call and, when the window holds no match, answers an empty page

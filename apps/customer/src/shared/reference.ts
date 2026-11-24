@@ -1,3 +1,4 @@
+import { needsVerification } from './api';
 /**
  * A short, readable stand-in for a long identifier. Customers can quote it to support; the full value stays behind a
  * "Details" disclosure, in a tooltip or in a copy button, never in body copy.
@@ -91,6 +92,8 @@ const BANK_CODES_NAMED_BY_STEPS: Readonly<Record<string, string>> = {
  */
 export function shownCode(code: string | null | undefined): string | null {
   if (!code) return null;
+  // A refusal for want of verification is said in words with the way to Verification; its code is no use to a customer.
+  if (needsVerification(code, undefined)) return null;
   if (code.startsWith('bank.') && !(code in BANK_CODES_NAMED_BY_STEPS)) return null;
   return code;
 }
