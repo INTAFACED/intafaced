@@ -16,6 +16,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService } from './auth-service.js';
 import { checkRevokeReason, parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds } from './developer-keys.js';
+import { parseRatePolicy } from './api-rate-limits.js';
 import { createIdentityRouter } from '../router.js';
 import { createDeveloperKeysRouter } from '../developer-keys-router.js';
 import { createApiKeyExpireRouter } from '../api-key-expire-router.js';
@@ -160,6 +161,15 @@ if (!available) {
       gate: auth,
       kycTier: (userId, executor) => auth.kycTier(userId, executor),
       capByTier: parseApiKeyCapByTier('none=5'),
+      ratePolicy: parseRatePolicy(
+        JSON.stringify({
+          tiers: [
+            { id: 'base', burst: 60, refillPerMinute: 1200 },
+            { id: 'sandbox', burst: 30, refillPerMinute: 600 },
+            { id: 'user', burst: 75, refillPerMinute: 1200 },
+          ],
+        }),
+      ),
       get idleExpirySeconds() {
         return idle;
       },
