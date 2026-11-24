@@ -55,21 +55,21 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
   const state = paused ? 'paused' : overall(streams);
   return (
     <Popover>
-      <PopoverTrigger className="dk-feed" data-state={state} aria-label={t('Status chip label', { state: t(`Status chip ${state}`) })}>
-        <span className="dk-feed-dot" aria-hidden="true" />
+      <PopoverTrigger className="lt-chip" data-state={state} aria-label={t('Status chip label', { state: t(`Status chip ${state}`) })}>
+        <span className="lt-chip-mark" aria-hidden="true" />
         {t(`Status chip ${state}`)}
       </PopoverTrigger>
-      <PopoverContent align="end" data-testid="dk-feed-pop" className="dk-feed-pop">
-        <p className="dk-feed-title">{t('Status title')}</p>
-        <ul className="dk-feed-list">
-          <li data-state={paused ? 'old' : 'ok'}>
+      <PopoverContent align="end" data-testid="dk-feed-pop" className="lt-stack">
+        <p className="lt-pop-title">{t('Status title')}</p>
+        <ul className="lt-list lt-tight lt-list-rule">
+          <li className="lt-row lt-row-between" data-state={paused ? 'old' : 'ok'}>
             <span>{t('Status placing')}</span>
-            <span className="dk-feed-state">{paused ? t('Status paused') : t('Status ready')}</span>
+            <span className="lt-quiet">{paused ? t('Status paused') : t('Status ready')}</span>
           </li>
           {streams.map((stream) => (
-            <li key={stream.id} data-state={stream.state}>
+            <li key={stream.id} className="lt-row lt-row-between" data-state={stream.state}>
               <span>{t(STREAM_KEY[stream.id])}</span>
-              <span className="dk-feed-state">
+              <span className="lt-quiet">
                 {stream.id === 'session'
                   ? t(signedIn ? 'Status signed in' : 'Status signed out')
                   : stream.state === 'ok' || stream.state === 'old'
@@ -79,7 +79,7 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
             </li>
           ))}
         </ul>
-        <p className="dk-feed-note">{t('Status note')}</p>
+        <p className="lt-note">{t('Status note')}</p>
       </PopoverContent>
     </Popover>
   );
