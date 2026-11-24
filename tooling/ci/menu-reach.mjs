@@ -6,7 +6,12 @@
  *   - the crawl's `menu reach` annotation (apps/customer/tests/real-app/menu-reach.pw.mjs, tooling/scripts/menu-crawl.mjs):
  *     every link the running app showed, page to page, signed out from the front page and the rooms an emailed link
  *     opens, and signed in from Home;
- *   - each step's `beta screens` annotations (apps/customer/tests/real-app/journey.mjs): the paths its test showed.
+ *   - each step's `beta screens` annotations (apps/customer/tests/real-app/journey.mjs): the paths its test showed;
+ *   - each passing step's `beta moves` annotations (tooling/scripts/journey-moves.mjs): the moves the app made on its own
+ *     while the step ran, never a typed address. A fresh account the crawl signs up owns no record, so a room that shows
+ *     one (`/agents/:agentId`, `/support/tickets/:ticketId`) has no link it can follow; a step that made the record and
+ *     clicked through to it shows the way. Each move is one more link from a room to a room, followed only from a room a
+ *     path already reaches, and only from a step whose every attempt passed first time.
  * Rooms the beta hides (tooling/ci/beta-hides.mjs, the beta build's own rule) are taken out of the link graph, since the
  * beta has no such page to pass through. A room is reached when a path of links from a front door leads to it; its
  * `reached` entry is that path, one address per room. A step is `notReached` when a screen it showed is on a room no
@@ -26,6 +31,8 @@ import { MENU_REACH } from '../scripts/menu-crawl.mjs';
 
 /** The annotation each journey test carries with the customer-app paths it showed (tooling/scripts/journey-screens.mjs). */
 export const BETA_SCREENS = 'beta screens';
+/** The annotation each journey test carries with the in-app moves it made (tooling/scripts/journey-moves.mjs). */
+export const BETA_MOVES = 'beta moves';
 const CRAWL_FILE = /(?:^|\/)menu-reach\.pw\.mjs$/;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)(?:\s+#|,\s+part of #)(\d+)\b/;
 /** A test title's step (`J-tax-01#3`), a part of a step (`J-identity-15, part of #1: …`) included; else null. */
@@ -37,10 +44,17 @@ export const stepOf = (title) => {
 const annotationsOf = (tests) =>
   (tests ?? []).flatMap((t) => [...(t.annotations ?? []), ...(t.results ?? []).flatMap((r) => r.annotations ?? [])]);
 
-/** { crawl, screens }: the crawl's record (null when absent) and each step's screens (a Set of paths). */
+/** Whether every test of a spec passed on its first attempt: a failing or flaky step's moves are not read. */
+const passed = (spec) => spec.ok !== false && (spec.tests ?? []).length > 0 && spec.tests.every((t) => t?.status === 'expected');
+
+/**
+ * { crawl, screens, moves }: the crawl's record (null when absent), each step's screens (a Set of paths), and the in-app
+ * moves of the passing steps ([from, to] pairs, each once).
+ */
 export function readReport(report) {
   let crawl = null;
   const screens = {};
+  const moves = new Map();
   const walk = (suite) => {
     for (const spec of suite.specs ?? []) {
       const notes = annotationsOf(spec.tests);
@@ -56,6 +70,17 @@ export function readReport(report) {
       }
       const step = stepOf(spec.title);
       if (!step) continue;
+      if (passed(spec))
+        for (const a of notes) {
+          if (a?.type !== BETA_MOVES) continue;
+          try {
+            for (const m of JSON.parse(a.description))
+              if (Array.isArray(m) && m.length === 2 && m.every((p) => typeof p === 'string' && p.startsWith('/')))
+                moves.set(JSON.stringify(m), m);
+          } catch {
+            /* not a list: no moves */
+          }
+        }
       for (const a of notes) {
         if (a?.type !== BETA_SCREENS) continue;
         try {
@@ -68,26 +93,27 @@ export function readReport(report) {
     for (const s of suite.suites ?? []) walk(s);
   };
   for (const s of report?.suites ?? []) walk(s);
-  return { crawl, screens };
+  return { crawl, screens, moves: [...moves.values()] };
 }
 
-/** Every concrete path the record and the screens name, for one call to the beta's rule. */
-export function pathsOf(crawl, screens) {
+/** Every concrete path the record, the screens and the moves name, for one call to the beta's rule. */
+export function pathsOf(crawl, screens, moves = []) {
   const out = new Set();
   for (const side of [crawl?.signedOut, crawl?.signedIn]) {
     for (const r of side?.roots ?? []) out.add(r);
     for (const [a, b] of side?.edges ?? []) out.add(a).add(b);
   }
   for (const set of Object.values(screens ?? {})) for (const p of set) out.add(p);
+  for (const [a, b] of moves) out.add(a).add(b);
   return [...out].sort();
 }
 
 /**
  * The reach of each step. `roomOf(path)` gives { room, alias } for a path of the route table, else null; `hidden` is the
- * Set of paths the beta hides. Returns { reached: { room: [path, ...] }, stepRooms: { step: [room, ...] }, notReached:
+ * Set of paths the beta hides; `moves` are passing steps' in-app moves (readReport), each a link from its first room. Returns { reached: { room: [path, ...] }, stepRooms: { step: [room, ...] }, notReached:
  * [{ step, paths }] } or { unread }.
  */
-export function menuReach({ crawl, screens, roomOf, hidden }) {
+export function menuReach({ crawl, screens, moves = [], roomOf, hidden }) {
   if (!crawl) return { unread: 'no crawl record: apps/customer/tests/real-app/menu-reach.pw.mjs did not run in this run' };
   if (crawl.unread) return { unread: `the crawl broke: ${crawl.unread}` };
   if (!crawl.signedOut || !crawl.signedIn) return { unread: 'the crawl record lacks a signed-out or a signed-in crawl' };
@@ -123,6 +149,15 @@ export function menuReach({ crawl, screens, roomOf, hidden }) {
       if (!next.has(from)) next.set(from, []);
       next.get(from).push([to, path]);
     }
+  // A passing step's in-app move landed on its room: it is a link from its first room, after every link the crawl saw.
+  // It widens no crawl link and opens no front door, and a room the beta hides is no end of one, as for the crawl's links.
+  for (const [a, b] of moves) {
+    const from = node(a);
+    const to = node(b);
+    if (from === null || to === null || from === to) continue;
+    if (!next.has(from)) next.set(from, []);
+    next.get(from).push([to, b]);
+  }
   const reached = {};
   const queue = [];
   for (const side of [crawl.signedOut, crawl.signedIn])
@@ -186,7 +221,7 @@ async function main() {
   if (!reportPath || !outPath) throw new Error('usage: menu-reach.mjs --report <report.json> --out <menu-reach.json>');
   let out;
   try {
-    const { crawl, screens } = readReport(JSON.parse(readFileSync(reportPath, 'utf8')));
+    const { crawl, screens, moves } = readReport(JSON.parse(readFileSync(reportPath, 'utf8')));
     const early = menuReach({ crawl, screens, roomOf: () => null, hidden: new Set() });
     if (early.unread) out = early;
     else {
@@ -196,9 +231,10 @@ async function main() {
         const room = findRoom(path);
         return room ? { room: room.path, alias: Boolean(room.alias) } : null;
       };
-      const hidden = hiddenBy(arg('--beta-rule') ?? BETA_RULE, pathsOf(crawl, screens));
+      const hidden = hiddenBy(arg('--beta-rule') ?? BETA_RULE, pathsOf(crawl, screens, moves));
       out = {
-        ...menuReach({ crawl, screens, roomOf, hidden }),
+        ...menuReach({ crawl, screens, moves, roomOf, hidden }),
+        moves: moves.length,
         crawl: {
           opened: (crawl.signedOut.opened?.length ?? 0) + (crawl.signedIn.opened?.length ?? 0),
           errors: [...(crawl.signedOut.errors ?? []), ...(crawl.signedIn.errors ?? [])].length,
