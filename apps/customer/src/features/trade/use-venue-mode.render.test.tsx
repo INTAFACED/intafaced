@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe('useVenueMode', () => {
-  it('retries a transient unreachable status read (timeout or 5xx) instead of latching off', async () => {
+  it('settles to off at once on a transient unreachable read, then retries in the background and switches on', async () => {
     venueStatus
       .mockResolvedValueOnce(authoredRefusal('unreachable', { key: 'serviceUnreachable' }))
       .mockResolvedValueOnce({ ok: true, data: VENUE_UP });
@@ -62,7 +62,7 @@ describe('useVenueMode', () => {
     await flush();
 
     expect(venueStatus).toHaveBeenCalledTimes(1);
-    expect(latest).toEqual({ mode: 'checking' });
+    expect(latest).toEqual({ mode: 'off' });
 
     await act(async () => void vi.advanceTimersByTime(999));
     expect(venueStatus).toHaveBeenCalledTimes(1);
@@ -74,10 +74,33 @@ describe('useVenueMode', () => {
     expect(latest).toMatchObject({ mode: 'on', status: VENUE_UP });
   });
 
-  it('backs off across repeated transient failures (1s, 2s, 4s, 8s, 15s) until the door answers', async () => {
+  it('backs off over its bounded schedule (1s, 2s, 4s, 8s, 15s) and stops at off when the service never answers', async () => {
+    const transient = authoredRefusal('unreachable', { key: 'gatewayUnreachable' }, 503);
+    venueStatus.mockResolvedValue(transient);
+
+    act(() => root.render(<Probe />));
+    await flush();
+    expect(venueStatus).toHaveBeenCalledTimes(1);
+    expect(latest).toEqual({ mode: 'off' });
+
+    for (const [index, wait] of [1_000, 2_000, 4_000, 8_000, 15_000].entries()) {
+      await act(async () => void vi.advanceTimersByTime(wait - 1));
+      expect(venueStatus).toHaveBeenCalledTimes(index + 1);
+      await act(async () => void vi.advanceTimersByTime(1));
+      await flush();
+      expect(venueStatus).toHaveBeenCalledTimes(index + 2);
+      expect(latest).toEqual({ mode: 'off' });
+    }
+
+    // Retries are exhausted after 5 background tries (6 calls total); no further calls fire.
+    await act(async () => void vi.advanceTimersByTime(300_000));
+    expect(venueStatus).toHaveBeenCalledTimes(6);
+    expect(latest).toEqual({ mode: 'off' });
+  });
+
+  it('recovers on the final bounded retry before stopping', async () => {
     const transient = authoredRefusal('unreachable', { key: 'gatewayUnreachable' }, 503);
     venueStatus
-      .mockResolvedValueOnce(transient)
       .mockResolvedValueOnce(transient)
       .mockResolvedValueOnce(transient)
       .mockResolvedValueOnce(transient)
@@ -87,15 +110,13 @@ describe('useVenueMode', () => {
 
     act(() => root.render(<Probe />));
     await flush();
-    expect(venueStatus).toHaveBeenCalledTimes(1);
+    expect(latest).toEqual({ mode: 'off' });
 
-    for (const [index, wait] of [1_000, 2_000, 4_000, 8_000, 15_000, 15_000].entries()) {
-      await act(async () => void vi.advanceTimersByTime(wait - 1));
-      expect(venueStatus).toHaveBeenCalledTimes(index + 1);
-      await act(async () => void vi.advanceTimersByTime(1));
+    for (const wait of [1_000, 2_000, 4_000, 8_000, 15_000]) {
+      await act(async () => void vi.advanceTimersByTime(wait));
       await flush();
-      expect(venueStatus).toHaveBeenCalledTimes(index + 2);
     }
+    expect(venueStatus).toHaveBeenCalledTimes(6);
     expect(latest).toMatchObject({ mode: 'on', status: VENUE_UP });
   });
 
@@ -120,7 +141,7 @@ describe('useVenueMode', () => {
     expect(latest).toEqual({ mode: 'off' });
   });
 
-  it('keeps mode on across reload() when the refresh hits a transient failure, then applies the fresh status', async () => {
+  it('keeps mode on across reload() while retrying a transient failure, then applies the fresh status', async () => {
     const down: VenueStatus = {
       enabled: true,
       available: false,
@@ -146,6 +167,35 @@ describe('useVenueMode', () => {
     await flush();
     expect(venueStatus).toHaveBeenCalledTimes(3);
     expect(latest).toMatchObject({ mode: 'on', status: down });
+  });
+
+  it('settles reload() to off once bounded retries are exhausted', async () => {
+    venueStatus
+      .mockResolvedValueOnce({ ok: true, data: VENUE_UP })
+      .mockResolvedValue(authoredRefusal('unreachable', { key: 'serviceUnreachable' }));
+
+    act(() => root.render(<Probe />));
+    await flush();
+    expect(latest).toMatchObject({ mode: 'on', status: VENUE_UP });
+
+    act(() => {
+      if (latest?.mode === 'on') latest.reload();
+    });
+    await flush();
+    expect(latest).toMatchObject({ mode: 'on', status: VENUE_UP });
+
+    for (const wait of [1_000, 2_000, 4_000, 8_000]) {
+      await act(async () => void vi.advanceTimersByTime(wait));
+      await flush();
+      expect(latest).toMatchObject({ mode: 'on', status: VENUE_UP });
+    }
+    await act(async () => void vi.advanceTimersByTime(15_000));
+    await flush();
+    expect(venueStatus).toHaveBeenCalledTimes(7);
+    expect(latest).toEqual({ mode: 'off' });
+
+    await act(async () => void vi.advanceTimersByTime(300_000));
+    expect(venueStatus).toHaveBeenCalledTimes(7);
   });
 
   it('cancels a pending retry timer and aborts on unmount, sign-out, or skip', async () => {
