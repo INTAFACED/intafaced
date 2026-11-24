@@ -1506,6 +1506,22 @@ export interface UserVenueCollateral {
   readonly haircut: MaybeKnown<Amount>;
 }
 
+/**
+ * The venue's current price band around its reference price (J-derivatives-02 #5 #8): `widthBps` is the band width in
+ * force now (scaled bps), `usualWidthBps` its usual width, `bandReference` the price it is centered on, `bandLow` and
+ * `bandHigh` the resulting bounds in the quote asset, `widened` true while wider than usual, and `reason` the venue's
+ * own words for why (or `null` when usual).
+ */
+export interface UserVenuePriceBand {
+  readonly widthBps: Amount;
+  readonly usualWidthBps: Amount;
+  readonly bandReference: Amount;
+  readonly bandLow: Amount;
+  readonly bandHigh: Amount;
+  readonly widened: boolean;
+  readonly reason: string | null;
+}
+
 /** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
 export interface UserVenueOpenInterest {
   readonly size: Amount;
@@ -1641,6 +1657,11 @@ export interface UserVenueMarket {
    * when the venue publishes no band.
    */
   readonly priceBandBps: Amount | null;
+  /**
+   * The venue's current price band with its usual width, bounds and whether a dynamic range has widened it
+   * (J-derivatives-02 #5 #8); `known: false` or absent where the venue publishes none (never invented by us).
+   */
+  readonly priceBand?: MaybeKnown<UserVenuePriceBand>;
   /**
    * The most open orders the venue lets one account hold, or `null` when it publishes none. An order past it is refused
    * `open_orders_above_venue_cap`.
@@ -1924,6 +1945,18 @@ export interface VenueOrderPreview {
     readonly initialMargin: MaybeKnown<Amount>;
     /** Of the position after the order fills in full; `known: false` where the venue publishes none. */
     readonly liquidationPrice: MaybeKnown<Amount>;
+    /**
+     * The venue margin tier this order puts the position into (J-derivatives-02 #6), where the venue publishes margin
+     * tiers; `null` or absent when the venue publishes no tiers. `confirmRequired` is true when an opening order moves
+     * into a higher tier than the current same-side position (or opens directly past tier 1).
+     */
+    readonly riskTier?: {
+      readonly current: number | null;
+      readonly projected: number;
+      readonly maxLeverageBps: number;
+      readonly maintenanceRate: Amount;
+      readonly confirmRequired: boolean;
+    } | null;
   } | null;
 }
 

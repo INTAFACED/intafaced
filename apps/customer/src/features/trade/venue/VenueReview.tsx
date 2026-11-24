@@ -57,6 +57,8 @@ export function ReviewDialog({
   owner,
   run,
   confirmLabel,
+  confirmDisabled = false,
+  beforeConfirm,
   extra,
   after,
   result,
@@ -71,6 +73,10 @@ export function ReviewDialog({
   owner: string;
   run: RunAction;
   confirmLabel: string;
+  /** Extra gate before Confirm can be pressed (e.g. accepting a higher margin tier, J-derivatives-02 #6). */
+  confirmDisabled?: boolean;
+  /** Content shown directly above the Confirm button (e.g. the new margin tier acceptance block). */
+  beforeConfirm?: ReactNode;
   extra?: ReactNode;
   /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
   after?: ReactNode;
@@ -171,9 +177,12 @@ export function ReviewDialog({
           </Button>
         ) : null}
         <OutcomeLine result={approving} owner={owner} />
+        {beforeConfirm}
         <Button
           tone="primary"
-          disabled={approved !== true || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')}
+          disabled={
+            approved !== true || confirmDisabled || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')
+          }
           onClick={onConfirm}
         >
           {confirmLabel}

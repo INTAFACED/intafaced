@@ -48,6 +48,7 @@ export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
     // refuses an order naming the missing rule (trade.venue_rule_unpublished, J-cex-spot-04 #6) until it is read.
     minOrderNotional: null,
     priceBandBps: null,
+    priceBand: { known: false },
     maxOpenOrders: null,
     // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
     // are not read from the info API by this adapter yet: each is not known, never guessed.

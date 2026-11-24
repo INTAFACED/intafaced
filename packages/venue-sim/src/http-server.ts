@@ -389,6 +389,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     status: 'trading',
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('1000000'),
+    // TEST: a 5% usual price band around the mark/book mid (J-derivatives-02 #5 #8); /test/price-band widens it.
+    priceBandBps: parseAmount('500'),
     listedBy: VENUE_LISTED,
     oracle: {},
     // TEST tiers: up to 20x below 5,000 USDC of position, 10x to 25,000, 5x above; maintenance half the initial margin
@@ -1439,6 +1441,21 @@ async function route(
         maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : undefined,
       });
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/price-band': {
+      // J-derivatives-02 #8: widen a market's dynamic price range with the venue's reason, or null to restore its usual band.
+      const symbol = str(body, 'symbol');
+      const width = body.widthBps;
+      if (width === null) {
+        sim.setDynamicPriceBand(symbol, null);
+      } else if (typeof width === 'bigint') {
+        const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : 'TEST: dynamic price range widened';
+        sim.setDynamicPriceBand(symbol, { widthBps: width, reason });
+      } else {
+        throw new VenueWireError('widthBps is a decimal string or null');
+      }
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { priceBand: market?.priceBand ?? { known: false }, label: 'TEST' };
     }
     case '/test/market-add': {
       const symbol = str(body, 'symbol');

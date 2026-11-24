@@ -85,6 +85,17 @@ export const marginMode = z.enum(['cross', 'isolated']);
 export type VenueTimeInForce = z.infer<typeof timeInForce>;
 export type VenueMarginMode = z.infer<typeof marginMode>;
 
+export const venuePriceBandSchema = z.object({
+  widthBps: decimalSchema,
+  usualWidthBps: decimalSchema,
+  bandReference: decimalSchema,
+  bandLow: decimalSchema,
+  bandHigh: decimalSchema,
+  widened: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type VenuePriceBand = z.infer<typeof venuePriceBandSchema>;
+
 export const venueMarketSchema = z.object({
   symbol: z.string(),
   kind: z.enum(['spot', 'perpetual']),
@@ -100,6 +111,8 @@ export const venueMarketSchema = z.object({
   // cap per account, each null where the venue publishes none (J-cex-spot-04). Absent from an older door: not published.
   minOrderNotional: decimalSchema.nullable().optional(),
   priceBandBps: decimalSchema.nullable().optional(),
+  // The venue's current price band with its usual width, bounds and widened state (J-derivatives-02 #5 #8).
+  priceBand: maybeKnown(venuePriceBandSchema).optional(),
   maxOpenOrders: z.number().int().positive().nullable().optional(),
   // The venue's largest order, null where it reports none.
   maxOrderQty: decimalSchema.nullable().optional(),
@@ -812,6 +825,16 @@ export const venuePreviewSchema = z.object({
       marginMode,
       initialMargin: maybeKnown(decimalSchema),
       liquidationPrice: maybeKnown(decimalSchema),
+      riskTier: z
+        .object({
+          current: z.number().int().positive().nullable(),
+          projected: z.number().int().positive(),
+          maxLeverageBps: z.number().int().positive(),
+          maintenanceRate: decimalSchema,
+          confirmRequired: z.boolean(),
+        })
+        .nullable()
+        .optional(),
     })
     .nullable(),
 });
