@@ -40,7 +40,7 @@ const en = {
   keysTitle: 'Keys',
   keysNote: 'We never hold your keys, so there is nothing to export. Back up your wallet’s recovery phrase in the wallet itself.',
   linkTitle: 'Link to my exchange account',
-  linkNote: 'Linking uses a signature that authorises nothing. It needs sign-in and the wallet balances slice.',
+  linkNote: 'Connect your wallet to your trading account by signing a message. It moves no funds and grants no key.',
   section_overview: 'Overview',
   section_activity: 'Activity',
   section_send: 'Send',

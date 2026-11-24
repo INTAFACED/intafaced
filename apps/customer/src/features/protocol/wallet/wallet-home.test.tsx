@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList } from '../../../app/beta-volt';
 import { rooms } from '../../../app/navigation';
 import { voltCount } from '../../../app/volt-count';
-import { WALLET_SECTIONS } from '../routes';
+import { WALLET_SECTIONS, walletSections } from '../routes';
 
 const transport = {
   canWrite: () => false,
@@ -51,5 +51,23 @@ describe('WalletHomeRoom (/wallet)', () => {
     const list = betaRoomList(voltCount().rooms, rooms);
     expect(betaHides('/wallet', list)).toBe(false);
     expect(betaHides(WALLET_SECTIONS.embedded, list)).toBe(false);
+  });
+
+  it('links to Venue account (/wallet/venue) in Volt and keeps it in the wallet sections (J-wallet-09)', async () => {
+    const count = voltCount();
+    const list = betaRoomList(count.rooms, rooms);
+    expect(count.rooms.find((r) => r.key === WALLET_SECTIONS.venue)?.state).toBe('volt');
+    expect(betaHides(WALLET_SECTIONS.venue, list)).toBe(false);
+    expect(walletSections(list)).toContain('venue');
+    await act(async () => {
+      root.render(
+        <WalletProvider discovery={false}>
+          <WalletHomeRoom />
+        </WalletProvider>,
+      );
+    });
+    const link = host.querySelector(`a[href="${WALLET_SECTIONS.venue}"]`);
+    expect(link, 'Wallet overview renders an <a href="/wallet/venue"> link').not.toBeNull();
+    expect(link?.textContent?.trim()).toBe('Venue account');
   });
 });
