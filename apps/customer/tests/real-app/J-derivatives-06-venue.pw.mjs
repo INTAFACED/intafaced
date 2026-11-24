@@ -12,7 +12,8 @@ import { continueInWallet, venueForThisFile, venueRecord } from './venue.mjs';
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
 // app against the stack's TEST venue simulator (packages/venue-sim). One test per step, titled "J-derivatives-06 #<n>",
 // run in order on one TEST account; J-derivatives-06.pw.mjs holds the custodial branch, checked on our own futures engine
-// (its own-engine stop is still titled #5 there: the merge seal fails closed on a journey file left with no step title).
+// (its own-engine stop keeps a #5 title there, marked as the custodial Later branch: the merge seal fails closed on a
+// journey file left with no step title, and no title may be declared twice across the journey files).
 //
 // The Starts line, made at the start of #1 straight on the TEST venue with the person's own key: a TEST isolated long of
 // 0.02 BTC-PERP at 10x, taken from the TEST makers' ladder. Every figure the page shows is checked against the TEST
