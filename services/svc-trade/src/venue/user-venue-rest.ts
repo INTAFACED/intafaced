@@ -652,24 +652,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
+  type AccountRead = { account: Account; principal: Principal };
   // The venue's account reads, by path. Registered in one literal loop so the published route list can see every one
   // (apps/customer developers-reference.test.ts reads `for (const path of [...])`).
-  const accountReads: Record<string, (d: UserVenueDoor, q: Query, a: Account) => Promise<unknown>> = {
+  const accountReads: Record<string, (d: UserVenueDoor, q: Query, ctx: AccountRead) => Promise<unknown>> = {
     // b2 change 6: every figure the person sees of their venue money is the venue's, with its own time and a state.
-    '/api/v1/venue/balances': async (d, _q, a) => {
+    '/api/v1/venue/balances': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       const read = await venue.balances(a);
       return { ...read, figures: venueBalanceFigures(venue.venue, read, new Date()) };
     },
-    '/api/v1/venue/orders/open': async (d, _q, a) => (await d.venue()).openOrders(a),
-    '/api/v1/venue/positions': async (d, _q, a) => {
+    '/api/v1/venue/orders/open': async (d, _q, { account: a, principal: p }) => d.openOrders(p, a),
+    '/api/v1/venue/positions': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       const read = await venue.positions(a);
       return { ...read, figures: venuePositionFigures(venue.venue, read, new Date()) };
     },
-    '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
+    '/api/v1/venue/agents': async (d, _q, { account: a }) => (await d.venue()).agents(a),
     // The owner's sub-accounts, read on the main account (J-agents-08 #2: the accounts a person may give their agent).
-    '/api/v1/venue/sub-accounts': async (d, _q, a) => {
+    '/api/v1/venue/sub-accounts': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (a.subAccount !== null) throw new VenueWireError('sub-accounts are read on the main account: send no subAccount');
       if (!hasSubAccountReads(venue))
@@ -682,19 +683,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-15 #5: a bot looks its order up by its own client id (`clientOrderKey`, the business key it placed the
     // order under), or by the venue's client order id; the venue answers with the order's own state.
-    '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
+    '/api/v1/venue/orders/by-client-id': async (d, q, { account: a, principal: p }) => {
       if (q.clientOrderId && q.clientOrderKey) throw new VenueWireError('send clientOrderId or clientOrderKey, not both');
       const id = q.clientOrderKey ? venueClientOrderId(a.venueId, q.clientOrderKey) : q.clientOrderId;
       if (!id) throw new VenueWireError('clientOrderId or clientOrderKey is required');
-      return (await d.venue()).orderByClientId(a, id);
+      return d.orderByClientId(p, a, id);
     },
-    '/api/v1/venue/fills': async (d, q, a) => {
+    '/api/v1/venue/fills': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return (await d.venue()).fills(a, since);
     },
     // J-dex-protocol-05 #2: the venue's own list of the deposits it has seen; a venue that publishes none refuses not_offered.
-    '/api/v1/venue/deposits': async (d, _q, a) => {
+    '/api/v1/venue/deposits': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.deposits)
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
@@ -717,13 +718,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit routes' });
       return venue.depositRoutes();
     },
-    '/api/v1/venue/leverage': async (d, q, a) => {
+    '/api/v1/venue/leverage': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
     },
     // J-derivatives-05 #4: what a leverage change would do to the open position's margin, by the venue's own rule, read
     // before anything is signed; a venue that reads none refuses not_offered, and the app says it states no difference.
-    '/api/v1/venue/leverage-change': async (d, q, a) => {
+    '/api/v1/venue/leverage-change': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const bps = Number(q.leverageBps);
       if (!Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number of basis points of 1x');
@@ -739,7 +740,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-06 #2 #3: an open isolated position's margin and the venue's own limit for removing it, read before
     // anything is signed; a venue that reads none refuses not_offered.
-    '/api/v1/venue/isolated-margin': async (d, q, a) => {
+    '/api/v1/venue/isolated-margin': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.isolatedMargin)
@@ -751,7 +752,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.isolatedMargin(a, q.symbol);
     },
     // J-derivatives-06 #1: the account's equity, free, used margin, maintenance and margin ratio as the venue reports them.
-    '/api/v1/venue/account-summary': async (d, _q, a) => {
+    '/api/v1/venue/account-summary': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.accountSummary)
         throw new VenueRefusalError({
@@ -767,7 +768,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-29 #1 #9 #11: the account's mode, its spot and perps balances in standard mode, and the day's action
     // count, as the venue reports them; a venue that reads none refuses not_offered, and the app says "not known".
-    '/api/v1/venue/account-mode': async (d, _q, a) => {
+    '/api/v1/venue/account-mode': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.accountMode)
         throw new VenueRefusalError({
@@ -779,7 +780,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-05 #3: the position mode the account holds one perpetual in, as the venue reports it; a venue with one
     // mode that reads none refuses not_offered, and the room shows that one mode.
-    '/api/v1/venue/position-mode': async (d, q, a) => {
+    '/api/v1/venue/position-mode': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.positionMode)
@@ -792,7 +793,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-31 #2 #3 #5: the account's vault positions with their lock-up ends, its account value as the venue
     // counts it, and its vault transfers; a venue that reads none refuses not_offered.
-    '/api/v1/venue/vault-holdings': async (d, _q, a) => {
+    '/api/v1/venue/vault-holdings': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.vaultHoldings)
         throw new VenueRefusalError({
@@ -804,7 +805,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-21 #2 #3 #6 #7 #8: the account's staking balance, delegations with their lock-up ends, queued and arrived
     // withdrawals and rewards; a venue that reads none refuses not_offered.
-    '/api/v1/venue/staking-account': async (d, _q, a) => {
+    '/api/v1/venue/staking-account': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.stakingAccount)
         throw new VenueRefusalError({
@@ -816,7 +817,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
-    '/api/v1/venue/liquidation': async (d, q, a) => {
+    '/api/v1/venue/liquidation': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.liquidationStatus)
@@ -829,7 +830,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-07 #2 #3: each liquidation the venue reports for the account, with every part's price, size, fee and
     // the venue's ids; since an ISO time, or every one the venue keeps.
-    '/api/v1/venue/liquidations': async (d, q, a) => {
+    '/api/v1/venue/liquidations': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? 0);
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
       const venue = await d.venue();
@@ -842,7 +843,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.liquidations(a, since);
     },
     // J-derivatives-07 #6: each auto-deleveraging of the account's positions, with the venue's notice.
-    '/api/v1/venue/deleverages': async (d, q, a) => {
+    '/api/v1/venue/deleverages': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? 0);
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
       const venue = await d.venue();
@@ -856,7 +857,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
-    '/api/v1/venue/market-margin': async (d, q, a) => {
+    '/api/v1/venue/market-margin': async (d, q, { account: a }) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       const venue = await d.venue();
       if (!venue.marketMargin)
@@ -868,7 +869,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.marketMargin(a, q.symbol);
     },
     // J-derivatives-27 #9 #10: the person's settlements in a market deployer's halt or a split, as the venue records them.
-    '/api/v1/venue/settlements': async (d, q, a) => {
+    '/api/v1/venue/settlements': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       const venue = await d.venue();
@@ -881,7 +882,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.settlements(a, since);
     },
     // J-derivatives-08 #3 #4 #5: the funding the venue charged or paid on the person's positions, as it booked it.
-    '/api/v1/venue/funding-payments': async (d, q, a) => {
+    '/api/v1/venue/funding-payments': async (d, q, { account: a }) => {
       const since = new Date(q.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       const venue = await d.venue();
@@ -894,7 +895,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.fundingPayments(a, since);
     },
     // J-cex-spot-07: the venue's own scheduled cancel for this account; a venue that offers none refuses not_offered.
-    '/api/v1/venue/scheduled-cancel': async (d, _q, a) => {
+    '/api/v1/venue/scheduled-cancel': async (d, _q, { account: a }) => {
       const venue = await d.venue();
       if (!venue.venue.scheduledCancel || !venue.scheduledCancel)
         throw new VenueRefusalError({
@@ -905,9 +906,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venue.scheduledCancel(a);
     },
     // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
-    '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
+    '/api/v1/venue/fee-tier': async (d, _q, { account: a }) => d.accountFees(a),
     // Read against our builder address alone, so an approval stays readable while the fee is blank (J-derivatives-30 #1).
-    '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
+    '/api/v1/venue/builder-fee-approval': async (d, _q, { account: a }) => {
       const builder = d.publishedBuilderAddress();
       if (!builder)
         throw new VenueRefusalError({
@@ -949,10 +950,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   ]) {
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
-      if (!(await admit(req, reply, 'trade:read'))) return;
+      const principal = await admit(req, reply, 'trade:read');
+      if (!principal) return;
       return answer(
         reply,
-        async (d) => read(d, req.query, await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null)),
+        async (d) =>
+          read(d, req.query, { account: await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null), principal }),
         req.query.venueId,
       );
     });
@@ -1244,12 +1247,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
   });
 
-  // J-cex-spot-06 #1 #7: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
+  // J-cex-spot-06 #1 #7; J-derivatives-04 #1 #2: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
   app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead, async (req, reply) => {
-    if (!(await admit(req, reply, 'trade:read'))) return;
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
     return answer(
       reply,
-      async (d) => d.orderHistory(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
+      async (d) => d.orderHistory(principal, await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
       req.query.venueId,
     );
   });

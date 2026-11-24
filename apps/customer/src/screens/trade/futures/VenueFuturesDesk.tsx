@@ -842,6 +842,7 @@ function Ticket({
     if (!price.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
     if (!onStep(price, market.tickSize)) return setProblem(v('Not a step', { field: v('Price'), step: market.tickSize }));
+    const trimmedLabel = label.trim();
     const intent: OrderIntent = {
       kind: 'place_order',
       symbol: market.symbol,
@@ -853,6 +854,7 @@ function Ticket({
       reduceOnly,
       clientOrderKey: keys.order(owner, market.symbol, draftId(Date.now(), counter.current++)),
       builderFee: null,
+      ...(trimmedLabel !== '' ? { label: trimmedLabel } : {}),
     };
     if (status.routes) {
       // J-derivatives-28: several venues, so the router chooses one for this order and says why.
@@ -1175,13 +1177,13 @@ function Blotter({
   const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
   const tags = useMemo(() => heldTags(owner), [owner]);
-  const tagOf = (clientOrderId: string) => tags.get(clientOrderId);
+  const open = account.openOrders.data?.value ?? [];
+  const tagOf = (clientOrderId: string) => open.find((o) => o.venueClientOrderId === clientOrderId)?.label ?? tags.get(clientOrderId);
   const [cancelResult, setCancelResult] = useState<ActionResult | null>(null);
   // J-derivatives-04 #3, #4: a resting order changed (amended in place, or a reviewed cancel-and-replace) and orders
   // cancelled by id, by contract and by label, singly and in one signed batch.
   const [editing, setEditing] = useState<VenueOrder | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const open = account.openOrders.data?.value ?? [];
   const positions = account.positions.data;
   return (
     <section className="dk-panel" data-testid="venue-blotter">

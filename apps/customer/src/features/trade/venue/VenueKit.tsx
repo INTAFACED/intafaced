@@ -631,7 +631,7 @@ export function OrdersTable({
                   {
                     key: 'tag',
                     label: t('Tag'),
-                    cell: (o) => (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
+                    cell: (o) => o.label ?? (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
                     cellMarks: () => ({ 'data-cell': 'tag' }),
                   } satisfies Column<VenueOrder>,
                 ]

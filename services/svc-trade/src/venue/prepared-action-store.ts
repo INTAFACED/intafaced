@@ -102,6 +102,15 @@ export interface PreparedActionStore {
    * under the same id is never theirs. Where two of theirs share an id, the first prepared wins.
    */
   placedOrder(userId: string, venueClientOrderId: string): Promise<StoredVenueAction | null>;
+
+  /**
+   * The trader's own labels on signed orders placed through this door on `account`, keyed by lowercase venue client
+   * order id (J-derivatives-04 #2). Another person's labels on the same wallet are never returned.
+   */
+  orderLabels(
+    userId: string,
+    account: { readonly venueId: string; readonly owner: string; readonly subAccount: string | null },
+  ): Promise<ReadonlyMap<string, string>>;
 }
 
 export interface OwnerSignedAccount {
@@ -140,10 +149,11 @@ export interface RoutedOrder {
   readonly venueClientOrderId: string;
 }
 
-/** One order a stored action sent: its venue client id, our builder fee rate on it (or null), and whether the venue took it. */
+/** One order a stored action sent: its venue client id, our builder fee rate on it (or null), any label, and whether the venue took it. */
 interface SentOrder {
   readonly venueClientOrderId: string;
   readonly feeBps: Amount | null;
+  readonly label: string | null;
   readonly accepted: boolean;
 }
 
@@ -155,9 +165,17 @@ interface SentOrder {
  */
 export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'prepared' | 'lastOutcome'>): readonly SentOrder[] {
   const took = !!lastOutcome?.definite && lastOutcome.accepted;
+  const labelOf = (raw: string | null | undefined) => (typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null);
   if (prepared.intent.kind === 'place_order') {
     if (prepared.venueClientOrderId === null) return [];
-    return [{ venueClientOrderId: prepared.venueClientOrderId, feeBps: prepared.builderFee?.feeBps ?? null, accepted: took }];
+    return [
+      {
+        venueClientOrderId: prepared.venueClientOrderId,
+        feeBps: prepared.builderFee?.feeBps ?? null,
+        label: labelOf(prepared.intent.label),
+        accepted: took,
+      },
+    ];
   }
   if (prepared.intent.kind === 'replace_order') {
     // A cancel-and-replace places its replacement (the second answer) under the replacement's own client id.
@@ -167,6 +185,7 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
       {
         venueClientOrderId: venueClientOrderId(prepared.venueId, order.clientOrderKey),
         feeBps: order.builderFee?.feeBps ?? null,
+        label: labelOf(order.label),
         accepted: placed?.accepted === true,
       },
     ];
@@ -176,8 +195,27 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
   return prepared.intent.orders.map((order, i) => ({
     venueClientOrderId: venueClientOrderId(prepared.venueId, order.clientOrderKey),
     feeBps: order.builderFee?.feeBps ?? null,
+    label: labelOf(order.label),
     accepted: took && legs[i]?.accepted === true,
   }));
+}
+
+/** Client-id → label pairs from one signed action on `account`. */
+function labelsFromRow(
+  row: StoredVenueAction,
+  account: { readonly venueId: string; readonly owner: string; readonly subAccount: string | null },
+): readonly [string, string][] {
+  const p = row.prepared;
+  if (
+    !row.signature ||
+    p.venueId !== account.venueId ||
+    !sameAddress(p.account.owner, account.owner) ||
+    !sameAddress(p.account.subAccount ?? null, account.subAccount)
+  )
+    return [];
+  const pairs: [string, string][] = [];
+  for (const o of ordersOf(row)) if (o.label !== null) pairs.push([o.venueClientOrderId.toLowerCase(), o.label]);
+  return pairs;
 }
 
 /** Each accepted order of a signed action with our builder fee, by client id, with the fee rate it carried. */
@@ -371,6 +409,15 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const wanted = new Set(venueClientOrderIds);
     const out = new Set<string>();
     for (const row of this.rows.values()) for (const id of sentWithOurFee(row, venueId, account)) if (wanted.has(id)) out.add(id);
+    return out;
+  }
+
+  async orderLabels(userId: string, account: { venueId: string; owner: string; subAccount: string | null }) {
+    const out = new Map<string, string>();
+    const rows = [...this.rows.values()]
+      .filter((r) => r.userId === userId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.businessKey.localeCompare(b.businessKey));
+    for (const row of rows) for (const [id, label] of labelsFromRow(row, account)) if (!out.has(id)) out.set(id, label);
     return out;
   }
 }
@@ -574,6 +621,28 @@ export class SqlPreparedActionStore implements PreparedActionStore {
         AND lower(prepared->'account'->>'owner') = lower(${account.owner})`;
     const wanted = new Set(venueClientOrderIds);
     for (const row of rows.map(fromRow)) for (const id of sentWithOurFee(row, venueId, account)) if (wanted.has(id)) out.add(id);
+    return out;
+  }
+
+  async orderLabels(userId: string, account: { venueId: string; owner: string; subAccount: string | null }) {
+    const out = new Map<string, string>();
+    const StoredRow = z.object({
+      user_id: z.string(),
+      business_key: z.string(),
+      created_at: z.date(),
+      prepared: z.unknown(),
+      signature: z.unknown(),
+      last_outcome: z.unknown(),
+    });
+    const rows = StoredRow.array().parse(
+      await this.sql`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND venue_id = ${account.venueId} AND signature IS NOT NULL
+        AND kind IN ('place_order', 'place_orders', 'replace_order')
+        AND lower(prepared->'account'->>'owner') = lower(${account.owner})
+      ORDER BY created_at, business_key`,
+    );
+    for (const row of rows.map(fromRow)) for (const [id, label] of labelsFromRow(row, account)) if (!out.has(id)) out.set(id, label);
     return out;
   }
 }

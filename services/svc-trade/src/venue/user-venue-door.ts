@@ -49,8 +49,10 @@ import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, 
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 import {
   AMEND_KEY_PREFIX,
+  VENUE_ORDER_LABEL_RE,
   amendTrail,
   historyPage,
+  orderOriginOf as venueOrderOriginOf,
   parseHistoryQuery,
   VenueHistoryQueryError,
   type VenueAmendment,
@@ -238,6 +240,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_orders_limit_invalid'
   | 'trade.invalid_cursor'
   | 'trade.invalid_filter'
+  | 'trade.order_label_invalid'
   | 'trade.venue_order_not_found'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
@@ -368,10 +371,15 @@ export interface VenueOrderPage {
   readonly nextCursor: string | null;
 }
 
-/** Our own record of one venue order (`UserVenueDoor.orderRecord`, J-cex-spot-06 #5 #10). */
+/** Our own record of one venue order (`UserVenueDoor.orderRecord`, J-cex-spot-06 #5 #10, J-derivatives-04 #2). */
 export interface VenueOrderRecordOfOurs {
+  /** The venue's display name for this order. */
+  readonly venueName: string;
   /** When the venue says the order was placed; null on a venue that keeps no order history. */
   readonly placedAt: Date | null;
+  readonly origin: UserVenueOrder['origin'];
+  readonly originRef: string | null;
+  readonly label: string | null;
   readonly amendments: readonly VenueAmendment[];
   readonly builderFee: {
     /** The rate the order was signed with, scaled bps. */
@@ -626,6 +634,11 @@ function assertPlaceIntent(intent: PlaceUserOrderIntent): void {
   if (!TIMES_IN_FORCE.has(i.timeInForce)) invalid('timeInForce must be GTC, IOC or ALO');
   if (typeof i.reduceOnly !== 'boolean') invalid('reduceOnly must be true or false');
   if (typeof i.clientOrderKey !== 'string') invalid('clientOrderKey must be the business key of this order');
+  if (i.label !== undefined && i.label !== null) {
+    if (typeof i.label !== 'string' || !VENUE_ORDER_LABEL_RE.test(i.label)) {
+      throw new UserVenueDoorError('A label is up to 36 letters, digits and . _ : - with no spaces.', 'trade.order_label_invalid', 400);
+    }
+  }
 }
 
 /**
@@ -2013,11 +2026,39 @@ export class UserVenueDoor {
     return { orders, nextCursor: rows.length > size ? encodeCursor(page[page.length - 1]!) : null };
   }
 
+  /** Attach resolved origin, originRef and this person's own label to a venue order. */
+  private enrichOrder(order: UserVenueOrder, labels: ReadonlyMap<string, string>): UserVenueOrder {
+    const label = order.label ?? (order.venueClientOrderId ? (labels.get(order.venueClientOrderId.toLowerCase()) ?? null) : null);
+    return {
+      ...order,
+      origin: venueOrderOriginOf(order),
+      originRef: order.originRef ?? null,
+      label,
+    };
+  }
+
+  /** Open orders on `account`, enriched with origin and this person's own order labels (J-derivatives-04 #1 #2). */
+  async openOrders(principal: Principal, account: UserVenueAccount) {
+    const venue = await this.venue();
+    const [read, labels] = await Promise.all([venue.openOrders(account), this.deps.store.orderLabels(principal.userId, account)]);
+    return { ...read, value: read.value.map((o) => this.enrichOrder(o, labels)) };
+  }
+
+  /** One order by client id on `account`, enriched with origin and this person's own label (J-derivatives-04 #2). */
+  async orderByClientId(principal: Principal, account: UserVenueAccount, cloid: string) {
+    const venue = await this.venue();
+    const [read, labels] = await Promise.all([
+      venue.orderByClientId(account, cloid),
+      this.deps.store.orderLabels(principal.userId, account),
+    ]);
+    return { ...read, value: read.value ? this.enrichOrder(read.value, labels) : null };
+  }
+
   /**
-   * One page of the account's order history, as the venue keeps it (J-cex-spot-06 #1); a venue that publishes none
-   * refuses `not_offered`. A filter or page marker that can't be used is refused 400 in words.
+   * One page of the account's order history, as the venue keeps it (J-cex-spot-06 #1; J-derivatives-04 #1 #2); a venue
+   * that publishes none refuses `not_offered`. A filter or page marker that can't be used is refused 400 in words.
    */
-  async orderHistory(account: UserVenueAccount, raw: Record<string, string | undefined>): Promise<VenueHistoryPage> {
+  async orderHistory(principal: Principal, account: UserVenueAccount, raw: Record<string, string | undefined>): Promise<VenueHistoryPage> {
     let query: ReturnType<typeof parseHistoryQuery>;
     try {
       query = parseHistoryQuery(raw);
@@ -2033,7 +2074,12 @@ export class UserVenueDoor {
         detail: `${venue.venue.displayName} publishes no order history`,
       });
     try {
-      return historyPage(await venue.orderHistory(account), query);
+      const [read, labels] = await Promise.all([venue.orderHistory(account), this.deps.store.orderLabels(principal.userId, account)]);
+      const enriched = {
+        ...read,
+        value: read.value.map((r) => ({ ...r, order: this.enrichOrder(r.order, labels) })),
+      };
+      return historyPage(enriched, query, venue.venue.displayName);
     } catch (err) {
       if (err instanceof VenueHistoryQueryError) throw new UserVenueDoorError(err.message, err.code, 400);
       throw err;
@@ -2041,19 +2087,22 @@ export class UserVenueDoor {
   }
 
   /**
-   * Our own record of one of this person's venue orders (J-cex-spot-06 #5, #10): the amendments the venue accepted on it,
-   * oldest first, and our builder fee on it: the rate the order was signed with, the rate published when it was placed,
-   * and the discount between them in basis points of our fee (a rank or a fee saver lowers it; `0` when none). `builderFee`
-   * is null when the order carries none (a spot buy) or was not placed through our door. An order the venue has no record
-   * of on this account is `trade.venue_order_not_found` (404), the same answer for another person's order as for none.
+   * Our own record of one of this person's venue orders (J-cex-spot-06 #5, #10; J-derivatives-04 #2): the amendments the
+   * venue accepted on it, oldest first, origin, any label, and our builder fee on it: the rate the order was signed with,
+   * the rate published when it was placed, and the discount between them in basis points of our fee (a rank or a fee
+   * saver lowers it; `0` when none). `builderFee` is null when the order carries none (a spot buy) or was not placed
+   * through our door. An order the venue has no record of on this account is `trade.venue_order_not_found` (404), the
+   * same answer for another person's order as for none.
    */
   async orderRecord(principal: Principal, account: UserVenueAccount, venueClientOrderId: string): Promise<VenueOrderRecordOfOurs> {
     const cloid = venueClientOrderId.trim().toLowerCase();
     if (!/^0x[0-9a-f]{32}$/.test(cloid)) invalid('clientOrderId is the venue client order id (0x and 32 hex)');
     const venue = await this.venue();
     const placed = venue.orderHistory ? (await venue.orderHistory(account)).value.find((r) => r.order.venueClientOrderId === cloid) : null;
-    const order = placed?.order ?? (await venue.orderByClientId(account, cloid)).value;
-    if (!order) throw new UserVenueDoorError('no such order on this account', 'trade.venue_order_not_found', 404);
+    const rawOrder = placed?.order ?? (await venue.orderByClientId(account, cloid)).value;
+    if (!rawOrder) throw new UserVenueDoorError('no such order on this account', 'trade.venue_order_not_found', 404);
+    const labels = await this.deps.store.orderLabels(principal.userId, account);
+    const order = this.enrichOrder(rawOrder, labels);
     const rows = await this.deps.store.listByPrefix(principal.userId, AMEND_KEY_PREFIX);
     // Only an order our door sent from this account with our fee: never another account's order under a guessed id.
     const sent = await this.deps.store.sentBuilderFeeOrders(account.venueId, account, [cloid]);
@@ -2077,7 +2126,15 @@ export class UserVenueDoor {
         published !== null && published > 0n && charged < published ? Number(((published - charged) * 10_000n) / published) : 0;
       builderFee = { chargedBps: charged, publishedBps: published, discountBps: published === null ? null : discountBps };
     }
-    return { placedAt: placed?.placedAt ?? null, amendments: amendTrail(rows, account, cloid), builderFee };
+    return {
+      venueName: venue.venue.displayName,
+      placedAt: placed?.placedAt ?? null,
+      origin: order.origin,
+      originRef: order.originRef ?? null,
+      label: order.label ?? null,
+      amendments: amendTrail(rows, account, cloid),
+      builderFee,
+    };
   }
 
   private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {
