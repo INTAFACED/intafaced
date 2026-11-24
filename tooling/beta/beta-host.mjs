@@ -105,7 +105,7 @@ const BETA_CADENCE_SECONDS = 300;
  * posture #10217), behind the same HTTP venue protocol as every venue (local-test-venue.mjs serveHyperliquidVenue). The
  * customer's own wallet signs; the venue holds no key. Without it the desks ran on the stack's stand-in venue.
  */
-export const BETA_USER_VENUE = 'hl-testnet';
+const BETA_USER_VENUE = 'hl-testnet';
 
 /**
  * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue, and
@@ -113,7 +113,7 @@ export const BETA_USER_VENUE = 'hl-testnet';
  * new listing no one quotes) are fixtures for a step, not markets a tester can use; the beta showed TWIN/USDC's empty
  * coin page from its markets list (#10599). The rows stay in the database; the beta's markets are the quoted ones.
  */
-export const BETA_STACK_SETTINGS = Object.freeze({ LOCAL_STACK_USER_VENUE: BETA_USER_VENUE, LOCAL_STACK_TEST_MARKETS: 'off' });
+const BETA_STACK_SETTINGS = Object.freeze({ LOCAL_STACK_USER_VENUE: BETA_USER_VENUE, LOCAL_STACK_TEST_MARKETS: 'off' });
 const settingsLine = () =>
   Object.entries(BETA_STACK_SETTINGS)
     .map(([k, v]) => `${k}=${v}`)
