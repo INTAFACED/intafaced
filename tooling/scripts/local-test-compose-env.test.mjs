@@ -8,6 +8,7 @@ import {
   PARSE_ONLY,
   blankKeys,
   blankableVariable,
+  composeMarker,
   composeEnvValues,
   envFileValue,
   hostOnly,
@@ -123,4 +124,32 @@ test('a variable a YAML comment mentions is still marked', () => {
     '      EDGE_X: ${EDGE_X:-} # ${EDGE_X} again',
   ].join('\n');
   assert.deepEqual(Object.fromEntries(markedVariables(compose, '')), { EDGE_X: '${EDGE_X:-}' });
+});
+
+test('composeMarker: each LOCAL TEST port is the loopback port compose publishes, with the stack id and custody switch', () => {
+  const loop = (port) => [{ host_ip: '127.0.0.1', target: port, published: String(port) }];
+  const services = {
+    postgres: { ports: [{ host_ip: '127.0.0.1', target: 5432, published: '5433' }] },
+    'svc-edge': { ports: loop(4000) },
+    'svc-ledger': { ports: loop(4001), environment: { LEDGER_CUSTODY_LAYER: 'off' } },
+    'svc-identity': { ports: loop(4002) },
+    'svc-trade': { ports: loop(4004) },
+    'svc-matching': { ports: loop(4005) },
+  };
+  const id = 'a'.repeat(32);
+  const m = composeMarker(services, id, new Date('2026-11-24T00:00:00Z'));
+  assert.equal(m.runtime, 'compose');
+  assert.equal(m.stackId, id);
+  assert.equal(m.custodyLayer, 'off');
+  assert.deepEqual(m.ports, { postgres: 5433, edge: 4000, ledger: 4001, identity: 4002, trade: 4004, matching: 4005 });
+  assert.deepEqual(m.database, { host: '127.0.0.1', port: 5433, name: 'intafaced' });
+  // A service published on every address, or not at all, is no loopback port: refused by name.
+  assert.throws(
+    () => composeMarker({ ...services, 'svc-trade': { ports: [{ host_ip: '0.0.0.0', target: 4004, published: '4004' }] } }, id),
+    /no loopback port for svc-trade/,
+  );
+  assert.throws(
+    () => composeMarker({ ...services, 'svc-ledger': { ports: loop(4001), environment: { LEDGER_CUSTODY_LAYER: 'maybe' } } }, id),
+    /custody/,
+  );
 });

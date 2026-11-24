@@ -17,6 +17,7 @@
  * LOCAL TEST only; nothing here is an owner decision.
  */
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -198,12 +199,74 @@ export function renderEnvFile(values) {
   return `${lines.join('\n')}\n`;
 }
 
+/** The tester stack's marker file in its state folder, the one every LOCAL TEST tool reads. */
+const MARKER_FILE = 'LOCAL-TEST-STACK.json';
+
+/**
+ * The compose stack's id: the one its marker already holds, else 32 fresh random hex digits. A state folder whose marker
+ * is a `pnpm local:stack` marker refuses: one folder is one stack.
+ */
+function composeStackId(stateDir) {
+  const file = path.join(stateDir, MARKER_FILE);
+  if (!fs.existsSync(file)) return randomBytes(16).toString('hex');
+  const prior = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (prior?.runtime !== 'compose' || !/^[0-9a-f]{32}$/.test(prior.stackId ?? ''))
+    throw new Error(`refusing: ${file} is another stack's marker; give the tester profile its own LOCAL_STACK_STATE`);
+  return prior.stackId;
+}
+
+/** Each marker port and the compose service whose loopback port it is (docker-compose.tester.yml publishes them). */
+const COMPOSE_PORT_SERVICES = {
+  postgres: 'postgres',
+  edge: 'svc-edge',
+  ledger: 'svc-ledger',
+  identity: 'svc-identity',
+  trade: 'svc-trade',
+  matching: 'svc-matching',
+};
+
+/**
+ * The compose marker: what the LOCAL TEST tools need to find this stack (each service's published loopback port, its
+ * database) and the stack id its Postgres starts with, its ownership proof (local-test-state.mjs assertComposeOwnership).
+ * `services` is compose's interpolated service map. Pure.
+ */
+export function composeMarker(services, stackId, now = new Date()) {
+  const ports = {};
+  for (const [name, svc] of Object.entries(COMPOSE_PORT_SERVICES)) {
+    const published = (services[svc]?.ports ?? []).find((p) => p.host_ip === '127.0.0.1' && p.published);
+    if (!published) throw new Error(`refusing: compose publishes no loopback port for ${svc}`);
+    ports[name] = Number(published.published);
+  }
+  const custodyLayer = services['svc-ledger']?.environment?.LEDGER_CUSTODY_LAYER ?? 'on';
+  if (custodyLayer !== 'on' && custodyLayer !== 'off') throw new Error(`refusing: svc-ledger's custody switch is "${custodyLayer}"`);
+  return {
+    kind: 'intafaced-local-test-stack',
+    runtime: 'compose',
+    warning: 'LOCAL TEST STACK — balances are test funds, not real money',
+    repo: '/app',
+    stackId,
+    custodyLayer,
+    ports,
+    database: { host: '127.0.0.1', port: ports.postgres, name: 'intafaced' },
+    updatedAt: now.toISOString(),
+  };
+}
+
+function writeComposeMarker(stateDir, services, stackId) {
+  const marker = composeMarker(services, stackId);
+  const file = path.join(stateDir, MARKER_FILE);
+  fs.writeFileSync(file, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  return marker;
+}
+
 async function main(argv) {
   const at = argv.indexOf('--out');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('usage: local-test-compose-env.mjs [--out <file>]');
   const out = path.resolve(ROOT, at >= 0 ? argv[at + 1] : '.env.tester.local');
   if (!process.env.LOCAL_STACK_STATE) throw new Error('LOCAL_STACK_STATE must name the state folder the tester profile mounts');
   const { loadOrCreateSecrets, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const stackId = composeStackId(process.env.LOCAL_STACK_STATE);
   // An interpolated read: older compose cannot parse a volume spec without interpolation, so each variable to fill is
   // set to a marker and read back from where the marker lands.
   const composeText = COMPOSE_FILES.map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
@@ -227,18 +290,24 @@ async function main(argv) {
       '--format',
       'json',
     ],
-    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...testerUser() } },
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...testerUser(), LOCAL_TESTER_STACK_ID: stackId } },
   );
   fs.rmSync(markers, { recursive: true, force: true });
   if (config.status !== 0) throw new Error(`docker compose config failed:\n${config.error?.message ?? config.stderr}`);
   const services = unmark(JSON.parse(config.stdout).services, marked);
-  const stackEnvs = Object.fromEntries(localTestServiceEnvs(loadOrCreateSecrets()).map((s) => [s.name, s.env]));
+  const secrets = loadOrCreateSecrets();
+  // The compose stack's marker and its founder pair's draft, before the stack's envs are read: identity's env then holds
+  // the draft's invites, so the founder seed can enrol on the first compose up.
+  const marker = writeComposeMarker(process.env.LOCAL_STACK_STATE, services, stackId);
+  const { ensureFounderVaultDraft } = await import('./local-test-founders.mjs');
+  ensureFounderVaultDraft({ stateDir: process.env.LOCAL_STACK_STATE, marker, edgeUrl: `http://127.0.0.1:${marker.ports.edge}` });
+  const stackEnvs = Object.fromEntries(localTestServiceEnvs(secrets).map((s) => [s.name, s.env]));
   const started = startedBy(services, 'seed');
   const { values, conflicts, unfilled } = composeEnvValues({ services, stackEnvs, example, started });
   if (conflicts.length)
     throw new Error(`refusing: compose shares a variable the stack sets differently per service:\n  ${conflicts.join('\n  ')}`);
   if (unfilled.length) throw new Error(`refusing: compose requires values the stack does not run with: ${unfilled.join(', ')}`);
-  fs.writeFileSync(out, renderEnvFile({ ...values, ...testerUser() }), { mode: 0o600 });
+  fs.writeFileSync(out, renderEnvFile({ ...values, ...testerUser(), LOCAL_TESTER_STACK_ID: stackId }), { mode: 0o600 });
   fs.chmodSync(out, 0o600);
   console.log(
     `compose-env: ${Object.keys(values).length} LOCAL TEST values written to ${path.relative(ROOT, out)} (git-ignored, mode 600)`,
