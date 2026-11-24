@@ -1518,6 +1518,18 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       scheduledAt: ts(),
       noticeKey: 'venue-delisting:test-venue-sim:BTC-USDC:2026-12-01T00:00:00.000Z',
     },
+    venueRiskAlerted: {
+      alertKey: `risk:u:test-venue-sim:0x1111111111111111111111111111111111111111:BTC-PERP:1`,
+      userId: uid(),
+      symbol: 'BTC-PERP',
+      kind: 'margin_call',
+      asset: 'USDC',
+      level: '50',
+      marginWithResult: '10.5',
+      marginRatio: '57.2',
+      asked: '1.5',
+      raisedAt: ts(),
+    },
     supportTicketResolved: {
       ticketId: uid(),
       userId: uid(),

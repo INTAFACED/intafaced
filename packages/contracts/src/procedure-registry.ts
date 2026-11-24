@@ -2338,6 +2338,8 @@ import {
 
 import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
 
+import { RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST } from './trade-risk-alerts-procedures.js';
+
 import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
 
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
@@ -4775,6 +4777,8 @@ const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
 
 const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
 
+const part_trade_risk_alerts_procedures: readonly ProcedureRecord[] = [RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST];
+
 const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
 
 const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
@@ -5102,6 +5106,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,
   ...part_trade_rfq_procedures,
+  ...part_trade_risk_alerts_procedures,
   ...part_trade_signals_procedures,
   ...part_ws_procedures,
 ];
