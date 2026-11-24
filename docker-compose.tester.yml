@@ -95,10 +95,92 @@ services:
       additional_contexts:
         app: service:svc-identity
         bank: service:svc-bank
-    # The content seed opens svc-bank's TEST products and posts through the ledger, so both are up first.
+        foundry: docker-image://ghcr.io/foundry-rs/foundry:v1.5.1
+    # The content seed opens svc-bank's TEST products and posts through the ledger; Home's seed funds founder a's TEST
+    # wallet on the TEST chain, pays into the TEST venue and files the inbox row and notice through svc-notify. All are
+    # up first. LOCAL_STACK_SLOT puts the TEST adapters on slot 3's loopback ports (local-test-facts.mjs slotPorts), clear
+    # of a `pnpm local:stack` in slot 0 on the same machine.
     depends_on:
       svc-bank:
         condition: service_healthy
       svc-ledger:
         condition: service_healthy
+      svc-notify:
+        condition: service_healthy
+      test-chain:
+        condition: service_healthy
+      test-venue:
+        condition: service_healthy
+    environment:
+      LOCAL_STACK_SLOT: '3'
     user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+
+  # svc-bank runs its TEST partner (the partner Home's TEST balance and founder b's TEST payment go through) with the
+  # rest of its `pnpm local:stack` settings, from compose-env's tester-bank.env.
+  svc-bank:
+    env_file:
+      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
+      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-bank.env'
+        required: false
+
+  # The TEST chain (anvil, chain id 84532, behind its gate) and the TEST venue, as `pnpm local:stack` runs them
+  # (local-tester-adapters.mjs), on slot 3's loopback ports. Tester profile only; TEST tokens and funds only.
+  test-chain:
+    image: intafaced/tester-seed:dev
+    build:
+      context: .
+      dockerfile: tooling/infra/tester-seed.Dockerfile
+      target: seed
+      additional_contexts:
+        app: service:svc-identity
+        bank: service:svc-bank
+        foundry: docker-image://ghcr.io/foundry-rs/foundry:v1.5.1
+    container_name: intafaced-test-chain
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    command: ['node', 'tooling/scripts/local-tester-adapters.mjs', 'chain']
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev or test}
+      LOCAL_STACK_SLOT: '3'
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+      LOCAL_STACK_ANVIL_BIN: /usr/local/bin/anvil
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    healthcheck:
+      test: ['CMD', 'node', 'tooling/scripts/local-tester-adapters.mjs', 'chain-health']
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  test-venue:
+    image: intafaced/tester-seed:dev
+    container_name: intafaced-test-venue
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    command: ['node', 'tooling/scripts/local-tester-adapters.mjs', 'venue']
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev or test}
+      LOCAL_STACK_SLOT: '3'
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    depends_on:
+      test-chain:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:17560/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s

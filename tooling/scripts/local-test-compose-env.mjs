@@ -203,7 +203,7 @@ export function renderEnvFile(values) {
  * The compose services the tester overlay gives a per-service env file (docker-compose.tester.yml `env_file`), and the
  * `pnpm local:stack` service each one copies.
  */
-const TESTER_ENV_FILES = { 'svc-identity': 'identity' };
+const TESTER_ENV_FILES = { 'svc-identity': 'identity', 'svc-bank': 'bank' };
 /** Those of them that mount the state folder at its own path, so a setting naming a file in it holds there too. */
 const MOUNTS_STATE = new Set(['svc-identity']);
 
