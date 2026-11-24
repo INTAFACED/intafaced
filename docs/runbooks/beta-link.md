@@ -75,7 +75,9 @@ every invited person opens the mailbox for their sign-up code. Every 15 seconds 
 address is a recorded token, or the token, a dot and more, at `local-test.invalid` has its pending Full (or Basic)
 request approved through the stack's two-person TEST door, and once it holds Full gets 1000 TEST USDT through the real
 ledger, once per account (a fixed ledger reference) and for at most 3 accounts per person
-(`~/.intafaced/beta/granted.json`). Any other account, uninvited or made on the box, gets nothing. The pass's lines are
+(`~/.intafaced/beta/granted.json`). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
+launch model holds a person's money and which Home and Money read (#10632); every pass puts it back after an svc-bank
+restart, as that person, while they are signed in. Any other account, uninvited or made on the box, gets nothing. The pass's lines are
 in `round.log`. Test, on the box: `node tooling/beta/beta-host.mjs invited-test --checkout ~/.intafaced/beta/checkout
 --watch`, run as below.
 
