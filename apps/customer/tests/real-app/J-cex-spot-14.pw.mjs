@@ -445,12 +445,12 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
     const marketRow = page.getByTestId('dk-type-off-market');
     await expect(marketRow).toHaveAttribute('aria-disabled', 'true');
-    await expect(marketRow).toContainText('Market');
-    await expect(marketRow).toContainText('This market is taking limit orders only right now.');
+    await expect(marketRow).toHaveText('Market: This market is taking limit orders only right now.');
     await stepPicture();
+    await page.waitForTimeout(1000);
     expect(writes).toHaveLength(0);
 
-    // Door refuses a market order on a limit-only market before signing or locking anything.
+    // Door refuses a market order on a limit-only market before signing or locking anything (venue refusals answer 422).
     const marketIntent = {
       kind: 'place_order',
       symbol: lim.symbol,
@@ -463,15 +463,15 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
       clientOrderKey: orderKey(owner, `j14-3-mkt-${lim.base}`),
     };
     const preview = await client.post('/api/v1/venue/preview', { owner, intent: marketIntent });
-    expect(preview.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(preview.body)).toContain('market_limit_only');
+    expect(preview.status).toBe(422);
+    expect(preview.body?.intafacedCode).toBe('trade.venue.market_limit_only');
     const prepare = await client.post('/api/v1/venue/prepare', {
       owner,
       signer: { role: 'owner', address: owner },
       intent: marketIntent,
     });
-    expect(prepare.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(prepare.body)).toContain('market_limit_only');
+    expect(prepare.status).toBe(422);
+    expect(prepare.body?.intafacedCode).toBe('trade.venue.market_limit_only');
     expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
 
     // A limit buy inside the band is accepted on the desk, rests on the venue, and locks exactly price × amount (95 × 0.5 = 47.5).
@@ -527,9 +527,10 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
     await expect(buyForm).toContainText('you can still cancel them');
     await expect(buyForm).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/);
     await expect(buyForm.getByRole('button', { name: `Buy ${lim.base}`, exact: true })).toBeDisabled();
+    await page.waitForTimeout(1000);
     expect(writes).toHaveLength(0);
 
-    // Door refuses a new limit buy with market_cancel_only, leaving balance lock untouched.
+    // Door refuses a new limit buy with 422 trade.venue.market_cancel_only, leaving balance lock untouched.
     const refused = await client.post('/api/v1/venue/prepare', {
       owner,
       signer: { role: 'owner', address: owner },
@@ -545,8 +546,8 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
         clientOrderKey: orderKey(owner, `j14-4-new-${lim.base}`),
       },
     });
-    expect(refused.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(refused.body)).toContain('market_cancel_only');
+    expect(refused.status).toBe(422);
+    expect(refused.body?.intafacedCode).toBe('trade.venue.market_cancel_only');
     expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
     await stepPicture();
 
@@ -683,8 +684,8 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
       clientOrderKey: orderKey(owner, `j14-6-closed-${shut.base}`),
     },
   });
-  expect(refused.status).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(refused.body)).toContain('market_closed');
+  expect(refused.status).toBe(422);
+  expect(refused.body?.intafacedCode).toBe('trade.venue.market_closed');
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBefore);
   expect((await venueRecord(owner, '/open-orders')).value).toHaveLength(openBefore);
 
@@ -755,10 +756,14 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
   await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('dk-type-off-market')).toContainText('This market takes limit orders only until its opening window ends.');
+  await expect(page.getByTestId('dk-type-off-market')).toHaveText(
+    'Market: This market takes limit orders only until its opening window ends.',
+  );
+  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no order request leaves the page
+  await page.waitForTimeout(1000);
   expect(writesWin).toHaveLength(0);
 
-  // Door refuses market order with opening_window, accepts limit buy, then cancels cleanly.
+  // Door refuses market order with 422 trade.venue.opening_window, accepts limit buy, then cancels cleanly.
   const winMkt = await client.post('/api/v1/venue/prepare', {
     owner,
     signer: { role: 'owner', address: owner },
@@ -774,8 +779,8 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
       clientOrderKey: orderKey(owner, `j14-7-wm-${windowed.base}`),
     },
   });
-  expect(winMkt.status).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(winMkt.body)).toContain('opening_window');
+  expect(winMkt.status).toBe(422);
+  expect(winMkt.body?.intafacedCode).toBe('trade.venue.opening_window');
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeWin);
 
   const winKey = orderKey(owner, `j14-7-wl-${windowed.base}`);
@@ -808,14 +813,15 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
     .getByRole('grid', { name: 'Markets', exact: true })
     .getByRole('row')
     .filter({ hasText: `${zoned.base}/${zoned.quote}` });
+  const writesZone = venueWrites(page);
   await zoneRow.getByRole('button', { name: /^Trade / }).click();
   await expect(page.getByTestId('dk-zone')).toContainText('Higher-risk zone', { timeout: UNBUILT_MS });
   await expect(page.getByTestId('dk-zone')).toContainText(`Limit orders only, up to 100 ${zoned.quote} an order`);
   await expect(page.locator('[role=tab]', { hasText: /^Market$/ })).toHaveCount(0);
   await expect(page.locator('[role=tab]', { hasText: /^Limit$/ })).toBeEnabled();
   await expect(page.getByTestId('dk-type-off-market')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('dk-type-off-market')).toContainText(
-    'This market is in the higher-risk zone, which takes limit orders only.',
+  await expect(page.getByTestId('dk-type-off-market')).toHaveText(
+    'Market: This market is in the higher-risk zone, which takes limit orders only.',
   );
   await stepPicture();
 
@@ -835,8 +841,11 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
       clientOrderKey: orderKey(owner, `j14-7-zm-${zoned.base}`),
     },
   });
-  expect(zoneMkt.status).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(zoneMkt.body)).toContain('higher_risk_zone');
+  expect(zoneMkt.status).toBe(422);
+  expect(zoneMkt.body?.intafacedCode).toBe('trade.venue.higher_risk_zone');
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeZone);
+  // By now the page has had the door's round trip and more to send an order, and it sent none.
+  expect(writesZone).toHaveLength(0);
 
   const overCap = await client.post('/api/v1/venue/prepare', {
     owner,
@@ -853,8 +862,8 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
       clientOrderKey: orderKey(owner, `j14-7-zo-${zoned.base}`),
     },
   });
-  expect(overCap.status).toBeGreaterThanOrEqual(400);
-  expect(JSON.stringify(overCap.body)).toContain('zone_cap_exceeded');
+  expect(overCap.status).toBe(422);
+  expect(overCap.body?.intafacedCode).toBe('trade.venue.zone_cap_exceeded');
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(lockedBeforeZone);
 
   const zoneKey = orderKey(owner, `j14-7-zl-${zoned.base}`);
