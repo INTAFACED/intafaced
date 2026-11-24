@@ -43,10 +43,14 @@ export function MoreOrderTypes({
         key: kind,
         testId: `dk-type-off-${kind}`,
         label: (
-          <>
-            <span data-testid="dk-type-name">{name}</span>
-            <span data-testid="dk-type-reason">{reason}</span>
-          </>
+          <span className="lt-stack-tight">
+            <span data-testid="dk-type-name" className="lt-strong">
+              {name}
+            </span>
+            <span data-testid="dk-type-reason" className="lt-note">
+              {reason}
+            </span>
+          </span>
         ),
         disabled: true,
         onSelect: () => undefined,
