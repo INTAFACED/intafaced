@@ -2595,7 +2595,7 @@ export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this chang
  * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
  * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
  */
-export const REPAIR_STEP = 'A change to the judges alone: every other check green, and no FAIL from the CI review';
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 /**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on

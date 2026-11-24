@@ -1,22 +1,11 @@
-// A change to the judges alone (judge-repair.mjs): it passes only on every other check green and no FAIL from the CI
-// review, and only for the judges' own files; every planted fault below passes nothing. tooling-tests.mjs runs this file.
+// A change to the judges alone (judge-repair.mjs): it passes only on every other check green and the CI review's PASS
+// with no FAIL standing, and only for the judges' own files; every planted fault below passes nothing. tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import {
-  FRESH_MS,
-  JUDGE_FILES,
-  REPAIR_STEP,
-  REVIEW_FILES,
-  SEAL_FILES,
-  judge,
-  judgeOnly,
-  main,
-  reviewJobOf,
-  standingFail,
-} from './judge-repair.mjs';
+import { FRESH_MS, JUDGE_FILES, REPAIR_STEP, judge, judgeOnly, main, reviewJobOf, standingFail } from './judge-repair.mjs';
 import { REPAIR_STEP as SEAL_REPAIR_STEP, recheckStep } from './journey-seal.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -51,18 +40,14 @@ const reviewJob = (verdict, { test = 'skipped', conclusion = 'success', status =
 });
 const PASS = reviewJob('success');
 const DOWN = reviewJob('skipped', { test: 'skipped', down: 'success' });
-// No verdict and no judge down: a cancelled job, or one failing before it judged.
+// No verdict: a cancelled job, or one failing before it judged.
 const CANCELLED = reviewJob(null, { test: null, conclusion: 'cancelled' });
 const BROKE = reviewJob('skipped', { conclusion: 'failure' });
 const files = (...names) => names.map((filename) => ({ filename }));
 
-test('only the judges’ own files make a change the judges’ alone; a review file is told apart', () => {
-  assert.deepEqual(judgeOnly(files('tooling/ci/journey-seal.mjs', '.github/workflows/merge-seal.yml')), { judge: true, review: false });
-  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', '.github/workflows/ci-review.yml')), { judge: true, review: true });
-  // the review's code with a seal or proof file is the judges' alone, but needs the PASS
-  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', 'tooling/ci/journey-seal.mjs')), { judge: true, review: false });
-  assert.deepEqual(judgeOnly(files('tooling/ci/step-read.mjs')), { judge: true, review: false });
-  assert.deepEqual(judgeOnly(files('tooling/ci/test-judge.mjs')), { judge: true, review: false });
+test('only the judges’ own files make a change the judges’ alone', () => {
+  assert.deepEqual(judgeOnly(files('tooling/ci/journey-seal.mjs', '.github/workflows/merge-seal.yml')), { judge: true });
+  assert.deepEqual(judgeOnly(files('tooling/ci/ci-review.mjs', 'tooling/ci/step-read.mjs')), { judge: true });
   // planted: one other file, a rename from one, a brief, nothing at all, or an unreadable entry
   for (const f of [
     files('tooling/ci/ci-review.mjs', 'apps/customer/src/app.tsx'),
@@ -82,41 +67,26 @@ test('every listed judge file exists, and no brief is listed', () => {
   for (const f of JUDGE_FILES) assert.ok(existsSync(f), f);
   assert.equal(new Set(JUDGE_FILES).size, JUDGE_FILES.length);
   assert.ok(!JUDGE_FILES.some((f) => f.endsWith('.md')));
-  assert.ok(SEAL_FILES.includes('tooling/ci/judge-repair.mjs') && !REVIEW_FILES.includes('tooling/ci/judge-repair.mjs'));
+  assert.ok(JUDGE_FILES.includes('tooling/ci/judge-repair.mjs'));
 });
 
-test('passes: a change to the review’s code with every other check green, and the review PASSing or its judge down', () => {
-  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, review: true, factory: 'run\n' }).act, 'pass');
-  const down = judge({ sha: SHA, runs: green(), reviewJob: DOWN, review: true, factory: 'run' });
-  assert.equal(down.act, 'pass');
-  assert.match(down.why, /judge down/);
+test('passes: every other check green and the review’s PASS', () => {
+  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, factory: 'run\n' }).act, 'pass');
 });
 
-test('refuses: no PASS and no judge down, as a cancelled review or one failing before it judged (#10746 review)', () => {
-  for (const j of [CANCELLED, BROKE, reviewJob('skipped', { conclusion: 'cancelled', down: 'success' })]) {
-    const v = judge({ sha: SHA, runs: green(), reviewJob: j, review: true, factory: 'run' });
-    assert.equal(v.act, 'refuse', JSON.stringify(j));
-    assert.match(v.why, /needs the CI review's PASS or the judge down/);
-  }
-});
-
-test('passes: a change to the seal’s, the proof reader’s or the test judge’s files only with the review’s PASS', () => {
-  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, review: false, factory: 'run' }).act, 'pass');
-  // planted: the review down, cancelled, failing before its verdict, or its Verdict passed in a job that failed
+test('refuses: no PASS, as the judge down, a cancelled review or one failing before it judged (#10746 reviews)', () => {
   for (const j of [DOWN, CANCELLED, BROKE, reviewJob('success', { conclusion: 'failure' })]) {
-    const v = judge({ sha: SHA, runs: green(), reviewJob: j, review: false, factory: 'run' });
-    assert.equal(v.act, 'refuse');
+    const v = judge({ sha: SHA, runs: green(), reviewJob: j, factory: 'run' });
+    assert.equal(v.act, 'refuse', JSON.stringify(j));
     assert.match(v.why, /needs the CI review's PASS/);
   }
 });
 
 test('refuses: a FAIL from the CI review, whatever files changed', () => {
-  for (const review of [true, false]) {
-    for (const j of [reviewJob('failure', { conclusion: 'failure' }), reviewJob('success', { test: 'failure', conclusion: 'failure' })]) {
-      const v = judge({ sha: SHA, runs: green(), reviewJob: j, review, factory: 'run' });
-      assert.equal(v.act, 'refuse');
-      assert.match(v.why, /FAILed this code/);
-    }
+  for (const j of [reviewJob('failure', { conclusion: 'failure' }), reviewJob('success', { test: 'failure', conclusion: 'failure' })]) {
+    const v = judge({ sha: SHA, runs: green(), reviewJob: j, factory: 'run' });
+    assert.equal(v.act, 'refuse');
+    assert.match(v.why, /FAILed this code/);
   }
 });
 
@@ -130,42 +100,39 @@ test('refuses: any other check red on the head', () => {
   ]) {
     const runs = green();
     runs[i] = { ...runs[i], conclusion: c };
-    const v = judge({ sha: SHA, runs, reviewJob: PASS, review: true, factory: 'run' });
+    const v = judge({ sha: SHA, runs, reviewJob: PASS, factory: 'run' });
     assert.equal(v.act, 'refuse', c);
     assert.match(v.why, new RegExp(`ended ${c}`));
   }
 });
 
 test('waits: CI not yet run, a check still going, or the review job not finished', () => {
-  assert.equal(judge({ sha: SHA, runs: green().slice(1), reviewJob: PASS, review: true, factory: 'run' }).act, 'wait');
+  assert.equal(judge({ sha: SHA, runs: green().slice(1), reviewJob: PASS, factory: 'run' }).act, 'wait');
   const runs = green();
   runs[2] = { ...runs[2], status: 'queued', conclusion: null };
-  assert.equal(judge({ sha: SHA, runs, reviewJob: PASS, review: true, factory: 'run' }).act, 'wait');
-  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: null, review: true, factory: 'run' }).act, 'wait');
-  assert.equal(
-    judge({ sha: SHA, runs: green(), reviewJob: reviewJob(null, { status: 'in_progress' }), review: true, factory: 'run' }).act,
-    'wait',
-  );
+  assert.equal(judge({ sha: SHA, runs, reviewJob: PASS, factory: 'run' }).act, 'wait');
+  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: null, factory: 'run' }).act, 'wait');
+  assert.equal(judge({ sha: SHA, runs: green(), reviewJob: reviewJob(null, { status: 'in_progress' }), factory: 'run' }).act, 'wait');
 });
 
 test("the newest run of each workflow decides; another head's runs, push runs and the seal's own run count for nothing", () => {
   const fixed = [...green(), run(0, 'ci.yml', 'failure')];
-  assert.equal(judge({ sha: SHA, runs: fixed, reviewJob: PASS, review: true, factory: 'run' }).act, 'pass');
+  assert.equal(judge({ sha: SHA, runs: fixed, reviewJob: PASS, factory: 'run' }).act, 'pass');
   const broke = [...green(), run(9, 'ci.yml', 'failure')];
-  assert.equal(judge({ sha: SHA, runs: broke, reviewJob: PASS, review: true, factory: 'run' }).act, 'refuse');
+  assert.equal(judge({ sha: SHA, runs: broke, reviewJob: PASS, factory: 'run' }).act, 'refuse');
   const others = [
     ...green(),
     run(10, 'look-pr.yml', 'failure', { head_sha: 'b'.repeat(40) }),
     run(11, 'pr-checks.yml', 'failure', { event: 'push' }),
   ];
-  assert.equal(judge({ sha: SHA, runs: others, reviewJob: PASS, review: true, factory: 'run' }).act, 'pass');
+  assert.equal(judge({ sha: SHA, runs: others, reviewJob: PASS, factory: 'run' }).act, 'pass');
   const sealRed = [...green(), run(12, 'merge-seal.yml', 'failure')];
-  assert.equal(judge({ sha: SHA, runs: sealRed, reviewJob: PASS, review: true, factory: 'run' }).act, 'pass');
+  assert.equal(judge({ sha: SHA, runs: sealRed, reviewJob: PASS, factory: 'run' }).act, 'pass');
 });
 
 test('refuses: the factory switch not saying run', () => {
   for (const f of ['pause', '', undefined, 'running'])
-    assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, review: true, factory: f }).act, 'refuse', String(f));
+    assert.equal(judge({ sha: SHA, runs: green(), reviewJob: PASS, factory: f }).act, 'refuse', String(f));
 });
 
 test('reviewJobOf passes over a run whose review job was skipped (an edit)', () => {
@@ -265,8 +232,8 @@ test('main: a passing change writes pass=true; every planted fault writes nothin
         runs: [...green().slice(0, 3), run(4, 'ci-review.yml', 'success', { pull_requests: [{ number: 5, base: { ref: 'side' } }] })],
       }),
     ],
+    ['the judge down', github({ attempts: { 4: [[DOWN]] } })],
     ['a proof-count file with the judge down', github({ prFiles: files('tooling/ci/step-read.mjs'), attempts: { 4: [[DOWN]] } })],
-    ['the test judge with the judge down', github({ prFiles: files('tooling/ci/test-judge.mjs'), attempts: { 4: [[DOWN]] } })],
     ['a pause', github({ factory: 'pause\n' })],
     ['still going after every poll', github({ runs: [...green(), run(9, 'real-app-journeys.yml', null)] })],
   ]) {

@@ -2,22 +2,21 @@
 /**
  * A change to the judges alone (merge-seal.yml's first seal step, REPAIR_STEP). A pull request that changes only the CI
  * review's or the merge seal's own files (JUDGE_FILES) passes the seal when every other check on its exact head is
- * green and the CI review PASSed it with no FAIL standing, or, for the review's own code alone, the judge is down; else
- * the seal judges it as any other change, by the steps after this one.
- * It replaces the floor's one admin merge (project-state#4001: agents get a GitHub App login that can add no bypass
- * actor), and it is narrower than that merge, which needed only "every other check green" and any file list:
+ * green and the CI review PASSed it with no FAIL standing for its code; else the seal judges it as any other change, by
+ * the steps after this one, so a bug in those steps can't hold their own repair. It never passes without the review's
+ * PASS ("No PR merges without its judge", project-state OWNER 289 point 11): a review that can't judge its own repair
+ * takes the owner's override. It replaces the floor's one admin merge (project-state#4001: agents get a GitHub App login
+ * that can add no bypass actor), whose uses (#8298, #8509, #9601) each repaired a seal step with the review working.
+ * It is narrower than that merge, which needed only "every other check green" and any file list:
  *   - every changed path, and each renamed one's old path, is in JUDGE_FILES (main's copy: a pull request can't widen it);
  *   - every Actions workflow's newest run on the head is green (success, skipped or neutral), CI's among them, except this
  *     seal's own workflow and the CI review's, which is read by its job;
- *   - the CI review's newest `CI review` job on the head has finished, and no FAIL stands for this code: no attempt of any
- *     CI review run on this head, or on any other head whose commit has the same tree (found by the review's tree index,
- *     review-marker.mjs reviewIndexName), failed its `Verdict` or `Test verdict` (or the retired `Test judge` job's
- *     `Verdict`), as review-marker.mjs ciReviewVerdict holds. So re-running the review, an empty commit or a new run that
- *     fails before it judges can't ask again. A head whose merge base is older than FRESH_MS passes nothing here.
- *     Any change needs the newest job's PASS (`Verdict` success), but one to the review's own code alone (REVIEW_FILES),
- *     which may pass with the judge down instead: the job ended success with its `Judge down` step run and no verdict
- *     (review-marker.mjs isJudgeDown), since a review that can't reach its model can't judge its own repair; that is
- *     the deadlock the admin merge was for. A job cancelled, or failing before it judged, is no PASS and no judge down.
+ *   - the newest `CI review` job of a review of this pull request into main, on the head, PASSed (`Verdict` success, the
+ *     job success), and no FAIL stands for this code: no attempt of any CI review run on this head, or on any other head
+ *     whose commit has the same tree (found by the review's tree index, review-marker.mjs reviewIndexName), failed its
+ *     `Verdict` or `Test verdict` (or the retired `Test judge` job's `Verdict`), as review-marker.mjs ciReviewVerdict
+ *     holds. So re-running the review or an empty commit can't ask again. A head whose merge base is older than FRESH_MS
+ *     passes nothing here;
  *   - the factory switch says `run` (read here, so a broken factory-switch.mjs can be repaired too);
  *   - the pull request is open, in this repository, into main, and its head is still HEAD_SHA.
  * It imports none of the scripts it can repair (only run-jobs.mjs, the one way to read a run's jobs), so a bug in them
@@ -28,8 +27,8 @@ import { appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { runJobs } from './run-jobs.mjs';
 
-/** The CI review's own code: a change here alone may pass while the judge is down. Its briefs are not here. */
-export const REVIEW_FILES = [
+/** The CI review's and the merge seal's own code (briefs excluded): a change to these alone may pass here. */
+export const JUDGE_FILES = [
   '.github/workflows/ci-review.yml',
   '.github/workflows/ci-review/package.json',
   '.github/workflows/ci-review/package-lock.json',
@@ -41,18 +40,10 @@ export const REVIEW_FILES = [
   'tooling/ci/judge-down.mjs',
   'tooling/ci/judge-down.test.mjs',
   'tooling/ci/step-pictures.mjs',
-];
-
-/** The test judge's and the proof reader's code (checks on weakened tests and on the proof count): needs the PASS. */
-export const PROOF_FILES = [
   'tooling/ci/test-judge.mjs',
   'tooling/ci/test-judge.test.mjs',
   'tooling/ci/step-read.mjs',
   'tooling/ci/step-read.test.mjs',
-];
-
-/** The merge seal's own code: needs the CI review's PASS. */
-export const SEAL_FILES = [
   '.github/workflows/merge-seal.yml',
   'tooling/ci/judge-repair.mjs',
   'tooling/ci/judge-repair.test.mjs',
@@ -68,10 +59,8 @@ export const SEAL_FILES = [
   'tooling/ci/api-budget.test.mjs',
 ];
 
-export const JUDGE_FILES = [...REVIEW_FILES, ...PROOF_FILES, ...SEAL_FILES];
-
 /** merge-seal.yml's step that runs this file; journey-seal.mjs recheckStep leaves a seal still in it alone. */
-export const REPAIR_STEP = 'A change to the judges alone: every other check green, and no FAIL from the CI review';
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
 
 const SEAL_WORKFLOW = '.github/workflows/merge-seal.yml';
 const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
@@ -105,16 +94,13 @@ export function standingFail(reviewRuns) {
   return null;
 }
 
-/**
- * Whether `files` (the pull request's files API entries) are the judges' alone, and whether all are the review's code
- * (`review`: it may pass with the judge down). An empty or unreadable list is not. Pure.
- */
+/** Whether `files` (the pull request's files API entries) are the judges' alone. An empty or unreadable list is not. Pure. */
 export function judgeOnly(files) {
   const paths = (files ?? []).flatMap((f) => [f?.filename, f?.previous_filename].filter((p) => p !== undefined));
   if (!paths.length) return { judge: false, why: 'the change lists no files' };
   const other = paths.find((p) => typeof p !== 'string' || !JUDGE_FILES.includes(p));
   if (other !== undefined) return { judge: false, why: `${other} is not one of the judges' own files` };
-  return { judge: true, review: paths.every((p) => REVIEW_FILES.includes(p)) };
+  return { judge: true };
 }
 
 /** The `CI review` job that judged the head: the newest one that ran (an edit's run skips it). Pure. */
@@ -126,10 +112,10 @@ export function reviewJobOf(jobsNewestFirst) {
 
 /**
  * The verdict, from what the API returned. `runs` are the Actions runs on the head; `reviewJob` reviewJobOf's answer;
- * `review` whether a review file changed; `factory` the switch's text. Returns { act: 'pass' | 'wait' | 'refuse', why }.
+ * `fail` standingFail's answer; `factory` the switch's text. Returns { act: 'pass' | 'wait' | 'refuse', why }.
  * Pure, so the table is testable.
  */
-export function judge({ sha, runs, reviewJob, review, factory, fail = null }) {
+export function judge({ sha, runs, reviewJob, factory, fail = null }) {
   if (fail) return { act: 'refuse', why: `the CI review FAILed this code (${fail}); a FAIL stands for this code, so push a fix` };
   const newest = new Map();
   for (const r of runs ?? []) {
@@ -150,24 +136,16 @@ export function judge({ sha, runs, reviewJob, review, factory, fail = null }) {
   const step = (name) => (reviewJob.steps ?? []).find((s) => s?.name === name)?.conclusion;
   if (step('Verdict') === 'failure' || step('Test verdict') === 'failure')
     return { act: 'refuse', why: `the CI review FAILed this code (job ${reviewJob.id}); a FAIL stands for this code` };
-  const passed = reviewJob.conclusion === 'success' && step('Verdict') === 'success';
-  // The judge down, as the review records it (review-marker.mjs isJudgeDown): never a cancel or an unexplained failure.
-  const down =
-    reviewJob.conclusion === 'success' &&
-    step('Judge down') === 'success' &&
-    !['success', 'failure'].includes(step('Verdict')) &&
-    !['success', 'failure'].includes(step('Test verdict'));
-  if (!passed && !(review && down))
+  // A PASS only: the judge down, a cancel or a failure before the verdict is none (OWNER 289 point 11).
+  if (!(reviewJob.conclusion === 'success' && step('Verdict') === 'success'))
     return {
       act: 'refuse',
-      why: `${review ? "a change to the review's own code needs the CI review's PASS or the judge down" : "this change needs the CI review's PASS"}; job ${reviewJob.id} ended ${reviewJob.conclusion} with its Verdict ${step('Verdict') ?? 'not run'}`,
+      why: `this change needs the CI review's PASS; job ${reviewJob.id} ended ${reviewJob.conclusion} with its Verdict ${step('Verdict') ?? 'not run'}`,
     };
   if (String(factory ?? '').trim() !== 'run') return { act: 'refuse', why: 'the factory switch does not say run' };
   return {
     act: 'pass',
-    why: review
-      ? `every other check is green on this head and the CI review did not FAIL it (job ${reviewJob.id}: ${passed ? 'PASS' : 'judge down'})`
-      : `every other check is green on this head and the CI review PASSed it (job ${reviewJob.id})`,
+    why: `every other check is green on this head and the CI review PASSed it (job ${reviewJob.id})`,
   };
 }
 
@@ -195,7 +173,7 @@ async function pages(path, key, opts) {
   throw new Error(`GET ${path.split('?')[0]}: more than 3,000 entries`);
 }
 
-/** Whether the pull request is the judges' alone: { judge, review, why }. Read once. `opts`: token, fetchImpl. */
+/** Whether the pull request is the judges' alone: { judge, why }. Read once. `opts`: token, fetchImpl. */
 export async function readChange({ repo, sha, pr, ...opts }) {
   const pull = await api(`repos/${repo}/pulls/${pr}`, opts);
   if (pull?.state !== 'open' || pull?.base?.ref !== 'main' || pull?.head?.repo?.full_name !== repo || pull?.head?.sha !== sha)
@@ -247,7 +225,7 @@ async function sameTreeRuns({ repo, sha, ...opts }) {
  * Reads the runs on the head and every attempt of the CI review's runs there, then, once the rest passes, the review's
  * runs on other heads with the same code and the switch, and judges.
  */
-export async function readAndJudge({ repo, sha, pr, review, ...opts }) {
+export async function readAndJudge({ repo, sha, pr, ...opts }) {
   const runs = await pages(`repos/${repo}/actions/runs?head_sha=${sha}`, 'workflow_runs', opts);
   const own = [];
   for (const run of runs.filter((r) => isReviewRun(r) && r?.head_sha === sha).sort((a, b) => Number(b.id) - Number(a.id)))
@@ -261,7 +239,7 @@ export async function readAndJudge({ repo, sha, pr, review, ...opts }) {
     for (const jobs of [...attempts].reverse()) if ((reviewJob = reviewJobOf(jobs))) break;
     if (reviewJob) break;
   }
-  const first = judge({ sha, runs, reviewJob, review, factory: 'run', fail: standingFail(own) });
+  const first = judge({ sha, runs, reviewJob, factory: 'run', fail: standingFail(own) });
   if (first.act !== 'pass') return first;
   const other = await sameTreeRuns({ repo, sha, ...opts });
   if (other.stale)
@@ -269,7 +247,7 @@ export async function readAndJudge({ repo, sha, pr, review, ...opts }) {
   const theirs = [];
   for (const run of other.runs) theirs.push({ run, attempts: await attemptsOf(repo, run, opts) });
   const factory = await api(`repos/${repo}/contents/FACTORY?ref=factory-switch`, { ...opts, raw: true });
-  return judge({ sha, runs, reviewJob, review, factory, fail: standingFail([...own, ...theirs]) });
+  return judge({ sha, runs, reviewJob, factory, fail: standingFail([...own, ...theirs]) });
 }
 
 /** Judges until it can say pass or refuse, waiting while a check is still going (WAIT_POLLS, POLL_MS apart). */
@@ -290,7 +268,7 @@ export async function main({
     return { act: 'skip', why: change.why };
   }
   for (let i = 0; ; i++) {
-    const v = await readAndJudge({ repo, sha, pr, review: change.review, token, fetchImpl });
+    const v = await readAndJudge({ repo, sha, pr, token, fetchImpl });
     if (v.act === 'wait' && i < polls) {
       log(`waiting: ${v.why}`);
       await sleep(ms);
