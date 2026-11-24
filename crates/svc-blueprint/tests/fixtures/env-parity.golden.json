@@ -374,7 +374,7 @@
         "DATABASE_URL": "postgres://blueprint:blueprint@localhost:5432/blueprint_test",
         "DATABASE_POOL_MAX": "4",
         "BLUEPRINT_ENGINE_MODE": "mock",
-        "BLUEPRINT_ENGINE_API_KEY": " key ",
+        "BLUEPRINT_ENGINE_API_KEY": " placeholder-engine-key ",
         "BLUEPRINT_CARD_RENDERER_API_KEY": "placeholder-renderer-key"
       },
       "answer": {
@@ -396,7 +396,7 @@
           "HTTP_PORT": 4008,
           "EDGE_PRINCIPAL_SECRET": "placeholder-blueprint-env-parity-edge-secret",
           "BLUEPRINT_ENGINE_TIMEOUT_MS": 20000,
-          "BLUEPRINT_ENGINE_API_KEY": " key ",
+          "BLUEPRINT_ENGINE_API_KEY": " placeholder-engine-key ",
           "BLUEPRINT_ENGINE_MODE": "mock",
           "BLUEPRINT_CARD_RENDERER_TIMEOUT_MS": 10000,
           "BLUEPRINT_CARD_RENDERER_API_KEY": "placeholder-renderer-key"

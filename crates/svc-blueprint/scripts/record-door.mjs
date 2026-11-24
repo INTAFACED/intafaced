@@ -624,7 +624,7 @@ const THROWN = [
   ['plain', '', () => new Error('replay: an unexpected failure')],
 ];
 
-const SECRET = 'a-blueprint-record-door-edge-secret-long-enough';
+const SECRET = 'a-placeholder-blueprint-record-door-edge-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
 const raw = encodePrincipal({
   sub: USER,
@@ -707,7 +707,7 @@ const ENV_CASES = [
   { BLUEPRINT_ENGINE_TIMEOUT_MS: '1.5', BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: 'soon' },
   { BLUEPRINT_ENGINE_TIMEOUT_MS: '', BLUEPRINT_CARD_RENDERER_TIMEOUT_MS: ' ' },
   { BLUEPRINT_ENGINE_API_KEY: '', BLUEPRINT_CARD_RENDERER_API_KEY: '' },
-  { BLUEPRINT_ENGINE_API_KEY: ' key ', BLUEPRINT_CARD_RENDERER_API_KEY: 'placeholder-renderer-key' },
+  { BLUEPRINT_ENGINE_API_KEY: ' placeholder-engine-key ', BLUEPRINT_CARD_RENDERER_API_KEY: 'placeholder-renderer-key' },
   {
     BLUEPRINT_CREW_CAPACITY: '6',
     BLUEPRINT_MENTOR_SHORTLIST_SIZE: '3',
