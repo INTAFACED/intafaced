@@ -90,8 +90,8 @@ export function betaPaths(home = os.homedir()) {
     front: path.join(root, 'front.json'),
     /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
     anvil: path.join(root, 'anvil'),
-    /** The venue the running stack was last launched with (BETA_USER_VENUE); another, or none, restarts it once. */
-    venue: path.join(root, 'venue'),
+    /** The stack settings the running stack was last launched with (BETA_STACK_SETTINGS); others, or none, restart it once. */
+    settings: path.join(root, 'stack-settings'),
   };
 }
 
@@ -106,7 +106,19 @@ const BETA_CADENCE_SECONDS = 300;
  * posture #10217), behind the same HTTP venue protocol as every venue (local-test-venue.mjs serveHyperliquidVenue). The
  * customer's own wallet signs; the venue holds no key. Without it the desks ran on the stack's stand-in venue.
  */
-export const BETA_USER_VENUE = 'hl-testnet';
+const BETA_USER_VENUE = 'hl-testnet';
+
+/**
+ * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue, and
+ * no TEST listings on svc-trade's board. The journeys' TEST markets (an untraded book, a shut session, a delisting, a
+ * new listing no one quotes) are fixtures for a step, not markets a tester can use; the beta showed TWIN/USDC's empty
+ * coin page from its markets list (#10599). The rows stay in the database; the beta's markets are the quoted ones.
+ */
+const BETA_STACK_SETTINGS = Object.freeze({ LOCAL_STACK_USER_VENUE: BETA_USER_VENUE, LOCAL_STACK_TEST_MARKETS: 'off' });
+const settingsLine = () =>
+  Object.entries(BETA_STACK_SETTINGS)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
 
 /**
  * The environment every stack command of the beta runs with: its slot and its state folder, and the settings of a
@@ -125,17 +137,17 @@ export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(path
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
   // The beta's Customer build shows only rooms finished in Volt (apps/customer/src/app/beta-volt.ts).
   INTAFACED_BETA_VOLT_ONLY: '1',
-  LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
+  ...BETA_STACK_SETTINGS,
 });
 
 /**
- * Whether the running stack must restart whole onto BETA_USER_VENUE: its marker (paths.venue, written after a launch
- * that exits 0) names another venue or none. A stack update restarts svc-trade only when backend source moved, so a
- * changed venue alone would never reach it.
+ * Whether the running stack must restart whole onto BETA_STACK_SETTINGS: its marker (paths.settings, written after a
+ * launch that exits 0) names other settings or none. A stack update restarts svc-trade only when backend source moved,
+ * so a changed setting alone would never reach it.
  */
-function venueChanged(paths) {
+function settingsChanged(paths) {
   try {
-    return fs.readFileSync(paths.venue, 'utf8').trim() !== BETA_USER_VENUE;
+    return fs.readFileSync(paths.settings, 'utf8').trim() !== settingsLine();
   } catch {
     return true;
   }
@@ -660,7 +672,7 @@ export async function round(paths = betaPaths(), io = {}) {
     });
   const chain = anvil(paths);
   log(paths, chain.line);
-  const venueNew = venueChanged(paths);
+  const settingsNew = settingsChanged(paths);
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
@@ -669,7 +681,7 @@ export async function round(paths = betaPaths(), io = {}) {
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = !chain.fresh && !venueNew && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const warm = !chain.fresh && !settingsNew && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
   if (!warm)
     writeStatus(paths, {
       state: 'updating',
@@ -689,13 +701,13 @@ export async function round(paths = betaPaths(), io = {}) {
   if (chain.fresh) {
     log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
     await stopStack(paths, run);
-  } else if (venueNew) {
-    log(paths, `venue: ${BETA_USER_VENUE} is new, so the stack is stopped and started whole on it`);
+  } else if (settingsNew) {
+    log(paths, `settings: ${settingsLine()} are new, so the stack is stopped and started whole on them`);
     await stopStack(paths, run);
   }
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
-  if (launched === 0) fs.writeFileSync(paths.venue, `${BETA_USER_VENUE}\n`);
+  if (launched === 0) fs.writeFileSync(paths.settings, `${settingsLine()}\n`);
   const check = await checkWith(paths.state, BETA_LINK);
   for (const l of check.lines) log(paths, `check: ${l}`);
   if (!check.ok) {
