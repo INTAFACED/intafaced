@@ -134,6 +134,17 @@
     font: 600 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
+  /* The chart's tools under one line that opens and closes them. */
+  .cw-tools-summary {
+    display: flex;
+    align-items: center;
+    min-block-size: 2rem;
+    padding-inline: var(--if-space-3);
+    border-block-start: 1px solid var(--if-line);
+    color: var(--if-fg-2);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+    cursor: pointer;
+  }
   .cw-bar--options {
     flex-wrap: wrap;
     justify-content: flex-start;
@@ -655,10 +666,16 @@
     .cw-page {
       padding: var(--if-space-4);
     }
-    .cw-head,
-    .cw-head-actions {
+    .cw-head {
       align-items: stretch;
       flex-direction: column;
+    }
+    /* On a phone the page's own actions sit in a row that wraps, the market's choice on a row of its own. */
+    .cw-head-actions {
+      align-items: center;
+    }
+    .cw-head-actions > .cw-select {
+      flex-basis: 100%;
     }
     .cw-canvas {
       min-height: clamp(240px, 46vh, 420px);
