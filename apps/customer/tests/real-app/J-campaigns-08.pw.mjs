@@ -389,6 +389,12 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   await expect.poll(async () => (await redemptionOf(me, voucher.id, 1))?.reward.state, { timeout: 90_000 }).toBe('paid');
   const paid = await redemptionOf(me, voucher.id, 1);
   await paidOnce(me, paid, wallet);
+  // Every redemption of mine paid (#6's included), so nothing else lands in the wallet while this voucher expires.
+  await expect
+    .poll(async () => (await walletOf(me)).flatMap((x) => x.redemptions).filter((r) => r.reward.state !== 'paid').length, {
+      timeout: 120_000,
+    })
+    .toBe(0);
   const walletAtPayment = await walletUsd(wallet);
   // The use-by date passes; the sweep marks it expired once, however many passes run.
   await expect.poll(async () => (await walletOf(me)).find((v) => v.id === voucher.id).expiredAt, { timeout: 180_000 }).toBeTruthy();
@@ -405,7 +411,7 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   expect(v.redemptions[0].reward.state).toBe('paid');
   expect(v.redemptions[0].reward.payout).toEqual(paid.reward.payout);
   await paidOnce(me, v.redemptions[0], wallet);
-  expect(await walletUsd(wallet)).toBeGreaterThanOrEqual(walletAtPayment);
+  expect(await walletUsd(wallet)).toBe(walletAtPayment);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
   await openWallet(page);
