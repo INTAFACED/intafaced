@@ -1410,7 +1410,14 @@ export class UserVenueDoor {
     await this.assertRulesPublished(venue, withFee);
     await this.assertMarketProtection(venue, withFee);
     const answered = await venue.preview(account, priced);
-    return { ...answered, value: { ...answered.value, feeDiscount: discount } };
+    return {
+      ...answered,
+      value: {
+        ...answered.value,
+        builderFeeBps: priced.builderFee ? priced.builderFee.feeBps : null,
+        feeDiscount: discount,
+      },
+    };
   }
 
   /**
