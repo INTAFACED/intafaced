@@ -1,12 +1,11 @@
 // volt-room: /wallet/venue
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { Field } from '../../../shared/ui';
 import { useSession } from '../../session';
 import { StepUpConfirm } from '../../money';
 import type { StepUpBegin } from '../../account';
@@ -832,18 +831,9 @@ export function VenueWalletRoom() {
                   {needsTick ? (
                     <div>
                       <p role="alert">{destinationKind === 'contract' ? t('contractWarning') : t('contractUnread')}</p>
-                      <label>
-                        {/* The app resets native inputs to appearance: none, which leaves a checkbox with no size: this
-                            one keeps the browser's own box, so the person can see and tick it. */}
-                        <input
-                          type="checkbox"
-                          className="appearance-auto size-3.5 shrink-0 accent-lime"
-                          checked={contractTicked}
-                          disabled={busy}
-                          onChange={(event) => setContractTicked(event.target.checked)}
-                        />{' '}
+                      <Checkbox checked={contractTicked} disabled={busy} onCheckedChange={setContractTicked}>
                         {t('contractTick')}
-                      </label>
+                      </Checkbox>
                     </div>
                   ) : null}
                 </div>
