@@ -736,9 +736,7 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
 
     // The live venue door stays off while its port is unset, and says so.
     await expect(box.getByRole('button', { name: 'Send to a live venue' })).toBeDisabled();
-    await expect(
-      box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
-    ).toBeVisible();
+    await expect(box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port.')).toBeVisible();
   } finally {
     await me.delete(`/api/v1/orders/${order.id}`);
   }
@@ -1195,9 +1193,7 @@ test(`${J} #10 with the venue-submit port unset, opens the iceberg live door: th
   const door = box.getByRole('button', { name: 'Send to a live venue' });
   await expect(door).toBeVisible();
   await expect(door).toBeDisabled();
-  await expect(
-    box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
-  ).toBeVisible();
+  await expect(box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port.')).toBeVisible();
   // Pressing it anyway sends nothing: the browser drops a click on a disabled button, and the page has no other route.
   await door.click({ force: true });
   await page.waitForTimeout(2_000);

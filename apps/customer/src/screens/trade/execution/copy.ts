@@ -246,7 +246,7 @@ const messages = {
   'Where it rests': 'Where it rests',
   'House order book': 'House order book',
   'Live venue': 'Send to a live venue',
-  'Iceberg live door off': 'Sending an iceberg order to an external venue is not offered.',
+  'Iceberg live door off': 'Sending an iceberg to a live venue needs an authorised venue submit port.',
   'Iceberg problem total': 'Enter a total size above zero.',
   'Iceberg problem display': 'Enter a display size above zero.',
   'Iceberg problem displayTooBig': 'The display size must be smaller than the total.',

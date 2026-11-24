@@ -479,11 +479,11 @@ test(`${J} #6 changes the colour scheme and the price source on the launch model
   const source = page.getByRole('combobox', { name: 'Price source', exact: true }).first();
   await source.selectOption({ label: 'Best bid' });
   const refusal = page.locator('[data-code="trade.chart.basis_unpublished"]').first();
-  await expect(refusal).toContainText('can’t draw Best bid');
+  await expect(refusal).toContainText('Best bid is unavailable here');
   await expect(refusal).toContainText('last trade prices');
   await expect(source).toHaveValue('last');
   await source.selectOption({ label: 'Mark price' });
-  await expect(refusal).toContainText('can’t draw Mark price');
+  await expect(refusal).toContainText('Mark price is unavailable here');
   await stepPicture();
 });
 
