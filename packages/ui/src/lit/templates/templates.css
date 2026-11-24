@@ -3197,6 +3197,13 @@ button.lt-tab:focus-visible {
     page: lt-print-alone;
   }
 
+  /* The boxes around it take the same page, so content they draw before it (a frame's own ::before) never opens an
+     unnamed first page on the printer's default paper. */
+  body:has(.lt-print-alone),
+  body:has(.lt-print-alone) *:has(.lt-print-alone) {
+    page: lt-print-alone;
+  }
+
   .lt-print-alone section {
     break-inside: avoid;
   }
