@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { subscribeSelfFreeze, type SelfFreezeConsumers } from './self-freeze-events.js';
+import { subscribeSelfFreeze, subscribeSupportAccountFreeze, type SelfFreezeConsumers } from './self-freeze-events.js';
 
 // J-wallet-13 #1 at svc-trade's edge: identity's `selfFreezeApplied` reaches each of the three places svc-trade keeps an
 // agent permission (live runs, agent accounts and their assistant, own-agent allowances), once per freeze. Each part's
@@ -70,5 +70,22 @@ describe("the owner's own freeze event in svc-trade (J-wallet-13 #1)", () => {
         { idempotencyKey: key(FREEZE) },
       ),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("a support agent's account freeze event in svc-trade (J-support-public-20 #7)", () => {
+  it("revokes in every part for the frozen customer, once per freeze, and the owner's own freeze event is not taken for it", async () => {
+    const bus = new MemoryEventBus('svc-identity');
+    const { consumers, calls } = recorder();
+    await subscribeSupportAccountFreeze(bus, consumers);
+    const payload = { userId: USER, freezeId: FREEZE, since: '2026-11-24T04:00:00.000Z' };
+    const supportKey = `identity.support_account_freeze.frozen:${FREEZE}`;
+    await bus.publish('supportAccountFrozen', payload, { idempotencyKey: supportKey });
+    await bus.publish('supportAccountFrozen', payload, { idempotencyKey: supportKey });
+    expect(calls).toEqual([
+      ['liveRuns', USER],
+      ['agentOrders', USER],
+      ['ownAgentTrading', USER],
+    ]);
   });
 });

@@ -36,7 +36,9 @@ use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::gateway::routing;
 use svc_agents::own::Own;
 use svc_agents::own::desk::{CommentInput, DeskAccount, DeskComment, DeskSearch, SupportDesk};
-use svc_agents::own::freeze_applied::{Applied, on_self_freeze_applied};
+use svc_agents::own::freeze_applied::{
+    ACCOUNT_FROZEN_BY_SUPPORT, Applied, on_self_freeze_applied, on_support_account_frozen,
+};
 use svc_agents::self_freeze::{
     OWNER_FREEZE_UNREAD, OWNER_FROZEN_SELF, Reading, SelfFreezeRead, Unavailable,
 };
@@ -1404,6 +1406,39 @@ fn rows(db: &TestDb, sql: &str) -> Vec<Vec<Option<String>>> {
                 .collect()
         })
         .collect()
+}
+
+/// J-support-public-20 #7: a support agent's account freeze revokes and stops the same things as the owner's own, only
+/// the customer's, once per freeze, leaving the support code on what it stopped.
+#[test]
+fn a_support_account_freeze_revokes_and_stops_everything_of_the_customers_nothing_of_anothers_once()
+{
+    let Some(db) = fresh() else { return };
+    let d = door(&db, Build::default());
+    equip(&db, &d, USER);
+    equip(&db, &d, OTHER);
+    let p = pool(&db);
+    let (applied, repeated) = on_support_account_frozen(&p, &payload()).unwrap();
+    assert!(!repeated);
+    assert_eq!(live(&db, USER), NONE_LIVE);
+    assert_eq!(live(&db, OTHER), ALL_LIVE);
+    let user = format!("'{USER}'");
+    assert_eq!(
+        rows(
+            &db,
+            &format!(
+                "SELECT state, stop_code FROM agents.own_agent_background_runs WHERE owner_id = {user}"
+            )
+        ),
+        [[
+            Some("stopped".to_owned()),
+            Some(ACCOUNT_FROZEN_BY_SUPPORT.to_owned())
+        ]]
+    );
+    let (again, repeated) = on_support_account_frozen(&p, &payload()).unwrap();
+    assert!(repeated);
+    assert_eq!(again, applied);
+    assert_eq!(live(&db, OTHER), ALL_LIVE);
 }
 
 #[test]

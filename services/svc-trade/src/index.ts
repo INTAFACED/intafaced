@@ -42,7 +42,7 @@ import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
-import { subscribeSelfFreeze } from './self-freeze-events.js';
+import { subscribeSelfFreeze, subscribeSupportAccountFreeze } from './self-freeze-events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
@@ -1149,6 +1149,8 @@ const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, match
 // The owner's own freeze (J-wallet-13 #1): every agent permission kept here for them is revoked at once, and their live
 // runs stop, on identity's event (src/self-freeze-events.ts). Each door still reads the freeze itself before it acts.
 subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
+// A support agent's account freeze from a request (J-support-public-20 #7): the same revokes, on identity's event.
+subscriptions.push(await subscribeSupportAccountFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
