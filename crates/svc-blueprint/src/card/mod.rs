@@ -15,14 +15,14 @@ pub mod compose;
 pub mod renderer;
 
 use postgres::GenericClient;
-use postgres::types::ToSql;
 use service_kit::json::Json;
 use service_kit::schema::Value;
 
-use crate::db::{self, Store, StoreError};
+use crate::db::{self, Store, StoreError, query, with_client};
 use crate::door::Ctx;
 use crate::errors::Refusal;
-use crate::profile::{BLUEPRINT_COLUMNS, checked, first_blueprint, internal, text, user_of};
+use crate::profile::{BLUEPRINT_COLUMNS, checked, first_blueprint, internal, user_of};
+use crate::shares::{SHARE_COLUMNS, share_row};
 use crate::zero_pii;
 use compose::{Size, Subject};
 use renderer::{CardRenderer, Raster, RasterizeRequest};
@@ -80,25 +80,6 @@ pub fn handle(
         }
         other => Err(internal(format!("{other} is not slice card's"))),
     }
-}
-
-fn query<C: GenericClient>(
-    client: &mut C,
-    sql: &str,
-    params: &[&(dyn ToSql + Sync)],
-) -> Result<Vec<postgres::Row>, Refusal> {
-    Ok(client.query(sql, params).map_err(StoreError::from)?)
-}
-
-/// One connection from the pool, for reads outside a transaction.
-fn with_client<T>(
-    store: &Store,
-    f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>,
-) -> Result<T, Refusal> {
-    let pool = store.pool()?;
-    let mut conn = pool.get().map_err(StoreError::from)?;
-    let client = conn.client().map_err(StoreError::from)?;
-    f(client)
 }
 
 /// `get`: the Blueprint of `user`, checked, as its record.
@@ -309,24 +290,6 @@ struct Share {
     id: String,
     owner: String,
     size: Size,
-}
-
-const SHARE_COLUMNS: &str = "id::text AS id, owner_user_id::text AS owner_user_id, size, \
-     floor(extract(epoch FROM created_at) * 1000)::bigint AS created_at, \
-     floor(extract(epoch FROM revoked_at) * 1000)::bigint AS revoked_at";
-
-fn share_row(row: &postgres::Row) -> Result<Value, Refusal> {
-    let date = |column: &str| -> Result<Value, Refusal> {
-        let ms: Option<i64> = row.try_get(column).map_err(StoreError::from)?;
-        Ok(ms.map_or(Value::Null, |ms| Value::Date(Some(ms))))
-    };
-    Ok(Value::Object(vec![
-        ("id".to_owned(), text(row, "id")?),
-        ("owner_user_id".to_owned(), text(row, "owner_user_id")?),
-        ("size".to_owned(), text(row, "size")?),
-        ("created_at".to_owned(), date("created_at")?),
-        ("revoked_at".to_owned(), date("revoked_at")?),
-    ]))
 }
 
 /// `shareCard`: the share and the Blueprint behind it, or `not_found` for a missing, revoked, other-subject or

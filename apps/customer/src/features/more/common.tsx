@@ -78,6 +78,7 @@ export function TextArea({
   );
 }
 export function Limit({ count, limit, cap, onChange }: { count: number; limit: number; cap: number; onChange: (limit: number) => void }) {
+  if (count < limit) return null;
   return (
     <div className="more-continuation">
       <small>

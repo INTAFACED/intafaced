@@ -155,6 +155,8 @@ export interface OrderIntent {
   price: string;
   timeInForce: VenueTimeInForce;
   reduceOnly: boolean;
+  /** Optional trader label stored with the order by our door (J-derivatives-04 #2). */
+  label?: string | null;
   clientOrderKey: string;
   /** Our builder fee is the door's (the owner value), never the browser's. */
   builderFee: null;

@@ -2,7 +2,6 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
-import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
   keys,
@@ -24,8 +23,9 @@ import { venueCopy } from './venue-copy';
 import { feeShown } from './fee-rates';
 import { VENUE_POLL_MS } from './poll';
 import { useAsOfText, useVenueApi, word } from './venue-words';
+import { fillTotal, groupVenueFillsByOrder, readAllVenueOrders, type VenueFillGroup } from './venue-fill-groups';
 
-export { VENUE_POLL_MS };
+export { VENUE_POLL_MS, fillTotal, readAllVenueOrders };
 export { SETTLED_STATUSES, outcomeText, useAsOfText, useVenueApi, word } from './venue-words';
 export { OutcomeLine, ReadBack } from './volt/VoltVenue';
 
@@ -394,12 +394,16 @@ export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[
   );
 }
 
+type FillTableRow = { kind: 'fill'; fill: VenueFill; ofOrder: string | null } | { kind: 'order'; group: VenueFillGroup; first: VenueFill };
+
 export function FillsTable({
   fills,
   test,
   symbol,
   tagOf,
   withTotal = false,
+  orders,
+  groupByOrder = false,
 }: {
   fills: AsOf<VenueFill[]> | null;
   test: boolean;
@@ -408,14 +412,35 @@ export function FillsTable({
   withTotal?: boolean;
   /** The person's own tag on an order, by client id; given, the table has a Tag column. */
   tagOf?: (clientOrderId: string) => string | undefined;
+  /** The account's venue orders keyed by lowercase venueClientOrderId, so each trade names its order's type (J-portfolio-03 #5). */
+  orders?: ReadonlyMap<string, VenueOrder>;
+  /** When true, orders that filled in parts sit under one order header row with their fills grouped beneath (J-portfolio-03 #5). */
+  groupByOrder?: boolean;
 }) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
+  const showType = Boolean(orders) || groupByOrder;
+  const orderOf = (id: string | null): VenueOrder | undefined => (id ? orders?.get(id.toLowerCase()) : undefined);
+  const typeWordOf = (id: string | null): string | null => {
+    const order = orderOf(id);
+    return order ? word(t, 'type', order.type) : null;
+  };
+  const tableRows: FillTableRow[] = groupByOrder
+    ? groupVenueFillsByOrder(rows).flatMap((group): FillTableRow[] => {
+        const [first] = group.fills;
+        if (!first) return [];
+        if (group.fills.length === 1) return [{ kind: 'fill', fill: first, ofOrder: null }];
+        return [
+          { kind: 'order', group, first },
+          ...group.fills.map((fill): FillTableRow => ({ kind: 'fill', fill, ofOrder: group.order })),
+        ];
+      })
+    : rows.map((fill): FillTableRow => ({ kind: 'fill', fill, ofOrder: null }));
   return (
     <div data-testid="venue-fills">
       <TestMark test={test} />
-      {rows.length === 0 ? (
+      {tableRows.length === 0 ? (
         <p className="lt-quiet">{t('No fills')}</p>
       ) : (
         <Table
@@ -423,21 +448,41 @@ export function FillsTable({
           dense
           scroll
           columns={[
-            { key: 'time', label: t('Time'), cell: (f: VenueFill) => asOfText(f.filledAt) },
-            { key: 'market', label: t('Market'), cell: (f) => f.symbol },
-            { key: 'side', label: t('Side'), cell: (f) => word(t, 'side', f.side) },
+            {
+              key: 'time',
+              label: t('Time'),
+              cell: (r: FillTableRow) => asOfText(r.kind === 'fill' ? r.fill.filledAt : r.first.filledAt),
+            },
+            { key: 'market', label: t('Market'), cell: (r) => (r.kind === 'fill' ? r.fill.symbol : r.first.symbol) },
+            { key: 'side', label: t('Side'), cell: (r) => word(t, 'side', r.kind === 'fill' ? r.fill.side : r.first.side) },
+            ...(showType
+              ? [
+                  {
+                    key: 'type',
+                    label: t('Type'),
+                    cell: (r) => {
+                      if (r.kind === 'fill') return typeWordOf(r.fill.venueClientOrderId) ?? '—';
+                      const typeWord = typeWordOf(r.group.order);
+                      return typeWord
+                        ? t('Order of fills', { type: typeWord, count: r.group.fills.length })
+                        : t('Order of fills no type', { count: r.group.fills.length });
+                    },
+                    cellMarks: () => ({ 'data-cell': 'type' }),
+                  } satisfies Column<FillTableRow>,
+                ]
+              : []),
             {
               key: 'price',
               label: t('Price'),
               align: 'end',
-              cell: (f) => displayAmount(f.price),
+              cell: (r) => (r.kind === 'fill' ? displayAmount(r.fill.price) : r.group.average ? displayAmount(r.group.average) : '—'),
               cellMarks: () => ({ 'data-cell': 'price' }),
             },
             {
               key: 'amount',
               label: t('Amount'),
               align: 'end',
-              cell: (f) => displayAmount(f.amount),
+              cell: (r) => displayAmount(r.kind === 'fill' ? r.fill.amount : r.group.amount),
               cellMarks: () => ({ 'data-cell': 'amount' }),
             },
             ...(withTotal
@@ -446,32 +491,58 @@ export function FillsTable({
                     key: 'total',
                     label: t('Total'),
                     align: 'end',
-                    cell: (f) => `${displayAmount(fillTotal(f))} ${f.symbol.split('-')[1] ?? ''}`,
+                    cell: (r) =>
+                      r.kind === 'fill'
+                        ? `${displayAmount(fillTotal(r.fill))} ${r.fill.symbol.split('-')[1] ?? ''}`
+                        : `${displayAmount(r.group.total)} ${r.first.symbol.split('-')[1] ?? ''}`,
                     cellMarks: () => ({ 'data-cell': 'total' }),
-                  } satisfies Column<VenueFill>,
+                  } satisfies Column<FillTableRow>,
                 ]
               : []),
-            { key: 'role', label: t('Role'), cell: (f) => word(t, 'role', f.role), cellMarks: () => ({ 'data-cell': 'role' }) },
+            {
+              key: 'role',
+              label: t('Role'),
+              cell: (r) => (r.kind === 'fill' ? word(t, 'role', r.fill.role) : '—'),
+              cellMarks: () => ({ 'data-cell': 'role' }),
+            },
             {
               key: 'venue-fee',
               label: t('Venue fee'),
               align: 'end',
-              cell: (f) => <VenueFeeCell amount={f.venueFee} />,
+              cell: (r) =>
+                r.kind === 'fill' ? (
+                  <VenueFeeCell amount={r.fill.venueFee} />
+                ) : r.group.venueFee !== null ? (
+                  <VenueFeeCell amount={r.group.venueFee} />
+                ) : (
+                  '—'
+                ),
               cellMarks: () => ({ 'data-cell': 'venue-fee' }),
             },
             {
               key: 'builder-fee',
               label: t('Our builder fee'),
               align: 'end',
-              cell: (f) => f.builderFee,
+              cell: (r) => (r.kind === 'fill' ? r.fill.builderFee : (r.group.builderFee ?? '—')),
               cellMarks: () => ({ 'data-cell': 'builder-fee' }),
             },
-            { key: 'fee-asset', label: t('Fee asset'), cell: (f) => f.feeAsset },
+            {
+              key: 'fee-asset',
+              label: t('Fee asset'),
+              cell: (r) => (r.kind === 'fill' ? r.fill.feeAsset : (r.group.feeAsset ?? '—')),
+            },
             {
               key: 'realised',
               label: t('Realised result'),
               align: 'end',
-              cell: (f) => (f.realisedPnl === null ? t('Not known') : f.realisedPnl),
+              cell: (r) =>
+                r.kind === 'fill'
+                  ? r.fill.realisedPnl === null
+                    ? t('Not known')
+                    : r.fill.realisedPnl
+                  : r.group.realisedPnl === null
+                    ? '—'
+                    : r.group.realisedPnl,
               cellMarks: () => ({ 'data-cell': 'realised' }),
             },
             ...(tagOf
@@ -479,15 +550,30 @@ export function FillsTable({
                   {
                     key: 'tag',
                     label: t('Tag'),
-                    cell: (f) => (f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''),
+                    cell: (r) => {
+                      const id = r.kind === 'fill' ? r.fill.venueClientOrderId : r.group.order;
+                      return id ? (tagOf(id) ?? '') : '';
+                    },
                     cellMarks: () => ({ 'data-cell': 'tag' }),
-                  } satisfies Column<VenueFill>,
+                  } satisfies Column<FillTableRow>,
                 ]
               : []),
           ]}
-          rows={rows}
-          rowKey={(f) => f.fillId}
-          rowMarks={(f) => ({ 'data-fill': f.fillId, 'data-client-order-id': f.venueClientOrderId ?? '' })}
+          rows={tableRows}
+          rowKey={(r) => (r.kind === 'fill' ? r.fill.fillId : `order:${r.group.order}`)}
+          rowMarks={(r) =>
+            r.kind === 'fill'
+              ? {
+                  'data-fill': r.fill.fillId,
+                  ...(r.ofOrder ? { 'data-of': r.ofOrder, 'data-part': 'fill' } : {}),
+                  'data-client-order-id': r.fill.venueClientOrderId ?? '',
+                }
+              : {
+                  'data-part': 'order',
+                  ...(r.group.order ? { 'data-order': r.group.order } : {}),
+                  'data-client-order-id': r.group.order ?? '',
+                }
+          }
         />
       )}
       <AsOfLine asOf={fills?.asOf ?? null} />
@@ -510,11 +596,6 @@ function VenueFeeCell({ amount }: { amount: string }) {
       </span>
     );
   return <>{amount}</>;
-}
-
-/** A fill's total: its price times its size, exact (both are the venue's decimals). */
-export function fillTotal(f: VenueFill): string {
-  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
 }
 
 /**
@@ -631,7 +712,7 @@ export function OrdersTable({
                   {
                     key: 'tag',
                     label: t('Tag'),
-                    cell: (o) => (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
+                    cell: (o) => o.label ?? (o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''),
                     cellMarks: () => ({ 'data-cell': 'tag' }),
                   } satisfies Column<VenueOrder>,
                 ]

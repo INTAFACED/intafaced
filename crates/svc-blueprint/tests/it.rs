@@ -16,6 +16,8 @@ mod port_notes;
 mod profile_db;
 #[path = "refusals.rs"]
 mod refusals;
+#[path = "shares_db.rs"]
+mod shares_db;
 #[path = "store_pg.rs"]
 mod store_pg;
 #[path = "wire_replay.rs"]

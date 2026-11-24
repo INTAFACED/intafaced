@@ -4,6 +4,8 @@
 //! Every connection is opened as `index.ts` opens its `postgres(...)` pool: `search_path` `blueprint,public` and the
 //! service's `application_name`, at most `DATABASE_POOL_MAX` connections.
 
+use postgres::GenericClient;
+use postgres::types::ToSql;
 use service_kit::pg::{DbError, Pool, db_message};
 
 /// A database failure: the driver's message and, when the server sent one, its SQLSTATE.
@@ -111,6 +113,26 @@ pub fn open(
 /// `isSerializationFailure` (`packages/db`): `serialization_failure` or `deadlock_detected`.
 pub fn is_serialization_failure(r: &crate::errors::Refusal) -> bool {
     matches!(r, crate::errors::Refusal::Other { code: Some(c), .. } if c == "40001" || c == "40P01")
+}
+
+/// One query against a connection or a transaction, turning driver errors into a refusal.
+pub(crate) fn query<C: GenericClient>(
+    client: &mut C,
+    sql: &str,
+    params: &[&(dyn ToSql + Sync)],
+) -> Result<Vec<postgres::Row>, crate::errors::Refusal> {
+    Ok(client.query(sql, params).map_err(StoreError::from)?)
+}
+
+/// One connection from the pool, for reads outside a transaction.
+pub(crate) fn with_client<T>(
+    store: &Store,
+    f: impl FnOnce(&mut postgres::Client) -> Result<T, crate::errors::Refusal>,
+) -> Result<T, crate::errors::Refusal> {
+    let pool = store.pool()?;
+    let mut conn = pool.get().map_err(StoreError::from)?;
+    let client = conn.client().map_err(StoreError::from)?;
+    f(client)
 }
 
 /// `transaction(sql, fn)` from `@intafaced/db`: one `serializable` transaction, committed when `f` succeeds and rolled

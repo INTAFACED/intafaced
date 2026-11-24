@@ -87,7 +87,7 @@ are each call's first dependency and its unset-setting refusals). Each slice add
 - `card` (ported: `src/card/`, `src/zero_pii.rs`, `tests/card_db.rs`, `tests/card_parity.rs`): `card`, `cardOf`; the
   card's SVG, the renderer client (`card::renderer::from_env` picks it as `index.ts` does), visibility, the zero-PII bar
   and the share-link open.
-- `shares` (after `card`): `shares.create`, `shares.list`, `shares.revoke`, `shares.openers`.
+- `shares` (ported: `src/shares.rs`, `tests/shares_db.rs`): `shares.create`, `shares.list`, `shares.revoke`, `shares.openers`.
 - `privacy` (after `onboard`, `shares`): `export`, `erase`.
 
 After the slices, the switch: the binary (`/health`, `/ready` as `readiness.ts` reports the engine and renderer), the

@@ -1332,6 +1332,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
   },
   {
+    name: 'venueMarketStates',
+    method: 'GET',
+    path: '/api/v1/venue/market-states',
+    product: 'accounts',
+
+    summary:
+      'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
+  },
+  {
     name: 'venueMarketVenues',
     method: 'GET',
     path: '/api/v1/venue/markets/:symbol/venues',
