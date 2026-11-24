@@ -52,3 +52,19 @@ export async function withPartner(who, change, fn) {
     await setPartner(who, PARTNER_OFF);
   }
 }
+
+/** `who`'s bank money held at the TEST partner from now on (the launch money model: INTAFACED holds no customer money), through their own bank API. */
+export async function holdAtPartner(who) {
+  const now = await setPartner(who, { custody: 'off' });
+  if (now.custody !== 'off') throw new Error(`testPartner.set left ${who.email}'s money off the partner: ${JSON.stringify(now)}`);
+  return now;
+}
+
+/** TEST money paid in at the partner for `who`, once per `fundId`, through their own bank API; the partner's new balance. */
+export async function fundAtPartner(who, fundId, assetId, amount) {
+  const session = await api(who);
+  const res = await session.post('/api/bank/trpc/testPartner.fund', { fundId, assetId, amount });
+  if (res.status !== 200)
+    throw new Error(`testPartner.fund ${amount} ${assetId} refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
+  return res.body.result.data;
+}

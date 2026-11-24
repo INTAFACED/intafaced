@@ -172,6 +172,30 @@ export function walletPart(read: { data: WalletRead | null }): PartRead {
 }
 
 /**
+ * The partner account alone, valued at the published prices: what Assets shows of the money the partner bank holds when
+ * no wallet or venue is read (the venue door off). `none` when the partner holds nothing of this person's.
+ */
+export function usePartnerStanding(unit: 'USD' | 'BTC') {
+  const partner = usePartnerRead();
+  const { prices, failed } = useValuationPrices();
+  const result = standing(
+    partner.state === 'none'
+      ? []
+      : [
+          {
+            id: 'partner' as const,
+            label: partner.state === 'read' ? partner.label : '',
+            test: isTestBuild(),
+            read: partner.state === 'read' ? { state: 'read' as const, asOf: partner.asOf, rows: partner.rows } : partner,
+          },
+        ],
+    failed ? null : prices,
+    unit,
+  );
+  return { partner, valued: result.parts.find((part) => part.id === 'partner') };
+}
+
+/**
  * Every source for one connected wallet, and where the person stands: the one call Assets and Home both make. `unit`
  * is the display unit (BTC, or dollars for anything else); `network` and `venue` name the wallet's network and the venue.
  */
