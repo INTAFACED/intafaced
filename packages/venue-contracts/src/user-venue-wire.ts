@@ -157,6 +157,7 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
   'minOrderNotional',
   'priceBandBps',
+  'widthBps',
   'capSize',
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',

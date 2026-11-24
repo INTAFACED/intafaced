@@ -188,7 +188,7 @@ test(`${J} #1 opens the standalone margin and P&L calculator: margin, liquidatio
   expect(await valueOf('Margin tier')).toBe('Tier 1 (up to 20x, maintenance 2.5%)');
   expect(await valueOf('Maintenance margin')).toBe('25 USDC');
   expect(await valueOf('P&L at exit')).toBe('100 USDC');
-  expect(await valueOf('Return on margin')).toBe('50%');
+  expect(await valueOf('Return on margin')).toBe('50.00%');
   // Estimated fees: (1000 + 1100) * (takerFeeBps + builderFeeBps) / 10000.
   const rateBps = toUnits(m.takerFeeBps.value) + toUnits(builderFeeBps);
   const expectedFees = (toUnits('2100') * rateBps) / 10_000n / 10n ** 18n;
@@ -386,8 +386,10 @@ test(`${J} #5 previews above the order cap and outside the price band: split off
   // Lower XRSK-PERP's maxOrderNotional to 2,000 USDC so a 30 XRSK order at 95 USDC (2,850 USDC) splits into 2 orders.
   const setCap = await testVenue('/test/market-limits', { symbol: SYMBOL, maxOrderNotional: '2000' });
   expect(setCap.status, JSON.stringify(setCap.body)).toBe(200);
+  let owner;
+  let wallet;
   try {
-    const { owner, wallet } = await desk(page);
+    ({ owner, wallet } = await desk(page));
     const m = await venueMarket(owner);
     expect(m.maxOrderNotional).toBe('2000');
     expect(m.priceBand).toMatchObject({
@@ -475,7 +477,12 @@ test(`${J} #5 previews above the order cap and outside the price band: split off
   const unsetBefore = await venueState(s.owner);
   try {
     await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_TRADE_SLIPPAGE_CAP: 'off' });
-    const { owner, wallet } = await desk(page);
+    // Reload the already-wired page so the existing TEST wallet binding is reused without re-registering it.
+    await page.reload();
+    await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Connect TEST Wallet', exact: true }).click();
+    await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner);
+    await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('button', { name: 'Long', exact: true }).click();
     await ticket.getByRole('button', { name: 'Market', exact: true }).click();
@@ -534,7 +541,10 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
   ).toMatchObject({ accepted: true });
 
   const askKey = `order:maker:ask:${randomBytes(4).toString('hex')}`;
-  const bidKey = `order:maker:bid:${randomBytes(4).toString('hex')}`;
+  // Separate counterparty for the closing bid: the ask maker already holds a short position on XRSK-PERP.
+  const buyerName = `jd2-tier-buyer-${randomBytes(4).toString('hex')}`;
+  const buyer = otherTraderKey(buyerName).address.toLowerCase();
+  const bidKey = `order:buyer:bid:${randomBytes(4).toString('hex')}`;
   let bidPlaced = false;
   expect(
     await otherTraderRun(makerName, {
@@ -600,10 +610,14 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
     await sheet.getByRole('button', { name: 'Back', exact: true }).click();
     await expect.poll(async () => (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === SYMBOL)?.size).toBe('60');
 
-    // Clean up position with a reduce-only close (verifying reduce-only never asks for a tier confirm).
+    // Clean up position with a reduce-only market close (verifying reduce-only never asks for a tier confirm).
     await otherTraderRun(makerName, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: askKey }).catch(() => undefined);
+    expect(await testDeposit(buyer, 'USDC', '50000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
     expect(
-      await otherTraderRun(makerName, {
+      await otherTraderRun(buyerName, { kind: 'update_leverage', symbol: SYMBOL, leverageBps: 50_000, marginMode: 'isolated' }),
+    ).toMatchObject({ accepted: true });
+    expect(
+      await otherTraderRun(buyerName, {
         kind: 'place_order',
         symbol: SYMBOL,
         side: 'buy',
@@ -619,9 +633,9 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
     bidPlaced = true;
 
     await ticket.getByRole('button', { name: 'Short', exact: true }).click();
-    await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
+    await ticket.getByRole('button', { name: 'Market', exact: true }).click();
     await ticket.getByRole('textbox', { name: 'Size (XRSK)', exact: true }).fill('60');
-    await ticket.getByRole('textbox', { name: 'Price', exact: true }).fill('100');
+    await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)', exact: true }).fill('95');
     await ticket.getByLabel('Reduce-only', { exact: true }).check();
     await ticket.getByRole('button', { name: 'Review short', exact: true }).click();
     await expect(sheet).toBeVisible({ timeout: 20_000 });
@@ -632,7 +646,7 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
     await expect.poll(async () => (await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === SYMBOL).length).toBe(0);
   } finally {
     await otherTraderRun(makerName, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: askKey }).catch(() => undefined);
-    if (bidPlaced) await otherTraderRun(makerName, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: bidKey }).catch(() => undefined);
+    if (bidPlaced) await otherTraderRun(buyerName, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: bidKey }).catch(() => undefined);
   }
 });
 
@@ -767,7 +781,8 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     expect(signatures(wallet)).toBe(signedBefore);
     expect(await venueState(owner)).toEqual(before);
   } finally {
-    await testVenue('/test/price-band', { symbol: SYMBOL, widthBps: null });
+    const cleared = await testVenue('/test/price-band', { symbol: SYMBOL, widthBps: null });
+    expect(cleared.status, JSON.stringify(cleared.body)).toBe(200);
   }
 
   // With the dynamic widening cleared, the usual ±5% band (95-105) is back in force and 109 USDC refuses again.

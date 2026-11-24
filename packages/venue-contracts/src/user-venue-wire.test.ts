@@ -187,6 +187,7 @@ describe('user-venue wire', () => {
       reason: 'TEST widened',
     });
     expect(decodeVenueWire<{ priceBand: typeof band }>(wire).priceBand).toEqual(band);
+    expect(decodeVenueWire({ symbol: 'XRSK-PERP', widthBps: null })).toEqual({ symbol: 'XRSK-PERP', widthBps: null });
     expect(() => decodeVenueWire({ priceBand: { known: true, value: { ...wire.priceBand.value, widthBps: 1200 } } })).toThrow(
       VenueWireError,
     );
