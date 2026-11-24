@@ -218,7 +218,10 @@ test(`${J} #1 opens /trade/orders: open orders, history, user trades and executi
   // Opens /trade/orders and switches to the Venue account half: Open orders shows the resting order with venue named
   // and the same status word ("Open") as the desk.
   await page.goto('/trade/orders');
-  await page.getByRole('group', { name: 'Which orders', exact: true }).getByRole('button', { name: 'Venue account', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Which orders', exact: true })
+    .getByRole('button', { name: 'Connected wallet', exact: true })
+    .click();
   await expect(page).toHaveURL(/product=venue/);
   await page.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: 'Open orders', exact: true }).click();
   await expect(page).toHaveURL(/view=open/);

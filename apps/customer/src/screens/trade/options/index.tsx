@@ -49,9 +49,7 @@ export default function Screen(_props: ScreenProps) {
             ? t('Paper orders allowed')
             : t('No paper contract listed')}
       </Badge>
-      <Badge variant="outline">
-        {greeksLinked === null ? t('Greeks not tried') : greeksLinked ? t('Greeks available') : t('Greeks not linked here')}
-      </Badge>
+      {greeksLinked !== null ? <Badge variant="outline">{greeksLinked ? t('Greeks available') : t('Greeks not linked here')}</Badge> : null}
     </>
   );
 
@@ -92,7 +90,7 @@ export default function Screen(_props: ScreenProps) {
               <RulesTab />
             </TabsPanel>
           </Tabs>
-          <Ticket market={selected} policy={policy} writer={writer} />
+          <Ticket market={selected} hasContracts={list === null || list.length > 0} policy={policy} writer={writer} />
         </div>
       </div>
     </RoomFrame>
