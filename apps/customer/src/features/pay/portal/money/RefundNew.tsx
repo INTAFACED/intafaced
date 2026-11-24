@@ -93,7 +93,7 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
       ) : (
         <ul className="lt-list" aria-label={t('rnStep1')}>
           {found.resource.data.items.filter(refundable).map((p) => (
-            <li key={p.id} className="lt-row-between">
+            <li key={p.id} className="lt-row lt-row-between">
               <div className="lt-stack-tight">
                 <strong>
                   {p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}

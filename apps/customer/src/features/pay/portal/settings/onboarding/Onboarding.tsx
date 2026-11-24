@@ -199,17 +199,17 @@ export function OnboardingView(props: OnboardingViewProps) {
   return (
     <div className="lt-stack">
       <nav aria-label={t('stepsLabel')}>
-        <ol className="lt-steps">
+        <ol className="lt-list">
           {items.map(([index, state, title, short, slug]) => (
-            <li key={index} className="lt-step" aria-current={shown === index ? 'step' : undefined}>
-              <div className="lt-stack-tight">
-                <h3>
+            <li key={index} className="lt-panel" aria-current={shown === index ? 'step' : undefined}>
+              <div className="lt-panel-head">
+                <h3 className="lt-panel-title">
                   {t('stepOf', { n: index + 1 })}: {title}
                 </h3>
-                <p>{short}</p>
-                <p>
-                  <strong>{t(`stepState_${state}` as 'stepState_done')}</strong>
-                </p>
+                <strong>{t(`stepState_${state}` as 'stepState_done')}</strong>
+              </div>
+              <p className="lt-hint">{short}</p>
+              <div className="lt-actions">
                 <a className="lt-link" href={`/pay/onboarding/${slug}`}>
                   {state === 'done' ? a('stepReview') : a('stepOpen')}
                 </a>

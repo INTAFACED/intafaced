@@ -87,7 +87,7 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
           {(rows) => (
             <div className="lt-stack">
               {rows.map((method) => (
-                <div className="lt-row-between" key={`${method.methodId}:${method.country}`}>
+                <div className="lt-row lt-row-between" key={`${method.methodId}:${method.country}`}>
                   <span className="lt-stack-tight">
                     <span>{method.label}</span>
                     <small className="lt-hint">{method.country === '*' ? payCopy.t('allCountries') : method.country}</small>
