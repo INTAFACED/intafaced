@@ -327,7 +327,7 @@ if (!db) {
       expect(claimed.reward.reason).toBe('ledger.insufficient_funds');
       expect(claimed.reward.rewardKey).toBe(rewardKeyOf(c.id, ME, 'once'));
       // The budget holds the reward while it waits.
-      expect((await campaigns().get({ id: c.id, accountId: ME })).budget.left).toBe('90');
+      expect((await campaigns().get({ id: c.id, accountId: ME })).budget?.left).toBe('90');
 
       await earnFees('25');
       expect(await code(tasks.approveFunding({ reference: 'TEST-none', actor: B }))).toBe('campaigns.funding_unknown');
@@ -354,7 +354,7 @@ if (!db) {
       await tasks.claim({ campaignId: c.id, accountId: ME });
       await reconcileLater();
       expect(await free(ME)).toBe(parseAmount('10'));
-      expect((await campaigns().get({ id: c.id, accountId: ME })).budget.left).toBe('90');
+      expect((await campaigns().get({ id: c.id, accountId: ME })).budget?.left).toBe('90');
       await reconciles(parseAmount('20'));
     });
 
@@ -400,7 +400,7 @@ if (!db) {
       expect(p.reward?.reason).toBe('campaigns.claim_expired');
       const again = await tasks.claim({ campaignId: c.id, accountId: ME });
       expect(again).toMatchObject({ created: false, reward: { state: 'forfeited' } });
-      expect((await campaigns().get({ id: c.id, accountId: ME })).budget.left).toBe('100');
+      expect((await campaigns().get({ id: c.id, accountId: ME })).budget?.left).toBe('100');
       expect(await free(ME)).toBe(0n);
     });
 
@@ -444,7 +444,7 @@ if (!db) {
       expect(claimed.reward).toMatchObject({ state: 'held', ledgerTxId: null });
       const until = new Date(claimed.reward.holdUntil!).getTime();
       expect(Math.abs(until - (Date.now() + 600_000))).toBeLessThan(5_000);
-      expect((await campaigns().get({ id: c.id, accountId: ME })).budget.left).toBe('90');
+      expect((await campaigns().get({ id: c.id, accountId: ME })).budget?.left).toBe('90');
       // Before the hold ends: claiming again, the reconciler and a release pass post nothing.
       expect(await tasks.claim({ campaignId: c.id, accountId: ME })).toMatchObject({ created: false, reward: { state: 'held' } });
       expect(await tasks.releaseHolds()).toBe(0);
