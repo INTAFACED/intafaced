@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
-import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../components';
+import { PayAmount, PayDetails, PayFailure, PaySection, PayTime, payTimeText } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { OrderReceipt as Receipt, Trade } from '../schemas';
 import { csvCell, downloadText } from '../portal/csv';

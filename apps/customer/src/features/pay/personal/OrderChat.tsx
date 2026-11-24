@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from 'react';
-import { Button, StateBlock } from '@intafaced/ui';
+import { Button, StateBlock } from '@intafaced/ui/lit';
 import { uiCopy } from '../../../shared/ui-copy';
-import { PaySection } from '../components';
+import { PaySection } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { Trade } from '../schemas';
 import { p2pChatCopy } from './p2p-chat-copy';
@@ -30,18 +30,18 @@ function PendingItem({
   const retriable = item.failure === null || !NOT_RETRIABLE.has(item.failure);
   return (
     <li className="lt-stack">
-      <div className="p2p-chat-msg" data-own="true" data-status={item.status} data-testid="chat-pending">
-        <div className="p2p-chat-meta">
+      <div className="lt-panel lt-stack lt-stack-tight" data-own="true" data-status={item.status} data-testid="chat-pending">
+        <div className="lt-row lt-row-between">
           <strong>{t('roleYou')}</strong>
           <span className="lt-muted">
             {item.status === 'sending' ? t('sending') : unconfirmed ? t('unconfirmedTitle') : t('failedTitle')}
           </span>
         </div>
-        <p className="p2p-chat-text" lang="und">
+        <p className="lt-wrap" lang="und">
           {item.text}
         </p>
         {item.status !== 'sending' ? (
-          <div className="p2p-chat-problem" role="alert">
+          <div className="lt-refusal" role="alert">
             <p>
               {unconfirmed && (item.failure === null || item.failure === 'unconfirmed' || item.failure === 'noService') ? (
                 t('unconfirmedBody')
@@ -51,14 +51,14 @@ function PendingItem({
             </p>
             <div className="lt-actions">
               {retriable ? (
-                <Button variant="secondary" size={32} onClick={() => onResend(item.clientId)}>
+                <Button tone="secondary" size="sm" onClick={() => onResend(item.clientId)}>
                   {unconfirmed ? t('checkAndSend') : t('sendAgain')}
                 </Button>
               ) : null}
-              <Button variant="ghost" size={32} onClick={() => onEdit(item.clientId)}>
+              <Button tone="quiet" size="sm" onClick={() => onEdit(item.clientId)}>
                 {t('edit')}
               </Button>
-              <Button variant="ghost" size={32} onClick={() => onDiscard(item.clientId)}>
+              <Button tone="quiet" size="sm" onClick={() => onDiscard(item.clientId)}>
                 {t('discard')}
               </Button>
             </div>
@@ -138,38 +138,38 @@ export function ChatView({
   const hint = state.phase === 'loading' ? t('loading') : state.phase === 'failed' ? t('composeOffLoad') : t('composeHint');
   return (
     <div className="lt-stack" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
-      <div className="p2p-chat-head" data-testid="chat-head">
+      <div className="lt-row" data-testid="chat-head">
         <strong>{me ? counterparty : t('buyerAndSeller')}</strong>
         {me ? <span className="lt-muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
         <TradeStatus status={trade.status} />
       </div>
       <p className="lt-muted">{t('intro')}</p>
       {me === 'seller' && (trade.status === 'escrowed' || trade.status === 'fiat_sent') ? (
-        <p className="p2p-chat-warning" role="note" data-testid="chat-seller-warning">
+        <p className="lt-held" role="note" data-testid="chat-seller-warning">
           {t('sellerWarning')}
         </p>
       ) : null}
       {state.unreadBelow ? (
-        <p className="p2p-chat-new" role="status" data-testid="chat-unread-below">
+        <p className="lt-hint" role="status" data-testid="chat-unread-below">
           {t('unreadBelow', { count: state.unreadBelow })}
         </p>
       ) : null}
-      <div ref={watch} className="p2p-chat-frame">
+      <div ref={watch} className="lt-panel">
         {state.phase === 'loading' ? <StateBlock kind="loading" label={ui.t('loading')} /> : null}
         {state.phase === 'failed' ? (
-          <div className="p2p-chat-problem" role="alert" data-testid="chat-load-failed">
+          <div className="lt-refusal" role="alert" data-testid="chat-load-failed">
             <h3>{t('loadFailedTitle')}</h3>
             <p>
               <FailureText kind={state.loadFailure ?? 'generic'} />
             </p>
-            <Button variant="secondary" onClick={onRefresh}>
+            <Button tone="secondary" onClick={onRefresh}>
               {t('retry')}
             </Button>
           </div>
         ) : null}
         {ready ? (
           <div
-            className="p2p-chat-thread"
+            className="lt-scroll lt-scroll-short"
             ref={thread}
             role="log"
             tabIndex={0}
@@ -186,18 +186,18 @@ export function ChatView({
                 {depth.t('chatEmpty')} {t('emptyHint')}
               </p>
             ) : (
-              <ol className="p2p-chat-list">
+              <ol className="lt-rows">
                 {state.messages.map((message) => {
                   const role = senderRole(message.senderId, trade, viewer);
                   return (
                     <li key={message.id} className="lt-stack">
                       {message.id === state.firstUnread && state.unreadAtOpen > 0 ? (
-                        <p className="p2p-chat-new" data-testid="chat-new-divider">
+                        <p className="lt-hint" data-testid="chat-new-divider">
                           {t('newDivider', { count: state.unreadAtOpen })}
                         </p>
                       ) : null}
-                      <div className="p2p-chat-msg" data-own={role === 'you'} data-role={role} data-testid="chat-message">
-                        <div className="p2p-chat-meta">
+                      <div className="lt-stack lt-stack-tight" data-own={role === 'you'} data-role={role} data-testid="chat-message">
+                        <div className="lt-row lt-row-between">
                           <strong>
                             {role === 'you'
                               ? t('roleYou')
@@ -211,7 +211,7 @@ export function ChatView({
                             {chatTime(message.createdAt, requestedLocale, now)}
                           </time>
                         </div>
-                        <p className="p2p-chat-text" lang="und">
+                        <p className="lt-wrap" lang="und">
                           {message.text}
                         </p>
                       </div>
@@ -227,9 +227,9 @@ export function ChatView({
         ) : null}
       </div>
       {ready && state.refreshFailure ? (
-        <p className="p2p-chat-problem" role="status" data-testid="chat-refresh-failed">
+        <p className="lt-refusal" role="status" data-testid="chat-refresh-failed">
           {t('refreshFailed')} <FailureText kind={state.refreshFailure} />{' '}
-          <Button variant="ghost" size={32} onClick={onRefresh}>
+          <Button tone="quiet" size="sm" onClick={onRefresh}>
             {t('checkNow')}
           </Button>
         </p>
@@ -245,29 +245,31 @@ export function ChatView({
         </p>
       ) : null}
       {!closed && quick.length > 0 && ready ? (
-        <div className="p2p-chat-quick" role="group" aria-label={t('quickLabel')} data-testid="chat-quick">
+        <div className="lt-actions" role="group" aria-label={t('quickLabel')} data-testid="chat-quick">
           {quick.map((text) => (
-            <button
+            <Button
               key={text}
               type="button"
+              tone="secondary"
+              size="sm"
               onClick={() => {
                 onQuick(text);
                 box.current?.focus();
               }}
             >
               {text}
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}
       <form
-        className="p2p-chat-compose"
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           if (ready && !empty) onSend();
         }}
       >
-        <label className="field p2p-chat-field">
+        <label className="lt-field">
           <span>{depth.t('chatLabel')}</span>
           <textarea
             ref={box}
@@ -286,20 +288,20 @@ export function ChatView({
             }}
           />
         </label>
-        <Button type="submit" variant="primary" disabled={!ready || empty} aria-describedby={hintId}>
+        <Button type="submit" tone="primary" disabled={!ready || empty} aria-describedby={hintId}>
           {depth.t('chatSend')}
         </Button>
       </form>
-      <p className="muted p2p-chat-hint" id={hintId}>
+      <p className="lt-muted" id={hintId}>
         {hint} <span>{t('charCount', { used: draft.length, max: MAX_CHAT_TEXT })}</span>
       </p>
-      <div className="p2p-chat-notes">
+      <div className="lt-stack lt-stack-tight">
         <p className="lt-muted">{t('liveNote')}</p>
         <p className="lt-muted">{t('attachmentsOff')}</p>
         <p className="lt-muted">{t('systemOff', { path: depth.t('escrowTitle') })}</p>
       </div>
       <div className="lt-actions">
-        <Button variant="ghost" onClick={onRefresh}>
+        <Button tone="quiet" onClick={onRefresh}>
           {t('refresh')}
         </Button>
       </div>

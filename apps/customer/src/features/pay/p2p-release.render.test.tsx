@@ -75,7 +75,7 @@ async function open(order: Trade, userId: string) {
 describe('P2P released order (J-p2p-01 #8)', () => {
   it('says Completed and gives the buyer the amount after the fee frozen at take', async () => {
     const page = await open(released({ displayStatus: 'completed', feeBps: 100, fee: '0.5', netAmount: '49.5' }), BUYER);
-    expect(page.querySelector('.p2p-order-identity')!.textContent).toContain('Completed');
+    expect(page.querySelector('[data-testid="p2p-order-identity"]')!.textContent).toContain('Completed');
     const result = page.querySelector('[data-testid="order-result"]')!;
     expect(result.textContent).toContain('49.5 USDT, after the service fee');
     expect(result.textContent).toContain('0.5 USDT (1% of the released amount)');
