@@ -251,6 +251,7 @@ test(`${J} #4 validates the code: nothing changes, and I see what it would give`
 
 test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed once and paid once to the connected wallet with its chain reference; a lost reply leaves it pending retry and the reconciler finishes it`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { me, wallet, voucherId, campaignId } = state('me', 'wallet', 'voucherId', 'campaignId');
@@ -325,6 +326,20 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   expect(await walletUsd(wallet)).toBe(lostBefore + usdUnits(FACE));
   // The first voucher's redemption still has its one payment.
   await paidOnce(me, await redemptionOf(me, voucherId, 1), wallet);
+  // On screen once the reconciler has finished: both vouchers' redemptions paid to my wallet, each with its chain transaction.
+  await page.reload();
+  await openWallet(page);
+  for (const [id, tx] of [
+    [voucherId, v.redemptions[0].reward.payout.chainTx],
+    [claimed.id, finished.reward.payout.chainTx],
+  ]) {
+    const paidRows = voucherRow(page, id).getByTestId('voucher-redemptions').locator('li');
+    await expect(paidRows).toHaveCount(1);
+    await expect(paidRows.first()).toHaveAttribute('data-state', 'paid');
+    await expect(paidRows.first().getByTestId('voucher-paid-to')).toHaveAttribute('data-wallet', wallet);
+    await expect(paidRows.first().getByTestId('voucher-chain-tx')).toHaveAttribute('data-tx', tx);
+  }
+  await stepPicture(page);
   run.write({ ...run.read(), paidVoucherId: claimed.id });
 });
 
@@ -353,6 +368,7 @@ test(`${J} #6 uses part of a voucher: the remainder, never more than the face va
 
 test(`${J} #7 lets a voucher expire: it expires once and a late redemption refuses; what was already paid stays in the wallet and the record says it was paid`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   const { me, wallet } = state('me', 'wallet');
@@ -400,5 +416,6 @@ test(`${J} #7 lets a voucher expire: it expires once and a late redemption refus
   await expect(kept).toHaveCount(1);
   await expect(kept.first()).toHaveAttribute('data-state', 'paid');
   await expect(kept.first().getByTestId('voucher-chain-tx')).toHaveAttribute('data-tx', paid.reward.payout.chainTx);
+  await stepPicture(page);
   await signOutBrowser(page.context());
 });
