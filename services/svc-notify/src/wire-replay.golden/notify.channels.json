@@ -6,10 +6,10 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.channels\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"notify:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.channels\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.channels\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"notify:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.channels\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":[{\"channel\":\"inapp\",\"configured\":true,\"available\":true,\"reason\":null,\"requires\":[],\"socket\":null},{\"channel\":\"email\",\"configured\":false,\"available\":false,\"reason\":\"channel.not_configured\",\"requires\":[\"NOTIFY_EMAIL_GATEWAY_URL\",\"NOTIFY_EMAIL_GATEWAY_TOKEN\"],\"socket\":\"socket.notify-email\"},{\"channel\":\"push\",\"configured\":false,\"available\":false,\"reason\":\"channel.not_configured\",\"requires\":[\"NOTIFY_PUSH_GATEWAY_URL\",\"NOTIFY_PUSH_GATEWAY_TOKEN\"],\"socket\":\"socket.notify-push\"},{\"channel\":\"sms\",\"configured\":false,\"available\":false,\"reason\":\"channel.not_configured\",\"requires\":[\"NOTIFY_SMS_GATEWAY_URL\",\"NOTIFY_SMS_GATEWAY_TOKEN\"],\"socket\":\"socket.notify-sms\"}]}}",
-    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.channels\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.channels\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   ],
   "answers": {
     "notify.channels": {

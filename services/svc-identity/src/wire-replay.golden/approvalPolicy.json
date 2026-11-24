@@ -7,12 +7,12 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"approvalPolicy.rows\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"approvalPolicy.set\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "approvalPolicy.rows": {

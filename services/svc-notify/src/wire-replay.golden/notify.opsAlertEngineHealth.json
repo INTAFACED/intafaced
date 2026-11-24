@@ -6,8 +6,8 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.opsAlertEngineHealth\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.opsAlertEngineHealth\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.opsAlertEngineHealth\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.opsAlertEngineHealth\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":{\"asOf\":\"<time>\",\"since\":\"<time>\",\"sweep\":{\"intervalMs\":60000,\"lastStartedAt\":null,\"lastFinishedAt\":null,\"lastDurationMs\":null,\"lagSeconds\":null,\"late\":null,\"last\":null,\"lastFailure\":null},\"firings\":{\"total\":0,\"byKind\":{}},\"deliveries\":[],\"alerts\":{\"open\":0,\"firedToday\":0,\"byKindOpen\":{}}}}}"
   ],
   "answers": {

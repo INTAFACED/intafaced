@@ -3,7 +3,7 @@
     "health": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"replay stub: rails.ids\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"health\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"replay stub: rails.ids\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"health\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "health": {

@@ -4,7 +4,7 @@
   },
   "bodies": [
     "{\"result\":{\"data\":{\"reachable\":false,\"configuredChainId\":31337,\"observedChainId\":null,\"blockNumber\":null,\"suiteConfigured\":false,\"suiteDeployed\":false,\"tokenFactoryConfigured\":false,\"tokenFactoryDeployed\":false,\"refusalCode\":\"protocol.chain_unreachable\",\"reason\":\"The chain connection is not available right now.\",\"expectedChainId\":null,\"actualChainId\":null,\"usable\":false,\"launchUsable\":false}}}",
-    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"chainStatus\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"chainStatus\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   ],
   "answers": {
     "chainStatus": {

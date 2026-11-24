@@ -3,9 +3,9 @@
     "workItems.list": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"workItems.list\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"workItems.list\",\"requestId\":\"replay-request\"}}}",
     "{\"result\":{\"data\":{\"items\":[]}}}",
-    "{\"error\":{\"message\":\"replay stub: sql\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"workItems.list\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"replay stub: sql\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"workItems.list\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "workItems.list": {

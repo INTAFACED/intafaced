@@ -6,8 +6,8 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.channelSettings\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.channelSettings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.channelSettings\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.channelSettings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":[{\"channel\":\"email\",\"configured\":false,\"requires\":[\"NOTIFY_EMAIL_GATEWAY_URL\",\"NOTIFY_EMAIL_GATEWAY_TOKEN\"],\"enabled\":null,\"adapter\":null,\"version\":0,\"effective\":\"unconfigured\",\"notConnected\":\"vendor.email\"},{\"channel\":\"push\",\"configured\":false,\"requires\":[\"NOTIFY_PUSH_GATEWAY_URL\",\"NOTIFY_PUSH_GATEWAY_TOKEN\"],\"enabled\":null,\"adapter\":null,\"version\":0,\"effective\":\"unconfigured\",\"notConnected\":\"vendor.push\"},{\"channel\":\"sms\",\"configured\":false,\"requires\":[\"NOTIFY_SMS_GATEWAY_URL\",\"NOTIFY_SMS_GATEWAY_TOKEN\"],\"enabled\":null,\"adapter\":null,\"version\":0,\"effective\":\"unconfigured\",\"notConnected\":\"vendor.sms\"}]}}"
   ],
   "answers": {

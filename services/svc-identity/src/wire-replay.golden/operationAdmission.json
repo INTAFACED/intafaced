@@ -6,7 +6,7 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"operationAdmission.decide\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"This procedure is callable only by another INTAFACED service with valid service credentials (§2)\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"operationAdmission.decide\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "operationAdmission.decide": {

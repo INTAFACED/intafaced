@@ -11,15 +11,15 @@
     "authKeys.state": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}"
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"authKeys.removeOld\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"authKeys.rotate\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"operator.denied\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: founderControls.isLiveFounder\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"path\":\"authKeys.state\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {
     "authKeys.removeOld": {

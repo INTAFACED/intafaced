@@ -33,83 +33,83 @@
   },
   "blank signals.list big-limit anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit signed-US": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit signed-KP": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit tier-none": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit vendor": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list big-limit forged": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"too_big\\\",\\n    \\\"maximum\\\": 50,\\n    \\\"inclusive\\\": true,\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Too big: expected number to be <=50\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list absent anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list absent signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list absent ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list null anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list null ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list wrong-type anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list wrong-type signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list wrong-type ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list empty anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list empty signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list empty ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list extra-key anon": {
     "status": 200,
@@ -125,286 +125,286 @@
   },
   "blank signals.list all-null anon": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list all-null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.list all-null ops": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.list\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings valid anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings valid signed": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
   },
   "blank signals.earnings valid signed-US": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.earnings valid signed-KP": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.earnings valid tier-none": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
   },
   "blank signals.earnings valid vendor": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
   },
   "blank signals.earnings valid ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings valid forged": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings bad-window anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings bad-window signed": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"market.earnings_window_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_window_unset\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.earnings_window_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_window_unset\"}}}}"
   },
   "blank signals.earnings bad-window signed-US": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.earnings bad-window signed-KP": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.earnings bad-window tier-none": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
   },
   "blank signals.earnings bad-window vendor": {
     "status": 412,
-    "body": "{\"error\":{\"message\":\"market.earnings_window_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_window_unset\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.earnings_window_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_window_unset\"}}}}"
   },
   "blank signals.earnings bad-window ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings bad-window forged": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings absent anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings absent signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings absent ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings null anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings null ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings wrong-type anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings wrong-type signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings wrong-type ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings empty anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings empty signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"to\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"to\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings empty ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings extra-key anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings extra-key signed": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.earnings_vendor_required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.earnings_vendor_required\"}}}}"
   },
   "blank signals.earnings extra-key ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.earnings all-null anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings all-null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"to\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"to\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.earnings all-null ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.earnings\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive valid anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive valid signed": {
     "status": 404,
-    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
   },
   "blank signals.archive valid signed-US": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.archive valid signed-KP": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.archive valid tier-none": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
   },
   "blank signals.archive valid vendor": {
     "status": 404,
-    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
   },
   "blank signals.archive valid ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive valid forged": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive bad-id anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive bad-id signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"guid\\\",\\n    \\\"pattern\\\": \\\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid GUID\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"guid\\\",\\n    \\\"pattern\\\": \\\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid GUID\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive bad-id signed-US": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.archive bad-id signed-KP": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank signals.archive bad-id tier-none": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
+    "body": "{\"error\":{\"message\":\"Verification tier \\\"basic\\\" required for market in DE\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.kyc_required\",\"requiredTier\":\"basic\",\"cause\":{\"code\":\"denied.kyc_required\"}}}}"
   },
   "blank signals.archive bad-id vendor": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"guid\\\",\\n    \\\"pattern\\\": \\\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid GUID\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"guid\\\",\\n    \\\"pattern\\\": \\\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid GUID\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive bad-id ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive bad-id forged": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive absent anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive absent signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive absent ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive null anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive null ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive wrong-type anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive wrong-type signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive wrong-type ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive empty anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive empty signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive empty ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive extra-key anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive extra-key signed": {
     "status": 404,
-    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
+    "body": "{\"error\":{\"message\":\"market.signal_not_found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"market.signal_not_found\"}}}}"
   },
   "blank signals.archive extra-key ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   },
   "blank signals.archive all-null anon": {
     "status": 401,
-    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive all-null signed": {
     "status": 400,
-    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"signalId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"path\":\"signals.archive\",\"requestId\":\"replay-request\"}}}"
   },
   "blank signals.archive all-null ops": {
     "status": 403,
-    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    "body": "{\"error\":{\"message\":\"Scope \\\"market:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"signals.archive\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
   }
 }

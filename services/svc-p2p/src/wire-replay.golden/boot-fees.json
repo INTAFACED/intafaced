@@ -3,7 +3,7 @@
     "fees.schedule": { "sample": "null", "sample-nulls": "null" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"P2P_FEE_BPS is unset — refusing rather than inventing a house take\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fees.schedule\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"p2p.fee_bps_unset\"}}}}"
+    "{\"error\":{\"message\":\"P2P_FEE_BPS is unset — refusing rather than inventing a house take\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"path\":\"fees.schedule\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"p2p.fee_bps_unset\"}}}}"
   ],
   "answers": {
     "boot fees.schedule": {

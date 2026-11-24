@@ -6,8 +6,8 @@
     }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"notify.operatorProviderHealth\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"notify.operatorProviderHealth\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"notify.operatorProviderHealth\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"notify.operatorProviderHealth\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":{\"email\":{\"channel\":\"email\",\"configured\":false,\"probed\":false,\"code\":\"notify.email_gateway_unconfigured\",\"reason\":\"NOTIFY_EMAIL_GATEWAY_URL or NOTIFY_EMAIL_GATEWAY_TOKEN is unset, so this channel has no gateway to call.\"},\"push\":{\"channel\":\"push\",\"configured\":false,\"probed\":false,\"code\":\"notify.push_gateway_unconfigured\",\"reason\":\"NOTIFY_PUSH_GATEWAY_URL or NOTIFY_PUSH_GATEWAY_TOKEN is unset, so this channel has no gateway to call.\"},\"delivered\":{\"observed\":false,\"code\":\"notify.delivered_unobserved\",\"reason\":\"Delivery rows record accepted by the inbox or the gateway. No end-device delivered fact is stored.\"}}}}"
   ],
   "answers": {

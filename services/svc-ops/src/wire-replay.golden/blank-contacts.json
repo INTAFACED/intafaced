@@ -3,10 +3,10 @@
     "contacts": { "sample": "{}", "sample-nulls": "{}" }
   },
   "bodies": [
-    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"contacts\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"contacts\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
-    "{\"error\":{\"message\":\"The operator entitlement could not be read\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"contacts\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"operator.authority_unavailable\"}}}}",
-    "{\"error\":{\"message\":\"Operators only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"contacts\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"operator.forbidden\"}}}}"
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"contacts\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"contacts\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"The operator entitlement could not be read\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"path\":\"contacts\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"operator.authority_unavailable\"}}}}",
+    "{\"error\":{\"message\":\"Operators only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"contacts\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"operator.forbidden\"}}}}"
   ],
   "answers": {
     "blank contacts": {
