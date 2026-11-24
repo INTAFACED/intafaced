@@ -21,6 +21,7 @@ import {
   type Factor,
   type Preset,
 } from './developer-keys-api';
+import { leaveTo } from '../../app/location';
 
 const PRESETS: readonly Preset[] = ['read', 'trade', 'lead', 'copy', 'custom'];
 const PRESET_LABEL: Record<Preset, ApiKeysPlainKey> = {
@@ -146,7 +147,7 @@ export function ApiKeyCreate() {
   if (made)
     return (
       <div>
-        <ShownOnce made={made} onDone={() => window.location.assign('/uc/safe/api-keys')} />
+        <ShownOnce made={made} onDone={() => leaveTo('/uc/safe/api-keys')} />
       </div>
     );
   const { keys, scopes, subaccounts } = resource.data;

@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -70,8 +70,7 @@ async function setAgentCap(page, cap) {
   await pages(page).getByRole('button', { name: 'Build', exact: true }).click();
   const builder = page.getByRole('form', { name: 'Agent builder' });
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
-  await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
+  await saveDraft(builder);
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
 }
 

@@ -965,6 +965,12 @@ for (const [args, usage] of [
   [['engine-drop', 'BTC/USDT'], /usage: local-test-gates\.mjs engine-drop <SYMBOL> <orderId>/],
   [['trade-audit', '--kind', 'orders.get'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
   [['trade-audit', '--account', 'u-1'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
+  // chart-count (J-charts-desk-02 #2): only a TEST charts count, only a whole number above zero.
+  [['chart-count'], /usage: local-test-gates\.mjs chart-count <compareCap\|/],
+  [['chart-count', 'staleAgeSeconds'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'staleAgeSeconds', '0'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'staleAgeSeconds', '1.5'], /usage: local-test-gates\.mjs chart-count </],
+  [['chart-count', 'dataClass', '5'], /usage: local-test-gates\.mjs chart-count </],
 ]) {
   const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
   assert.equal(r.status, 2, r.stderr);

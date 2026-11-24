@@ -15,6 +15,9 @@ const messages = {
   'Open the operator console': 'Open the operator console',
   'Open Team': 'Open Team',
   'Back to home': 'Back to home',
+  'Not in this beta': 'Not in this beta',
+  'This room is not part of this beta': 'This room is not part of this beta',
+  'The beta shows only the rooms in the new design.': 'The beta shows only the rooms in the new design.',
   'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.':
     'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.',
   'The team desk uses separate operator authentication.': 'The team desk uses separate operator authentication.',

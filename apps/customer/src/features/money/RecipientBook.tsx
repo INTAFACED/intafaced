@@ -9,6 +9,7 @@ import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { BANK_RAIL_SENDS_INVITE_PAYEE, BANK_RAIL_SENDS_REMOVE_PAYEE } from '@intafaced/contracts/bank-rail-sends-procedures';
+import { RefusalCode } from '../../shared/RefusalCode';
 
 /**
  * The recipient book for bank rails (J-bank-04 #2): save an account by its country (which picks the forms it takes), see
@@ -24,7 +25,7 @@ export function CoolingWords({ payee }: { payee: RailPayee }) {
   if (payee.cooling.state === 'open') return <>{t('coolingOpen')}</>;
   return (
     <>
-      {t('coolingUnset')} <small className="lt-muted">{t('reference', { code: 'bank.payee_cooling_unset' })}</small>
+      {t('coolingUnset')} <RefusalCode className="lt-muted" code="bank.payee_cooling_unset" line={(code) => t('reference', { code })} />
     </>
   );
 }
@@ -75,7 +76,7 @@ function Invite() {
       {answer && (
         <p className="lt-refusal" role="alert" data-testid="payee-invite-answer">
           {answer.code === 'bank.payee_invite_unwired' ? t('inviteUnwired') : answer.message}{' '}
-          {answer.code && <small className="lt-muted">{t('reference', { code: answer.code })}</small>}
+          {answer.code && <RefusalCode className="lt-muted" code={answer.code} line={(code) => t('reference', { code })} />}
         </p>
       )}
     </div>

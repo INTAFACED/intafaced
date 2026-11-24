@@ -186,10 +186,10 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
             </Fact>
             <Fact label={t('Reference')}>
-              <code className="money-code">{item.txId}</code>
+              <code className="lt-mono">{item.txId}</code>
             </Fact>
             <Fact label={t('Record number')}>
-              <code className="money-code">{item.id}</code>
+              <code className="lt-mono">{item.id}</code>
             </Fact>
           </dl>
           <p className="lt-hint">{t('Reference note')}</p>
@@ -218,7 +218,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
             {sharedOrderId && (
               <p className="lt-hint" data-label="shared-reference">
-                {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
+                {t('Parts share order')} <code className="lt-mono">{sharedOrderId}</code>
               </p>
             )}
             <table data-testid="money-table" className="money-table money-table--activity">

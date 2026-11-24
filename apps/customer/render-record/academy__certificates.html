@@ -119,15 +119,11 @@
 <div class="lt-stack">
 <div class="lt-stack">
 <div class="lt-stack">
-<div lang="und" style="display: contents;">
+<div lang="und">
 <div data-testid="failure" class="lt-refusal" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
 <section>
@@ -136,12 +132,12 @@
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.academyLms.verifyIntro">Paste the 32-character verification code from a certificate. The check uses only the code and does not look at your account.</span>
 </p>
-<label class="lt-field" for="academy-verify-code">
-<span id="academy-verify-code-label">Verification code</span>
-<input id="academy-verify-code" maxlength="120" autocomplete="off" autocapitalize="none" spellcheck="false" aria-labelledby="academy-verify-code-label" aria-invalid="false" value="">
-</label>
-<div class="academy-lms-disabled">
-<button type="submit" class="button button--primary " disabled="" aria-describedby="academy-verify-reason">Verify certificate</button>
+<div class="lit-field-control">
+<label for="academy-verify-code">Verification code</label>
+<input maxlength="120" autocomplete="off" autocapitalize="none" spellcheck="false" id="academy-verify-code" value="">
+</div>
+<div class="lt-actions">
+<button disabled="" aria-describedby="academy-verify-reason" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Verify certificate</button>
 <small id="academy-verify-reason" class="lt-muted">Enter the 32-character verification code to check it.</small>
 </div>
 </form>

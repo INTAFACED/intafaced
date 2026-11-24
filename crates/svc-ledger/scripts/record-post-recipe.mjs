@@ -3,10 +3,12 @@
 // the reference for what they hold):
 //
 // - `src/door/schemas.json`: the `postRecipe` input and the `postRecipeReply` output, as the record
-//   (`post-recipe-record.ts`) writes them, in the tree of zod 4 parts the kit's schema engine runs. Every other part is
-//   kept as recorded; a part nothing names any more is dropped.
+//   (`post-recipe-record.ts`) writes them, in the tree of zod 4 parts the kit's schema engine runs; and the
+//   `operatorReverse` input and `operatorReverseReply` output from that door's record (`operator-reverse-record.ts`),
+//   a door the TypeScript service never had. Every other part is kept as recorded; a part nothing names any more is
+//   dropped.
 // - `tests/fixtures/input-parity.golden.json`: zod's verdict on each `postRecipe` and `postRecipeReply` input there,
-//   and on the record's own samples.
+//   and on the record's own samples; the same for the `operatorReverse` record's samples.
 // - `tests/fixtures/post-recipe-bank.golden.jsonl`: what the door answers each caller for bodies made to reach each
 //   check of svc-bank's recipes (`bankTransfer`, `payReceivedHold`, `payReceivedRelease`, `payReceivedReturn`,
 //   `earnDeposit`, `earnWithdraw`, `earnPoolFund`, `earnInterest`): its refusal on the wire, or the post it hands the
@@ -39,6 +41,7 @@ if (process.env.TZ !== 'UTC') {
 
 // Literal paths, so the dead-code scan (knip.jsonc) sees what this reads.
 const record = await import('../../../packages/ledger-client/src/post-recipe-record.ts');
+const { LEDGER_OPERATOR_REVERSE } = await import('../../../packages/ledger-client/src/operator-reverse-record.ts');
 const gate = await import('../../../packages/ledger-client/src/gate/index.ts');
 const { LedgerError, postRequestSchema } = await import('../../../packages/ledger-client/src/types.ts');
 const { ledgerPostWire } = await import('../../../packages/ledger-client/src/http-client.ts');
@@ -741,6 +744,8 @@ function node(s) {
 
 tree.inputs.postRecipe = node(LEDGER_POST_RECIPE.input);
 tree.inputs.postRecipeReply = node(LEDGER_POST_RECIPE.output);
+tree.inputs.operatorReverse = node(LEDGER_OPERATOR_REVERSE.input);
+tree.inputs.operatorReverseReply = node(LEDGER_OPERATOR_REVERSE.output);
 
 // Drop the parts no input reaches any more, keeping the order of the rest.
 const reached = new Set();
@@ -793,7 +798,12 @@ function verdict(schema, text) {
 }
 const PARITY = `${CRATE}tests/fixtures/input-parity.golden.json`;
 const parity = JSON.parse(readFileSync(PARITY, 'utf8'));
-const SCHEMA_OF = { postRecipe: LEDGER_POST_RECIPE.input, postRecipeReply: LEDGER_POST_RECIPE.output };
+const SCHEMA_OF = {
+  postRecipe: LEDGER_POST_RECIPE.input,
+  postRecipeReply: LEDGER_POST_RECIPE.output,
+  operatorReverse: LEDGER_OPERATOR_REVERSE.input,
+  operatorReverseReply: LEDGER_OPERATOR_REVERSE.output,
+};
 const parityCases = parity.cases.map(([door, text, i]) => [door, text, SCHEMA_OF[door] ? null : parity.verdicts[i]]);
 const known = new Set(parityCases.filter(([door]) => door === 'postRecipe').map(([, text]) => text));
 for (const { input } of LEDGER_POST_RECIPE.samples) {
@@ -801,6 +811,37 @@ for (const { input } of LEDGER_POST_RECIPE.samples) {
   if (known.has(text)) continue;
   parityCases.push(['postRecipe', text, null]);
   known.add(text);
+}
+// The operatorReverse door's record: its samples, the edges of each field, and replies the door may and may not give.
+const REVERSE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const reverseBase = { originalTxId: REVERSE_ID, ordinal: '1', reason: 'LOCAL TEST', caseRef: 'case-1' };
+const replyBase = {
+  txId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  idempotencyKey: `ops:reversal:${REVERSE_ID}:1`,
+  postedAt: '2026-11-24T00:00:00.000Z',
+  reverses: REVERSE_ID,
+};
+const reverseCases = [
+  ...LEDGER_OPERATOR_REVERSE.samples.map(({ input }) => ['operatorReverse', input]),
+  ['operatorReverse', null],
+  ['operatorReverse', {}],
+  ['operatorReverse', { ...reverseBase, ordinal: '12345678901234567890' }],
+  ['operatorReverse', { ...reverseBase, ordinal: 1 }],
+  ['operatorReverse', { ...reverseBase, reason: 'r'.repeat(500) }],
+  ['operatorReverse', { ...reverseBase, reason: 'r'.repeat(501) }],
+  ['operatorReverse', { ...reverseBase, caseRef: 'c'.repeat(129) }],
+  ['operatorReverse', { ...reverseBase, originalTxId: `${REVERSE_ID}0` }],
+  ['operatorReverseReply', replyBase],
+  ['operatorReverseReply', { ...replyBase, extra: 1 }],
+  ['operatorReverseReply', { ...replyBase, txId: replyBase.txId.toUpperCase() }],
+  ['operatorReverseReply', { ...replyBase, idempotencyKey: 'deposit:x:1' }],
+];
+const knownReverse = new Set(parityCases.filter(([door]) => door.startsWith('operatorReverse')).map(([door, text]) => `${door} ${text}`));
+for (const [door, input] of reverseCases) {
+  const text = JSON.stringify(input);
+  if (knownReverse.has(`${door} ${text}`)) continue;
+  parityCases.push([door, text, null]);
+  knownReverse.add(`${door} ${text}`);
 }
 const verdictsOut = [];
 const verdictIndex = new Map();

@@ -40,6 +40,8 @@ mod history_pg;
 mod input_parity;
 #[path = "metrics.rs"]
 mod metrics;
+#[path = "operator_reverse_pg.rs"]
+mod operator_reverse_pg;
 #[path = "ops_reads_pg.rs"]
 mod ops_reads_pg;
 #[path = "post_recipe_parity.rs"]

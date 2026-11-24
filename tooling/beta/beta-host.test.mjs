@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { userVenueKind } from '../scripts/local-test-venue.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -358,6 +359,19 @@ test('reserved names never reach a service, so they pass; a real host that only 
     ['PAY_MERCHANT_TERMS_URL', 'https://terms.example/t'],
   ]);
   assert.deepEqual(found, []);
+});
+
+test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+  // The trade desks run on Hyperliquid's test network, not the stack's stand-in venue (#10603); the stack's own switch
+  // reads it (local-test-venue.mjs userVenueKind), so a value it refuses could never reach the beta.
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE, 'hl-testnet');
+  assert.equal(
+    stackEnv(betaPaths('/home/x'), { LOCAL_STACK_USER_VENUE: 'on' }).LOCAL_STACK_USER_VENUE,
+    'hl-testnet',
+    'the beta wins over a shell',
+  );
+  assert.equal(userVenueKind(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE), 'hl-testnet');
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

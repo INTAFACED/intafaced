@@ -6,7 +6,17 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront } from './beta-host.mjs';
+import {
+  BETA_USER_VENUE,
+  READY_WAIT_MS,
+  betaPaths,
+  closedIssues,
+  frontAction,
+  frontUnitText,
+  readied,
+  round,
+  syncFront,
+} from './beta-host.mjs';
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
@@ -20,12 +30,27 @@ function home() {
   fs.writeFileSync(path.join(paths.checkout, '.git'), 'gitdir: x\n');
   fs.mkdirSync(paths.state, { recursive: true });
   fs.writeFileSync(paths.screening, '{}');
+  // The running stack is already on the beta's venue; the venue test below takes this away.
+  fs.writeFileSync(paths.venue, `${BETA_USER_VENUE}\n`);
   return paths;
 }
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
 
 /** Fakes for one round. `seen` records the status file and what the front shows at every outside step. */
-function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, readyAfter = 0, warmBefore = true, chainNew = false } = {}) {
+function fakes(
+  paths,
+  {
+    head = OLD,
+    target = NEW,
+    check = PASS,
+    launch = 0,
+    readyAfter = 0,
+    warmBefore = true,
+    chainNew = false,
+    commits = [],
+    issues = {},
+  } = {},
+) {
   let clock = Date.parse('2026-11-23T09:00:00Z');
   let calls = 0;
   const seen = [];
@@ -37,6 +62,7 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
     git: (_cwd, ...args) => {
       if (args[0] === 'rev-parse') return { status: 0, stdout: `${args[1] === 'HEAD' ? head : target}\n`, stderr: '' };
       if (args[0] === 'checkout') look('checkout');
+      if (args[0] === 'log') return { status: 0, stdout: commits.map(([sha, msg]) => `${sha}\x00${msg}\x1e\n`).join(''), stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     },
     run: async (_p, cmd, args) => {
@@ -55,6 +81,7 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
       clock += ms;
     },
     now: () => clock,
+    issue: async (n) => issues[n] ?? null,
   };
   return { io, seen };
 }
@@ -265,4 +292,99 @@ test('a round on a stack already on its chain restarts nothing', async () => {
   const end = await round(paths, io);
   assert.ok(!seen.some((s) => s.step === 'stop'));
   assert.equal(end.upSince, '2026-11-23T04:00:00Z');
+});
+
+test('the first round wanting the Hyperliquid test network stops the stack on the stand-in venue and starts it whole there, behind the updating page (#10603)', async () => {
+  const paths = home();
+  fs.rmSync(paths.venue);
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.deepEqual(
+    seen.map((s) => s.step),
+    ['stop', 'stop', 'launch', 'check', 'readied', 'readied'],
+  );
+  for (const s of seen) assert.deepEqual([s.state, s.shown], ['updating', 'updating'], s.step);
+  assert.equal(end.state, 'up');
+  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'hl-testnet\n', 'the launch records the venue it started on');
+  // The next round finds the stack on its venue and restarts nothing.
+  const again = fakes(paths, { head: OLD, target: OLD });
+  await round(paths, again.io);
+  assert.ok(!again.seen.some((s) => s.step === 'stop'));
+});
+
+test('a launch that fails leaves the venue unrecorded, so the next round restarts onto it again', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.venue, 'on\n');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD, launch: 1 });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'down');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker naming another venue restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.venue, 'utf8'), 'on\n');
+});
+
+// ── A beta fix reaches the beta in the next round (#10612) ──────────────────
+
+const FIX = 'c'.repeat(40);
+const OTHER = 'd'.repeat(40);
+const BETA_ISSUE = { closed: true, pull: false, labels: ['bug', 'beta'] };
+const PLAIN_ISSUE = { closed: true, pull: false, labels: ['bug'] };
+const roundLog = (paths) => fs.readFileSync(paths.log, 'utf8');
+
+test('within the 2-hour bound, main holding a merge that closed a beta issue moves the beta now, and round.log names both', async () => {
+  const paths = home();
+  // Updated 30 minutes ago: without the fix this round would only launch.
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z' }));
+  const { io, seen } = fakes(paths, {
+    commits: [
+      [OTHER, 'fix(contracts): something else (#10606)\n\nCloses #10604.'],
+      [FIX, 'fix(beta): the trade desks run on the test network (#10610)\n\nCloses #10603'],
+    ],
+    issues: { 10604: PLAIN_ISSUE, 10603: BETA_ISSUE },
+  });
+  const end = await round(paths, io);
+  assert.ok(
+    seen.some((s) => s.step === 'checkout'),
+    'the checkout moves',
+  );
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, NEW);
+  assert.equal(end.updatedAt, '2026-11-23T09:00:00.000Z', 'the 2-hour bound counts again from this update');
+  assert.match(
+    roundLog(paths),
+    new RegExp(`round: update \\(checkout aaaaaaaaa, main bbbbbbbbb; main holds ${FIX.slice(0, 9)}, which closed beta issue #10603\\)`),
+  );
+});
+
+test('within the bound, merges that closed no beta issue (or an open or unreadable one) keep the beta where it is until the bound', async () => {
+  const paths = home();
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T08:30:00Z', upSince: '2026-11-23T04:00:00Z' }),
+  );
+  const { io, seen } = fakes(paths, {
+    commits: [
+      [OTHER, 'fix(contracts): something else (#10606)\n\nCloses #10604.'],
+      [FIX, 'fix(beta): refers to #10603 without closing it; Fixes #10611; Resolves #10613'],
+    ],
+    issues: { 10604: PLAIN_ISSUE, 10603: BETA_ISSUE, 10611: { closed: false, pull: false, labels: ['beta'] } },
+  });
+  const end = await round(paths, io);
+  assert.ok(!seen.some((s) => s.step === 'checkout'), 'the checkout stays');
+  assert.equal(end.sha, OLD);
+  assert.equal(end.updatedAt, '2026-11-23T08:30:00Z');
+  assert.match(roundLog(paths), /round: launch \(checkout aaaaaaaaa, main bbbbbbbbb; the next update is after 2026-11-23T10:30:00\.000Z\)/);
+});
+
+test('closedIssues reads GitHub closing words, once each', () => {
+  assert.deepEqual(closedIssues('Closes #10603'), [10603]);
+  assert.deepEqual(closedIssues('Fixes #10300. Also fixed #1 and resolves: #2; closes #10300'), [10300, 1, 2]);
+  assert.deepEqual(closedIssues('refers to #5 (#10610); prefixes #6'), []);
 });

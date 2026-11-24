@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 /**
- * Balance disclosure gate (RC-support-public-01, ACC-0189, SUP-0004; J-support-public-20 #2): the desk may not read a
- * customer's balance, fills or withdrawal destination from a request until the request holds two matched checks the
- * customer can confirm: an email equal to their registered email, and one id of a record of their own.
+ * Checks the customer can confirm, recorded on a request (RC-support-public-01, ACC-0189, SUP-0004): an email equal to
+ * their registered email, and one id of a record of their own. The reads themselves (a customer's balance, fills or
+ * withdrawal destination; J-support-public-20 #2) open on the customer's own grant for a set time, never on these
+ * checks (`support-read-grants.ts`; owner row d115, 17 Nov 2026).
  *
  * Browser-safe: zod only, so the admin console can import it through `@intafaced/contracts/support-verification-checks`.
  *
@@ -12,8 +13,8 @@ import { z } from 'zod';
  * service answers, recording the check refuses `support.disclosure_unwired` naming it, and nothing is stored. The typed
  * value is never stored and never returned: svc-support keeps a sha256 digest and whether it matched.
  *
- * NO BALANCE IS READ HERE. With the gate held, each read still refuses `support.disclosure_unwired` naming its owner
- * until that owner serves a read door; the refusal before the gate says how many of the two are matched, and nothing else.
+ * A read with no live grant from the customer refuses `support.read_grant_required`; under a grant, a read whose owner
+ * serves no door, or gave no answer, refuses `support.disclosure_unwired` naming it, and nothing is read.
  */
 
 /** How many matched checks, of different kinds, open the gate: the email and one record id (SUP-0004). A rule, not an owner value. */
@@ -37,16 +38,20 @@ export const SUPPORT_VERIFICATION_CHECK_OWNER: Readonly<Record<SupportVerificati
 /** What the gate guards, and the service whose read door would answer it. */
 export const SUPPORT_DISCLOSURE_KINDS = ['balance', 'fills', 'destination'] as const;
 export type SupportDisclosureKind = (typeof SUPPORT_DISCLOSURE_KINDS)[number];
-export const SUPPORT_DISCLOSURE_OWNER: Readonly<Record<SupportDisclosureKind, 'svc-ledger' | 'svc-trade' | 'svc-pay'>> = {
-  balance: 'svc-ledger',
+export const SUPPORT_DISCLOSURE_OWNER: Readonly<Record<SupportDisclosureKind, 'svc-trade' | 'svc-pay'>> = {
+  // svc-trade serves the customer's own balance read (a projection of the ledger), so it serves the desk's too.
+  balance: 'svc-trade',
   fills: 'svc-trade',
   destination: 'svc-pay',
 };
 
 /**
  * Typed refusals.
- * `support.verification_checks_required`: the request does not hold the two matched checks; nothing is read. The spec
- * names it `support.disclosure_checks_missing`; the journey test on main (J-support-public-20 #2) names this, and wins.
+ * `support.verification_checks_required`: the request does not hold the two matched checks. No door raises it since the
+ * reads open on the customer's grant; it stays listed for the admin console's words.
+ * `support.read_grant_required`: the customer has not granted support a read on this request, or the grant has ended;
+ * nothing is read. Its detail is `none` or `expired`.
+ * `support.read_withdrawal_unlinked`: no withdrawal is linked to the request, so there is no destination to read.
  * `support.verification_mismatch`: the owner answered, and the value is not the customer's. Stored as unmatched; the
  * refusal never says which part failed.
  * `support.disclosure_unwired`: the service that answers a check or a read serves no door for it yet, or gave no
@@ -60,6 +65,8 @@ export const SUPPORT_VERIFICATION_ERROR_CODES = [
   'support.disclosure_unwired',
   'support.verification_attempts_unset',
   'support.verification_attempts_exhausted',
+  'support.read_grant_required',
+  'support.read_withdrawal_unlinked',
 ] as const;
 export type SupportVerificationErrorCode = (typeof SUPPORT_VERIFICATION_ERROR_CODES)[number];
 

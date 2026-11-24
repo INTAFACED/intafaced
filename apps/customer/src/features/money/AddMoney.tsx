@@ -5,12 +5,15 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useWallet } from '../protocol';
 import { useSession } from '../session';
 import { addMoneyCopy } from './add-money-copy';
-import { date, funds, useBankRead, useBankRecord } from './components';
+import { date, funds, useBankRecord } from './components';
 import { addMoneyRequestSchema, type AddMoneyMethod, type AddMoneyOption, type AddMoneyRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
-import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
+import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS, BANK_ADD_MONEY_METHODS } from '@intafaced/contracts/bank-add-money-procedures';
+import { leaveTo } from '../../app/location';
+import { shownCode, withCode } from '../../shared/reference';
+import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -25,6 +28,8 @@ import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/cont
  */
 
 type Ask = { assetId: string; amount: string; country: string };
+/** The methods read's input while nothing is asked: the read is off then, so this is never sent. */
+const NO_ASK: Ask = { assetId: '', amount: '', country: '' };
 type Deliver = 'balance' | 'wallet';
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -108,17 +113,17 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
         </small>
       )}
       {row.blocker && (
-        <small className="lt-muted">
-          {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
+        <small className="lt-muted" data-code={row.blocker}>
+          {withCode(feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail }), row.blocker, (code) => t('reference', { code }))}
         </small>
       )}
     </label>
   );
 }
 
-function Refused({ title, body, reference }: { title: string; body: string; reference: string }) {
+function Refused({ title, body, reference, code }: { title: string; body: string; reference: string; code?: string | null }) {
   return (
-    <div className="lt-refusal" role="status" data-testid="add-money-refused">
+    <div className="lt-refusal" role="status" data-testid="add-money-refused" data-code={code ?? undefined}>
       <h3>{title}</h3>
       <p>{body}</p>
       <small className="lt-muted">{reference}</small>
@@ -131,7 +136,14 @@ function Answer({ outcome }: { outcome: AddMoneyRequest | Refusal }) {
   const { t } = addMoneyCopy.useCopy();
   if (!('ok' in outcome)) return <Outcome request={outcome} />;
   if (outcome.code !== EXPIRED) return <Failure result={outcome} />;
-  return <Refused title={t('expiredTitle')} body={t('expiredNow')} reference={t('reference', { code: EXPIRED })} />;
+  return (
+    <Refused
+      title={t('expiredTitle')}
+      body={t('expiredNow')}
+      reference={withCode('', EXPIRED, (code) => t('reference', { code })).trim()}
+      code={EXPIRED}
+    />
+  );
 }
 
 function Outcome({ request }: { request: AddMoneyRequest }) {
@@ -142,7 +154,8 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
       <Refused
         title={expired ? t('expiredTitle') : t('refusedTitle')}
         body={expired ? t('expiredBody') : t('refusedBody', { rail: request.rail })}
-        reference={`${request.rail} · ${t('reference', { code: request.refusalCode ?? '' })}`}
+        code={request.refusalCode}
+        reference={shownCode(request.refusalCode) ? `${request.rail} · ${t('reference', { code: request.refusalCode! })}` : request.rail}
       />
     );
   }
@@ -346,7 +359,11 @@ function Requests() {
               </span>
               <span>
                 <StatusWord request={row} />
-                {row.refusalCode && <small className="lt-muted"> {t('reference', { code: row.refusalCode })}</small>}
+                {row.refusalCode && (
+                  <small className="lt-muted" data-code={row.refusalCode}>
+                    {shownCode(row.refusalCode) ? ` ${t('reference', { code: row.refusalCode })}` : null}
+                  </small>
+                )}
               </span>
             </div>
           ))
@@ -364,7 +381,7 @@ export function AddMoney() {
   const [unsigned, setUnsigned] = useState(false);
   // The connected wallet's address, only while connected: buying to it names it on the request.
   const walletAddress = wallet.status === 'connected' ? wallet.address : null;
-  const currencies = useBankRead('currencies.list', { profile: profiles.active });
+  const currencies = useBankRecord(BANK_CURRENCIES_LIST, { profile: profiles.active });
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const [assetId, setAssetId] = useState('');
   const [amount, setAmount] = useState('');
@@ -391,7 +408,7 @@ export function AddMoney() {
     window.addEventListener('pageshow', shown);
     return () => window.removeEventListener('pageshow', shown);
   }, []);
-  const ways = useBankRead('addMoney.methods', ask, ask !== null);
+  const ways = useBankRecord(BANK_ADD_MONEY_METHODS, ask ?? NO_ASK, ask !== null);
 
   const asset = assetId || assets[0] || '';
   const amountBad = touched && !amountOk(amount);
@@ -459,7 +476,7 @@ export function AddMoney() {
     if (result.ok && result.data.status === 'opened') setFollowed(result.data.requestId);
     if (page) {
       setRedirecting(true);
-      window.location.assign(page);
+      leaveTo(page);
     }
     // A final answer closes this request, so asking again is a new one. A failure keeps the id, so a retry is the same request.
     if (result.ok && result.data.status !== 'opening') setRequestId(crypto.randomUUID());

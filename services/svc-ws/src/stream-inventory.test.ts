@@ -116,6 +116,7 @@ describe('GET /streams', () => {
       'private orders',
       'private fills',
       'private positions',
+      'private balances',
       'drop-copy drop_copy',
     ]);
     for (const entry of streams) expect(served(entry), `${entry.door} ${entry.channel}`).toBe(true);
@@ -123,6 +124,7 @@ describe('GET /streams', () => {
       new Set([`market ${STREAM_PATH}`, `mux ${STREAM_PATH}`, `private ${PRIVATE_STREAM_PATH}`, `drop-copy ${DROP_COPY_STREAM_PATH}`]),
     );
     expect(streams.filter((entry) => entry.access === 'private').map((entry) => entry.door)).toEqual([
+      'private',
       'private',
       'private',
       'private',
@@ -144,6 +146,7 @@ describe('GET /streams', () => {
       'private orders spot',
       'private fills spot',
       'private positions derivatives',
+      'private balances accounts',
       'drop-copy drop_copy accounts',
     ]);
     expect(Object.keys(STREAM_PRODUCTS)).toEqual(streams.map((entry) => `${entry.door} ${entry.channel}`));

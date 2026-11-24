@@ -1,6 +1,7 @@
 import { expect } from './journey.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { journeyState } from './stack.mjs';
+import { api, journeyState } from './stack.mjs';
+import { draftSaved } from './agent-builder.mjs';
 
 // Shared parts of the agents journeys (J-agents-NN) written ahead of their rooms. The Agents room is /agents (More),
 // with its sections as buttons in the "Agent sections" group; on the stack svc-agents runs with its five session agents
@@ -69,8 +70,13 @@ export async function createOwnAgent(page, { cap = '1', name = OWN_AGENT } = {})
   const builder = page.getByRole('form', { name: 'Agent builder' });
   await builder.getByRole('textbox', { name: /^Name/ }).fill(name);
   await builder.getByRole('textbox', { name: /^Spend cap per session/ }).fill(cap);
+  await saveDraft(builder);
+}
+
+/** Saves the builder's draft and waits for its "Draft saved." answer, whatever other status the form shows meanwhile. */
+export async function saveDraft(builder) {
   await builder.getByRole('button', { name: 'Save draft' }).click();
-  await expect(builder.getByRole('status')).toHaveText('Draft saved.');
+  await expect(draftSaved(builder)).toHaveCount(1);
 }
 
 /** Opens one page of the person's own agent (Limits, Rules, Test, Memory, ...) from My agents. Its pages are the app's
@@ -100,4 +106,12 @@ export async function openFounderDesk(page, route, heading, key = 'a') {
   await page.goto(`${ADMIN}${route}`);
   await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible(UNBUILT);
   return founder;
+}
+
+/** One svc-agents read through Edge as the run's person, on a sign-in of its own: the answer's data. */
+export async function agentsRead(agents, procedure, input) {
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(agents.account())).get(`/api/agents/trpc/${procedure}${query}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
 }

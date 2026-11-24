@@ -187,7 +187,7 @@ export function ChainTab({
 
   return (
     <div className="lt-stack">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="lt-toolbar">
         <Filter
           label={t('Underlying')}
           value={underlying}

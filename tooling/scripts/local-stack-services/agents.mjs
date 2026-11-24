@@ -50,12 +50,23 @@ function routingTable() {
  * #1): the HTTP model adapter, which every route reports as "live", pointed at a TEST address nothing answers at, with a
  * TEST key. No model vendor is reached and nothing is spent: every live run fails at the engine, so a test run that
  * still answers proves it never asked the live engine.
+ * `LOCAL_STACK_AGENTS_UPSTREAM_URL` (a loopback address only) points that adapter at a TEST engine a journey runs itself,
+ * so a run on the live adapter is answered and the journey sees what reached it (J-agents-20 #4). Nothing else is accepted.
  */
+function upstreamUrl() {
+  const url = process.env.LOCAL_STACK_AGENTS_UPSTREAM_URL;
+  if (!url) return 'http://127.0.0.1:9';
+  if (!/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(url)) {
+    throw new Error(`LOCAL_STACK_AGENTS_UPSTREAM_URL must be a TEST loopback address (http://127.0.0.1:<port>), not ${url}`);
+  }
+  return url;
+}
+
 function engine(STATE) {
   if (process.env.LOCAL_STACK_AGENTS_SANDBOX_ENGINE === 'off') {
     return {
       AGENTS_PROVIDER: 'upstream',
-      AGENTS_UPSTREAM_BASE_URL: 'http://127.0.0.1:9',
+      AGENTS_UPSTREAM_BASE_URL: upstreamUrl(),
       AGENTS_UPSTREAM_API_KEY: 'TEST',
       AGENTS_UPSTREAM_TIMEOUT_MS: '1000',
     };

@@ -40,6 +40,11 @@ import {
   founderRiskSummaryInputSchema,
   founderRiskSummarySchema,
   founderTreasuryExposureSchema,
+  founderChangeSubmitInputSchema,
+  founderChangeSubmitResultSchema,
+  founderChangeConfirmInputSchema,
+  founderApprovalQueueInputSchema,
+  founderApprovalQueueSchema,
 } from './founder-admin.js';
 import {
   merchantMetricsInputSchema,
@@ -845,6 +850,71 @@ export const PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST = defineProcedure({
   output: z.array(heldDepositViewSchema),
   samples: [
     { verdict: 'accept', input: { userId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CHANGES_SUBMIT = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.changes.submit',
+  kind: 'mutation',
+  path: 'founderAdmin.changes.submit',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderChangeSubmitInputSchema,
+  output: founderChangeSubmitResultSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        merchantId: '11111111-1111-4111-8111-111111111111',
+        change: { kind: 'set_tier', tierId: 'sample', archetypeId: 'sample' },
+        reason: 'USDC',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_CHANGES_CONFIRM = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.changes.confirm',
+  kind: 'mutation',
+  path: 'founderAdmin.changes.confirm',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderChangeConfirmInputSchema,
+  output: founderChangeSubmitResultSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        decision: 'confirm',
+        reason: 'second founder checked it',
+        expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+      },
+    },
+    {
+      verdict: 'refuse',
+      input: { requestId: '11111111-1111-4111-8111-111111111111', decision: 'confirm', reason: 'no hash given' },
+    },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_APPROVALS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.approvals.list',
+  kind: 'query',
+  path: 'founderAdmin.approvals.list',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: founderApprovalQueueInputSchema,
+  output: founderApprovalQueueSchema,
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
     { verdict: 'refuse', input: 42 },
   ],
 });

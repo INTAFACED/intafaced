@@ -17,7 +17,7 @@ use postgres::{Client, NoTls, Transaction};
 use service_kit::pg::db_message;
 
 /// Every migration file, by name, as built into the binary.
-pub const FILES: [(&str, &str); 66] = [
+pub const FILES: [(&str, &str); 68] = [
     (
         "0000_ledger_init.down.sql",
         include_str!("../migrations/0000_ledger_init.down.sql"),
@@ -281,6 +281,14 @@ pub const FILES: [(&str, &str); 66] = [
     (
         "20261110103023_reconcile_nothing_to_compare.sql",
         include_str!("../migrations/20261110103023_reconcile_nothing_to_compare.sql"),
+    ),
+    (
+        "20261123173000_operator_reversal_once.down.sql",
+        include_str!("../migrations/20261123173000_operator_reversal_once.down.sql"),
+    ),
+    (
+        "20261123173000_operator_reversal_once.sql",
+        include_str!("../migrations/20261123173000_operator_reversal_once.sql"),
     ),
 ];
 

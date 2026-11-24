@@ -40,8 +40,4 @@ export const myRoleSchema = z.object({ role: memberRoleSchema });
 export const businessReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const businessWrites = {
-  'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
-  'business.reject': z.object({ ok: z.literal(true) }),
-  'business.cancel': z.object({ ok: z.literal(true) }),
-} as const;
+export const businessWrites = {} as const;

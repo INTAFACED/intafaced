@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { Tabs } from '@intafaced/ui/lit/templates';
 import { t as copyText, Text } from '../copy';
-import { bankLabels, bankRoomHref, bankRooms } from './bank-rooms';
+import { bankLabels, bankRoomHref, bankRooms, shownBankRooms } from './bank-rooms';
 
 /**
  * The Bank's frame for a room on a Volt template, drawn from the kit: the same words and controls as the old `BankPage`
@@ -35,7 +35,7 @@ export function BankTabs({ where = true }: { where?: boolean }) {
       ) : null}
       <Tabs
         label={copyText('rooms.bank.rooms')}
-        items={bankRooms.map((room) => ({ label: copyText(bankLabels[room]), href: bankRoomHref(room) }))}
+        items={shownBankRooms().map((room) => ({ label: copyText(bankLabels[room]), href: bankRoomHref(room) }))}
       />
     </div>
   );
