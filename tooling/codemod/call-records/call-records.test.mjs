@@ -3382,3 +3382,43 @@ test("a caller's schema that names fewer fields than the answer keeps it (callAs
   assert.equal(keepNarrowing([adminSite], [r, out], left).length, 0);
   assert.match(left[0].why, /drops refreshToken from the answer/);
 });
+
+test('an answer schema imported, or re-exported, from another file is read by its fields', async () => {
+  const { fieldsOf } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-narrow-import-'));
+  writeFileSync(
+    join(root, 'schemas.ts'),
+    "import { z } from 'zod';\nexport const sessionOutput = z.object({ accessToken: z.string(), refreshToken: z.string() });\n",
+  );
+  writeFileSync(join(root, 'index.ts'), "export { sessionOutput } from './schemas';\n");
+  writeFileSync(join(root, 'router.ts'), "import { sessionOutput } from './index';\nexport const out = sessionOutput.strict();\n");
+  const r = load(join(root, 'router.ts'));
+  assert.deepEqual(fieldsOf(r, r.program.body[1].declaration.declarations[0].init), ['accessToken', 'refreshToken']);
+});
+
+test('a founder call whose answer goes to .safeParse() is read softly: it stays by name', async () => {
+  const { softlyParsed } = await import('./narrow.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'call-records-soft-'));
+  const file = join(root, 'founder-session.ts');
+  // The past mistake (admin's staffTestStatus): an answer it can't read is "not staff" (403), a record call's is a 502.
+  writeFileSync(
+    file,
+    [
+      'export async function a() { return schema.safeParse(await founderEdgeCall(c, "identity", "staffTestStatus", "GET", {}, t)); }',
+      'export async function b() { const raw = await founderEdgeCall(c, "identity", "x", "GET", {}, t); return schema.safeParse(raw); }',
+      'export async function d() { return schema.parse(await founderEdgeCall(c, "identity", "y", "GET", {}, t)); }',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const calls = [];
+  for (const stmt of p.program.body)
+    (function find(n) {
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'CallExpression' && n.callee.name === 'founderEdgeCall') calls.push(n);
+      for (const k of Object.keys(n)) if (k !== 'parent') (Array.isArray(n[k]) ? n[k] : [n[k]]).forEach(find);
+    })(stmt);
+  assert.deepEqual(
+    calls.map((c) => softlyParsed(p, c)),
+    [true, true, false],
+  );
+});

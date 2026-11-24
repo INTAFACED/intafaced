@@ -38,7 +38,7 @@ import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
-import { droppedFields, recordOutput } from './narrow.mjs';
+import { droppedFields, recordOutput, softlyParsed } from './narrow.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
 import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolItem, toolSchema, toolShape } from './tool-forms.mjs';
 
@@ -154,6 +154,13 @@ function plan(opts) {
   for (const s of sites) {
     if (s.problem) {
       hand.push({ site: s, why: s.problem });
+      continue;
+    }
+    if (s.shape === 'founderEdgeCall' && softlyParsed(load(s.file), s.node)) {
+      hand.push({
+        site: s,
+        why: 'its answer is read with .safeParse(), which decides what an unreadable answer means; its record call would refuse it instead',
+      });
       continue;
     }
     const arg = schemaArgOf(s);

@@ -39,9 +39,22 @@ function valueOf(p, node) {
   if (b.kind !== 'import' || b.typeOnly) return undefined;
   const file = fileOf(p, b.from);
   if (!file) return undefined;
-  const q = load(file);
-  const d = bindingOf(q, q.program, b.imported);
-  return d.kind === 'var' && d.declarator.init ? [q, d.declarator.init] : undefined;
+  return topLevel(load(file), b.imported);
+}
+
+/** A file's own top-level const of that name, or one it re-exports from a file this reads: [parsed file, initializer]. */
+function topLevel(q, name, depth = 0) {
+  for (const stmt of q.program.body) {
+    const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : stmt;
+    if (decl.type === 'VariableDeclaration')
+      for (const d of decl.declarations) if (d.id.type === 'Identifier' && d.id.name === name && d.init) return [q, d.init];
+    if (stmt.type === 'ExportNamedDeclaration' && stmt.source && depth < 4) {
+      const s = stmt.specifiers.find((x) => (x.exported.name ?? x.exported.value) === name);
+      const file = s && fileOf(q, stmt.source.value);
+      if (file) return topLevel(load(file), s.local.name ?? s.local.value, depth + 1);
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -98,6 +111,38 @@ export function recordOutput(file, name) {
       obj?.type === 'ObjectExpression' ? obj.properties.find((x) => x.type === 'Property' && x.key.name === 'output') : undefined;
     if (prop) found = [p, prop.value];
     return false;
+  });
+  return found;
+}
+
+const UNWRAP = new Set(['AwaitExpression', 'ParenthesizedExpression', 'TSAsExpression', 'TSNonNullExpression']);
+const isSafeParseOf = (p, call, arg) =>
+  call?.type === 'CallExpression' &&
+  call.callee.type === 'MemberExpression' &&
+  !call.callee.computed &&
+  call.callee.property.name === 'safeParse' &&
+  call.arguments[0] === arg;
+
+/**
+ * Whether a call's answer is read with `.safeParse()`, straight or through the const it is kept in: its caller decides
+ * what an answer it can't read means (a staff check reads it as "not staff"), where a record call refuses it as invalid.
+ */
+export function softlyParsed(p, call) {
+  let node = call;
+  let parent = p.parents.get(node);
+  while (parent && UNWRAP.has(parent.type)) {
+    node = parent;
+    parent = p.parents.get(node);
+  }
+  if (isSafeParseOf(p, parent, node)) return true;
+  if (parent?.type !== 'VariableDeclarator' || parent.init !== node || parent.id.type !== 'Identifier') return false;
+  const name = parent.id.name;
+  let scope = p.parents.get(parent);
+  while (scope && !/Function|Program/.test(scope.type)) scope = p.parents.get(scope);
+  let found = false;
+  walk(scope, (m) => {
+    if (found) return false;
+    if (m.type === 'Identifier' && m.name === name && isSafeParseOf(p, p.parents.get(m), m)) found = true;
   });
   return found;
 }
