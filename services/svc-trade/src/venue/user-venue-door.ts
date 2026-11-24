@@ -1404,7 +1404,11 @@ export class UserVenueDoor {
   async spotCandles(base: string, interval: VenueCandleInterval, limit: number) {
     const venue = await this.venue();
     const wanted = base.toUpperCase();
-    const spot = (await this.markets()).value.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
+    const markets = (await this.markets()).value;
+    const spot =
+      markets.find(
+        (m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted && ['USDC', 'USDT', 'USD'].includes(m.quoteAsset.toUpperCase()),
+      ) ?? markets.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
     if (!spot)
       throw new VenueRefusalError({
         venueId: venue.venue.id,
