@@ -190,6 +190,11 @@ const shown = new WeakMap<HTMLElement, string>();
 function showLit(row: HTMLElement | null, lit: string) {
   if (!row || shown.get(row) === lit) return;
   shown.set(row, lit);
+  reveal(row);
+  // The row's face may arrive after the first layout and widen each tab: once the fonts are in, bring the lit tab into view again.
+  if (typeof document !== 'undefined') void document.fonts?.ready.then(() => shown.get(row) === lit && reveal(row));
+}
+function reveal(row: HTMLElement) {
   const tab = row.querySelector<HTMLElement>('[aria-current="page"], [aria-pressed="true"], [aria-selected="true"]');
   if (!tab || row.scrollWidth <= row.clientWidth) return;
   const box = row.getBoundingClientRect();

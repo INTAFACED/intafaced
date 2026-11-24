@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
-import { Badge } from '@intafaced/ui';
 import { useApi, useSession } from '../../features/session/session';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
@@ -12,7 +11,7 @@ import { venueConvertApi } from '../../features/trade/venue-convert-api';
 import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { Amount, Button, StateBlock } from './ui-deps';
+import { Amount, Button, StateBlock, Tag } from '@intafaced/ui/lit';
 import { coinHref, fmtAmount, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
@@ -44,6 +43,9 @@ const FILTER_WORD = {
   year: 'filter year',
   address: 'filter address',
 } as const;
+
+/** The kit's colour for an amount, by the way the money went. */
+const AMOUNT_TONE = { in: 'lt-up', out: 'lt-down' } as const;
 
 /** How often the wallet and the venue are read again while the list is open. */
 const READ_EVERY_MS = 3_000;
@@ -185,7 +187,7 @@ function Sources({
     <div data-testid="activity-by-source" data-user={userId ?? ''} className="lt-stack">
       <p className="lt-muted">{t('Lede')}</p>
       <WalletBar />
-      <div className="money-sources">
+      <div className="lt-stack lt-stack-tight">
         {!source || source === 'wallet' ? (
           <SourceNote
             kind="wallet"
@@ -209,7 +211,6 @@ function Sources({
         <StateBlock
           kind="refused"
           testId="money-state"
-          className="money-state"
           title={t('No matches')}
           body={t('Filters unanswerable', { names: blocked.map((name) => t(FILTER_WORD[name])).join(', ') })}
         />
@@ -217,49 +218,42 @@ function Sources({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={narrowed ? t('No matches') : t('Nothing yet')}
           body={narrowed ? t('No matches body') : t('Nothing yet body')}
         />
       ) : (
-        <table data-testid="money-table" className="money-table money-table--activity">
-          <colgroup>
-            <col className="money-act-col--what" />
-            <col className="money-act-col--time" />
-            <col className="money-act-col--amount" />
-            <col className="money-act-col--status money-cell--status" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col">{t('Activity')}</th>
-              <th scope="col">{t('Date')}</th>
-              <th scope="col" className="money-num">
-                {t('Amount')}
-              </th>
-              <th scope="col" className="money-cell--status">
-                {t('Status')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((line) => (
-              <LineRow
-                key={line.id}
-                line={line}
-                group={orderLines(all, line)}
-                t={t}
-                hidden={hidden}
-                zone={timeZone}
-                test={line.source === 'venue' && status.test}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="lt-table-scroll">
+          <table data-testid="money-table" className="lt-table">
+            <thead>
+              <tr>
+                <th scope="col">{t('Activity')}</th>
+                <th scope="col">{t('Date')}</th>
+                <th scope="col" className="lt-end">
+                  {t('Amount')}
+                </th>
+                <th scope="col">{t('Status')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((line) => (
+                <LineRow
+                  key={line.id}
+                  line={line}
+                  group={orderLines(all, line)}
+                  t={t}
+                  hidden={hidden}
+                  zone={timeZone}
+                  test={line.source === 'venue' && status.test}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {!source ? <CopiedFees /> : null}
       {bank.status === 'ready' && bank.data.hasMore && partner.length > 0 ? (
-        <div className="money-more">
-          <Button variant="secondary" size={40} loading={bank.data.loadingMore} onClick={bank.data.loadMore}>
+        <div data-testid="money-more" className="lt-row">
+          <Button tone="secondary" busy={bank.data.loadingMore} onClick={bank.data.loadMore}>
             {t('Partner more')}
           </Button>
         </div>
@@ -289,7 +283,7 @@ function SourceNote({
       {test && part.state === 'read' ? (
         <>
           {' '}
-          <Badge tone="warn">{t('TEST')}</Badge>
+          <Tag tone="warn">{t('TEST')}</Tag>
         </>
       ) : null}
     </p>
@@ -384,7 +378,6 @@ function LineRow({
     <>
       <tr
         data-testid="money-act"
-        className="money-act"
         data-kind={line.kind}
         data-type={typeOf(line.kind)}
         data-source={line.source}
@@ -392,13 +385,12 @@ function LineRow({
         data-state={line.state}
       >
         <td>
-          <div className="money-act__what">
-            <span className="money-act__text">
+          <div className="lt-row lt-row-nowrap">
+            <span className="lt-stack lt-stack-tight">
               {fill ? (
                 <Button
-                  variant="ghost"
-                  size={28}
-                  shape="rounded"
+                  tone="quiet"
+                  size="sm"
                   data-testid="money-act__title"
                   aria-expanded={open}
                   aria-controls={partsId}
@@ -407,7 +399,7 @@ function LineRow({
                   {titleOf(line, t)}
                 </Button>
               ) : (
-                <span data-testid="money-act__title" className="money-act__title">
+                <span data-testid="money-act__title" className="lt-strong">
                   {titleOf(line, t)}
                 </span>
               )}
@@ -421,7 +413,7 @@ function LineRow({
                 {test ? (
                   <>
                     {' '}
-                    <Badge tone="warn">{t('TEST')}</Badge>
+                    <Tag tone="warn">{t('TEST')}</Tag>
                   </>
                 ) : null}
               </span>
@@ -432,20 +424,20 @@ function LineRow({
             </span>
           </div>
         </td>
-        <td data-testid="money-act__time" className="money-act__time">
+        <td data-testid="money-act__time" className="lt-nowrap">
           <time dateTime={line.at}>{stamp(line.at, zone)}</time>
         </td>
-        <td className="money-num">
+        <td className="lt-end">
           <Amount
             value={counted ? `${up ? '+' : '−'}${amount} ${line.asset}` : `${amount} ${line.asset}`}
             hidden={hidden}
-            className={counted ? (up ? 'text-up-text' : 'text-down-text') : undefined}
+            className={counted ? AMOUNT_TONE[line.direction] : undefined}
             data-direction={line.direction}
           />
         </td>
-        <td data-testid="money-act__status" className="money-act__status money-cell--status">
+        <td data-testid="money-act__status">
           {line.state === 'completed' ? (
-            <span data-testid="money-act__done" className="money-act__done">
+            <span data-testid="money-act__done" className="lt-row lt-row-nowrap">
               <Check size={14} aria-hidden="true" />
               {t('Completed')}
             </span>
@@ -505,10 +497,10 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
   const parts = fillParts(group, record);
   const bought = line.detail?.kind === 'trade' && line.detail.side === 'buy';
   return (
-    <tr data-testid="money-act__parts-row" className="money-act__parts-row">
+    <tr data-testid="money-act__parts-row">
       <td colSpan={4}>
         <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="lt-stack">
-          <h3 className="money-detail__h">{t('Parts of this order')}</h3>
+          <h3 className="lt-heading">{t('Parts of this order')}</h3>
           <p className="lt-hint" data-label="fill-reference">
             {t('Fill reference')} <code className="lt-mono">{line.ref}</code>
           </p>
@@ -522,12 +514,12 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
               {t('Still held', { amount: exact(record.locked), asset: record.lockedAsset })}
             </p>
           ) : null}
-          <table className="money-table money-table--activity">
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('Part')}</th>
                 <th scope="col">{t('Source reference')}</th>
-                <th scope="col" className="money-num">
+                <th scope="col" className="lt-end">
                   {t('Amount')}
                 </th>
               </tr>
@@ -544,11 +536,11 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
                   <td>
                     <code className="lt-mono">{part.fill ?? order ?? ''}</code>
                   </td>
-                  <td className="money-num">
+                  <td className="lt-end">
                     <Amount
                       value={`${part.up ? '+' : '−'}${exact(part.amount)} ${part.asset}`}
                       hidden={hidden}
-                      className={part.up ? 'text-up-text' : 'text-down-text'}
+                      className={part.up ? AMOUNT_TONE.in : AMOUNT_TONE.out}
                       data-direction={part.up ? 'in' : 'out'}
                     />
                   </td>
@@ -557,9 +549,9 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
             </tbody>
           </table>
           {bought ? (
-            <Button variant="secondary" size={40} nativeButton={false} role="link" render={<a href={coinHref(line.asset, 'simple')} />}>
+            <a className="lt-button lt-button-secondary" href={coinHref(line.asset, 'simple')}>
               {t('See {asset} history', { asset: line.asset })}
-            </Button>
+            </a>
           ) : null}
         </section>
       </td>

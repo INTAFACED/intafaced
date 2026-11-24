@@ -41,6 +41,16 @@ describe("the beta's menus", () => {
     }
   });
 
+  it("keep Trade's Orders row, whose room (/money/activity) counts in Volt (#10708)", () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
+    expect(state.get('/money/activity')).toBe('volt');
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
+    }
+    expect(betaHides('/money/activity')).toBe(false);
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);

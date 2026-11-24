@@ -746,7 +746,7 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
     tool('local-test-stack.mjs', 'start', '--only', 'bank');
   }
   // Back up, Try again loads the next page under the rows that stayed.
-  await activity(page).locator('.money-more').getByRole('button', { name: 'Try again' }).click();
+  await activity(page).getByTestId('money-more').getByRole('button', { name: 'Try again' }).click();
   await expect.poll(async () => rows(page).count(), { timeout: 30_000 }).toBeGreaterThan(firstPage);
   expect((await rows(page).allInnerTexts()).slice(0, firstPage)).toEqual(shown);
   expect(lineCount).toBeGreaterThan(50);
