@@ -181,7 +181,7 @@ test.describe(`${J} #2 with the owner's stale age widened (TEST)`, () => {
         )
         .toBeLessThanOrEqual(15);
       await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-      await expect(banner(page)).toContainText(`past the ${owner.delayedBoundarySeconds} s boundary on a real-time market`);
+      await expect(banner(page)).toContainText(`updates pause after ${owner.delayedBoundarySeconds} s without a trade`);
       await stepPicture();
     });
   });
@@ -218,7 +218,7 @@ test.describe(`${J} #2 with the owner's stale age widened (TEST)`, () => {
         )
         .toBeLessThanOrEqual(60);
       await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
-      await expect(banner(page)).toContainText("This market's data class is delayed");
+      await expect(banner(page)).toContainText('Delayed market data');
       await stepPicture();
     });
   });

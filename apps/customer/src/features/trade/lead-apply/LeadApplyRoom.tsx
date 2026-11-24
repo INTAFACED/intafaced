@@ -243,7 +243,7 @@ function LeadTerms({ terms, failed, t }: { terms: Eligibility | null; failed: bo
             : {
                 label: t('termsVenue'),
                 value: venue.state === 'unreadable' ? t('termsVenueUnreadable') : t('termsVenueNone'),
-                unset: true,
+                unset: venue.state === 'unreadable',
               },
         ]}
       />

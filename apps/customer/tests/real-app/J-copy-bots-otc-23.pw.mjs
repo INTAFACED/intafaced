@@ -95,7 +95,7 @@ test(`${J} #1 opens Execution: five tabs render, and a blocked tab names its dep
   for (const name of TABS) await expect(tabs.getByRole('tab', { name, exact: true })).toBeVisible();
 
   // The stack runs the slice scheduler, so the algo form is open; Routing is blocked and says on what.
-  await expect(page.getByText('Scheduler running')).toBeVisible();
+  await expect(page.getByText('Scheduling active')).toBeVisible();
   await tabs.getByRole('tab', { name: 'Routing', exact: true }).click();
   const caps = tableIn(page, 'Capabilities');
   await expect(caps.getByText('Blocked').first()).toBeVisible();
@@ -172,7 +172,7 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
     await signOutBrowser(page.context());
     await signIn(page, trader);
     await page.goto('/execution');
-    await expect(page.getByText('Scheduler off: new schedules will not slice')).toBeVisible();
+    await expect(page.getByText('Scheduling paused: new schedules will not run')).toBeVisible();
     await fillSchedule(page, { total: '0.002', seconds: 120, every: 30 });
     await expect(form(page).locator('[data-code="trade.algo_jobs_disabled"]')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
