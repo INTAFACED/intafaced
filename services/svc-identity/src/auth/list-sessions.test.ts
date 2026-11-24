@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
 import { listSessions, requireListSessionsUserId, SESSIONS_LIST_LIMIT_MAX } from './list-sessions.js';
 import { panicRevoke } from './panic-revoke.js';
 
@@ -161,9 +162,15 @@ describe('listSessions', () => {
     expect(src).not.toMatch(/refresh_hash/);
     expect(src).not.toMatch(/SELECT \*/);
     expect(routerSrc).not.toMatch(/refresh_hash/);
-    expect(routerSrc).toMatch(/scopedProcedure\('identity:read'\)/);
-    expect(routerSrc).toMatch(/userId: z\.string\(\)\.guid\(\)/);
-    expect(routerSrc).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
+    expect(routerSrc).toMatch(/listSessions: mountRecord\(\s*IDENTITY_LIST_SESSIONS,/);
+    expect(IDENTITY_LIST_SESSIONS.access).toEqual({ caller: 'scope', scope: 'identity:read' });
+    expect(IDENTITY_LIST_SESSIONS.input.safeParse({ userId: 'not-a-uuid', limit: 1 }).success).toBe(false);
+    expect(IDENTITY_LIST_SESSIONS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit: 1 }).success).toBe(true);
+    expect(IDENTITY_LIST_SESSIONS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit: 201 }).success).toBe(false);
+    // No secret on the wire: each session the answer carries names none of the refresh or token fields.
+    for (const field of Object.keys(IDENTITY_LIST_SESSIONS.output.shape.sessions.element.shape)) {
+      expect(field).not.toMatch(/refresh|hash|token|secret/i);
+    }
     expect(routerSrc).toMatch(/listSessions\(sql, input\.userId, input\.limit,/);
   });
 });

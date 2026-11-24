@@ -17,6 +17,8 @@ import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { IDENTITY_PROFILE_GET } from '@intafaced/contracts/identity-profile-procedures';
+import { callAs } from '../shared/api';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 
 /** The person's name, handle and verification level, each read on its own so one that fails shows "Not shown" and the rest stand. */
 function Summary() {
@@ -28,7 +30,7 @@ function Summary() {
   const level = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'kyc.status', { limit: 1 }, verificationStatus(userId, 1), { signal })
+        ? callAs(api, IDENTITY_KYC_STATUS, { limit: 1 }, verificationStatus(userId, 1), { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
     `menu-kyc:${userId}`,
   );

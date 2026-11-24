@@ -333,14 +333,32 @@ test(`${J} #3 creates a pool at a fee tier and seeds it: price equals the deposi
     restartWith('protocol', 'LOCAL_STACK_PROTOCOL_FEE_TIERS', true);
   }
 
-  // A zero factory address: the form keeps its layout and shows the crypto network notice.
+  // A zero factory address refuses: the form keeps its layout and shows the crypto network notice, no pair can be
+  // chosen, Create pool stays disabled, submitting the form opens no wallet step, and nothing reaches the chain.
   restartWith('protocol', 'LOCAL_STACK_PROTOCOL_AMM_FACTORY', false);
   try {
+    const held = await balances(person());
     await page.goto('/dex/pools/new');
     await expect(form).toBeVisible();
     const notice = page.locator('[data-not-connected="rail.crypto"]');
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText('Creating a pool needs');
+    await expect(notice).toHaveText(
+      'Creating a pool needs a live network node or custody signer. It is switched off in this build. rail.crypto',
+    );
+    for (const side of ['First token', 'Second token'])
+      await expect(form.getByRole('combobox', { name: side, exact: true }).locator('option')).toHaveText(['Choose a token']);
+    await form.getByRole('combobox', { name: 'Fee tier', exact: true }).selectOption({ label: 'Custom' });
+    await form.getByRole('textbox', { name: /^Custom fee/ }).fill('0.05');
+    await form.getByRole('textbox', { name: /^First amount/ }).fill('1000');
+    await form.getByRole('textbox', { name: /^Second amount/ }).fill('2000');
+    const createButton = form.getByRole('button', { name: 'Create pool', exact: true });
+    await expect(createButton).toBeDisabled();
+    await form.getByRole('textbox', { name: /^Second amount/ }).press('Enter');
+    await expect(page.locator('[data-panel="representation"], [data-sheet="sequence"], [data-sheet="sign"]')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Pool created at' })).toHaveCount(0);
+    await expect(createButton).toBeDisabled();
+    expect(await poolFor(5)).toBe(ZERO);
+    expect(await balances(person())).toEqual(held);
   } finally {
     restartWith('protocol', 'LOCAL_STACK_PROTOCOL_AMM_FACTORY', true);
   }

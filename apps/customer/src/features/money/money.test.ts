@@ -214,8 +214,10 @@ describe('a note and a payment reference travel with a transfer', () => {
   };
 
   it('sends both to a person, trimmed, and accepts the reply that echoes them', async () => {
+    // svc-bank's reply to a send always names partnerMove (null on the ledger path) and requestId.
     const { api, requests } = capture({
       ledgerTxId: 'tx-1',
+      partnerMove: null,
       amount: '5',
       note: 'Rent for October',
       reference: 'INV-2026-10',

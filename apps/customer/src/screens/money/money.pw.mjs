@@ -477,6 +477,44 @@ test('account paused: the refusal has words and a reference, never the raw code'
   expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
 });
 
+// A new sign-up that is not verified yet: the bank refuses its reads with denied.kyc_required.
+const notVerified = {
+  status: 403,
+  json: {
+    error: { message: 'kyc required', code: -32003, data: { code: 'FORBIDDEN', intafacedCode: 'denied.kyc_required', httpStatus: 403 } },
+  },
+};
+
+test('not verified yet: the balance card says to verify with its reference, and is never blank (#10596)', async ({ page }) => {
+  await mock(page, { bank: { 'portfolio.summary': notVerified, 'activity.list': notVerified, 'dormancy.notices': notVerified } });
+  await open(page);
+  // The refusal sits in the balance card itself, where the figure would be, so the card is never left blank.
+  const block = page.getByTestId('money-head').locator('[data-slot="state-block"][data-kind="refused"]');
+  await expect(block).toContainText('Verify your identity first');
+  await expect(block).toContainText('You need a verified account to do this.');
+  await expect(block.getByText('Verify now')).toBeVisible();
+  await expect(page.locator('[data-slot="state-block"]')).toHaveCount(1);
+  const money = await page.getByTestId('if-money').innerText();
+  // The words carry a short reference a person can quote to support (J-portfolio-03 #8), never the raw code.
+  await expect(block).toContainText('Ref VER-1');
+  expect(money).not.toMatch(/kyc|denied/i);
+  await shootBoth(page, 'portfolio-not-verified');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await snap(page, 'portfolio-not-verified-390x844');
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Activity: the same plain words, and no "could not be read" line for the dormancy notices.
+  await open(page, ALL);
+  const refused = page.locator('[data-slot="state-block"][data-kind="refused"]');
+  await expect(refused).toContainText('Verify your identity first');
+  await expect(page.getByTestId('dormancy-notice')).toHaveCount(0);
+  const activity = await page.getByTestId('if-money').innerText();
+  expect(activity).not.toMatch(/could not be read|kyc|denied/i);
+  await shootBoth(page, 'activity-not-verified');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await snap(page, 'activity-not-verified-390x844');
+});
+
 test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { bank: { 'portfolio.summary': null, 'spaces.list': null } });
   await open(page);

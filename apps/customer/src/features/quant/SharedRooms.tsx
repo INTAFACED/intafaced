@@ -1,9 +1,10 @@
 // volt-room: /quant/shared
 import { QUANT_TEAM_SHARED } from '@intafaced/contracts/quant-team-procedures';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
 import { useRef, useState } from 'react';
 import { ShortReference } from '../../shared/ShortReference';
-import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { FirstState, RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { Share2 } from 'lucide-react';
 import { useResource } from '../../shared/resource';
 import { ReadView, RecordTable } from '../../shared/record/record-parts';
 import { preservePaperHref } from '../more';
@@ -37,7 +38,12 @@ export function SharedRoom({ paper }: { paper: boolean }) {
                     <p className="lt-hint">{t('yourIdHint')}</p>
                   </div>
                   {data.strategies.length === 0 ? (
-                    <EmptyState title={t('noShared')} />
+                    <FirstState
+                      icon={<Share2 size={24} />}
+                      title={t('noShared')}
+                      body={t('noSharedBody')}
+                      action={{ label: t('noSharedAction'), href: '/quant/library' }}
+                    />
                   ) : (
                     <RecordTable label={t('sharedTitle')} headers={[t('name'), t('version'), t('permission'), t('owner'), '']}>
                       {data.strategies.map((row) => (

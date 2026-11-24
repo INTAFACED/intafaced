@@ -56,7 +56,7 @@ export function ChangelogPage() {
           ) : read.status === 'failed' ? (
             <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
           ) : (
-            <ChangelogList entries={read.data} language={requestedLocale} />
+            <ChangelogList entries={read.data} language={requestedLocale} unfiltered={area === null && !breaking} />
           )
         }
         footer={
@@ -86,7 +86,7 @@ export function UpcomingPage() {
           ) : read.status === 'failed' ? (
             <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
           ) : (
-            <UpcomingView data={read.data} language={requestedLocale} />
+            <UpcomingView data={read.data} language={requestedLocale} first />
           )
         }
         footer={

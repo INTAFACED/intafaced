@@ -388,28 +388,7 @@
 }
 
 /* A person with no business account yet: one calm state, and header actions switched off with their reason. */
-.pfo-nobiz {
-  display: grid;
-  justify-items: start;
-  gap: var(--if-space-3);
-  padding: var(--if-space-10) var(--if-space-6);
-  border: 1px solid var(--if-line);
-  border-radius: var(--if-r-lg);
-  background: var(--if-panel);
-  color: var(--if-fg);
-}
-.pfo-nobiz h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 500;
-}
-.pfo-nobiz p {
-  margin: 0;
-  max-width: 56ch;
-  font-size: var(--if-text-base);
-  line-height: 1.55;
-  color: var(--if-fg-2);
-}
+/* .pfo-nobiz holds the kit's first state (FirstState), which draws it; the class stays as the crawl's marker. */
 .pfo-action-off {
   display: grid;
   justify-items: end;

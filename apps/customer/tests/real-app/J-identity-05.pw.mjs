@@ -733,10 +733,10 @@ test.describe('recovery keys', () => {
     // A one-key plan: the number of keys that must sign, not a screenshot tolerance.
     const oneKey = 1;
     // Where each service declares its recovery doors: the bank's door lists each call by its path, identity's router
-    // declares each as a procedure.
+    // declares each as a procedure or mounts it from its record.
     const RECOVERY_ROUTERS = [
       ['bank', 'crates/svc-bank/src/door/calls.rs', /^\s+path: "recovery\./gm],
-      ['identity', 'services/svc-identity/src/recovery-keys-router.ts', /^\s+\w+:\s*\w*[pP]rocedure\b/gm],
+      ['identity', 'services/svc-identity/src/recovery-keys-router.ts', /^\s+\w+:\s*(?:\w*[pP]rocedure\b|mountRecord\()/gm],
     ];
     const RECOVERY_DOORS = [
       ['bank', 'query', 'recovery.estates', undefined, 'bank.recovery_staff_forbidden'],

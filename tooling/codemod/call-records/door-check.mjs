@@ -40,9 +40,14 @@ const REFINES = {
   "(rule) => rule.mode === 'delayed' || rule.delayMinutes === null": 'only_delayed_has_delay',
   'v=>!(v.course&&v.certificate)': 'course_or_certificate',
 };
-// A refine's source as tsc emits it may differ from tsx's only in spacing, and a one-parameter arrow's parentheses
-// (`(v) => ...` from prettier, `v => ...` from esbuild): compare without either.
-const squash = (s) => s.replace(/\s+/g, '').replace(/^\(([A-Za-z_$][\w$]*)\)=>/, '$1=>');
+// A refine's source as tsc emits it may differ from tsx's only in spacing, a one-parameter arrow's parentheses
+// (`(v) => ...` from prettier, `v => ...` from esbuild), and the semicolon a block body's last statement ends with
+// (tsc writes `=== day;\n}`, esbuild `===day}`): compare without any of them.
+const squash = (s) =>
+  s
+    .replace(/\s+/g, '')
+    .replace(/^\(([A-Za-z_$][\w$]*)\)=>/, '$1=>')
+    .replace(/;}/g, '}');
 const REFINE_BY = new Map(Object.entries(REFINES).map(([src, id]) => [squash(src), id]));
 /** A door's own names for its refines (its recorder's table, door-refine.mjs), read beside the ones named above. */
 export const knowRefines = (names) => {

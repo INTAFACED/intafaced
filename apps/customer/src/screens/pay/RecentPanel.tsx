@@ -153,57 +153,60 @@ export function RecentPanel() {
         ) : null}
       </section>
 
-      <section className="lt-stack" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
-        <h2 id="pay-recent-recipients">{copy.t('recipientsTitle')}</h2>
-        {loading ? (
-          <div role="status" aria-busy="true" aria-label={copy.t('recipientsTitle')}>
-            <Skeleton shape="keys" count={1} />
-          </div>
-        ) : recipients.length > 0 ? (
-          <>
-            <ul className="lt-actions" aria-label={copy.t('recipientsLabel')}>
-              {recipients.map((person) => (
-                <li key={person.to}>
-                  <a
-                    className="lt-button lt-button-secondary"
-                    href={requestPath({ to: person.to })}
-                    aria-label={copy.t('payAgain', { who: person.label })}
-                    data-testid="recent-recipient"
-                  >
-                    {person.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-            <p className="lt-hint">{copy.t('recipientsNote')}</p>
-          </>
-        ) : failed ? (
-          <p className="lt-hint">{copy.t('loadFailed')}</p>
-        ) : unnamed.length > 0 ? (
-          <>
-            <ul className="lt-rows" aria-label={copy.t('recipientsLabel')}>
-              {unnamed.map((item) => (
-                <li key={item.id} data-testid="recent-unnamed-send">
-                  <span className="lt-title-row">
-                    <span className="lt-lines">
-                      <span>{copy.t('recipientUnknown')}</span>
-                      <span className="lt-hint" lang="zxx">
-                        {stamp(item.postedAt, timeZone, now)}
-                      </span>
-                    </span>
-                    <a className="lt-link" href={receiptHref(item)}>
-                      {copy.t('receipt')}
+      {/* A refused read is said once, in its own words, under Recent payments; nothing more is said about it here. */}
+      {feed.status === 'refused' ? null : (
+        <section className="lt-stack" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
+          <h2 id="pay-recent-recipients">{copy.t('recipientsTitle')}</h2>
+          {loading ? (
+            <div role="status" aria-busy="true" aria-label={copy.t('recipientsTitle')}>
+              <Skeleton shape="keys" count={1} />
+            </div>
+          ) : recipients.length > 0 ? (
+            <>
+              <ul className="lt-actions" aria-label={copy.t('recipientsLabel')}>
+                {recipients.map((person) => (
+                  <li key={person.to}>
+                    <a
+                      className="lt-button lt-button-secondary"
+                      href={requestPath({ to: person.to })}
+                      aria-label={copy.t('payAgain', { who: person.label })}
+                      data-testid="recent-recipient"
+                    >
+                      {person.label}
                     </a>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="lt-hint">{copy.t('recipientUnknownNote')}</p>
-          </>
-        ) : (
-          <EmptyState title={copy.t('recipientsEmptyTitle')} body={copy.t(hasMore ? 'recipientsOlderBody' : 'recipientsEmptyBody')} />
-        )}
-      </section>
+                  </li>
+                ))}
+              </ul>
+              <p className="lt-hint">{copy.t('recipientsNote')}</p>
+            </>
+          ) : failed ? (
+            <p className="lt-hint">{copy.t('loadFailed')}</p>
+          ) : unnamed.length > 0 ? (
+            <>
+              <ul className="lt-rows" aria-label={copy.t('recipientsLabel')}>
+                {unnamed.map((item) => (
+                  <li key={item.id} data-testid="recent-unnamed-send">
+                    <span className="lt-title-row">
+                      <span className="lt-lines">
+                        <span>{copy.t('recipientUnknown')}</span>
+                        <span className="lt-hint" lang="zxx">
+                          {stamp(item.postedAt, timeZone, now)}
+                        </span>
+                      </span>
+                      <a className="lt-link" href={receiptHref(item)}>
+                        {copy.t('receipt')}
+                      </a>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="lt-hint">{copy.t('recipientUnknownNote')}</p>
+            </>
+          ) : (
+            <EmptyState title={copy.t('recipientsEmptyTitle')} body={copy.t(hasMore ? 'recipientsOlderBody' : 'recipientsEmptyBody')} />
+          )}
+        </section>
+      )}
     </div>
   );
 }

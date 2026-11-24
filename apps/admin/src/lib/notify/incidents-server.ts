@@ -2,7 +2,6 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { actionApprovalSchema } from '@intafaced/contracts';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -44,6 +43,7 @@ import {
   NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE,
 } from '@intafaced/contracts/notify-status-page-procedures';
 import { IDENTITY_ACTION_APPROVAL_PROPOSE, IDENTITY_ACTION_APPROVAL_APPROVE } from '@intafaced/contracts/identity-action-approval-records';
+import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
 
 /**
  * The incident desk as the signed-in founder. svc-notify holds the incidents (`notify.operatorNotices`, drafts included),
@@ -100,8 +100,8 @@ async function postmortemsOf(ctx: FounderCallContext, notices: readonly Operator
  */
 export async function loadPublishApprovals(ctx: FounderCallContext): Promise<Part<readonly PublishApproval[]>> {
   const [pending, mine] = await Promise.all([
-    founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
-    founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
+    founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_LIST, { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
+    founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_LIST, { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
   ]);
   if (pending.kind !== 'ok') return partFrom(pending, () => [], IDENTITY);
   if (mine.kind !== 'ok') return partFrom(mine, () => [], IDENTITY);

@@ -1,26 +1,23 @@
 import { createApiClient, parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
-import { z } from 'zod';
 import { bankWriteForReview } from './contracts';
 import { settleRefusal } from './money-refusal-copy';
 import type { ActionSpec } from './components';
 
-/** The name a spec's call goes by: its record's path, or the name it gives while it has no record. */
-export const writeName = (spec: ActionSpec): string => (spec.record ? spec.record.path : spec.procedure);
+/** The name a spec's call goes by: its record's path. */
+export const writeName = (spec: ActionSpec): string => spec.record.path;
 
 /**
- * Sends one reviewed bank write, the one way every write dialog does: by its record when it has one (`api.call`), else by
- * name, and either way the answer is held to what was reviewed (`bankWriteForReview`) and to the spec's own check.
+ * Sends one reviewed bank write, the one way every write dialog does: by its record (`api.call`), with the answer held to
+ * what was reviewed (`bankWriteForReview`) and to the spec's own check.
  */
 export function sendWrite(
-  api: Pick<ApiClient, 'call' | 'mutate'>,
+  api: Pick<ApiClient, 'call'>,
   spec: ActionSpec,
   sent: Record<string, unknown>,
   input: Record<string, unknown>,
 ): Promise<ApiResult<unknown>> {
   const verified = (data: unknown) => spec.verifyOutcome?.(data, input) ?? true;
-  if (spec.record)
-    return api.call(spec.record, sent, { accept: parsesAs(bankWriteForReview(spec.record.path, input, z.unknown()).refine(verified)) });
-  return api.mutate('bank', spec.procedure, sent, bankWriteForReview(spec.procedure, input).refine(verified));
+  return api.call(spec.record, sent, { accept: parsesAs(bankWriteForReview(spec.record.path, input).refine(verified)) });
 }
 
 /** The wire answer of a tRPC mutation. */

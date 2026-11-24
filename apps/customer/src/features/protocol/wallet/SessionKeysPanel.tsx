@@ -4,6 +4,7 @@ import { Button } from '@intafaced/ui/lit';
 import { DataTable, Dialog, EmptyState, Failure, Field, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
+import { useReveal } from '../../../shared/reveal';
 import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { isRegionBlocked } from '../region';
@@ -367,6 +368,9 @@ function NewKeyDialog({
   const [cap, setCap] = useState('0');
   const [hours, setHours] = useState('24');
   const [invalid, setInvalid] = useState<string | null>(null);
+  const said = invalid ?? problem;
+  // Why the key is refused lands under the form's last field, below a short window's fold: brought into view as it arrives.
+  const reveal = useReveal<HTMLParagraphElement>(said ?? '', { onMount: true });
   function submit(event: FormEvent) {
     event.preventDefault();
     const list = selectors
@@ -410,7 +414,11 @@ function NewKeyDialog({
           value={hours}
           onChange={(event) => setHours(event.target.value)}
         />
-        {(invalid ?? problem) && <p role="alert">{invalid ?? problem}</p>}
+        {said && (
+          <p ref={reveal} role="alert">
+            {said}
+          </p>
+        )}
         <div className="lt-actions">
           <Button tone="primary" type="submit" disabled={busy}>
             {t('grant')}

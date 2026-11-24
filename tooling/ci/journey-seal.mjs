@@ -2403,9 +2403,18 @@ export const REVIEWED = 'CI review';
  * merges on its seal, so only its seal is read when it turns; arming runs merge-seal.yml afresh (`auto_merge_enabled`),
  * and so does every push and edit. (Failure it prevents: at 02:45 UTC on
  * 9 Nov 2026, 29 re-checks were queued, each of which can hold a runner up to 25 minutes waiting out a running seal,
- * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.)
+ * for pull requests that no merge was waiting on; INTAFACED/project-state#1574 item 4.) One exception, sealedOnReview.
  */
 export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefined;
+
+/**
+ * After the CI review, a ready pull request is sealed armed or not: a journey build arms only once its proof read is in
+ * (project-state BUILDER.md), and that read lands after every check T3's PR watch was waiting for, so nothing woke the
+ * builder; the required `CI merge seal` appearing is a wake. One seal per reviewed head, as the review runs only on a
+ * ready one. (Failure it prevents: 10 builds sat green and unarmed 12 to 62 minutes until the owed-work check woke
+ * them, 23 to 24 Nov 2026, #10625 among them; INTAFACED/project-state#3978.)
+ */
+export const sealedOnReview = (finished, p) => finished === REVIEWED && p?.draft !== true;
 
 /**
  * The open pull requests a re-check re-seals, of those with auto-merge armed (armed): after CI or the CI review finished
@@ -2414,7 +2423,7 @@ export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefine
  * judges).
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
-  const live = (pulls ?? []).filter(armed);
+  const live = (pulls ?? []).filter((p) => armed(p) || sealedOnReview(finished, p));
   if (finished === 'CI' || finished === REVIEWED || finished === MONEY)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });

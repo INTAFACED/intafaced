@@ -148,6 +148,7 @@ const copy = defineCopy('money.business-payouts', {
   railCrypto: 'No chain rail is connected here (rail.crypto): your own wallet sends the signed run. INTAFACED holds no vault.',
   joinFor: 'Add your details for {name}',
   joinClosed: 'This link was already used or the business is closed.',
+  joinNoTokenTitle: 'Open your onboarding link',
   joinNoToken:
     'This page opens from an onboarding link. A business that pays you through INTAFACED makes one in its Business room and sends it to you; open that link to add your payout details here.',
   joinBack: 'Go to Business',
@@ -967,14 +968,12 @@ export function ContractorJoinRoom({ search }: { search: string }) {
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, path);
   else if (!token)
+    // Nothing is wrong here: the page waits for its link, so it is the room's first state, not a refusal.
     state = {
-      kind: 'refused',
-      refusal: {
-        variant: 'refused',
-        title: t('joinTitle'),
-        body: t('joinNoToken'),
-        action: { label: t('joinBack'), href: '/bank/business' },
-      },
+      kind: 'empty',
+      title: t('joinNoTokenTitle'),
+      body: t('joinNoToken'),
+      action: { label: t('joinBack'), href: '/bank/business' },
     };
   else if (info.resource.status === 'failed')
     state = { kind: 'refused', refusal: { variant: 'refused', title: t('readFailedTitle'), body: info.resource.failure.message } };

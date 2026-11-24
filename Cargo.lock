@@ -1382,6 +1382,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-blueprint"
+version = "0.0.0"
+dependencies = [
+ "service-kit",
+ "url",
+]
+
+[[package]]
 name = "svc-ledger"
 version = "0.0.0"
 dependencies = [

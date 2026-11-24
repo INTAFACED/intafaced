@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { Button, Field, Loading } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import { useSession } from '../session';
 import { countryOptions } from '../public';
 import { useBankRecord } from './components';
@@ -67,6 +68,8 @@ export function CardOrderRoom() {
     />
   );
   if (catalogue.resource.status === 'loading') return room(<Loading />);
+  if (catalogue.resource.status === 'failed' && isVerifyFirst(catalogue.resource.failure))
+    return room(<VerifyFirstNote code={catalogue.resource.failure.code} />);
   if (catalogue.resource.status === 'failed') {
     return room(
       <div className="lt-stack">

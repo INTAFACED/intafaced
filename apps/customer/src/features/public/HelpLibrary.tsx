@@ -16,7 +16,10 @@ export function HelpLibraryNav() {
   const read = library.resource;
   return (
     <nav className="lt-stack" aria-label={t('libraryTitle')} data-testid="help-library">
-      <h2 lang={languageFor('libraryTitle')}>{t('libraryTitle')}</h2>
+      {/* With no topic made, a "Browse by topic" heading would head nothing: the one line below says so. */}
+      {read.status === 'ready' && read.data.categories.length === 0 ? null : (
+        <h2 lang={languageFor('libraryTitle')}>{t('libraryTitle')}</h2>
+      )}
       {read.status === 'loading' ? (
         <p className="lt-hint">{t('loadingLibrary')}</p>
       ) : read.status === 'failed' ? (

@@ -1,5 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { betaRoomList } from '../../../app/beta-volt';
+import { betaHidden } from '../../../app/feature-registry';
+import { rooms } from '../../../app/navigation';
+import { voltCount } from '../../../app/volt-count';
+import { appPath } from '../../../app/beta-links';
 import type { Entry } from './select';
 
 // Server rendering has no browser store or session.
@@ -10,6 +15,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 vi.mock('../../../features/session/session', () => ({ useSession: () => ({ session: null }) }));
 
 import { MarketsTable } from './MarketsTable';
+import { TopCards } from './TopCards';
 
 const entry = (base: string, last: string, change: string): Entry => ({
   market: {
@@ -88,5 +94,33 @@ describe('the markets table on the kit', () => {
       <MarketsTable label="Markets" entries={rows} mode="pro" sort={{ key: 'price', dir: 'desc' }} onSortChange={() => {}} />,
     );
     expect(html).toContain('<th data-col="price" data-testid="mkt-head--num" scope="col" data-align="end" aria-sort="descending">');
+  });
+});
+
+// The beta's build draws a link to a room it hides as nothing, with every word inside it (src/app/beta-links.ts).
+// With the beta's own room list, Pro's desk is hidden; a row must still name its pair, outside any link the beta drops.
+describe("the markets table and top cards in the beta's build", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const droppedLinks = (html: string) =>
+    [...html.matchAll(/<a [^>]*href="([^"]+)"/g)]
+      .map((match) => match[1]!)
+      .filter((href) => {
+        const path = appPath(href.replaceAll('&amp;', '&'));
+        return path !== undefined && betaHidden(path);
+      });
+
+  it('names every pair, in Pro, with no link the beta would drop', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(voltCount().rooms, rooms));
+    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(true); // the case the beta walk saw; when the desk joins Volt this test reads as the plain case
+    const table = renderToStaticMarkup(
+      <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
+    );
+    const cards = renderToStaticMarkup(<TopCards cards={[{ id: 'popular', entries: rows }]} mode="pro" onSeeAll={() => {}} />);
+    for (const html of [table, cards]) {
+      expect(droppedLinks(html)).toEqual([]);
+      expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
+      expect(html).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
+    }
+    expect(cards.match(/data-testid="mkt-card__row"/g)).toHaveLength(2);
   });
 });
