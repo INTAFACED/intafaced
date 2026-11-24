@@ -192,7 +192,7 @@ function dropState(r: DropRow, now: Date): DropView['state'] {
 
 export const claimKeyOf = (dropId: string, accountId: string) => `drop:${dropId}:${accountId}`;
 /** The reward intent's period for one drop: its key is then `drop:<dropId>:<account>`, the claim's own key. */
-export const dropPeriodOf = (dropId: string) => `drop:${dropId}`;
+const dropPeriodOf = (dropId: string) => `drop:${dropId}`;
 
 export interface DropServiceOptions {
   sql: Sql;
