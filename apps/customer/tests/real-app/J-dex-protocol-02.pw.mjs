@@ -1,7 +1,7 @@
 // World: restart
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { createPublicClient, createWalletClient, decodeEventLog, defineChain, http, parseAbi, parseUnits } from 'viem';
+import { createPublicClient, createWalletClient, decodeEventLog, defineChain, getAddress, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
@@ -693,8 +693,8 @@ test(`${J} #10 opens the approvals list and revokes the allowance: spender and a
   const row = approvals.getByRole('row').filter({ hasText: 'TEST Token A' });
   await expect(row).toHaveCount(1, UNBUILT);
   await expect(row.getByRole('cell').nth(0)).toContainText('TEST Token A');
-  await expect(row.getByRole('cell').nth(0)).toContainText(shortContract(TOKEN_A.address));
-  await expect(row.getByRole('cell').nth(1)).toHaveText(`Pool TESTA/TESTB · ${shortContract(spender)}`);
+  await expect(row.getByRole('cell').nth(0)).toContainText(shortContract(getAddress(TOKEN_A.address)));
+  await expect(row.getByRole('cell').nth(1)).toHaveText(`Pool TESTA/TESTB · ${shortContract(getAddress(spender))}`);
   await expect(row.getByRole('cell').nth(2)).toHaveText(`${shown(beforeAllowance, TOKEN_A.decimals, TOKEN_A.decimals)} TESTA`);
   await row.getByRole('button', { name: 'Revoke' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
