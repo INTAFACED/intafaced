@@ -130,11 +130,21 @@ function Season({ season }: { season: ProcedureOutput<typeof CAMPAIGNS_DROPS_ROO
               { label: t('seasonName'), value: <span data-testid="drop-season-name">{season.name}</span> },
               { label: t('seasonWindow'), value: t('seasonWindowValue', { start: when(season.startsAt), end: when(season.endsAt) }) },
               { label: t('seasonState'), value: t(season.state) },
-              {
-                label: t('points'),
-                value: <span data-testid="drop-season-points">{season.points}</span>,
-                note: t('pointsNote', { count: String(season.taskCampaigns) }),
-              },
+              season.pointsBlocker
+                ? {
+                    label: t('points'),
+                    value: (
+                      <span data-testid="drop-season-points" data-state="not_running" data-code={season.pointsBlocker}>
+                        {t('pointsNotRunning')} <code lang="zxx">{season.pointsBlocker}</code>
+                      </span>
+                    ),
+                    note: t('pointsBlocked'),
+                  }
+                : {
+                    label: t('points'),
+                    value: <span data-testid="drop-season-points">{season.points}</span>,
+                    note: t('pointsNote', { count: String(season.taskCampaigns) }),
+                  },
             ]}
           />
         )}

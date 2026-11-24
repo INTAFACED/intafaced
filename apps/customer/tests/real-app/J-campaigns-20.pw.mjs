@@ -6,7 +6,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn } from './desk.mjs';
 import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
-import { api, EDGE, journeyState, signUpInBrowser, stackUrl } from './stack.mjs';
+import { api, EDGE, journeyState, restartService, signUpInBrowser, stackUrl } from './stack.mjs';
 import { chainBalance, venueForThisFile } from './venue.mjs';
 import { chainReceipt, rewardFunds } from './reward-funds.mjs';
 import { campaignLauncher, connectWallet, myRewards, usdUnits, verifyBasic } from './campaign-desk.mjs';
@@ -18,8 +18,9 @@ const JOIN = process.env.JOURNEY_JOIN_URL ?? stackUrl('invitation');
 // One test per step, titled "J-campaigns-20 #<n>", run in order. Every visitor is signed out on a browser of their own.
 // #3's operators are the stack's two LOCAL TEST founders on the founder console's Waitlist waves room
 // (/more-ops/campaigns/waves): A asks for the release, B approves the same packet on their own console, A runs it. The wave size is the stack's labelled TEST value
-// (IDENTITY_WAITLIST_WAVE_SIZE, two, in tooling/profiles/test-owner-values/identity.json); the blank-size refusal
-// (drop.wave_unset, nobody released) is proved in svc-identity's waitlist and router tests, since the stack runs one value.
+// (IDENTITY_WAITLIST_WAVE_SIZE, two, in tooling/profiles/test-owner-values/identity.json). For the blank size, #3 first
+// restarts identity with it left blank (LOCAL_STACK_IDENTITY_WAVE_SIZE=off): a release refuses drop.wave_unset and nobody
+// is released; a plain restart puts the TEST value back.
 // #4-#6 are the drop room on the Customer app (/campaigns/drops): I sign up with the email I joined the waitlist with, the
 // two TEST founders make a TEST season and a TEST drop of three (A creates, B publishes, through svc-campaigns' operator
 // doors), and four friends claim alongside me. The drop has value: it names this run's TEST drop campaign, whose reward
@@ -124,33 +125,44 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
     await joinAs(p, `jc20-${who}-${tag}@local-test.invalid`);
     await p.context().close();
   };
-  // A rival joins after me and brings three friends, so they are ahead of me and my friends have someone to move me past
-  // (on a fresh stack I would otherwise be first already).
-  const rival = await visitor(browser);
-  await rival.goto('/waitlist');
-  const rivalCode = await joinAs(rival, `jc20-rival-${tag}@local-test.invalid`);
-  await rival.context().close();
-  for (const n of [1, 2, 3]) await bring(rivalCode, `rivalfriend${n}`);
-  expect((await standing(rivalCode)).rank).toBeLessThan((await standing(code)).rank);
+  // Three rivals join after me and bring one, two and three friends, so all three are ahead of me. Each friend of mine
+  // then ties the next rival up, and I joined first, so each one moves me past exactly that rival.
+  const rivals = [];
+  for (const k of [1, 2, 3]) {
+    const rival = await visitor(browser);
+    await rival.goto('/waitlist');
+    const rivalCode = await joinAs(rival, `jc20-rival${k}-${tag}@local-test.invalid`);
+    await rival.context().close();
+    for (let n = 1; n <= k; n++) await bring(rivalCode, `rival${k}friend${n}`);
+    rivals.push(rivalCode);
+  }
+  for (const rivalCode of rivals) expect((await standing(rivalCode)).rank).toBeLessThan((await standing(code)).rank);
 
   const page = await visitor(browser);
   await page.goto(`/waitlist?code=${code}`);
   let before = await shownRank(page);
   const start = before.rank;
   expect(start).toBeGreaterThan(1);
-  // Two friends at least; on a long-lived stack an earlier run may have left people waiting with friends of their own, so
-  // keep inviting (twenty-five at most) until I am first in the queue, which #3's wave then reaches.
-  for (let n = 1; n <= 2 || (before.rank > 1 && n <= 25); n++) {
+  const inviteOne = async (n) => {
     const friend = await visitor(browser);
     await friend.goto(`/waitlist?ref=${code}`);
     await expect(friend.getByTestId('waitlist-invited-by')).toContainText(code);
     await joinAs(friend, `jc20-friend${n}-${tag}@local-test.invalid`);
     await friend.context().close();
-    const after = await shownRank(page);
     await expect(page.getByTestId('waitlist-referred')).toHaveText(String(n));
-    expect(after.rank).toBeLessThanOrEqual(before.rank);
+    return shownRank(page);
+  };
+  // Each of my first three friends moves me up: past the rival with one, then two, then three friends.
+  for (const n of [1, 2, 3]) {
+    const after = await inviteOne(n);
+    expect(after.rank, `friend ${n} moves me up`).toBeLessThan(before.rank);
+    expect(after.rank).toBe((await standing(code)).rank);
     before = after;
   }
+  expect((await standing(rivals[2])).rank).toBeGreaterThan(before.rank);
+  // On a long-lived stack an earlier run may have left people waiting with more friends; keep inviting (twenty-five at
+  // most) until I am first in the queue, which #3's wave then reaches. On a fresh stack I already am.
+  for (let n = 4; before.rank > 1 && n <= 25; n++) before = await inviteOne(n);
   expect(before.rank).toBeLessThan(start);
   expect(before.rank).toBe(1);
 
@@ -185,6 +197,30 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
   const mine = await standing(code);
   // #2 brought friends until I was first in the queue, so this wave reaches me.
   expect(mine.rank).toBe(1);
+
+  // A blank wave size releases nobody: identity restarted with the size left blank refuses the release by name, before any
+  // approval is asked for, and nobody waiting is invited. A plain restart puts the TEST size back.
+  await restartService('identity', { LOCAL_STACK_IDENTITY_WAVE_SIZE: 'off' });
+  try {
+    const blank = data(
+      await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
+      'waitlist.waves.list',
+    );
+    expect(blank.waveSize).toBeNull();
+    const unset = await ctx.edge.mutate('identity', 'waitlist.waves.release', { waveNumber: waves.nextWave }, await pair.a.tradeOpsToken());
+    expect(unset.json?.error?.message ?? '').toContain('drop.wave_unset');
+    const still = data(
+      await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
+      'waitlist.waves.list',
+    );
+    expect(still).toMatchObject({ nextWave: waves.nextWave, waiting: waves.waiting, waves: waves.waves });
+    expect((await standing(code)).release).toBeNull();
+  } finally {
+    await restartService('identity', { LOCAL_STACK_IDENTITY_WAVE_SIZE: undefined });
+  }
+  expect(
+    data(await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()), 'waitlist.waves.list').waveSize,
+  ).toBe(2);
 
   // A release without a second person's approval refuses and invites nobody.
   const bare = await ctx.edge.mutate('identity', 'waitlist.waves.release', { waveNumber: waves.nextWave }, await pair.a.tradeOpsToken());
@@ -384,8 +420,16 @@ test(`${J} #4 the drop room shows my rank, wave, season points and each limited 
   await expect(page.getByTestId('drop-wave')).toHaveText(`Wave ${state('waveNumber').waveNumber}, released`);
   await expect(page.getByTestId('drop-rank')).toHaveText('—');
   await expect(page.getByTestId('drop-season-name')).toHaveText(`TEST season ${tag}`);
-  await expect(page.getByTestId('drop-season-points')).toHaveText('0');
-  await expect(page.getByTestId('drop-season')).toContainText('From 0 task campaigns in this season');
+  // Season points read "not running" with the blocker J-campaigns-15 names: the owner's points decision.
+  const points = page.getByTestId('drop-season-points');
+  await expect(points).toHaveAttribute('data-state', 'not_running');
+  await expect(points).toHaveAttribute('data-code', 'owner.decision');
+  await expect(points).toContainText('Not running');
+  await expect(page.getByTestId('drop-season')).toContainText(
+    'Waits for the owner to decide whether INTAFACED runs a points programme whose points have value.',
+  );
+  const roomRead = await (await api(me)).get('/api/campaigns/trpc/drops.room');
+  expect(roomRead.body?.result?.data?.season).toMatchObject({ id: season.id, pointsBlocker: 'owner.decision' });
   const row = dropRow(page, drop.id);
   await expect(row.getByTestId('drop-value')).toHaveText(`${DROP_VALUE} ${ASSET}`);
   await expect(row.getByTestId('drop-left')).toHaveText(`${DROP_COUNT} of ${DROP_COUNT}`);
@@ -493,6 +537,23 @@ test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the aud
   const page = await customer(browser);
   await signIn(page, me);
   await openRoom(page);
+  // What is stored before the presses: my claims and my rewards.
+  const mineApi = await api(me);
+  const stored = async () => {
+    const room = await mineApi.get('/api/campaigns/trpc/drops.room');
+    return {
+      drops: room.body?.result?.data?.drops?.map((d) => ({ id: d.id, remaining: d.remaining, mine: d.mine })),
+      rewards: await myRewards(me),
+    };
+  };
+  const storedBefore = await stored();
+  expect(storedBefore.drops?.length).toBeGreaterThan(0);
+  // Every write the page sends to campaigns while I press: only the two TGE claims, each refused.
+  const writes = [];
+  const onRequest = (req) => {
+    if (req.method() !== 'GET' && /\/api\/campaigns\//.test(req.url())) writes.push(req);
+  };
+  page.on('request', onRequest);
   const tge = page.getByTestId('drop-tge');
   await expect(page.getByTestId('tge-schedule')).toHaveText('Not set');
   await expect(page.getByTestId('tge-testnet-label')).toHaveText('Testnet');
@@ -505,8 +566,12 @@ test(`${J} #6 the TGE claim with a blank schedule refuses; mainnet shows the aud
   // Never "audited", never Base called the INTACHAIN mainnet.
   await expect(tge).not.toContainText(/audited/i);
   await expect(page.locator('body')).not.toContainText(/INTACHAIN mainnet/i);
-  // Nothing posted: the stored room reads the same after both presses.
-  const read = await (await api(me)).get('/api/campaigns/trpc/drops.room');
+  page.off('request', onRequest);
+  // Nothing posted: the only writes were the two refused TGE claims, and my claims, rewards and the schedule read the same.
+  expect(writes.map((r) => new URL(r.url()).pathname.split('/').pop())).toEqual(['tge.claim', 'tge.claim']);
+  for (const w of writes) expect((await w.response())?.status()).toBeGreaterThanOrEqual(400);
+  expect(await stored()).toEqual(storedBefore);
+  const read = await mineApi.get('/api/campaigns/trpc/drops.room');
   expect(read.body?.result?.data?.tge?.schedule).toBeNull();
   await stepPicture(page);
 });

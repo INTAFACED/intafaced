@@ -177,6 +177,7 @@ if (!db) {
         state: 'live',
         points: '0',
         taskCampaigns: 0,
+        pointsBlocker: 'owner.decision',
       });
       expect(room.drops).toEqual([
         expect.objectContaining({ id: open.id, state: 'open', remaining: 1, count: 2, mine: expect.objectContaining({ dropId: open.id }) }),

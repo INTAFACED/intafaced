@@ -14,7 +14,7 @@ import type {
   SeasonView,
   TgeSchedule,
 } from '@intafaced/contracts/campaigns-drops';
-import { CAMPAIGN_STATES, type ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGN_STATES, PARKED_CAMPAIGN_TYPES, type ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
 import { campaignLimitsSchema } from '@intafaced/contracts/campaigns-vouchers';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { ELIGIBILITY_REFUSAL, effectiveState, eligibilityOf, type CampaignService } from './campaigns.js';
@@ -370,6 +370,8 @@ export class DropService {
           // No task campaign feeds a season in this version: the sum over zero reward records.
           points: '0',
           taskCampaigns: 0,
+          // Season points do not run while the points type waits for the owner (J-campaigns-15's blocker).
+          pointsBlocker: PARKED_CAMPAIGN_TYPES.includes('points') ? 'owner.decision' : null,
         }
       : null;
     const drops: DropView[] = dropRows.map((r) => {
@@ -419,7 +421,7 @@ export class DropService {
         }
         if (state === 'sold_out') throw new CampaignsError('drop.sold_out', 'This drop is sold out');
         // A drop with value: its campaign is locked after the drop, so its budget and limits cannot move under us.
-        const value = drop.kind === 'value' ? await this.valueRoom(tx, drop, input.accountId, rulesRead) : null;
+        const value = drop.kind === 'value' ? await this.valueRoom(tx, { drop, accountId: input.accountId, rulesRead }) : null;
         await tx`
           INSERT INTO campaigns.drop_claims (claim_key, drop_id, account_id, kind)
           VALUES (${key}, ${input.dropId}, ${input.accountId}, ${drop.kind})`;
@@ -477,7 +479,10 @@ export class DropService {
   }
 
   /** What one claim of a drop with value is owed, once its campaign has room for it; refuses by name otherwise. */
-  private async valueRoom(tx: Queryable, drop: DropRow, accountId: string, rulesRead: string | null): Promise<DropValue> {
+  private async valueRoom(
+    tx: Queryable,
+    { drop, accountId, rulesRead }: { drop: DropRow; accountId: string; rulesRead: string | null },
+  ): Promise<DropValue> {
     const [c] = DropCampaignRow.array().parse(
       await tx`
         SELECT id, type, state, starts_at, ends_at, reward_asset, reward_amount::text AS reward_amount, budget_asset,

@@ -126,6 +126,11 @@ export const seasonViewSchema = z.object({
   points: z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/),
   /** How many task campaigns feed the season. Zero means no points can accrue yet. */
   taskCampaigns: z.number().int().min(0),
+  /**
+   * Why season points are not running: `owner.decision` while the points campaign type is parked (J-campaigns-15: whether a
+   * points programme whose points have value runs). Null once points run.
+   */
+  pointsBlocker: z.literal('owner.decision').nullable(),
 });
 export type SeasonView = z.infer<typeof seasonViewSchema>;
 
