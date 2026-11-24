@@ -1,5 +1,6 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { EmptyState, Table, type TableColumn } from '@intafaced/ui';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
+import { UNKNOWN } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
@@ -8,6 +9,7 @@ import { LoadGate, SideBadge, TabHeader } from './HistoryTab';
 import { bpsToPct, isLive, stableOrder } from './model';
 import { tabsCopy } from './tabs-copy';
 import { pastCallCap } from './tabs-logic';
+import { RegionNote } from './notes';
 
 export function MarginCallsTab({ positions, calls }: { positions: Loadable<Position[]>; calls: Loadable<MarginCalls> }) {
   const { t } = tabsCopy.useCopy();
@@ -17,33 +19,33 @@ export function MarginCallsTab({ positions, calls }: { positions: Loadable<Posit
   const none = (p: Position) => (callOf(p) === undefined ? t('Calls not checked') : t('Calls none'));
   const time = (iso: string | undefined) => (iso === undefined ? null : dayTime(Date.parse(iso), timeZone));
 
-  const columns: TableColumn<Position>[] = [
-    { id: 'contract', header: t('Contract'), value: (p) => p.symbol },
-    { id: 'side', header: t('Side'), cell: (p) => <SideBadge side={p.side} /> },
+  const columns: Column<Position>[] = [
+    { key: 'contract', label: t('Contract'), cell: (p) => p.symbol },
+    { key: 'side', label: t('Side'), cell: (p) => <SideBadge side={p.side} /> },
     {
-      id: 'sequence',
-      header: t('Calls sequence'),
-      numeric: true,
+      key: 'sequence',
+      label: t('Calls sequence'),
+      align: 'end',
       cell: (p) => {
         const call = callOf(p);
-        return call ? String(call.sequence) : <span className="lt-muted">{none(p)}</span>;
+        return call ? String(call.sequence) : <span className="lt-quiet">{none(p)}</span>;
       },
     },
     {
-      id: 'health',
-      header: t('Calls health'),
-      numeric: true,
-      value: (p) => {
+      key: 'health',
+      label: t('Calls health'),
+      align: 'end',
+      cell: (p) => {
         const c = callOf(p);
-        return c ? `${bpsToPct(c.healthBps)}%` : null;
+        return c ? `${bpsToPct(c.healthBps)}%` : UNKNOWN;
       },
     },
-    { id: 'called', header: t('Calls called'), value: (p) => time(callOf(p)?.calledAt) },
-    { id: 'delivered', header: t('Calls delivered'), value: (p) => time(callOf(p)?.deliveredAt) },
+    { key: 'called', label: t('Calls called'), cell: (p) => time(callOf(p)?.calledAt) ?? UNKNOWN },
+    { key: 'delivered', label: t('Calls delivered'), cell: (p) => time(callOf(p)?.deliveredAt) ?? UNKNOWN },
   ];
 
   return (
-    <section aria-label={t('Calls heading')} className="flex flex-col">
+    <section aria-label={t('Calls heading')} className="lt-stack">
       <TabHeader title={t('Calls heading')} load={calls} staleAfterMs={STALE_AFTER_MS.positions * 2} />
       <LoadGate load={positions} thing={t('Thing positions')}>
         {(all) => {
@@ -53,17 +55,16 @@ export function MarginCallsTab({ positions, calls }: { positions: Loadable<Posit
               {() => (
                 <>
                   <Table
-                    label={t('Calls table')}
-                    density="dense"
+                    caption={t('Calls table')}
+                    mode="pro"
+                    dense
                     columns={columns}
                     rows={live}
-                    getRowId={(p) => p.id ?? `${p.symbol}:${p.timestamp}`}
-                    emptyState={<EmptyState size="inline" title={t('Calls empty')} />}
+                    rowKey={(p) => p.id ?? `${p.symbol}:${p.timestamp}`}
+                    empty={<RegionNote title={t('Calls empty')} />}
                   />
                   {pastCallCap(live.length, MARGIN_CALL_CAP) ? (
-                    <p className="m-0 px-3 py-2 text-xs text-fg-2">
-                      {t('Calls cap note', { cap: String(MARGIN_CALL_CAP), count: String(live.length) })}
-                    </p>
+                    <p className="lt-note">{t('Calls cap note', { cap: String(MARGIN_CALL_CAP), count: String(live.length) })}</p>
                   ) : null}
                 </>
               )}
