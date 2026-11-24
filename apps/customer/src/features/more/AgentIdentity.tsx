@@ -94,6 +94,7 @@ export function AssistantPanel() {
       <Button disabled={busy || !engine || !description.trim()} onClick={() => void draft()}>
         {t('draftIt')}
       </Button>
+      {engine && !description.trim() ? <p className="lt-muted">{t('draftHint')}</p> : null}
       {proposal ? (
         <section aria-label={t('proposalTitle')}>
           <h3>{t('proposalTitle')}</h3>
