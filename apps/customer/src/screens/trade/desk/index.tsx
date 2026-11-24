@@ -228,7 +228,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   return (
     <div data-testid="if-desk" data-market={market.symbol} data-preset={layout.preset} data-arranging={arranging ? 'true' : undefined}>
       <DeskTemplate
-        title={t('Spot desk')}
+        title={`${market.base}/${market.quote}`}
         mode="pro"
         state={READY}
         arrangement={arrangement}
