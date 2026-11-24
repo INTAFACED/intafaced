@@ -1,10 +1,11 @@
 import Fastify from 'fastify';
+import { createProtocolEscrowReader, parseContractEscrowTokens } from './contract-escrow.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { installP2pS2sRawBody, p2pInternalServiceOf } from './s2s-auth.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import {
@@ -50,6 +51,7 @@ import { parseAdContentRules } from './ad-content-rules.js';
 import { parsePostingThresholds } from './posting-eligibility.js';
 import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
+import { createLocalTestReferencePrices } from './local-test-reference.js';
 import { createIdentityContactReader, createTakeGate, unwiredContactReader } from './take-eligibility.js';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -205,9 +207,11 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     disputeSeconds: publishedDisputeSlaSeconds(env.P2P_DISPUTE_SLA_SECONDS),
     escalationRecheckSeconds: publishedDisputeEscalationRecheckSeconds(env.P2P_DISPUTE_ESCALATION_RECHECK_SECONDS),
   },
-  // No reference price source yet: floating offers are refused rather than
+  // No market reference source yet: floating offers are refused rather than
   // priced from a stale number. svc-trade owns pricing (§5.2) and supplies this
-  // when its mark-price surface lands.
+  // when its mark-price surface lands. A test stack may set a labelled TEST
+  // price per pair (local-test-reference.ts); unset, there is none, as in production.
+  referencePrices: createLocalTestReferencePrices(process.env),
 });
 
 // §0.9. Stage 1: self-only, refuses while any escrow is live, and names what
@@ -247,6 +251,13 @@ const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
+// RC-p2p-02: the contract escrow reads svc-protocol as the person of the request; blank owner values refuse by name.
+const contractEscrow = {
+  tokens: parseContractEscrowTokens(env.P2P_CONTRACT_ESCROW_TOKENS),
+  disputeWindowSeconds: env.P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS ?? null,
+  reader: env.PROTOCOL_URL ? createProtocolEscrowReader({ protocolUrl: env.PROTOCOL_URL }) : null,
+};
+
 export const appRouter = createP2pRouter(
   p2p,
   instruments,
@@ -263,6 +274,7 @@ export const appRouter = createP2pRouter(
     takeStepUp,
     releaseStepUp,
     instrumentStepUp,
+    contractEscrow,
     // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
     ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },

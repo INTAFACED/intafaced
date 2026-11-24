@@ -6,7 +6,17 @@
  * price at the tick size; with magnet on, the price snaps to that bar's open, high, low or close within the sensitivity.
  * The points are stored as bar times and decimal prices; the canvas only ever sees them re-planned for the current view.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import {
+  useAttributeChanges,
+  usePointerFollow,
+  useSeriesPrimitive,
+  useTouchAction,
+  type FollowContext,
+} from '../../../shared/chart-drawing';
+import { chartValue } from '../../../shared/chart-value';
+import { useSaveOnChange } from '../../../shared/device-save';
+import { useEventListener } from '../../../shared/outside';
 import type { Candle } from '../../../data/types';
 import type { ChartHost, ChartSeries } from '../chart-host';
 import { drawingsCopy } from './copy';
@@ -104,6 +114,8 @@ export const MAGNET_SENSITIVITY_DEFAULT = 8;
 const BRUSH_STEP_PX = 3;
 /** A press that travels more than this many pixels is a pan or a drag, never a click. */
 const PAN_SLOP_PX = 5;
+/** The marks the studies write on the chart element when they lay out their indicator panes. */
+const STUDY_PANE_MARKS = ['data-study-panes', 'data-study-pane-layout'] as const;
 
 type Translate = (key: string, vars?: Record<string, string>) => string;
 
@@ -358,7 +370,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     let price = priceFromNumber(raw, L.tickSize);
     if (price === null) return { refused: 'bad-tick' };
     if (L.magnet && L.sensitivity !== null && (box?.index ?? 0) === 0) {
-      const snapped = magnetSnap(barPrices(bar), localY, (p) => h.main.priceToCoordinate(Number(p)), L.sensitivity);
+      const snapped = magnetSnap(barPrices(bar), localY, (p) => h.main.priceToCoordinate(chartValue(p)), L.sensitivity);
       if (snapped !== null) price = snapped;
     }
     return { time: L.barTimes[index]!, price };
@@ -505,51 +517,50 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     refreshPrimitive();
   };
 
-  // Pointer work on the chart element: dragging a handle or the whole drawing, and brush strokes.
-  useEffect(() => {
-    const element = host?.element;
-    const chart = host?.chart;
-    if (!element || !chart) return;
-    type Drag =
-      | {
-          mode: 'handle' | 'middle';
-          id: string;
-          index: number | 'middle';
-          startTime: number;
-          startPrice: Decimal;
-          startPoints: Pt[];
-          startDoc: DrawingDoc;
-          pane: number;
-        }
-      | { mode: 'brush' };
-    let drag: Drag | null = null;
-    let downAt: { x: number; y: number } | null = null;
-    const local = (e: PointerEvent) => {
-      const r = element.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
-    };
-    const freeze = (on: boolean) => chart.applyOptions({ handleScroll: !on, handleScale: !on });
-
-    const finishBrush = () => {
-      const stroke = draftRef.current;
-      setDraft([]);
-      drag = null;
-      freeze(false);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      if (stroke.length >= 2) {
-        const L = latest.current;
-        const result = addDrawing(L.doc, makeDrawing(newId(), 'brush', stroke), L.limits);
-        applyResult(result);
-        setSelectedId(isRefused(result) ? null : (result.doc.drawings[result.doc.drawings.length - 1]?.id ?? null));
+  // Pointer work on the chart element: dragging a handle or the whole drawing, and brush strokes. Each element and chart
+  // starts with no gesture and no press.
+  type Drag =
+    | {
+        mode: 'handle' | 'middle';
+        id: string;
+        index: number | 'middle';
+        startTime: number;
+        startPrice: Decimal;
+        startPoints: Pt[];
+        startDoc: DrawingDoc;
+        pane: number;
       }
-      refreshPrimitive();
-    };
+    | { mode: 'brush' };
+  type Press = { drag: Drag | null; downAt: { x: number; y: number } | null };
+  type Gesture = FollowContext<ChartHost['chart'], Press>;
+  const local = (g: Gesture, e: PointerEvent) => {
+    const r = g.element.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const freeze = (g: Gesture, on: boolean) => g.owner.applyOptions({ handleScroll: !on, handleScale: !on });
 
-    function onMove(e: PointerEvent) {
-      const d = drag;
+  const finishBrush = (g: Gesture) => {
+    const stroke = draftRef.current;
+    setDraft([]);
+    g.session.drag = null;
+    freeze(g, false);
+    // The cancel listener stays until the next release or cancel, as it always has.
+    g.unfollow(['pointermove', 'pointerup']);
+    if (stroke.length >= 2) {
+      const L = latest.current;
+      const result = addDrawing(L.doc, makeDrawing(newId(), 'brush', stroke), L.limits);
+      applyResult(result);
+      setSelectedId(isRefused(result) ? null : (result.doc.drawings[result.doc.drawings.length - 1]?.id ?? null));
+    }
+    refreshPrimitive();
+  };
+
+  usePointerFollow<ChartHost['chart'], Press>(host?.element, host?.chart, {
+    session: () => ({ drag: null, downAt: null }),
+    onMove: (e, g) => {
+      const d = g.session.drag;
       if (!d) return;
-      const { x, y } = local(e);
+      const { x, y } = local(g, e);
       if (d.mode === 'brush') {
         const cap = latest.current.limits.brushPointCap;
         if (cap === null) return;
@@ -562,7 +573,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         draftRef.current = [...draftRef.current, at];
         if (draftRef.current.length >= cap) {
           setNotice(latest.current.t('Refused brush-cap-reached'));
-          finishBrush();
+          finishBrush(g);
           return;
         }
         refreshPrimitive();
@@ -600,47 +611,41 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       liveRef.current = next.doc;
       setLive(next.doc);
       refreshPrimitive();
-    }
-
+    },
     // A cancelled gesture (the browser takes a touch for scrolling) ends like a release, but commits nothing: the drag or the
     // stroke is dropped, the chart is unfrozen, and the press is forgotten so no later release places a point.
-    function onCancel() {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      freeze(false);
-      downAt = null;
+    onCancel: (_e, g) => {
+      g.unfollow();
+      freeze(g, false);
+      g.session.downAt = null;
       suppressClickRef.current = true;
-      if (drag?.mode === 'brush') draftRef.current = [];
-      drag = null;
+      if (g.session.drag?.mode === 'brush') draftRef.current = [];
+      g.session.drag = null;
       liveRef.current = null;
       setLive(null);
       refreshPrimitive();
-    }
-
-    function onUp() {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      freeze(false);
+    },
+    onUp: (_e, g) => {
+      g.unfollow();
+      freeze(g, false);
+      const drag = g.session.drag;
       if (!drag) return;
       if (drag.mode === 'brush') {
-        finishBrush();
+        finishBrush(g);
         return;
       }
       const moved = liveRef.current;
-      drag = null;
+      g.session.drag = null;
       if (moved) commitDoc(moved);
       refreshPrimitive();
-    }
-
-    const onDown = (e: PointerEvent) => {
+    },
+    onDown: (e, g) => {
       // A press starts a fresh gesture: a click that follows is only a placement if the pointer did not travel.
       suppressClickRef.current = false;
-      downAt = { x: e.clientX, y: e.clientY };
+      g.session.downAt = { x: e.clientX, y: e.clientY };
       if (e.button !== 0) return;
       const L = latest.current;
-      const { x, y } = local(e);
+      const { x, y } = local(g, e);
       if (isCursorTool(L.tool) && L.tool !== 'eraser') {
         const hit = hitAt(x, y);
         if (!hit || hit.handle === undefined) return;
@@ -655,7 +660,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         const pane = d.pane ?? 0;
         const at = pointAt(x, y, pane);
         if (isPointRefusal(at)) return;
-        drag = {
+        g.session.drag = {
           pane,
           mode: hit.handle === 'middle' ? 'middle' : 'handle',
           id: hit.id,
@@ -665,7 +670,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
           startPoints: d.points,
           startDoc: L.doc,
         };
-        freeze(true);
+        freeze(g, true);
       } else if (toolKind(L.tool)?.kind === 'brush') {
         if ((boxFor(y)?.index ?? 0) !== 0) {
           showRefusal('pane-not-allowed');
@@ -680,112 +685,75 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         suppressClickRef.current = true;
         draftRef.current = [at];
         brushPxRef.current = { x, y };
-        drag = { mode: 'brush' };
-        freeze(true);
+        g.session.drag = { mode: 'brush' };
+        freeze(g, true);
         refreshPrimitive();
       } else {
         return;
       }
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onCancel);
-    };
-
+      g.follow();
+    },
     // A click is taken on release, not from the chart's click event: the chart drops a click that follows another within
     // a moment, and a placed point must not depend on that. A pan or a drag is never a click.
-    const onAnyUp = (e: PointerEvent) => {
-      const pressed = downAt;
-      downAt = null;
+    onAnyUp: (e, g) => {
+      const pressed = g.session.downAt;
+      g.session.downAt = null;
       if (!pressed || e.button !== 0) return;
       if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) > PAN_SLOP_PX) suppressClickRef.current = true;
-      const { x, y } = local(e);
+      const { x, y } = local(g, e);
       handleClick(x, y);
-    };
+    },
     // A cancelled press is no click: nothing is left waiting for a release.
-    const onAnyCancel = () => {
-      downAt = null;
+    onAnyCancel: (_e, g) => {
+      g.session.downAt = null;
       suppressClickRef.current = true;
-    };
-    element.addEventListener('pointerdown', onDown);
-    window.addEventListener('pointerup', onAnyUp);
-    window.addEventListener('pointercancel', onAnyCancel);
-    return () => {
-      element.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointerup', onAnyUp);
-      window.removeEventListener('pointercancel', onAnyCancel);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      freeze(false);
-    };
-    // The handlers read the latest render through `latest`; only the chart and element identities matter here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host?.element, host?.chart, primitive]);
+    },
+    onStop: (g) => freeze(g, false),
+  });
 
   // While a drawing tool is active, the browser must not take a touch for scrolling: the drawing gets the gesture.
-  useEffect(() => {
-    const element = host?.element;
-    if (!element) return;
-    const before = element.style.touchAction;
-    if (!isCursorTool(tool)) element.style.touchAction = 'none';
-    return () => {
-      element.style.touchAction = before;
-    };
-  }, [host?.element, tool]);
+  useTouchAction(host?.element, isCursorTool(tool) ? null : 'none');
 
   // Pointer moves over the chart update the preview of a drawing being placed. They are read in the chart element's pixels,
   // like the clicks, so a preview on an indicator pane is read on that pane.
-  useEffect(() => {
-    const element = host?.element;
-    if (!element) return;
-    const onMovePointer = (e: PointerEvent) => {
-      const r = element.getBoundingClientRect();
-      cursorRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
-      if (draftRef.current.length > 0) refreshPrimitive();
-    };
-    const onLeave = () => {
-      cursorRef.current = null;
-      if (draftRef.current.length > 0) refreshPrimitive();
-    };
-    element.addEventListener('pointermove', onMovePointer);
-    element.addEventListener('pointerleave', onLeave);
-    return () => {
-      element.removeEventListener('pointermove', onMovePointer);
-      element.removeEventListener('pointerleave', onLeave);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host?.element]);
+  useEventListener<PointerEvent>(host?.element, 'pointermove', (e) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    cursorRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    if (draftRef.current.length > 0) refreshPrimitive();
+  });
+  useEventListener(host?.element, 'pointerleave', () => {
+    cursorRef.current = null;
+    if (draftRef.current.length > 0) refreshPrimitive();
+  });
 
   // The studies draw their indicator panes on the same host and mark the element when they do: each change gets the
-  // indicator panes' primitives attached again, so drawings on a pane come back with it.
-  useEffect(() => {
-    const element = host?.element;
-    if (!element || typeof MutationObserver === 'undefined') return;
-    const observer = new MutationObserver(() => refreshPrimitive());
-    observer.observe(element, { attributes: true, attributeFilter: ['data-study-panes', 'data-study-pane-layout'] });
-    return () => {
-      observer.disconnect();
-      for (const entry of panePrims.current.values()) {
-        try {
-          entry.series.detachPrimitive(entry.primitive);
-        } catch {
-          /* The series is already removed with its pane. */
-        }
+  // indicator panes' primitives attached again, so drawings on a pane come back with it. When the element goes, every
+  // pane's primitive is taken off.
+  useAttributeChanges(host?.element, STUDY_PANE_MARKS, refreshPrimitive, () => {
+    const prims = panePrims.current;
+    for (const entry of prims.values()) {
+      try {
+        entry.series.detachPrimitive(entry.primitive);
+      } catch {
+        /* The series is already removed with its pane. */
       }
-      panePrims.current.clear();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host?.element]);
+    }
+    prims.clear();
+  });
 
-  // The primitive is attached to the main series; a new main series (a chart style change) attaches it again.
-  useEffect(() => {
-    const main = host?.main;
-    if (!main) return;
-    primitive.bind(main);
-    main.attachPrimitive(primitive);
-    // The pane the drawings are drawn in, read from the library: the main series' pane, the price pane (0).
-    const element = host?.element as (HTMLElement & DrawnReadback) | undefined;
-    if (element) {
+  // The primitive is attached to the main series; a new main series (a chart style change) attaches it again. It is
+  // painted whenever what is drawn changes.
+  const tickSize = options.tickSize;
+  const scene = useMemo(
+    () => ({ doc, selectedId, tool, barTimes, tickSize, main: host?.main, magnet, textSize, textTone }),
+    [doc, selectedId, tool, barTimes, tickSize, host?.main, magnet, textSize, textTone],
+  );
+  useSeriesPrimitive<ChartSeries>(host?.main, host?.element, primitive, {
+    scene,
+    paint: refreshPrimitive,
+    onAttach: (el, main) => {
+      // The pane the drawings are drawn in, read from the library: the main series' pane, the price pane (0).
+      const element = el as HTMLElement & DrawnReadback;
       element.dataset.drawingsPane = String(main.getPane().paneIndex());
       // Read on demand (nothing is written per frame), so a check can measure what is drawn: each drawing's pane, its painted
       // lines, handles and texts in pixels from the chart's top left, and the height a price is drawn at on the price pane.
@@ -817,67 +785,46 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         const h = latest.current.host;
         return h ? paneBoxes(h).map(({ index, top, height }) => ({ index, top, height })) : [];
       };
-    }
-    return () => {
-      main.detachPrimitive(primitive);
-      if (element) {
-        delete element.dataset.drawingsPane;
-        delete element.readDrawnLines;
-        delete element.readPriceY;
-        delete element.readPaneBoxes;
-      }
-    };
-  }, [host?.main, host?.element, primitive]);
-
-  // Paint whenever what is drawn changes.
-  useEffect(() => {
-    refreshPrimitive();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, selectedId, tool, barTimes, options.tickSize, host?.main, magnet, textSize, textTone]);
+    },
+    onDetach: (el) => {
+      const element = el as HTMLElement & DrawnReadback;
+      delete element.dataset.drawingsPane;
+      delete element.readDrawnLines;
+      delete element.readPriceY;
+      delete element.readPaneBoxes;
+    },
+  });
 
   // Keyboard: Delete removes the selection, Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z move through history, Escape cancels a placement.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
-      // A dialog on top (the clear-all confirmation) owns the keys: nothing under it is deleted or undone.
-      if (document.querySelector('[role="alertdialog"], [role="dialog"]')) return;
-      const L = latest.current;
-      const mod = e.ctrlKey || e.metaKey;
-      if ((e.key === 'Delete' || e.key === 'Backspace') && L.selectedId) {
-        e.preventDefault();
-        removeById(L.selectedId);
-      } else if (mod && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) dispatch({ type: 'redo' });
-        else dispatch({ type: 'undo' });
-      } else if (mod && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        dispatch({ type: 'redo' });
-      } else if (e.key === 'Escape') {
-        if (draftRef.current.length > 0) {
-          setDraft([]);
-          refreshPrimitive();
-        } else {
-          setSelectedId(null);
-        }
+  useEventListener<KeyboardEvent>(typeof window === 'undefined' ? null : window, 'keydown', (e) => {
+    const target = e.target as HTMLElement | null;
+    if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    // A dialog on top (the clear-all confirmation) owns the keys: nothing under it is deleted or undone.
+    if (document.querySelector('[role="alertdialog"], [role="dialog"]')) return;
+    const L = latest.current;
+    const mod = e.ctrlKey || e.metaKey;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && L.selectedId) {
+      e.preventDefault();
+      removeById(L.selectedId);
+    } else if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) dispatch({ type: 'redo' });
+      else dispatch({ type: 'undo' });
+    } else if (mod && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      dispatch({ type: 'redo' });
+    } else if (e.key === 'Escape') {
+      if (draftRef.current.length > 0) {
+        setDraft([]);
+        refreshPrimitive();
+      } else {
+        setSelectedId(null);
       }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    }
+  });
 
   // Save each committed change to this device. A failed write is shown, never dropped.
-  const firstSave = useRef(true);
-  useEffect(() => {
-    if (firstSave.current) {
-      firstSave.current = false;
-      return;
-    }
-    setSaved(writeDoc(storage, storageKey, hist.present));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hist.present, storageKey]);
+  useSaveOnChange(hist.present, storageKey, (key, value) => writeDoc(storage, key, value), setSaved);
 
   const removeById = (id: string) => {
     const result = removeDrawing(latest.current.doc, id);

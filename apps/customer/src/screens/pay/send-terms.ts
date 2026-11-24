@@ -10,7 +10,7 @@ export type SendQuote = {
   spentToday: string;
   fee: string;
   feeBlocker: string | null;
-  /** The partner's fee on the move: absent when none is reported, null when the partner has not said ("not known"). */
+  /** The network fee on the move: "0" when it crosses no network, null when the partner has not said ("not known"). */
   networkFee?: string | null | undefined;
   withinPerTransfer: boolean;
   withinDaily: boolean;
@@ -28,7 +28,16 @@ export type SendTerms =
 export type TermsVerdict =
   | { kind: 'none' }
   | { kind: 'checking' }
-  | { kind: 'ok'; fee: string; networkFeeUnknown: boolean; perTransfer: string; daily: string; left: string; leftAfter: string }
+  | {
+      kind: 'ok';
+      fee: string;
+      /** The network fee as the bank states it: a figure ("0" when the move crosses no network), null "not known", undefined unstated. */
+      networkFee: string | null | undefined;
+      perTransfer: string;
+      daily: string;
+      left: string;
+      leftAfter: string;
+    }
   | { kind: 'unset' }
   | { kind: 'feeUnwired' }
   | { kind: 'overPayment'; limit: string }
@@ -84,7 +93,7 @@ export function termsVerdict(terms: SendTerms, amount: string | null): TermsVerd
   return {
     kind: 'ok',
     fee: quote.fee,
-    networkFeeUnknown: quote.networkFee === null,
+    networkFee: quote.networkFee,
     perTransfer: quote.perTransferLimit,
     daily: quote.dailyLimit,
     left: formatAmount(left),

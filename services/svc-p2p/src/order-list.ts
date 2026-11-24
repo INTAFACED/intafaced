@@ -15,9 +15,9 @@
  * order types depend on a chain order type outside this lane and are not
  * offered here.
  */
+import { DISPLAY_STATUSES, ORDER_TABS } from '@intafaced/contracts/p2p-procedures';
 import type { TradeStatus } from './state.js';
 
-export const ORDER_TABS = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
 export type OrderTab = (typeof ORDER_TABS)[number];
 
 export const TAB_STATUSES: Record<OrderTab, readonly TradeStatus[]> = {
@@ -33,17 +33,6 @@ export function tabOf(status: TradeStatus): OrderTab {
   throw new Error(`order-list: unknown trade status ${String(status)}`);
 }
 
-export const DISPLAY_STATUSES = [
-  'waiting_for_escrow',
-  'waiting_for_buyer_to_pay',
-  'waiting_for_seller_to_release',
-  'appealing',
-  'completed',
-  'completed_by_dispute_ruling',
-  'cancelled',
-  'cancelled_by_timeout',
-  'cancelled_by_dispute_ruling',
-] as const;
 export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
 
 export function displayStatus(trade: { status: TradeStatus; resolutionReason: string | null }): DisplayStatus {

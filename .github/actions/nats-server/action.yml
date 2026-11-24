@@ -1,0 +1,51 @@
+name: nats-server binary
+description: >-
+  The one way a CI job gets nats-server: a pinned release, checked by SHA-256, kept in the Actions cache so only a
+  cache miss reaches the network. Every job that needs NATS takes the binary from here and never pulls the nats image
+  from Docker Hub, whose pulls timed out under shard load (#7239, run 42172999976: two shards sent no report).
+
+inputs:
+  path:
+    description: Where to put the executable.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore the pinned nats-server
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/nats-server-cache
+        # Keyed on this file, which holds the version and checksum, so a new pin is a new cache entry.
+        key: nats-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/nats-server/action.yml') }}
+
+    - name: Fetch the pinned nats-server on a cache miss
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        VER=2.10.24
+        SHA256=ee6500f364e3a741b496ae0296c04f2a9d53bbaabac457104ac74596b4a59d85 # SHA256SUMS of the v2.10.24 release
+        dir="$RUNNER_TEMP/nats-server-cache"
+        rm -rf "$dir" && mkdir -p "$dir"
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dir/nats.tgz" \
+          "https://github.com/nats-io/nats-server/releases/download/v${VER}/nats-server-v${VER}-linux-amd64.tar.gz"
+        echo "${SHA256}  $dir/nats.tgz" | sha256sum -c -
+        tar -xzf "$dir/nats.tgz" -C "$dir" --strip-components=1 "nats-server-v${VER}-linux-amd64/nats-server"
+        rm "$dir/nats.tgz"
+
+    - name: Keep it for the next job
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/nats-server-cache
+        key: ${{ steps.restore.outputs.cache-primary-key }}
+
+    - name: Put it in place
+      shell: bash
+      env:
+        DEST: ${{ inputs.path }}
+      run: |
+        install -m 0755 "$RUNNER_TEMP/nats-server-cache/nats-server" "$DEST"
+        "$DEST" --version

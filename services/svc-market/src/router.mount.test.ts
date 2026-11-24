@@ -8,7 +8,8 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
-import { createMarketRouter, reviewPublicOut, reviewedListingOut } from './router.js';
+import { marketPublicReviewSchema, marketReviewedListingSchema } from '@intafaced/contracts/market-procedures';
+import { createMarketRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { userCopy } from './user-copy.js';
 import {
@@ -135,7 +136,7 @@ function stubVendors(overrides: Partial<VendorService> = {}): VendorService {
     listedVendors: vi.fn(async () => [publicRow]),
     listingEligibility: vi.fn(async () => ({ vendorId: VENDOR, listed: true })),
     ...overrides,
-  } as unknown as VendorService;
+  } as VendorService;
 }
 
 describe('svc-market mount — perpetual proposal authority', () => {
@@ -336,7 +337,7 @@ describe('svc-market mount — who may take a listing slot', () => {
       claimSlot: vi.fn(async () => {
         throw new MarketError('Stake to earn a slot', 'market.stake_required');
       }),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     await expect(createMarketRouter(stakeRequired).createCaller(signed()).claimSlot({ ref: 'l' })).rejects.toMatchObject({
       code: 'FORBIDDEN',
       cause: { code: 'market.stake_required' },
@@ -346,7 +347,7 @@ describe('svc-market mount — who may take a listing slot', () => {
       claimSlot: vi.fn(async () => {
         throw new MarketError('Every slot is in use', 'market.slots_exhausted');
       }),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     await expect(createMarketRouter(exhausted).createCaller(signed()).claimSlot({ ref: 'l' })).rejects.toMatchObject({
       code: 'CONFLICT',
       cause: { code: 'market.slots_exhausted' },
@@ -362,7 +363,7 @@ describe('svc-market mount — who may take a listing slot', () => {
       claimSlot: vi.fn(async () => {
         throw new MarketError('Stake gate unavailable (500)', 'market.stake_unavailable');
       }),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     await expect(createMarketRouter(down).createCaller(signed()).claimSlot({ ref: 'l' })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
       cause: { code: 'market.stake_unavailable' },
@@ -494,7 +495,7 @@ describe('svc-market mount — who may vet', () => {
         assertApplicationsListLimit(opts?.limit);
         return [];
       },
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     const operator = principal({ userId: OP, sub: OP, scopes: ['market:ops'] });
     const caller = createMarketRouter(vendors).createCaller(signed(operator));
     await expect(caller.listApplications()).rejects.toMatchObject({
@@ -514,7 +515,7 @@ describe('svc-market mount — who may vet', () => {
         assertHistoryLimit(limit);
         return [];
       },
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     const operator = principal({ userId: OP, sub: OP, scopes: ['market:ops'] });
     const caller = createMarketRouter(vendors).createCaller(signed(operator));
     await expect(caller.history({ vendorId: VENDOR })).rejects.toMatchObject({
@@ -566,7 +567,7 @@ describe('svc-market mount — the public marketplace', () => {
   it('strips anything the service returns beyond the four public fields', async () => {
     const leaky = stubVendors({
       publicProfile: vi.fn(async () => ({ ...publicRow, userId: USER, status: 'approved', tier: 'Sovereign' })),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     const profile = await createMarketRouter(leaky).createCaller(anonymous()).profile({ vendorId: VENDOR });
     expect(Object.keys(profile).sort()).toEqual(['createdAt', 'description', 'displayName', 'id']);
   });
@@ -577,7 +578,7 @@ describe('svc-market mount — the public marketplace', () => {
    * enumerate who an operator threw off the marketplace.
    */
   it('answers NOT_FOUND for a vendor who is not listed, whatever the reason', async () => {
-    const hidden = stubVendors({ publicProfile: vi.fn(async () => null) } as unknown as Partial<VendorService>);
+    const hidden = stubVendors({ publicProfile: vi.fn(async () => null) } as Partial<VendorService>);
     await expect(createMarketRouter(hidden).createCaller(anonymous()).profile({ vendorId: VENDOR })).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
@@ -593,7 +594,7 @@ describe('svc-market mount — the public marketplace', () => {
       publicProfile: vi.fn(async () => {
         throw new MarketError('Stake gate unavailable (500)', 'market.stake_unavailable');
       }),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     await expect(createMarketRouter(down).createCaller(anonymous()).profile({ vendorId: VENDOR })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
       cause: { code: 'market.stake_unavailable' },
@@ -603,7 +604,7 @@ describe('svc-market mount — the public marketplace', () => {
   it('serves the paged directory with its resume cursor to a caller with no token at all', async () => {
     const vendors = stubVendors({
       listedVendorsPage: vi.fn(async () => ({ vendors: [{ ...publicRow, userId: USER }], nextCursor: VENDOR })),
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     const caller = createMarketRouter(vendors).createCaller(anonymous());
     await expect(caller.listedPage({ limit: 2, cursor: VENDOR })).resolves.toEqual({ vendors: [publicRow], nextCursor: VENDOR });
     expect(vendors.listedVendorsPage).toHaveBeenCalledWith({ limit: 2, cursor: VENDOR, signal: undefined });
@@ -622,7 +623,7 @@ describe('svc-market mount — the public marketplace', () => {
         assertListedVendorsListLimit(opts?.limit);
         return [publicRow];
       },
-    } as unknown as Partial<VendorService>);
+    } as Partial<VendorService>);
     const caller = createMarketRouter(vendors).createCaller(anonymous());
     await expect(caller.listed()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -1328,7 +1329,7 @@ describe('svc-market mount — listings array and public reviews', () => {
     const caller = mount().createCaller(anonymous());
     const reply = await caller.listings({ limit: 50 });
     expect(Array.isArray(reply)).toBe(true);
-    expect(z.array(reviewedListingOut).parse(reply)).toEqual(reply);
+    expect(z.array(marketReviewedListingSchema).parse(reply)).toEqual(reply);
     expect(reply.map((row) => row.id)).toEqual([earlier.id, later.id]);
     // Both rows' seller passed the operators' review, so the catalogue answers each with that review state.
     expect(reply.map((row) => row.reviewState)).toEqual(['approved', 'approved']);
@@ -1367,6 +1368,6 @@ describe('svc-market mount — listings array and public reviews', () => {
     }
     expect(JSON.stringify(listed)).not.toContain(BUYER_A);
     expect(JSON.stringify(listed)).not.toContain(purchase.id);
-    expect(z.array(reviewPublicOut).parse(listed.reviews)).toEqual(listed.reviews);
+    expect(z.array(marketPublicReviewSchema).parse(listed.reviews)).toEqual(listed.reviews);
   });
 });

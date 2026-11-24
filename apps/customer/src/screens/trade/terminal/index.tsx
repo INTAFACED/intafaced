@@ -26,6 +26,8 @@ import { useWriteGuard } from '../copybots/guard';
 import { useLive } from '../copybots/live';
 import { RefusalNote } from '../copybots/parts';
 import { terminalCopy } from './copy';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { CandlestickChart } from 'lucide-react';
 
 type TabId = 'orders' | 'history' | 'positions' | 'algo' | 'dom';
 const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom'];
@@ -38,7 +40,7 @@ function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
   const childOf = useMemo(() => childParents(parents.flatMap((p) => (p.ok ? [{ id: p.id, children: p.parent.children }] : []))), [parents]);
   const rows = useMemo(() => buildBlotter(open.status === 'ready' ? open.data : [], [], [], [], childOf), [open, childOf]);
   return (
-    <div className="flex flex-col gap-3">
+    <div className="lt-stack">
       <Gate load={open}>
         {() => (
           <BlotterTable
@@ -51,6 +53,16 @@ function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
           />
         )}
       </Gate>
+      {open.status === 'ready' && rows.length === 0 ? (
+        // Nothing open yet: what the terminal gathers and the one place to start.
+        <FirstState
+          icon={<CandlestickChart size={24} />}
+          title={t('First title')}
+          body={t('First body')}
+          points={[t('First point orders'), t('First point history'), t('First point algo')]}
+          action={{ label: t('First action'), href: '/trade/spot/BTC-USDT' }}
+        />
+      ) : null}
       {cancel.notice}
       {cancel.dialog}
     </div>
@@ -72,7 +84,7 @@ function HistoryTab({ parents }: { parents: readonly ParentRead[] }) {
     [closed, fills, childOf],
   );
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-stack">
       {closed.status === 'ready' && fills.status !== 'ready' && fills.status !== 'loading' ? <Why>{t('History partly unread')}</Why> : null}
       <Gate load={closed}>
         {() => <BlotterTable rows={orders} label={t('Order history')} emptyText={t('No ended orders')} showOrderId />}
@@ -94,11 +106,11 @@ function PositionsTab() {
   if (follows.data.length === 0)
     return <EmptyState variant="empty" size="inline" title={t('No follows')} reason={t('No follows reason')} />;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-stack">
       {guard.pending?.kind === 'copy' ? (
         <Why>
           {t('Check in Copy')}{' '}
-          <a className="text-link" href="/trade/copy?tab=follows">
+          <a className="lt-link" href="/trade/copy?tab=follows">
             {t('Open Copy')}
           </a>
         </Why>
@@ -167,7 +179,7 @@ function AlgoTab({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="lt-stack">
       <WriteNotice writer={writer} onCheck={() => refreshParents()} done={exec.t('Done, the list shows the new state')} />
       <section aria-label={t('Algo orders')}>
         <AlgoList
@@ -184,7 +196,7 @@ function AlgoTab({
       {selected ? (
         <BlotterTable rows={children} label={t('Child orders of {id}', { id: selected })} emptyText={t('No child orders')} showOrderId />
       ) : ids.length > 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('Pick a schedule')}</p>
+        <p className="lt-hint">{t('Pick a schedule')}</p>
       ) : null}
       <ConfirmDialog
         open={action !== null}
@@ -227,11 +239,11 @@ function DomTab() {
     { id: 'tag', header: '', cell: () => <Badge variant="outline">{t('Sample level')}</Badge> },
   ];
   return (
-    <section aria-label={t('Depth of market')} className="flex flex-col gap-3">
+    <section aria-label={t('Depth of market')} className="lt-stack">
       <div role="note" className="flex flex-col gap-1 rounded-md border border-line bg-panel p-3">
         <p className="m-0 font-medium">{t('DOM preview title')}</p>
         <p className="m-0 text-sm">{t('DOM preview engine')}</p>
-        <p className="m-0 text-sm text-fg-2">{t('DOM preview reason')}</p>
+        <p className="lt-hint">{t('DOM preview reason')}</p>
         <a className="text-link text-sm" href="/trade/spot/BTC-USDT">
           {t('DOM live link')}
         </a>
@@ -255,7 +267,7 @@ export default function Screen({ search }: ScreenProps) {
   const parentRows = parents.status === 'ready' ? parents.data : [];
 
   return (
-    <RoomFrame mode="Execution" title={t('Terminal')} description={t('Terminal description')}>
+    <RoomFrame title={t('Terminal')} description={t('Terminal description')}>
       {!userId ? (
         <EmptyState
           variant="refused"

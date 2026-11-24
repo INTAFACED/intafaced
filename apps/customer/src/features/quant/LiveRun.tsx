@@ -4,9 +4,9 @@ import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field } from '../../shared/ui';
-import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade/venue-api';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
 
 // hand-declared-ok: svc-trade's live-run answers (src/quant/live-run/rest.ts) have no browser-safe schema in @intafaced/contracts; the venue rows reuse trade/venue-api's.
@@ -51,7 +51,6 @@ const runSchema = z.object({
     .nullable()
     .optional(),
 });
-type Run = z.infer<typeof runSchema>;
 const orderSchema = z.object({
   seq: z.number(),
   actionKey: z.string(),
@@ -80,11 +79,14 @@ const detailSchema = runSchema.extend({
   log: z.array(z.object({ n: z.number(), at: iso, kind: z.string(), detail: z.string() })),
 });
 type Detail = z.infer<typeof detailSchema>;
-const listSchema = z.object({ runs: z.array(runSchema) });
+/** The list `/quant/live` reads (live-runs/LiveRunsRoom.tsx). */
+export const listSchema = z.object({ runs: z.array(runSchema) });
 const manualSchema = z.object({ run: runSchema, order: orderSchema });
 const liquidateSchema = z.object({ run: runSchema, orders: z.array(orderSchema) });
 
 const BASE = '/quant/live-runs';
+/** The live-runs path, for the list room (live-runs/LiveRunsRoom.tsx). */
+export const liveRunsBase = BASE;
 const KNOWN = new Set([
   'quant.permission_denied',
   'quant.account_frozen',
@@ -103,7 +105,7 @@ const refusalOf = (res: Extract<ApiResult<unknown>, { ok: false }>): Refusal => 
   code: res.code && /^quant\.[a-z_]+$/.test(res.code) ? res.code : null,
   message: res.message,
 });
-const timeText = (value: string) => value.slice(0, 19).replace('T', ' ');
+export const timeText = (value: string) => value.slice(0, 19).replace('T', ' ');
 
 function Refused({ refusal }: { refusal: Refusal }) {
   const { t } = liveRunCopy.useCopy();
@@ -114,43 +116,6 @@ function Refused({ refusal }: { refusal: Refusal }) {
         : refusal.message || t('code_other')}{' '}
       {refusal.code ? <code lang="zxx">{refusal.code}</code> : null}
     </p>
-  );
-}
-
-/** `/quant/live`: the person's live runs, newest first. */
-export function LiveRuns() {
-  const api = useApi();
-  const { t } = liveRunCopy.useCopy();
-  const list = useResource((signal) => api.rest(BASE, listSchema, { signal }), 'quant-live-runs');
-  return (
-    <section aria-label={t('listTitle')} data-testid="live-runs">
-      <p className="muted">{t('intro')}</p>
-      <Read resource={list.resource} retry={list.reload}>
-        {(data) =>
-          data.runs.length === 0 ? (
-            <p className="muted">{t('none')}</p>
-          ) : (
-            <DataTable label={t('listTitle')} headers={[t('colStrategy'), t('colState'), t('colStarted'), '']}>
-              {data.runs.map((r) => (
-                <tr key={r.runId} data-testid="live-run-row" data-id={r.runId}>
-                  <td>
-                    {r.strategyName} · {t('version', { version: r.strategyVersion })}
-                  </td>
-                  <td data-testid="live-run-row-state" data-state={r.state} data-halted={r.halt ? 'true' : 'false'}>
-                    {t(`state_${r.state}`)}
-                    {r.halt ? ` · ${t('haltedShort')}` : ''}
-                  </td>
-                  <td className="numeric">{r.startedAt ? timeText(r.startedAt) : '—'}</td>
-                  <td>
-                    <a href={`/quant/live/${encodeURIComponent(r.runId)}`}>{t('open')}</a>
-                  </td>
-                </tr>
-              ))}
-            </DataTable>
-          )
-        }
-      </Read>
-    </section>
   );
 }
 
@@ -174,7 +139,7 @@ export function LiveRun({ runId }: { runId: string }) {
   const current = ready ?? (detail.resource.status === 'loading' ? shown : null);
   return (
     <section aria-label={t('roomTitle')} data-testid="live-run">
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {current ? (
         <RunBody d={current} onChange={reload} />
       ) : (
@@ -191,7 +156,7 @@ function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
   return (
     <>
       {d.test ? (
-        <p className="muted" data-testid="live-run-test">
+        <p className="lt-muted" data-testid="live-run-test">
           {t('testLabel')}
         </p>
       ) : null}
@@ -236,12 +201,12 @@ function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
       <section aria-label={t('logTitle')} data-testid="live-run-log">
         <h4>{t('logTitle')}</h4>
         {d.log.length === 0 ? (
-          <p className="muted">{t('logNone')}</p>
+          <p className="lt-muted">{t('logNone')}</p>
         ) : (
           <ol>
             {d.log.map((e) => (
               <li key={e.n} data-kind={e.kind}>
-                <span className="numeric">{timeText(e.at)}</span> {e.detail}
+                <span className="lt-num">{timeText(e.at)}</span> {e.detail}
               </li>
             ))}
           </ol>
@@ -272,13 +237,13 @@ function Safeguards({ d }: { d: Detail }) {
         </div>
         <div>
           <dt>{t('ticks')}</dt>
-          <dd className="numeric" data-testid="live-run-ticks">
+          <dd className="lt-num" data-testid="live-run-ticks">
             {t('ticksOf', { ticks: h.strategyTicks })}
           </dd>
         </div>
         <div>
           <dt>{t('heartbeat')}</dt>
-          <dd className="numeric">
+          <dd className="lt-num">
             {h.heartbeatAt ? timeText(h.heartbeatAt) : t('heartbeatNever')}
             {h.heartbeatMs ? ` · ${t('heartbeatEvery', { seconds: Math.round(h.heartbeatMs / 1000) })}` : ''}
           </dd>
@@ -324,11 +289,11 @@ function Controls({ d, onChange }: { d: Detail; onChange: () => void }) {
   return (
     <section aria-label={t('controls')} data-testid="live-run-controls">
       <h4>{t('controls')}</h4>
-      <p className="muted">{t('stopWhat')}</p>
+      <p className="lt-muted">{t('stopWhat')}</p>
       <Button variant="secondary" disabled={busy} onClick={() => void stop()}>
         {busy ? t('stopping') : t('stop')}
       </Button>
-      <p className="muted">{t('liquidateWhat')}</p>
+      <p className="lt-muted">{t('liquidateWhat')}</p>
       {confirming ? (
         <>
           <Button variant="danger" disabled={busy} onClick={() => void liquidate()}>
@@ -381,7 +346,7 @@ function ManualOrder({ d, onChange }: { d: Detail; onChange: () => void }) {
   return (
     <section aria-label={t('manualTitle')} data-testid="live-run-manual">
       <h4>{t('manualTitle')}</h4>
-      <p className="muted">{t('manualWhat')}</p>
+      <p className="lt-muted">{t('manualWhat')}</p>
       <form
         aria-label={t('manualTitle')}
         onSubmit={(event) => {
@@ -437,16 +402,16 @@ function VenueRecord({ d }: { d: Detail }) {
         <p role="alert">{d.venueError ?? t('venueUnread')}</p>
       ) : (
         <>
-          <p className="muted" data-testid="live-run-as-of">
+          <p className="lt-muted" data-testid="live-run-as-of">
             {t('asOf', { time: timeText(v.asOf) })}
           </p>
           <DataTable label={t('cash')} headers={[t('colAsset'), t('colFree'), t('colLocked'), t('colTotal')]}>
             {v.balances.map((b) => (
               <tr key={b.asset} data-testid="live-run-cash" data-asset={b.asset}>
                 <td>{b.asset}</td>
-                <td className="numeric">{b.free}</td>
-                <td className="numeric">{b.locked}</td>
-                <td className="numeric" data-testid="live-run-cash-total">
+                <td className="lt-num">{b.free}</td>
+                <td className="lt-num">{b.locked}</td>
+                <td className="lt-num" data-testid="live-run-cash-total">
                   {b.total}
                 </td>
               </tr>
@@ -454,7 +419,7 @@ function VenueRecord({ d }: { d: Detail }) {
           </DataTable>
           <h5>{t('positions')}</h5>
           {v.positions.length === 0 ? (
-            <p className="muted" data-testid="live-run-no-position">
+            <p className="lt-muted" data-testid="live-run-no-position">
               {t('positionsNone')}
             </p>
           ) : (
@@ -463,16 +428,16 @@ function VenueRecord({ d }: { d: Detail }) {
                 <tr key={p.symbol} data-testid="live-run-position" data-symbol={p.symbol} data-size={p.size}>
                   <td>{p.symbol}</td>
                   <td>{p.side}</td>
-                  <td className="numeric">{p.size}</td>
-                  <td className="numeric">{p.entryPrice}</td>
-                  <td className="numeric">{p.markPrice}</td>
+                  <td className="lt-num">{p.size}</td>
+                  <td className="lt-num">{p.entryPrice}</td>
+                  <td className="lt-num">{p.markPrice}</td>
                 </tr>
               ))}
             </DataTable>
           )}
           <h5>{t('openOrders')}</h5>
           {v.openOrders.length === 0 ? (
-            <p className="muted" data-testid="live-run-no-open-order">
+            <p className="lt-muted" data-testid="live-run-no-open-order">
               {t('openNone')}
             </p>
           ) : (
@@ -481,27 +446,27 @@ function VenueRecord({ d }: { d: Detail }) {
                 <tr key={o.venueClientOrderId ?? i} data-testid="live-run-open-order">
                   <td>{o.symbol}</td>
                   <td>{o.side}</td>
-                  <td className="numeric">{o.price}</td>
-                  <td className="numeric">{o.remaining}</td>
+                  <td className="lt-num">{o.price}</td>
+                  <td className="lt-num">{o.remaining}</td>
                 </tr>
               ))}
             </DataTable>
           )}
           <h5>{t('fills')}</h5>
           {v.fills.length === 0 ? (
-            <p className="muted">{t('fillsNone')}</p>
+            <p className="lt-muted">{t('fillsNone')}</p>
           ) : (
             <DataTable label={t('fills')} headers={[t('colMarket'), t('colSide'), t('colSize'), t('colPrice'), t('colFee'), t('colTime')]}>
               {v.fills.map((f) => (
                 <tr key={f.fillId} data-testid="live-run-fill" data-side={f.side} data-amount={f.amount}>
                   <td>{f.symbol}</td>
                   <td>{f.side}</td>
-                  <td className="numeric">{f.amount}</td>
-                  <td className="numeric">{f.price}</td>
-                  <td className="numeric">
+                  <td className="lt-num">{f.amount}</td>
+                  <td className="lt-num">{f.price}</td>
+                  <td className="lt-num">
                     {f.venueFee} {f.feeAsset}
                   </td>
-                  <td className="numeric">{timeText(f.filledAt)}</td>
+                  <td className="lt-num">{timeText(f.filledAt)}</td>
                 </tr>
               ))}
             </DataTable>
@@ -529,15 +494,15 @@ function RunOrders({ d }: { d: Detail }) {
           data-key={o.actionKey}
           data-reduce-only={String(o.reduceOnly)}
         >
-          <td className="numeric">{o.seq}</td>
+          <td className="lt-num">{o.seq}</td>
           <td>{t(`kind_${o.kind}`)}</td>
           <td>{o.symbol}</td>
           <td>
             {o.side}
             {o.reduceOnly ? ` · ${t('reduceOnly')}` : ''}
           </td>
-          <td className="numeric">{o.size}</td>
-          <td className="numeric">{o.price}</td>
+          <td className="lt-num">{o.size}</td>
+          <td className="lt-num">{o.price}</td>
           <td>{t(`order_${o.state}`)}</td>
           <td>{o.order ? o.order.status : '—'}</td>
         </tr>

@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
-import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
+import { VenueReviewRows } from './VenueReviewRows';
+import { VenueVerifyDesk } from './VenueVerifyDesk';
+import { WithdrawalLine } from './VenueAccountPanel';
 import {
+  deskTif,
+  gtdClientId,
+  venueTifOf,
   HeldDraft,
   amountForValue,
+  depositPlaces,
   depositTransfer,
+  listedPlaces,
   offeredTif,
   tagProblem,
   valueOf,
@@ -255,6 +262,18 @@ describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag a
     expect(offeredTif(MARKET, 'GTD')).toBeNull();
   });
 
+  it('good till date the venue lacks is run by our engine: it rests good till cancelled; fill-or-kill stays not offered', () => {
+    expect(deskTif(MARKET, 'GTD')).toBe('GTD');
+    expect(deskTif(MARKET, 'FOK')).toBeNull();
+    expect(deskTif(MARKET, 'ALO')).toBe('ALO');
+    expect(venueTifOf('GTD')).toBe('GTC');
+    expect(venueTifOf('IOC')).toBe('IOC');
+    const id = gtdClientId('order:0xabc:BTC-USDC:1763640000000:3');
+    expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:3')).toBe(id);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:4')).not.toBe(id);
+  });
+
   it('the self-trade rule is the venue’s own, or none where it publishes none', () => {
     expect(venueSelfTrade({ selfTrade: { known: true, value: 'cancel_resting' } })).toBe('cancel_resting');
     expect(venueSelfTrade({ selfTrade: { known: false } })).toBeNull();
@@ -308,23 +327,66 @@ describe('the deposit is the person’s own transfer', () => {
     asset: 'USDC',
   };
   it('an ERC-20 transfer of the amount in token units, to the venue’s deposit address, on the route’s token', () => {
-    const sent = depositTransfer(route, '1000');
+    const sent = depositTransfer(route, '1000', 6);
     expect(sent?.to).toBe(route.token);
     expect(sent?.units).toBe(1_000_000_000n);
     expect(sent?.data).toBe(`0xa9059cbb${'0'.repeat(24)}${route.address.slice(2)}${(1_000_000_000).toString(16).padStart(64, '0')}`);
   });
   it('refuses an amount past the token’s decimals, or none', () => {
-    expect(depositTransfer(route, '1.0000001')).toBeNull();
-    expect(depositTransfer(route, '0')).toBeNull();
-    expect(depositTransfer(route, 'ten')).toBeNull();
+    expect(depositTransfer(route, '1.0000001', 6)).toBeNull();
+    expect(depositTransfer(route, '0', 6)).toBeNull();
+    expect(depositTransfer(route, 'ten', 6)).toBeNull();
+  });
+  it('refuses an amount past the asset list’s precision, even within the token’s decimals (J-wallet-01 #5)', () => {
+    expect(depositTransfer(route, '1.001', 2)).toBeNull();
+    expect(depositTransfer(route, '1.01', 2)?.units).toBe(1_010_000n);
+    // A list precision finer than the token's: the token's decimals still bound it.
+    expect(depositTransfer(route, '1.0000001', 8)).toBeNull();
+  });
+});
+
+describe('the venue desk’s Deposit and Withdraw use the supported asset list’s rows (J-wallet-01 #5)', () => {
+  const rows = [
+    { assetId: 'USDC', precision: 6, state: 'active', allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'] },
+    { assetId: 'USDT', precision: 2, state: 'active', allowedActions: ['withdraw'] },
+    { assetId: 'OLD', precision: 6, state: 'retired', allowedActions: [] },
+    { assetId: 'HALT', precision: 6, state: 'halted', allowedActions: ['deposit', 'withdraw'] },
+  ];
+  it('takes the listed precision for an asset open to the action', () => {
+    expect(listedPlaces(rows, 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'list' });
+    expect(listedPlaces(rows, 'USDT', 'withdraw', 18)).toEqual({ ok: true, places: 2, from: 'list' });
+  });
+  it('refuses an unread list, an unlisted asset, and one not active or not open to the action', () => {
+    expect(listedPlaces(null, 'USDC', 'deposit', 6)).toEqual({ ok: false, why: 'unread' });
+    expect(listedPlaces(rows, 'BTC', 'deposit', 6)).toEqual({ ok: false, why: 'unlisted' });
+    expect(listedPlaces(rows, 'USDT', 'deposit', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'OLD', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'HALT', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+  });
+  it('a person the list is not open to (a bank read refused as theirs) keeps the bound the desk had before the list', () => {
+    expect(listedPlaces('gated', 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'venue' });
+    expect(listedPlaces('gated', 'USDC', 'withdraw', 18)).toEqual({ ok: true, places: 18, from: 'venue' });
+  });
+  it('a deposit takes the finer of the list’s precision and the token’s decimals', () => {
+    const route = {
+      chainId: 84532,
+      token: '0x00000000000000000000000000000000000000c0',
+      tokenDecimals: 6,
+      address: '0x00000000000000000000000000000000000000d0',
+      asset: 'USDC',
+    };
+    expect(depositPlaces(route, 2)).toBe(2);
+    expect(depositPlaces(route, 8)).toBe(6);
   });
 });
 
 describe('a withdrawal confirms it’s you before the wallet is asked', () => {
   it('the press asks for the step-up first; only an approval reaches the signing step', () => {
-    expect(withdrawStep('10', null)).toEqual({ step: 'step_up' });
-    expect(withdrawStep('10', { id: 'approval-1' })).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
-    expect(withdrawStep('', null)).toEqual({ step: 'refuse', why: 'amount' });
+    expect(withdrawStep('10', null, 6)).toEqual({ step: 'step_up' });
+    expect(withdrawStep('10', { id: 'approval-1' }, 6)).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
+    expect(withdrawStep('', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
+    // Finer than the list's precision for the asset: refused before the step-up (J-wallet-01 #5).
+    expect(withdrawStep('10.0000001', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
   });
   it('names the destination by its short address, and tracks the venue’s withdrawal by its nonce with its fee or not known', () => {
     expect(shortAddress(OWNER)).toBe('0x1234…abcd');
@@ -355,7 +417,7 @@ describe('a person not verified for trading', () => {
       venue: { id: 'test-venue', displayName: 'TEST venue' },
       test: true,
       builder: null,
-    } as unknown as VenueUp;
+    } as VenueUp;
     const html = renderToStaticMarkup(<VenueVerifyDesk status={status} symbol="BTC-USDC" />);
     const shown = text(html);
     expect(html).toContain('data-access="verify"');

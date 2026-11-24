@@ -60,6 +60,8 @@ function bot(botId = BOT): GridBot {
       { index: 1, price: A('70000'), qty: A('0.00142'), hold: A('99.4') },
     ],
     reinitCount: 0,
+    exitBelow: null,
+    exitAbove: null,
     status: 'running',
     statusReason: null,
     placeGrant: { scopes: ['trade:write'], sid: 'sid-test', tier: 'full', mfa: false },
@@ -168,6 +170,20 @@ describe('SqlGridStore (shared test postgres)', () => {
     await store.closeOrder(buy().clientOrderId, 'cancelled', null, AT);
     expect((await store.listOrders(BOT)).map((o) => o.status)).toEqual(['filled']);
   });
+
+  it('the same order saved twice at once stores one row and answers both, never a 23505 on grid_bot_orders_pair_uq', async () => {
+    // Two stop() calls (a double Stop press) or a fill tick racing a stop both save the same recovered slot. One
+    // round is a narrow window; 40 rounds of 8 at once lost the race on main.
+    await store.createWithReserve(bot(), reserve(), async () => {});
+    for (let cycle = 0; cycle < 40; cycle += 1) {
+      const order: GridOrder = { ...buy(), cycle, clientOrderId: gridClientOrderId(BOT, 0, 'buy', cycle) };
+      const outs = await Promise.allSettled(Array.from({ length: 8 }, () => store.saveOrder(order)));
+      const failed = outs.filter((o) => o.status === 'rejected').map((o) => String((o as PromiseRejectedResult).reason));
+      expect(failed).toEqual([]);
+      for (const out of outs) expect((out as PromiseFulfilledResult<GridOrder>).value).toEqual(order);
+    }
+    expect(await store.listOrders(BOT)).toHaveLength(40);
+  }, 60_000);
 
   it('a part filled order closes as partial with no profit', async () => {
     await store.createWithReserve(bot(), reserve(), async () => {});
@@ -403,6 +419,28 @@ describe('SqlGridStore (shared test postgres)', () => {
         }),
       ).rejects.toThrow(/grid_bot_top_ups_free_ck/);
       expect((await store.findBot(BOT))!.investment).toBe(A('200'));
+    });
+  });
+  describe('price exits (CB-bots-03; J-copy-bots-otc-15 #3)', () => {
+    it('saves and clears both exits while live, and writes nothing once stopped', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: null, exitAbove: null });
+      expect(
+        await store.setExits({ botId: BOT, exits: { exitBelow: A('61000.5'), exitAbove: A('69000') }, at: AT, from: ['running'] }),
+      ).toBe(true);
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: A('61000.5'), exitAbove: A('69000') });
+      expect(await store.setExits({ botId: BOT, exits: { exitBelow: null, exitAbove: A('69000') }, at: AT, from: ['running'] })).toBe(true);
+      expect((await store.findBot(BOT))!.exitBelow).toBeNull();
+      await store.setStatus(BOT, 'stopped', 'price_exit', AT, ['running']);
+      expect(await store.setExits({ botId: BOT, exits: { exitBelow: A('1'), exitAbove: null }, at: AT, from: ['running'] })).toBe(false);
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: null, exitAbove: A('69000'), statusReason: 'price_exit' });
+    });
+
+    it('the row refuses a falls-to price at or above the rises-to price', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      await expect(
+        store.setExits({ botId: BOT, exits: { exitBelow: A('70000'), exitAbove: A('69000') }, at: AT, from: ['running'] }),
+      ).rejects.toThrow(/grid_bots_exits_ck/);
     });
   });
 });

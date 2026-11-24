@@ -21,7 +21,7 @@ const noDatabase = new Proxy(
       throw new Error('svc-market reached the database before refusing — the guard ran too late');
     },
   },
-) as unknown as Sql;
+) as Sql;
 
 const VENDOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OPERATOR = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -151,7 +151,7 @@ describe('claimSlot — an unapproved vendor is refused without the stake gate',
       if (!callback) throw new Error('begin without a callback');
       return callback(sql);
     };
-    return Object.assign(sql, { begin }) as unknown as Sql;
+    return Object.assign(sql, { begin }) as Sql;
   }
 
   function stakeThatMustNotRun(events: string[]): SlotEntitlementSource {

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
@@ -43,7 +44,7 @@ describe('prod boot refuses a missing IDENTITY_TOTP_SECRET_KEY', () => {
 // Host IDENTITY_KYC_DOC_KEY must reach the identity container or the #1806 vault stays dark.
 describe('compose passes IDENTITY_KYC_DOC_KEY through to svc-identity', () => {
   const composeSrc = readFileSync(join(here, '../../../../docker-compose.apps.yml'), 'utf8');
-  const identityBlock = composeSrc.match(/^  svc-identity:[\s\S]*?(?=^  svc-)/m)?.[0] ?? '';
+  const identityBlock = composeServiceBlock(composeSrc, 'svc-identity');
 
   it('forwards the host key — no compose default, no invented key, blank stays optional', () => {
     expect(identityBlock.length).toBeGreaterThan(0);
@@ -58,7 +59,7 @@ describe('compose passes IDENTITY_KYC_DOC_KEY through to svc-identity', () => {
 // Host IDENTITY_TOTP_SECRET_KEY must reach the identity container or TOTP enrol stays refuse-closed.
 describe('compose passes IDENTITY_TOTP_SECRET_KEY through to svc-identity', () => {
   const composeSrc = readFileSync(join(here, '../../../../docker-compose.apps.yml'), 'utf8');
-  const identityBlock = composeSrc.match(/^  svc-identity:[\s\S]*?(?=^  svc-)/m)?.[0] ?? '';
+  const identityBlock = composeServiceBlock(composeSrc, 'svc-identity');
 
   it('forwards the host key — no compose default, no invented key, blank stays optional', () => {
     expect(identityBlock.length).toBeGreaterThan(0);

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { poolsCopy, type PoolsTranslate } from './copy';
 import { createPoolsApi, type PoolsApi } from './pools-api';

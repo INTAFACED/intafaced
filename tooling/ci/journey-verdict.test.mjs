@@ -15,6 +15,7 @@ import {
   HISTORY_VERSION,
   issueProblem,
   judge,
+  moneyCodeDirs,
   moneyRule,
   passesSince,
   priorSetAside,
@@ -34,9 +35,14 @@ import {
   branchRuns,
   passedTests,
   testKey,
+  downloadReport,
+  fetchInputs,
+  HISTORY_FILE,
+  HISTORY_ARTIFACT,
+  JOURNEYS_ARTIFACT,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +74,118 @@ const baseline = {
 const money = { 'J-a-01#1': false, 'J-a-01#2': false, 'J-a-02#1': false, 'J-a-03#1': false };
 const named = readReport(report(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), bad('J-a-03 #1')));
 const run = (newest, extra = {}) => judge({ newest: readReport(newest), named, baseline, money, issues: { 9: parkedIssue }, ...extra });
+
+// ---- A stand-in `gh` on PATH: fetchInputs and main() run as written, and every gh call they make is answered from a
+// scenario and logged, so a test reads which API path and which artifact each read asked for, and what it made of it. ----
+const FAKE_GH = `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const sc = JSON.parse(fs.readFileSync(process.env.FAKE_GH, 'utf8'));
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify(args) + '\\n');
+const opt = (...names) => { for (const n of names) { const i = args.indexOf(n); if (i >= 0) return args[i + 1]; } };
+const fail = (stderr) => { process.stderr.write(stderr + '\\n'); process.exit(1); };
+if (args[0] === 'api') {
+  const at = args[args.length - 1].replace(/^\\//, '');
+  const [where, query = ''] = at.split('?');
+  const q = new URLSearchParams(query);
+  const hit = sc.api.find((e) => new RegExp(e.path).test(at));
+  if (!hit) fail('HTTP 404: Not Found (' + at + ')');
+  let out = hit.json;
+  if (hit.items) {
+    const per = Number(q.get('per_page') || 30);
+    const page = Number(q.get('page') || 1);
+    const items = hit.items.slice((page - 1) * per, page * per);
+    out = hit.key ? { [hit.key]: items } : items;
+  }
+  process.stdout.write(JSON.stringify(out));
+} else if (args[0] === 'run' && args[1] === 'download') {
+  const got = sc.downloads[args[2] + '/' + opt('--name', '-n')];
+  if (!got) fail('no valid artifacts found to download');
+  if (got.stderr) fail(got.stderr);
+  const dir = opt('--dir', '-D');
+  for (const [name, body] of Object.entries(got.files)) fs.writeFileSync(path.join(dir, name), JSON.stringify(body));
+} else fail('fake gh: no such command ' + args.join(' '));
+`;
+const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+/** A folder with the stand-in gh (and, `shallow`, a git that calls this checkout shallow and is real git otherwise). */
+function fakeGh(scenario, { shallow = false } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'verdict-gh-'));
+  const file = join(dir, 'scenario.json');
+  writeFileSync(file, JSON.stringify(scenario));
+  writeFileSync(join(dir, 'gh'), FAKE_GH);
+  chmodSync(join(dir, 'gh'), 0o755);
+  if (shallow) {
+    writeFileSync(join(dir, 'git'), `#!/bin/sh\ncase "$*" in *--is-shallow-repository*) echo true;; *) exec "${REAL_GIT}" "$@";; esac\n`);
+    chmodSync(join(dir, 'git'), 0o755);
+  }
+  const log = join(dir, 'calls.log');
+  writeFileSync(log, '');
+  return {
+    dir,
+    env: { PATH: `${dir}:${process.env.PATH}`, FAKE_GH: file, FAKE_GH_LOG: log },
+    calls: () =>
+      readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l)),
+    done: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+/** `fn()` with the stand-in's env set in this process (execFileSync reads PATH from it), restored after. */
+function underGh(gh, fn) {
+  const before = Object.fromEntries(Object.keys(gh.env).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, gh.env);
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(before))
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+}
+/** The run downloads a scenario's gh was asked for, as "<run id>/<artifact>". */
+const downloadsAsked = (calls) => calls.filter((a) => a[0] === 'run').map((a) => `${a[2]}/${a[a.indexOf('--name') + 1]}`);
+const V_NAMED = { id: 1, run_number: 0, created_at: '2026-11-09T00:00:00Z' };
+/** Main's run number `n` of the journeys workflow: id 5000 + n, a minute apart from 10 Nov. */
+const vRun = (n, over = {}) => ({
+  id: 5000 + n,
+  run_number: n,
+  run_attempt: 1,
+  head_sha: n.toString(16).padStart(40, '0'),
+  head_branch: 'main',
+  event: 'push',
+  status: 'completed',
+  conclusion: 'success',
+  created_at: new Date(Date.UTC(2026, 10, 10) + n * 60_000).toISOString(),
+  head_repository: { full_name: REPO },
+  ...over,
+});
+const vRuns = (count, over) => Array.from({ length: count }, (_, i) => vRun(i + 1, over));
+/** The scenario fetchInputs reads: the named run, main's runs since it, a compare, and the downloads given. */
+const vScenario = ({ runs, compare = null, downloads = {}, extra = [] }) => ({
+  api: [
+    { path: `^repos/${REPO}/actions/runs/1$`, json: V_NAMED },
+    { path: `^repos/${REPO}/actions/workflows/real-app-journeys\\.yml/runs\\?`, items: [...runs].reverse(), key: 'workflow_runs' },
+    ...(compare ? [{ path: `^repos/${REPO}/compare/`, json: compare }] : []),
+    ...extra,
+  ],
+  downloads: { [`1/${JOURNEYS_ARTIFACT}`]: { files: { 'report.json': report(ok('J-a-01 #1')) } }, ...downloads },
+});
+const storedFile = (from, runs) => ({
+  version: HISTORY_VERSION,
+  run: from,
+  runs: Object.fromEntries(runs.map((r) => [r.id, { number: r.run_number, attempt: 1, passed: ['J-a-01#1'] }])),
+});
+const vBaseline = { run: { number: 0, id: 1 }, steps: [] };
+const vThisMain = () => ({ ...vRun(200), id: 9999, created_at: '2026-11-20T00:00:00Z' });
+const vThisBranch = () => ({ ...vThisMain(), head_branch: 'feature', event: 'pull_request', head_sha: 'f'.repeat(40) });
+/** fetchInputs under the stand-in, with its log lines kept. */
+function readUnder(gh, thisRun) {
+  const lines = [];
+  const got = underGh(gh, () => fetchInputs({ repo: REPO, baseline: vBaseline, thisRun, log: (l) => lines.push(l) }));
+  return { ...got, lines, calls: gh.calls() };
+}
 
 test('green when only listed steps fail by their rules', () => {
   const v = run(report(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')));
@@ -206,15 +324,53 @@ test('a compare that cannot be read, or lists less than all it counts, keeps the
 });
 
 test("fetchInputs holds a run off main only to main's runs its head contains, and still finds the stored history among all", () => {
-  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
-  assert.match(body, /compare = \(head, base\) => ghApi\(`\/repos\/\$\{repo\}\/compare\/\$\{head\}\.\.\.\$\{base\}`\)/);
-  assert.match(body, /const own = branchRuns\(runs, \{ run, repo, compare \}\);/);
-  assert.match(
-    body,
-    /const stored = findStored\(runs, readStored\);\s*const left = toDownload\(runs, stored\)\.length;\s*if \(left > HISTORY_MAX\)[\s\S]*const own = branchRuns/,
-    'the history cap counts what is left to download among every run on main, before a run off main is narrowed',
+  // 151 runs on main since the named run; the branch's head holds only the oldest (GitHub's compare lists the other 150).
+  const runs = vRuns(HISTORY_MAX + 1);
+  const newest = runs.at(-1);
+  const compare = { total_commits: HISTORY_MAX, commits: runs.slice(1).map((r) => ({ sha: r.head_sha })) };
+  // No stored history: the cap counts every run on main left to download, before the branch's are narrowed to one.
+  const bare = fakeGh(vScenario({ runs, compare }));
+  try {
+    const got = readUnder(bare, vThisBranch());
+    assert.match(
+      got.problems.join('\n'),
+      new RegExp(
+        `${HISTORY_MAX + 1} of ${HISTORY_MAX + 1} finished runs on main since run 0 are not in a stored pass history, more than ${HISTORY_MAX}`,
+      ),
+      'the history cap counts what is left to download among every run on main, before a run off main is narrowed',
+    );
+    assert.ok(!got.calls.some((a) => a[0] === 'api' && /\/compare\//.test(a.at(-1))), 'the cap refuses before any compare');
+  } finally {
+    bare.done();
+  }
+  // A stored history in the newest run on main, which the branch's head lacks, covers the rest: it is found among all
+  // of main's runs, and the head is compared with the newest history run's commit.
+  const covered = fakeGh(
+    vScenario({
+      runs,
+      compare,
+      downloads: { [`${newest.id}/${HISTORY_ARTIFACT}`]: { files: { [HISTORY_FILE]: storedFile(newest.run_number, runs.slice(0, -1)) } } },
+    }),
   );
+  try {
+    const got = readUnder(covered, vThisBranch());
+    assert.deepEqual(got.problems, []);
+    const compared = got.calls.filter((a) => a[0] === 'api' && /\/compare\//.test(a.at(-1))).map((a) => a.at(-1));
+    assert.deepEqual(compared, [`/repos/${REPO}/compare/${'f'.repeat(40)}...${newest.head_sha}`]);
+    assert.deepEqual(
+      got.leftOut,
+      runs.slice(1).map((r) => r.run_number),
+      "main's runs on commits the head lacks are left out",
+    );
+    assert.match(got.lines.join('\n'), new RegExp(`from run ${newest.run_number}'s stored history; downloaded 0`));
+    assert.deepEqual(
+      downloadsAsked(got.calls).filter((d) => d.endsWith(`/${JOURNEYS_ARTIFACT}`)),
+      [`1/${JOURNEYS_ARTIFACT}`],
+      "only the named run's report is downloaded: the branch's one run is in the stored history",
+    );
+  } finally {
+    covered.done();
+  }
 });
 
 test('red: the money rule disagrees with the entry, and a step missing from journeys.json is money', () => {
@@ -249,6 +405,61 @@ test('red: a regression entry whose issue is not parked with a blocker, or is mo
   assert.match(v.red[0].why, /only as unbuilt/);
 });
 
+test("a money-flag mismatch main's rule made is passed only when the head's own rule agrees with the baseline, and only the stricter way (#9601)", () => {
+  const failingNow = readReport(report(ok('J-a-01 #1'), bad('J-a-02 #1')));
+  const mainSays = { ...money, 'J-a-02#1': true }; // #9539: main's rule now calls a baseline money-false step money
+  const at = (extra) => judge({ newest: failingNow, named, baseline, money: mainSays, issues: { 9: parkedIssue }, ...extra });
+  // Main's rule alone (main's own runs, the journeys verdict): red, and marked so the seal can read the head's rule.
+  const alone = at({});
+  assert.deepEqual(
+    alone.red.map((r) => [r.step, r.why, r.money, r.mismatch]),
+    [['J-a-02#1', 'the baseline says money false, the money rule at this commit says true', true, true]],
+  );
+  // Planted fix (#9601): the head's own rule agrees with the baseline, so the entry is read under its flag: a parked regression.
+  const fixed = at({ headMoney: { ...money, 'J-a-02#1': false } });
+  assert.deepEqual(fixed.red, []);
+  assert.deepEqual(fixed.moneyByHead, ['J-a-02#1']);
+  // The same mismatch on a head that does not fix it, or a step the head's rule doesn't know (money), stays red.
+  for (const headMoney of [{ ...money, 'J-a-02#1': true }, {}]) {
+    const v = at({ headMoney });
+    assert.match(v.red[0]?.why ?? '', /money false, the money rule at this commit says true/);
+    assert.deepEqual(v.moneyByHead, []);
+  }
+  // Agreeing never loosens: a red the step still gives counts as money, so the seal never passes it over as inherited.
+  const closed = { ...parkedIssue, issue: { ...parkedIssue.issue, state: 'closed' } };
+  const still = at({ headMoney: { ...money, 'J-a-02#1': false }, issues: { 9: closed } });
+  assert.deepEqual(
+    still.red.map((r) => [r.step, r.money]),
+    [['J-a-02#1', true]],
+  );
+  assert.match(still.red[0].why, /is closed/);
+  // The other way round: a money-true unbuilt entry main's rule calls non-money is read as unbuilt (a money step) when
+  // the head agrees; a head's rule matching main's changes nothing.
+  const unbuilt = { ...baseline, steps: [{ step: 'J-a-02#1', state: 'unbuilt', money: true }] };
+  const back = judge({ newest: failingNow, named, baseline: unbuilt, money, headMoney: { ...money, 'J-a-02#1': true } });
+  assert.deepEqual(back.red, []);
+  const same = judge({ newest: failingNow, named, baseline, money, headMoney: { ...money, 'J-a-02#1': true }, issues: { 9: parkedIssue } });
+  assert.deepEqual(same.red, [], "a head whose rule disagrees with the baseline where main's agrees is not read by it");
+});
+
+test("a change whose own money rule makes a baselined step money is red as money, though main's rule agrees (#9539)", () => {
+  const failingNow = readReport(report(ok('J-a-01 #1'), bad('J-a-02 #1')));
+  const headSays = { ...money, 'J-a-02#1': true }; // #9539's head: its admin manifest made the step money
+  const at = (extra) => judge({ newest: failingNow, named, baseline, money, issues: { 9: parkedIssue }, headMoney: headSays, ...extra });
+  assert.deepEqual(
+    at({ headBaseline: baseline }).red.map((r) => [r.step, r.why, r.money]),
+    [['J-a-02#1', 'with this pull request, the baseline says money false, the money rule at its head says true', true]],
+  );
+  // The pull request moves the entry with its rule (money, unbuilt): nothing to stop.
+  const movedEntry = { ...baseline, steps: [{ step: 'J-a-02#1', state: 'unbuilt', money: true }] };
+  assert.deepEqual(at({ headBaseline: movedEntry }).red, []);
+  // A machine set-aside never keeps such a step out of the red.
+  const setAside = { 'J-a-02#1': { active: true, before: 'passed' } };
+  const aside = at({ headBaseline: baseline, setAside, issues: {} });
+  assert.deepEqual(aside.setAside, []);
+  assert.match(aside.red[0]?.why ?? '', /the money rule at its head says true/);
+});
+
 test('red: a step listed twice, or in a state the runbook does not allow', () => {
   const twice = { ...baseline, steps: [...baseline.steps, baseline.steps[0]] };
   assert.match(
@@ -266,9 +477,163 @@ test('a targeted run judges only the files it ran', () => {
   const named2 = readReport(report(ok('J-a-01 #1'), ok('J-b-01 #1', 'J-b-01.pw.mjs')));
   const newest = readReport(report(ok('J-a-01 #1')));
   assert.deepEqual(judge({ newest, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red, []);
-  assert.match(judge({ newest, named: named2, baseline, money, target: null }).red[0].why, /missing now/);
+  // J-b-01 #1 is a step on the journey list (money has every listed step), so missing from a full run it is red.
+  assert.match(judge({ newest, named: named2, baseline, money: { ...money, 'J-b-01#1': false }, target: null }).red[0].why, /missing now/);
   const broken = readReport(report(bad('J-a-01 #1')));
   assert.equal(judge({ newest: broken, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red.length, 1);
+});
+
+// ---- A retired step (#10592: the owner retired J-bank-05 #4 and #5, OWNER 291; its verdict, run 45304484379, read them as
+// "passed in run 1719, missing now"). The journey list at the judged commit decides: a step it no longer lists may be
+// missing, named as retired; a step it still lists stays red when missing, money or not. ----
+const bankSteps = (...ns) => [{ id: 'J-bank-05', module: 'bank', steps: ns.map((n) => ({ n, slices: ['BK-xfer-03'] })) }];
+const bankSlices = [{ id: 'BK-xfer-03', touches: ['svc-bank'] }];
+const bankManifests = new Map([
+  ['services/svc-bank', { name: '@intafaced/svc-bank', dependencies: { '@intafaced/ledger-client': 'workspace:*' } }],
+]);
+const bankMoney = (...ns) => moneyRule({ journeys: bankSteps(...ns), slices: bankSlices, manifests: bankManifests });
+const bankFile = 'J-bank-05.pw.mjs';
+const bankReport = (...ns) => ({ suites: [{ file: bankFile, specs: ns.map((n) => ok(`J-bank-05 #${n}`, bankFile)) }] });
+const named1719 = readReport(bankReport(1, 2, 3, 4, 5));
+const head10592 = readReport(bankReport(1, 2, 3));
+const baseline1719 = { run: { number: 1719, id: 42357098806 }, steps: [], notBaselined: [] };
+
+test('replay #10592: J-bank-05 #4 and #5, retired from the journey list with their tests, are named as retired, not red', () => {
+  const money3 = bankMoney(1, 2, 3);
+  assert.deepEqual(Object.keys(money3), ['J-bank-05#1', 'J-bank-05#2', 'J-bank-05#3']);
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(v.red, [], 'not red: the steps left the list');
+  assert.deepEqual(v.retired, ['J-bank-05#4', 'J-bank-05#5'], 'named as retired, not dropped');
+  assert.equal(v.failing, 0);
+});
+
+test('a step still on the journey list stays red when missing: a money step, and a non-money one', () => {
+  const money5 = bankMoney(1, 2, 3, 4, 5);
+  assert.equal(money5['J-bank-05#4'], true, 'J-bank-05 is money by the rule (svc-bank depends on the ledger client)');
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: money5 });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money, r.why]),
+    [
+      ['J-bank-05#4', true, 'passed in run 1719, missing now'],
+      ['J-bank-05#5', true, 'passed in run 1719, missing now'],
+    ],
+  );
+  assert.deepEqual(v.retired, []);
+  const plain = Object.fromEntries(Object.keys(money5).map((k) => [k, false]));
+  const w = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: plain });
+  assert.deepEqual(
+    w.red.map((r) => [r.step, r.money]),
+    [
+      ['J-bank-05#4', false],
+      ['J-bank-05#5', false],
+    ],
+  );
+  assert.deepEqual(w.retired, []);
+  // One retired, one still listed: only the listed one is red.
+  const x = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: bankMoney(1, 2, 3, 4) });
+  assert.deepEqual(
+    x.red.map((r) => r.step),
+    ['J-bank-05#4'],
+  );
+  assert.deepEqual(x.retired, ['J-bank-05#5']);
+});
+
+test('a retired step whose test still runs and is skipped or fails stays red: only absence is the retirement', () => {
+  const money3 = bankMoney(1, 2, 3);
+  const skipped = readReport({
+    suites: [{ file: bankFile, specs: [...bankReport(1, 2, 3).suites[0].specs, skip('J-bank-05 #4', bankFile)] }],
+  });
+  const v = judge({ newest: skipped, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money, r.why]),
+    [['J-bank-05#4', true, 'passed in run 1719, skipped now']],
+  );
+  assert.deepEqual(v.retired, ['J-bank-05#5']);
+  const failed = readReport({
+    suites: [{ file: bankFile, specs: [...bankReport(1, 2, 3).suites[0].specs, bad('J-bank-05 #5', bankFile)] }],
+  });
+  const w = judge({ newest: failed, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(
+    w.red.map((r) => [r.step, r.money, r.why]),
+    [['J-bank-05#5', true, 'failing, not in the baseline']],
+  );
+});
+
+test('a renamed or deleted journey file: judged by step, so a step still listed is red; a journey retired whole leaves with every step', () => {
+  // The file deleted while J-bank-05 is still on the list: every step it held is missing and red.
+  const gone = readReport(report(ok('J-a-01 #1')));
+  const named2 = readReport({ suites: [{ file: bankFile, specs: bankReport(1, 2).suites[0].specs }, ...report(ok('J-a-01 #1')).suites] });
+  const listed = { ...money, ...bankMoney(1, 2) };
+  assert.deepEqual(
+    judge({ newest: gone, named: named2, baseline: baseline1719, money: listed }).red.map((r) => r.step),
+    ['J-bank-05#1', 'J-bank-05#2'],
+  );
+  // Renamed: the steps run from the new file, so nothing is missing.
+  const renamed = readReport({
+    suites: [
+      { file: 'J-bank-05-abroad.pw.mjs', specs: bankReport(1, 2).suites[0].specs.map((s) => ({ ...s, file: 'J-bank-05-abroad.pw.mjs' })) },
+      ...report(ok('J-a-01 #1')).suites,
+    ],
+  });
+  assert.deepEqual(judge({ newest: renamed, named: named2, baseline: baseline1719, money: listed }).red, []);
+  // The journey retired whole: off the list with its file, so its steps are retired.
+  const v = judge({ newest: gone, named: named2, baseline: baseline1719, money });
+  assert.deepEqual(v.red, []);
+  assert.deepEqual(v.retired, ['J-bank-05#1', 'J-bank-05#2']);
+});
+
+test("the head's own list decides when the head's rule is given (the merge seal on the retiring pull request); main's alone otherwise", () => {
+  // The seal judges with main's rule and, for a pull request that changes journeys.json, the head's (journey-seal.mjs).
+  const onMain = bankMoney(1, 2, 3, 4, 5);
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: onMain, headMoney: bankMoney(1, 2, 3) });
+  assert.deepEqual(v.red, []);
+  assert.deepEqual(v.retired, ['J-bank-05#4', 'J-bank-05#5']);
+  // A head that still lists them: red, whatever main's list says.
+  const w = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: bankMoney(1, 2, 3), headMoney: onMain });
+  assert.deepEqual(
+    w.red.map((r) => r.step),
+    ['J-bank-05#4', 'J-bank-05#5'],
+  );
+});
+
+test("replay #10592 through the verdict's own run: green and naming the retired steps; red with them still on the list", () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const at = (ns) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-retired-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(bankSteps(...ns)));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(bankSlices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+      delete env.JOURNEYS_TARGET;
+      const args = [
+        verdict,
+        '--report',
+        f('report.json', bankReport(1, 2, 3)),
+        '--named-report',
+        f('named.json', bankReport(1, 2, 3, 4, 5)),
+      ];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      return spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const retired = at([1, 2, 3]);
+  assert.equal(retired.status, 0, retired.stdout + retired.stderr);
+  assert.match(retired.stdout, /outside the list or against its rules: \*\*0\*\*/);
+  assert.match(retired.stdout, /### Retired: passed in run 1719, no longer on the journey list, missing now: 2/);
+  assert.match(retired.stdout, /^- J-bank-05#4: retired, missing now$/m);
+  assert.match(retired.stdout, /^- J-bank-05#5: retired, missing now$/m);
+  const listed = at([1, 2, 3, 4, 5]);
+  assert.equal(listed.status, 1, listed.stdout + listed.stderr);
+  assert.match(listed.stdout, /^- J-bank-05#4 \(money\): passed in run 1719, missing now$/m);
+  assert.match(listed.stdout, /^- J-bank-05#5 \(money\): passed in run 1719, missing now$/m);
+  assert.match(listed.stdout, /missing now: 0/);
 });
 
 test('a file whose tests each prove part of a step is listed as ran only when every one of them passed', () => {
@@ -325,6 +690,36 @@ test('the money rule: ledger-client and its direct dependants, by slice touches'
     'J-a-01#4': false,
     'J-a-01#5': false,
   });
+});
+
+test('the money rule: a Rust service crate is money, so a service stays money when its TypeScript is deleted', () => {
+  const slices = [
+    { id: 'S1', touches: ['svc-academy', 'customer: more'] },
+    { id: 'S2', touches: ['svc-docs'] },
+  ];
+  const journeys = [
+    {
+      id: 'J-a-01',
+      steps: [
+        { n: 1, slices: ['S1'] },
+        { n: 2, slices: ['S2'] },
+      ],
+    },
+  ];
+  // svc-academy in TypeScript, depending on the ledger client: money.
+  const ts = new Map([['services/svc-academy', { dependencies: { '@intafaced/ledger-client': '*' } }]]);
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: ts }), { 'J-a-01#1': true, 'J-a-01#2': false });
+  // The same service as a Rust crate, its TypeScript gone: still money (the planted fault is the crate entry missing).
+  const rust = new Map([['crates/svc-academy', { name: 'svc-academy', rustService: true }]]);
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: rust }), { 'J-a-01#1': true, 'J-a-01#2': false });
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: new Map() }), { 'J-a-01#1': false, 'J-a-01#2': false });
+  // manifestsAt reads the repository's crates: both Rust services are there, and neither is in the reach's money folders.
+  const read = manifestsAt(fileURLToPath(new URL('../..', import.meta.url)));
+  for (const svc of ['svc-academy', 'svc-tax']) assert.equal(read.get(`crates/${svc}`)?.rustService, true, svc);
+  assert.equal(
+    [...moneyCodeDirs(read)].some((d) => d.startsWith('crates/')),
+    false,
+  );
 });
 
 test('regression state: the newest member line wins, and code blocks are skipped', () => {
@@ -395,11 +790,41 @@ test('the pass history skips a finished main run that kept no report, and still 
 });
 
 test("fetchInputs reads the history with the optional reader, so only a missing artifact or a missing report.json skips, and the named run's report stays required", () => {
-  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
-  assert.match(body, /historyThrough\(own\.runs, \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
-  assert.match(body, /named = reportOf\(baseline\.run\.id\);/);
-  assert.match(body, /readReport\(raw \?\? downloadReport\(repo, id\)\)/);
+  const runs = vRuns(3);
+  const [noArtifact, noReport, kept] = runs;
+  const history = {
+    // run 1 kept no artifact at all (the stand-in answers gh's own "no valid artifacts" words); run 2's has no report.json.
+    [`${noReport.id}/${JOURNEYS_ARTIFACT}`]: { files: { 'set-aside.json': { steps: [] } } },
+    [`${kept.id}/${JOURNEYS_ARTIFACT}`]: { files: { 'report.json': report(ok('J-a-01 #2')) } },
+  };
+  const read = (downloads) => {
+    const gh = fakeGh({ ...vScenario({ runs }), downloads: { ...vScenario({ runs }).downloads, ...downloads } });
+    try {
+      return readUnder(gh, vThisMain());
+    } finally {
+      gh.done();
+    }
+  };
+  const got = read(history);
+  assert.deepEqual(got.problems, []);
+  assert.deepEqual(got.skipped, [noArtifact.run_number, noReport.run_number], 'a missing artifact and a missing report.json skip');
+  assert.equal(got.passedSince['J-a-01#2'], kept.run_number);
+  assert.ok(got.named.states['J-a-01#1'], "the named run's report is read");
+  // Any other failed download of a history run is unreadable, never a skip.
+  const refused = read({ ...history, [`${noArtifact.id}/${JOURNEYS_ARTIFACT}`]: { stderr: 'HTTP 403: Forbidden' } });
+  assert.match(refused.problems.join('\n'), /the pass history couldn't be read: run 1's report couldn't be read \(.*HTTP 403: Forbidden/);
+  // The named run's report is required: no artifact, or an artifact without report.json, is a problem, not a skip.
+  const unnamed = read({ ...history, [`1/${JOURNEYS_ARTIFACT}`]: undefined });
+  assert.match(
+    unnamed.problems.join('\n'),
+    /the baseline's named run 0 \(1\) report couldn't be read: .*no valid artifacts found to download/,
+  );
+  assert.equal(unnamed.named, null);
+  const empty = read({ ...history, [`1/${JOURNEYS_ARTIFACT}`]: { files: { 'set-aside.json': {} } } });
+  assert.match(
+    empty.problems.join('\n'),
+    /the baseline's named run 0 \(1\) report couldn't be read: run 1's real-app-journeys artifact has no report\.json/,
+  );
 });
 
 // The stored pass history: a verdict reads the newest main run's pass-history.json and downloads only what it doesn't
@@ -469,14 +894,84 @@ test('a stored file is read only when it is whole: newest first, within the look
   assert.throws(() => findStored(runs, limited), /Command failed/);
 });
 
+/** main() with --fetch under the stand-in gh, on main's runs at this checkout's HEAD (so isAncestor holds). */
+function verdictMain({ ref = 'refs/heads/main', history = {}, shallow = false } = {}) {
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const runs = vRuns(3, { head_sha: head });
+  const current = { ...vThisMain(), head_sha: head };
+  const kept = { 'report.json': report(ok('J-a-01 #1')), 'set-aside.json': { ref: 'refs/heads/main', steps: [] } };
+  const gh = fakeGh(
+    vScenario({
+      runs,
+      downloads: Object.fromEntries(runs.map((r) => [`${r.id}/${JOURNEYS_ARTIFACT}`, history[r.run_number] ?? { files: kept }])),
+      extra: [{ path: `^repos/${REPO}/actions/runs/${current.id}$`, json: current }],
+    }),
+    { shallow },
+  );
+  try {
+    const f = (name, body) => (writeFileSync(join(gh.dir, name), JSON.stringify(body)), join(gh.dir, name));
+    const out = join(gh.dir, 'pass-history-out.json');
+    const env = {
+      ...process.env,
+      ...gh.env,
+      GITHUB_REPOSITORY: REPO,
+      GITHUB_RUN_ID: String(current.id),
+      GITHUB_RUN_ATTEMPT: '1',
+      GITHUB_STEP_SUMMARY: '',
+    };
+    delete env.JOURNEYS_TARGET;
+    env.GITHUB_REF = ref;
+    const args = ['tooling/ci/journey-verdict.mjs', '--fetch', '--report', f('report.json', report(ok('J-a-01 #1')))];
+    args.push('--baseline', f('baseline.json', vBaseline), '--history-out', out);
+    const r = spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' });
+    return { ...r, runs, current, written: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
+  } finally {
+    gh.done();
+  }
+}
+
 test("fetchInputs finds the stored history among main's own history runs and writes only on main from a whole read", () => {
-  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
-  assert.match(body, /readStored = \(r\) => downloadReport\(repo, r\.id, HISTORY_FILE, true, \{ artifact: HISTORY_ARTIFACT \}\)/);
-  assert.match(body, /const stored = findStored\(runs, readStored\);/);
-  assert.match(body, /historyThrough\(own\.runs, \{\s*stored,/);
-  const main = src.slice(src.indexOf('function main()'));
-  assert.match(main, /if \(arg\('--history-out'\) && onMain && entries\)/);
+  // The stored history is HISTORY_FILE in the newest run's HISTORY_ARTIFACT, and only the runs it does not cover download.
+  const runs = vRuns(3);
+  const newest = runs.at(-1);
+  const gh = fakeGh(
+    vScenario({
+      runs,
+      downloads: {
+        [`${newest.id}/${HISTORY_ARTIFACT}`]: { files: { [HISTORY_FILE]: storedFile(newest.run_number, runs.slice(0, 2)) } },
+        [`${newest.id}/${JOURNEYS_ARTIFACT}`]: { files: { 'report.json': report(ok('J-a-01 #3')) } },
+      },
+    }),
+  );
+  try {
+    const got = readUnder(gh, vThisMain());
+    assert.deepEqual(got.problems, []);
+    assert.deepEqual(downloadsAsked(got.calls), [
+      `1/${JOURNEYS_ARTIFACT}`,
+      `${newest.id}/${HISTORY_ARTIFACT}`,
+      `${newest.id}/${JOURNEYS_ARTIFACT}`,
+    ]);
+    assert.match(got.lines.join('\n'), /from run 3's stored history; downloaded 1/);
+    assert.deepEqual(
+      Object.keys(got.entries).sort(),
+      runs.map((r) => String(r.id)),
+    );
+    assert.equal(got.passedSince['J-a-01#1'], 2, 'a pass the stored history holds counts');
+    assert.equal(got.passedSince['J-a-01#3'], 3);
+  } finally {
+    gh.done();
+  }
+  // main() writes the next stored history only on main, and only from a whole read of the history.
+  const onMain = verdictMain();
+  assert.equal(onMain.status, 0, onMain.stdout + onMain.stderr);
+  assert.equal(onMain.written?.version, HISTORY_VERSION, 'on main the stored history is written');
+  assert.equal(onMain.written.run, onMain.current.run_number);
+  assert.deepEqual(Object.keys(onMain.written.runs).sort(), [...onMain.runs.map((r) => String(r.id)), String(onMain.current.id)].sort());
+  assert.deepEqual(onMain.written.runs[onMain.current.id].passed, ['J-a-01#1'], "this run's own entry is its report");
+  assert.equal(verdictMain({ ref: 'refs/heads/feature' }).written, null, 'off main nothing is written');
+  const partial = verdictMain({ history: { 2: { stderr: 'HTTP 403: Forbidden' } } });
+  assert.match(partial.stdout, /the pass history couldn't be read/);
+  assert.equal(partial.written, null, 'a history that could not be read whole writes nothing');
 });
 
 // The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for
@@ -838,10 +1333,35 @@ test('a set-aside list that cannot be downloaded is unreadable (red), not "no li
 });
 
 test('downloadReport gives null only for a missing artifact, so a refused download of the list stays red', () => {
-  const src = readFileSync(fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url)), 'utf8');
-  const body = src.slice(src.indexOf('function downloadReport('), src.indexOf('export function manifestsAt('));
-  assert.match(body, /if \(optional && missingArtifact\(e\.stderr\)\) return null;/);
-  assert.doesNotMatch(body, /if \(optional\) return null;\n\s*throw e;/);
+  const asked = [];
+  /** A stand-in for execFileSync's `gh run download`: writes `files` into --dir, or fails with `stderr`. */
+  const gh =
+    ({ files, stderr }) =>
+    (cmd, args) => {
+      asked.push([cmd, ...args]);
+      if (stderr) throw Object.assign(new Error(`Command failed: ${cmd} ${args.join(' ')}`), { stderr: Buffer.from(stderr) });
+      const dir = args[args.indexOf('--dir') + 1];
+      for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), JSON.stringify(body));
+    };
+  const opts = (answer) => ({ run: gh(answer), wait: () => {}, tries: 2, waitFor: () => null });
+  const list = { ref: 'refs/heads/main', steps: [] };
+  assert.deepEqual(downloadReport(REPO, 7, 'set-aside.json', true, opts({ files: { 'set-aside.json': list } })), list);
+  assert.deepEqual(asked[0], ['gh', 'run', 'download', '7', '--repo', REPO, '--name', JOURNEYS_ARTIFACT, '--dir', asked[0][9]]);
+  // Optional: a run with no such artifact, or an artifact without the file, is null.
+  assert.equal(downloadReport(REPO, 7, 'set-aside.json', true, opts({ stderr: 'no valid artifacts found to download\n' })), null);
+  assert.equal(downloadReport(REPO, 7, 'set-aside.json', true, opts({ files: { 'report.json': {} } })), null);
+  // Any other failure throws, optional or not: a refusal, a rate limit, a server error after its tries.
+  for (const stderr of ['HTTP 403: Forbidden', 'HTTP 403: API rate limit exceeded for user ID 1', 'HTTP 502: Bad Gateway'])
+    assert.throws(() => downloadReport(REPO, 7, 'set-aside.json', true, opts({ stderr })), new RegExp(stderr.slice(0, 12)));
+  // Required (report.json by default): a missing artifact or file throws.
+  assert.throws(
+    () => downloadReport(REPO, 7, 'report.json', undefined, opts({ stderr: 'no valid artifacts found to download' })),
+    /no valid artifacts/,
+  );
+  assert.throws(
+    () => downloadReport(REPO, 7, 'report.json', undefined, opts({ files: {} })),
+    /run 7's real-app-journeys artifact has no report\.json/,
+  );
 });
 
 /** A stand-in for execFileSync that fails with each given stderr in turn, then succeeds. */
@@ -1028,11 +1548,17 @@ test('the verdict job has full history, and a shallow clone fails', () => {
   assert.ok(job.includes('journey-verdict.mjs --report'), 'the verdict runs in the scoreboard job');
   const checkout = job.slice(job.indexOf('actions/checkout@'), job.indexOf('\n      - uses:', job.indexOf('actions/checkout@')));
   assert.match(checkout, /fetch-depth: 0\b/);
-  const src = readFileSync(join(ROOT, 'tooling/ci/journey-verdict.mjs'), 'utf8');
+  // main() with --fetch checks the clone before it reads main's set-aside list: a shallow one is red and names why.
+  const shallow = verdictMain({ shallow: true });
+  assert.equal(shallow.status, 1);
   assert.match(
-    src.slice(src.indexOf('} else if (fetch) {\n      assertFullHistory')),
-    /^\} else if \(fetch\) \{\n      assertFullHistory\(\);/,
+    shallow.stdout,
+    /the last run on main's set-aside list couldn't be read: this checkout is shallow \(true\): the verdict job needs fetch-depth: 0/,
   );
+  const full = verdictMain();
+  assert.equal(full.status, 0, full.stdout + full.stderr);
+  assert.doesNotMatch(full.stdout, /shallow/);
+  assert.match(full.stdout, /set-aside list carried on from run 3/, 'the control: a full clone reads the list');
 });
 
 test('the pass history counts a pass only on the retry: an unbuilt step that passed that way is red when it fails (CI review on #7363, 1fbf031)', () => {
@@ -1195,4 +1721,84 @@ test('the stored pass history keeps the passes of tests with no step title, and 
   assert.equal(storedRuns({ version: HISTORY_VERSION, runs: { 1: { number: 101, attempt: 1, passed: [], tests: 'x' } } }), null);
   const via = historyThrough(runs.slice(0, 1), { stored: { from: 101, runs: old }, read: () => assert.fail('stored') });
   assert.deepEqual(passesSince(via.reports), { 'J-a-01#1': 101 });
+});
+
+// The seal's reads (22 Nov 2026): one seal step on #9630 judged 9 runs with the same baseline, and each fetchInputs read
+// main's whole run history since the named run (13 pages), the named run and all three regression issues again: 218
+// calls, the largest spender of the workflow token's hourly budget. With a memo each is read once per process.
+test('fetchInputs with a memo reads main history, the named run and each issue once, however many runs it judges', async () => {
+  const { fetchInputs: read } = await import('./journey-verdict.mjs');
+  const calls = [];
+  const mainRun = (id, n, at) => ({
+    id,
+    run_number: n,
+    run_attempt: 1,
+    head_sha: String(n).padStart(40, 'a'),
+    head_branch: 'main',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    created_at: at,
+    head_repository: { full_name: REPO },
+  });
+  const named = { id: 1, run_number: 10, created_at: '2026-11-07T08:49:26Z' };
+  const get = (path) => {
+    calls.push(`get ${path}`);
+    if (path.endsWith('/actions/runs/1')) return named;
+    if (/\/issues\/\d+$/.test(path)) return { number: Number(path.split('/').pop()), state: 'open' };
+    throw new Error(`unexpected ${path}`);
+  };
+  const pages = (path) => {
+    calls.push(`pages ${path}`);
+    if (path.includes('/comments')) return [];
+    return [mainRun(11, 11, '2026-11-08T00:00:00Z'), mainRun(12, 12, '2026-11-09T00:00:00Z')];
+  };
+  const baseline = {
+    run: { id: 1, number: 10 },
+    steps: [
+      { step: 'J-a-01#1', state: 'regression', issue: 6750 },
+      { step: 'J-a-02#1', state: 'regression', issue: 6853 },
+    ],
+  };
+  const reports = new Map([
+    [1, { states: {}, ran: [] }],
+    [11, { states: {}, ran: [] }],
+    [12, { states: {}, ran: [] }],
+  ]);
+  const memo = new Map();
+  const judged = (id, at) => ({ ...mainRun(id, id, at), head_branch: 'feature', event: 'pull_request', head_sha: 'b'.repeat(40) });
+  const opts = {
+    repo: REPO,
+    baseline,
+    reports,
+    log: () => {},
+    get,
+    pages,
+    memo,
+    readStored: () => null,
+    compare: () => ({ commits: [], total_commits: 0 }),
+  };
+  const first = read({ ...opts, thisRun: judged(901, '2026-11-22T01:00:00Z') });
+  const second = read({ ...opts, thisRun: judged(902, '2026-11-22T02:00:00Z') });
+  assert.deepEqual(first.problems, []);
+  assert.deepEqual(second.problems, []);
+  assert.deepEqual(Object.keys(second.issues), ['6750', '6853']);
+  // Each read once: the named run, main's history and the two issues with their comments.
+  assert.equal(calls.length, 6, calls.join('\n'));
+  assert.equal(calls.filter((c) => c.includes('/actions/workflows/')).length, 1);
+  // Without a memo (journey-verdict.mjs's own run, one verdict) nothing is kept: each call reads afresh.
+  calls.length = 0;
+  read({ ...opts, memo: null, thisRun: judged(903, '2026-11-22T03:00:00Z') });
+  read({ ...opts, memo: null, thisRun: judged(904, '2026-11-22T03:00:00Z') });
+  assert.equal(calls.length, 12);
+  // A read that failed is not kept: the next run reads it again, and it is a problem there too, never an answer.
+  let down = true;
+  const flaky = (path) => {
+    if (down && path.endsWith('/actions/runs/1')) throw new Error('HTTP 502');
+    return get(path);
+  };
+  const m2 = new Map();
+  assert.match(read({ ...opts, get: flaky, memo: m2, thisRun: judged(905, '2026-11-22T03:00:00Z') }).problems.join(), /HTTP 502/);
+  down = false;
+  assert.deepEqual(read({ ...opts, get: flaky, memo: m2, thisRun: judged(906, '2026-11-22T03:00:00Z') }).problems, []);
 });

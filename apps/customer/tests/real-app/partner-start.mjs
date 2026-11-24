@@ -97,7 +97,7 @@ export function beforeRequest(send) {
  * Sends this file's starts again after a svc-bank restart, before its next request. A start goes on a fresh sign-in
  * when the one it was sent on is known, else on its own token. One the partner refuses stops the test in one line.
  */
-export async function restorePartner(send) {
+async function restorePartner(send) {
   restored = restarts;
   const fresh = new Map();
   const paidIn = new Set(starts.filter((s) => s.fund).map((s) => s.who));

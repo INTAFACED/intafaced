@@ -1,6 +1,6 @@
 /** Browser hop for the OAuth apps desk. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { OAuthQueueView } from './server';
 import type { OAuthReviewRequest, OAuthReviewStatus } from './model';
 import { isRecord } from '@intafaced/contracts/guards';

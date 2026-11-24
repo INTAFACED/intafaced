@@ -5,10 +5,12 @@
 import type { ReactNode } from 'react';
 import { Button, EmptyState, StatusChip, formatAsOf } from './ui';
 import type { Words } from './refusals';
+import { VerifyFirstNote } from '../../../shared/verify-first';
 import { BLOCK_WORDS, type RoomWriter } from './write';
 import { STALE_AFTER_MS } from './read';
 
 export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRetry?: () => void; size?: 'inline' | 'panel' }) {
+  if (words.verify) return <VerifyFirstNote />;
   return (
     <EmptyState
       variant="refused"
@@ -48,7 +50,7 @@ export function WriteNotice({
   const { outcome, note } = writer;
   const pendingId = note.state === 'pending' ? note.pending.id : outcome.kind === 'uncertain' ? outcome.id : null;
   return (
-    <div className="flex flex-col gap-2" aria-live="polite">
+    <div className="lt-stack" aria-live="polite">
       {outcome.kind === 'done' && done ? <p className="m-0 text-sm text-fg">{done}</p> : null}
       {outcome.kind === 'refused' ? <Refusal words={outcome.words} size="inline" /> : null}
       {outcome.kind === 'blocked' ? (

@@ -7,6 +7,10 @@ const en = {
   loading: 'Reading your invitees',
   emptyTitle: 'No invitees yet',
   emptyBody: 'When someone joins through your link or code, they show here with their progress.',
+  firstPointJoined: 'Everyone who joined with your link or code',
+  firstPointSteps: 'Verified, deposited and traded, each ticked',
+  firstPointPrivate: 'Never their name or any amount',
+  firstAction: 'Get your invitation link',
   listLabel: 'Invitees and their progress',
   colInvitee: 'Invitee',
   colJoined: 'Joined',
@@ -58,6 +62,10 @@ const es: { [K in keyof typeof en]: string } = {
   programme: 'Programa: {name}',
   more: 'Se muestran los primeros {shown} de {total} invitados.',
   refusal_campaigns_store_unwired: 'El progreso de los invitados no está conectado ahora mismo.',
+  firstPointJoined: 'Todas las personas que se unieron con tu enlace o código',
+  firstPointSteps: 'Verificada, depósito y operación, cada paso marcado',
+  firstPointPrivate: 'Nunca su nombre ni ningún importe',
+  firstAction: 'Obtén tu enlace de invitación',
 };
 
 const fr: { [K in keyof typeof en]: string } = {
@@ -88,6 +96,10 @@ const fr: { [K in keyof typeof en]: string } = {
   programme: 'Programme : {name}',
   more: 'Les {shown} premiers filleuls sur {total} sont affichés.',
   refusal_campaigns_store_unwired: 'La progression des filleuls n’est pas connectée pour le moment.',
+  firstPointJoined: 'Chaque personne inscrite avec votre lien ou votre code',
+  firstPointSteps: 'Vérifiée, dépôt et transaction, chaque étape cochée',
+  firstPointPrivate: 'Jamais son nom ni aucun montant',
+  firstAction: 'Obtenir votre lien d’invitation',
 };
 
 export const referralInviteesCopy = defineCopy('account.referral.invitees', en, { es, fr });

@@ -54,9 +54,54 @@ const readJsonOr = (file, fallback) => {
     return fallback;
   }
 };
-/** The PIDs a state folder's stack runs: its recorded processes and its Postgres. */
+/**
+ * The one record of every process a state folder's stack started, by name: each service `local-test-stack.mjs` starts
+ * and the TEST market maker `local-test-market.mjs` starts (`MAKER_RECORD`). The owner test (`stackPids`), `stop` and the
+ * market's own commands all read this, so a process the stack started can never read as someone else's. Failure it
+ * prevents: the market kept its pid in a file of its own, so a finished build's stack read as owned for as long as its
+ * market ran (slots 0 and 1 held 21 and 19 hours on 17 Nov), and `stop` left the market running.
+ */
+export const stackRecordsFile = (state) => path.join(state, 'run', 'processes.json');
+/** The maker's name in `stackRecords`; never a service's (svc-market's record is `market`). */
+export const MAKER_RECORD = 'market-maker';
+// Before the market's record moved here it lived in run/market.json; a stack started then is still read whole.
+// Drop this fallback once no running stack predates it (after 2026-12-01).
+const legacyMarketFile = (state) => path.join(state, 'run', 'market.json');
+
+export function stackRecords(state) {
+  const records = readJsonOr(stackRecordsFile(state), {}) ?? {};
+  if (!records[MAKER_RECORD]) {
+    const legacy = readJsonOr(legacyMarketFile(state), null);
+    if (Number.isInteger(legacy?.pid)) records[MAKER_RECORD] = legacy;
+  }
+  return records;
+}
+
+/**
+ * Sets (or with null, removes) one process's record in `stackRecords`, written whole through a rename so a reader never
+ * sees half a file. Returns the records written.
+ */
+export function writeStackRecord(state, name, rec) {
+  const records = stackRecords(state);
+  if (rec) records[name] = rec;
+  else delete records[name];
+  writeStackRecords(state, records);
+  if (name === MAKER_RECORD) fs.rmSync(legacyMarketFile(state), { force: true });
+  return records;
+}
+
+/** Writes the whole of `stackRecords` through a rename. */
+export function writeStackRecords(state, records) {
+  const file = stackRecordsFile(state);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(records, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+/** The PIDs a state folder's stack runs: every process in its one record (`stackRecords`) and its Postgres. */
 export function stackPids(state) {
-  const procs = Object.values(readJsonOr(path.join(state, 'run', 'processes.json'), {})).map((r) => r?.pid);
+  const procs = Object.values(stackRecords(state)).map((r) => r?.pid);
   let pg = null;
   try {
     pg = Number(fs.readFileSync(path.join(state, 'data', 'postgres', 'postmaster.pid'), 'utf8').split('\n')[0]);
@@ -80,10 +125,10 @@ export function slotClaims(home = os.homedir()) {
  * Claims `slot` for this checkout, atomically: true when it is now this checkout's. Two starts that both see a dead
  * claim move it aside under their own names, and only one of them then creates the file (`wx`).
  */
-export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() }) {
+export function claimSlot(slot, { state, pid = process.pid, owner = null, home = os.homedir() }) {
   const file = slotFile(slot, home);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const mine = JSON.stringify({ repo: CHECKOUT, pid, state, takenAt: new Date().toISOString() });
+  const mine = JSON.stringify({ repo: CHECKOUT, pid, state, takenAt: new Date().toISOString(), ...(owner ? { owner } : {}) });
   const now = slotClaims(home)[slot];
   if (now.claim?.repo === CHECKOUT) {
     fs.writeFileSync(file, mine, { mode: 0o600 });
@@ -105,6 +150,14 @@ export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() 
   }
 }
 
+/** Lets go of `slot`'s claim when it is still exactly `claim` and nothing of its stack is left (a gone owner's, reaped). */
+export function dropClaim(slot, claim, home = os.homedir()) {
+  const now = slotClaims(home)[slot];
+  if (now.live || !now.claim || now.claim.repo !== claim.repo || now.claim.pid !== claim.pid) return false;
+  fs.rmSync(slotFile(slot, home), { force: true });
+  return true;
+}
+
 /** Lets this checkout's slot go (a full `stop`). */
 export function releaseSlot(home = os.homedir()) {
   for (const { slot, claim } of slotClaims(home)) if (claim?.repo === CHECKOUT) fs.rmSync(slotFile(slot, home), { force: true });
@@ -117,6 +170,26 @@ export function localStackSlot(env = process.env, home = os.homedir()) {
     return Number(env.LOCAL_STACK_SLOT);
   }
   return slotClaims(home).find((c) => c.claim?.repo === CHECKOUT)?.slot ?? 0;
+}
+/**
+ * Why this checkout must not act on the stack its slot points at, or null. A checkout that holds no claim reads slot 0,
+ * and when slot 0 is another checkout's live stack, a journey run or a stack command here would act on that stack: its
+ * ports, its data and its run folder (Playwright empties `<run folder>/results` as it begins). Failure it prevents: on
+ * 15 Nov, with all four slots held, a journey run from a checkout whose start was refused ran against slot 0's stack.
+ */
+export function anotherCheckoutsStack(env = process.env, home = os.homedir()) {
+  if (env.LOCAL_STACK_SLOT !== undefined || env.LOCAL_STACK_STATE !== undefined) return null;
+  const claims = slotClaims(home);
+  if (claims.some((c) => c.claim?.repo === CHECKOUT)) return null;
+  const zero = claims[0];
+  if (!zero.claim || !zero.live || zero.claim.repo === CHECKOUT) return null;
+  const free = claims.filter((c) => !(c.claim && c.live)).map((c) => c.slot);
+  return (
+    `refusing: this checkout has no stack of its own, and slot 0 is ${zero.claim.repo}'s (pid ${zero.claim.pid}). ` +
+    (free.length
+      ? `Start yours first: pnpm local:stack takes a free slot (${free.join(', ')} free now).`
+      : "Every slot is held now; prove the journey on CI's stack instead (Real-app journeys, workflow_dispatch with journeys).")
+  );
 }
 // The stack's one table of ports, before the slot's shift. Every script and journey reads a port from here.
 const BASE_PORTS = {
@@ -277,14 +350,18 @@ export const chainRecordPath = (state = localStackState()) => path.join(state, '
 
 // ── Seeded TEST values ──────────────────────────────────────────────────────
 
-// The founder's Home content (local-test-home.mjs, HM-desks-03, J-home-ia-11 #3).
-export const HOME_ASSET = 'USDT';
-export const HOME_NETWORK = 'ethereum';
-export const HOME_DEPOSIT_AMOUNT = '100';
-/** The published minimum on TEST Ethereum is 6 confirmations (local-test-gates.mjs TEST_DEPOSIT_TERMS). */
-export const HOME_DEPOSIT_CONFIRMATIONS = 6;
-/** One fixed transfer: the same label to the same address is the same chain event (local-test-stack.mjs chainTxHash). */
-export const HOME_DEPOSIT_LABEL = 'LOCAL-TEST-seed-home-deposit-v1';
+// The founder's Home content (local-test-home.mjs, HM-desks-03, J-home-ia-11 #3): nothing on our ledger. Founder a's
+// TEST wallet holds TEST venue funds at the TEST venue and a TEST balance at the TEST partner bank, and founder b pays
+// founder a a TEST amount there, which files founder a's one inbox row. Every figure is an illustrative TEST value.
+/** What the TEST partner bank holds for founder a (its own figure, `testPartner.fund`), before founder b's payment. */
+export const HOME_PARTNER_ASSET = 'USDT';
+export const HOME_PARTNER_AMOUNT = '50';
+/** Founder b's TEST balance at the partner, and what founder b pays founder a from it (a partner move, no ledger post). */
+export const HOME_SENDER_AMOUNT = '20';
+export const HOME_TRANSFER_AMOUNT = '5';
+/** What the TEST venue holds for founder a's TEST wallet (its TEST deposit control). */
+export const HOME_VENUE_ASSET = 'USDC';
+export const HOME_VENUE_AMOUNT = '500';
 export const HOME_NOTICE_TITLE = 'TEST · This is a test build';
 export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here are TEST funds, not real money.';
 /** The TEST notice stays open as long as a test stack is likely to live, unless the caller asks for a shorter window. */

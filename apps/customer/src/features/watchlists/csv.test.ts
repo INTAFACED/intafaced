@@ -3,7 +3,7 @@ import type { WatchlistValue } from '@intafaced/contracts/watchlists-preferences
 import type { MarketRow } from '../../data';
 import { exportListCsv, IMPORT_MAX_ROWS, readImportCsv } from './csv';
 
-const markets = [{ symbol: 'BTC/USDT' }, { symbol: 'ETH/USDT' }] as unknown as MarketRow[];
+const markets = [{ symbol: 'BTC/USDT' }, { symbol: 'ETH/USDT' }] as MarketRow[];
 
 function list(title: string): WatchlistValue {
   return {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { ROOT, api, journeyState, restartWith } from './stack.mjs';
+import { api, journeyState, restartWith, ROOT, STACK_PORTS } from './stack.mjs';
 
 // J-campaigns-17, in the running app (docs/roadmap/journeys.json): run a campaign, watch it, issue codes, export. One
 // test per step, titled "J-campaigns-17 #<n>", run in order. The operator is the stack's LOCAL TEST founder A on the
@@ -53,7 +53,7 @@ const data = (res, what) => {
 async function campaignsDb() {
   const c = (await operators()).ctx;
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
-  const port = c.marker.ports.postgres ?? 15460;
+  const port = c.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_campaigns:${encodeURIComponent(c.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

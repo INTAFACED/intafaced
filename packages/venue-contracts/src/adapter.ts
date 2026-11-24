@@ -281,7 +281,7 @@ function scopeMovesFunds(scope: string): boolean {
  */
 export function assertTradeOnly(credentials: VenueCredentials): void {
   const scopes = credentials.scopes;
-  const blank = scopes.length === 0 || scopes.every((scope) => foldedScope(scope) === '');
+  const blank = scopes.every((scope) => foldedScope(scope) === '');
   if (blank) {
     throw new VenueCredentialScopeError(
       credentials.venueId,

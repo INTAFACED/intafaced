@@ -1,10 +1,8 @@
-import { SUPPORT_HELP_CENTRE_OFF, supportHelpCentreSchema, type SupportHelpCentre } from '@intafaced/contracts/support-help-centre';
+import { SUPPORT_HELP_CENTRE_OFF, type SupportHelpCentre } from '@intafaced/contracts/support-help-centre';
+import { SUPPORT_HELP_CENTRE } from '@intafaced/contracts/support-desk-settings-procedures';
 import type { ApiResult } from '../../shared/api';
-import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useResource, type Resource } from '../../shared/resource';
-import { useApi } from '../session/session';
-
-const helpCentreRead = contractProcedure('support', 'helpCentre', { output: supportHelpCentreSchema });
+import { useApi } from '../session';
 
 /**
  * The owner's help-centre settings (SP-help-centre-03), read signed out. Only an explicit `published: false` switches the
@@ -19,5 +17,5 @@ export function helpCentreSwitchedOff(read: Resource<SupportHelpCentre>, answers
 
 export function useHelpCentre(): Resource<SupportHelpCentre> {
   const api = useApi();
-  return useResource((signal) => readContract(api, helpCentreRead, undefined, { signal }), 'help-centre').resource;
+  return useResource((signal) => api.call(SUPPORT_HELP_CENTRE, undefined, { signal }), 'help-centre').resource;
 }

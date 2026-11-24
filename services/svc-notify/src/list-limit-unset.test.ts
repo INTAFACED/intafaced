@@ -44,7 +44,8 @@ describe('assertNotifyListLimit', () => {
 describe('notify.list limit unset refuse — source pin', () => {
   it('router does not invent 20 when notify.list omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-notify/src/router.ts'), 'utf8');
-    const start = src.indexOf('list: scopedProcedure');
+    const start = src.indexOf('list: mountRecord(\n        NOTIFY_LIST,');
+    expect(start).toBeGreaterThan(-1);
     const end = src.indexOf('unreadCount:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('assertNotifyListLimit(input?.limit)');

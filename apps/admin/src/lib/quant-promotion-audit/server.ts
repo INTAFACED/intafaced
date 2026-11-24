@@ -1,7 +1,7 @@
 import 'server-only';
 import { quantPromotionAuditSchema, type QuantPromotionAudit } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { parseWith, type FounderCallContext, partFrom, type Part, type PartLabels, founderRecordRead } from '@/lib/desk';
+import { QUANT_OPS_LIFECYCLE_AUDIT } from '@intafaced/contracts/quant-ops-procedures';
 
 /**
  * The promotion audit on the quant desk (AL-lifecycle-01, J-algo-dev-13 #3), as the signed-in founder: every gate
@@ -17,5 +17,5 @@ const QUANT: PartLabels = {
 const readAudit = parseWith(quantPromotionAuditSchema);
 
 export async function loadPromotionAudit(ctx: FounderCallContext): Promise<Part<QuantPromotionAudit>> {
-  return partFrom(await founderCall(ctx, 'quant', 'ops.lifecycle.audit', 'GET', undefined, readAudit), (d) => d, QUANT);
+  return partFrom(await founderRecordRead(ctx, QUANT_OPS_LIFECYCLE_AUDIT, undefined, readAudit), (d) => d, QUANT);
 }

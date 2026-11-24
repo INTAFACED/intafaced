@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
-import { Details } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { useSession } from '../session';
+import { Details } from './catalogue-parts';
 import type { AcademyAction } from './academy-action';
 import type { GrantRecord } from './academy-grant-api';
 import { academyGrantCopy as copy } from './academy-grant-copy';
-import './academy-grant.css';
+import { EmptyNote, FailureNote, Waiting } from './volt-parts';
 
 export function AcademyGrantRecords({ action, titles }: { action: AcademyAction; titles: ReadonlyMap<string, string> }) {
   const { userId } = useSession();
@@ -62,17 +62,17 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
   );
   if (!current()) return null;
   return (
-    <div className="academy-grant-records" lang={requestedLocale}>
+    <div className="lt-stack" lang={requestedLocale}>
       <header>
         <h2>
           <Copy k="title" />
         </h2>
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="subtitle" />
         </p>
       </header>
       {snapshot.status === 'grant' && !proof && (
-        <section className="academy-grant-original" aria-label={t('unknown')}>
+        <section data-testid="academy-grant-original" aria-label={t('unknown')}>
           <h3>
             <Copy k="unknown" />
           </h3>
@@ -81,20 +81,20 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
             <Copy k="unknownBody" />
           </p>
           {action.noMatch && (
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="noMatch" />
             </p>
           )}
-          <Button onClick={() => void action.check()} disabled={action.busy}>
+          <Button tone="primary" onClick={() => void action.check()} disabled={action.busy}>
             <Copy k="check" />
           </Button>
-          <a className="text-link" href="/support">
+          <a className="lt-link" href="/support">
             <Copy k="support" />
           </a>
         </section>
       )}
       {proof && (
-        <section className="academy-grant-original" aria-label={t('confirmed')}>
+        <section data-testid="academy-grant-original" aria-label={t('confirmed')}>
           <h3>
             <Copy k="confirmed" />
           </h3>
@@ -112,7 +112,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
           <p>
             <Copy k="confirmedBody" />
           </p>
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="xpUnknown" />
           </p>
           {snapshot.known && (
@@ -120,32 +120,32 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
               <p>
                 <Copy k="cleanup" />
               </p>
-              <Button onClick={() => void action.cleanup(snapshot.known!)} disabled={action.busy}>
+              <Button tone="primary" onClick={() => void action.cleanup(snapshot.known!)} disabled={action.busy}>
                 <Copy k="cleanupAction" />
               </Button>
-              <p className="muted">
+              <p className="lt-hint">
                 <Copy k="cleanupOnly" />
               </p>
             </>
           )}
         </section>
       )}
-      <section aria-label={t('records')} className="academy-grant-list">
-        <div className="academy-grant-heading">
+      <section aria-label={t('records')} className="lt-stack">
+        <div className="lt-actions">
           <h3>
             <Copy k="records" />
           </h3>
-          <Button variant="secondary" onClick={() => void read(view.limit)} disabled={shown?.status === 'loading'}>
+          <Button tone="secondary" onClick={() => void read(view.limit)} disabled={shown?.status === 'loading'}>
             <Copy k="refresh" />
           </Button>
         </div>
         {!shown || shown.status === 'loading' ? (
-          <Loading label={t('loading')} />
+          <Waiting label={t('loading')} />
         ) : shown.status === 'failed' && shown.failure ? (
-          <Failure result={shown.failure} retry={() => void read(shown.limit)} />
+          <FailureNote result={shown.failure} retry={() => void read(shown.limit)} />
         ) : (
           <>
-            {!shown.rows.length && <EmptyState title={t('empty')} />}
+            {!shown.rows.length && <EmptyNote title={t('empty')} />}
             {shown.rows.map((row) => (
               <article key={row.idempotencyKey}>
                 <h4 lang={titles.has(row.certId) ? 'und' : 'zxx'}>{titles.get(row.certId) ?? row.certId}</h4>
@@ -155,12 +155,12 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
                 <code lang="zxx">{row.idempotencyKey}</code>
               </article>
             ))}
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="window" params={{ count: shown.rows.length, limit: shown.limit }} />
             </p>
             {shown.rows.length >= shown.limit && shown.limit < 200 ? (
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() => {
                   size.current = Math.min(200, shown.limit + 50);
                   void read(size.current);
@@ -170,14 +170,14 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
               </Button>
             ) : (
               shown.limit === 200 && (
-                <p className="muted">
+                <p className="lt-hint">
                   <Copy k="cap" />
                 </p>
               )
             )}
           </>
         )}
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="boundary" />
         </p>
       </section>

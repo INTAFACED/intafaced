@@ -1,21 +1,16 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
-import { AccountDirectoryError, HANDLES_CAP, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
+import { AccountDirectoryError, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
 import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';
 import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from './operator-sessions.js';
-
-const directoryRow = z
-  .object({
-    id: z.string().guid(),
-    handle: z.string(),
-    status: z.enum(['active', 'frozen', 'closed']),
-    created: z.string().datetime({ offset: true }),
-    kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
-    restrictedAreas: z.array(z.enum(['identity', 'trading'])),
-    emailMasked: z.string(),
-  })
-  .strict();
+import {
+  IDENTITY_ACCOUNT_DIRECTORY_HANDLES,
+  IDENTITY_ACCOUNT_DIRECTORY_SEARCH,
+} from '@intafaced/contracts/identity-account-directory-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
+import { IDENTITY_API_KEY_OPS_REVOKE } from '@intafaced/contracts/identity-api-key-ops-procedures';
 
 function directoryError(error: unknown): never {
   if (error instanceof AccountDirectoryError) {
@@ -51,35 +46,29 @@ function apiKeyError(error: unknown): never {
 export function createOperatorOpsRouter(sql: Sql) {
   return router({
     accountDirectory: router({
-      search: scopedProcedure('admin:compliance')
-        .input(
-          z
-            .object({
-              email: z.string().max(320).optional(),
-              handle: z.string().max(32).optional(),
-              cursor: z.string().max(512).optional(),
-            })
-            .strict(),
-        )
-        .output(z.object({ rows: z.array(directoryRow), nextCursor: z.string().nullable() }).strict())
-        .query(async ({ ctx, input }) => {
+      search: mountRecord(
+        IDENTITY_ACCOUNT_DIRECTORY_SEARCH,
+        async ({ ctx, input }) => {
           try {
             return await searchAccounts(sql, ctx, input);
           } catch (error) {
             directoryError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       /** The handle of each account id a desk shows (an owner column): id and handle only, audited like a search. */
-      handles: scopedProcedure('admin:compliance')
-        .input(z.object({ ids: z.array(z.string().guid()).min(1).max(HANDLES_CAP) }).strict())
-        .output(z.object({ rows: z.array(z.object({ id: z.string().guid(), handle: z.string() }).strict()) }).strict())
-        .query(async ({ ctx, input }) => {
+      handles: mountRecord(
+        IDENTITY_ACCOUNT_DIRECTORY_HANDLES,
+        async ({ ctx, input }) => {
           try {
             return { rows: await accountHandles(sql, ctx, input.ids) };
           } catch (error) {
             directoryError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       counts: scopedProcedure('admin:read')
         .input(z.object({}).strict())
         .output(
@@ -154,37 +143,17 @@ export function createOperatorOpsRouter(sql: Sql) {
     }),
     /** Support-agent and founder-ops revoke of one customer key (DV-keys-04, ENGINE KS-11). Never returns a secret. */
     apiKeyOps: router({
-      revoke: scopedProcedure('admin:write')
-        .input(
-          z
-            .object({
-              userId: z.string().guid(),
-              keyId: z.string().guid(),
-              reason: z.string().max(500),
-              clientRequestId: z.string().max(128),
-            })
-            .strict(),
-        )
-        .output(
-          z
-            .object({
-              userId: z.string().guid(),
-              keyId: z.string().guid(),
-              changed: z.boolean(),
-              revocation: z
-                .object({ actorId: z.string().guid(), reason: z.string(), revokedAt: z.string().datetime({ offset: true }) })
-                .strict()
-                .nullable(),
-            })
-            .strict(),
-        )
-        .mutation(async ({ ctx, input }) => {
+      revoke: mountRecord(
+        IDENTITY_API_KEY_OPS_REVOKE,
+        async ({ ctx, input }) => {
           try {
             return await revokeApiKeyForUser(sql, ctx, input);
           } catch (error) {
             apiKeyError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

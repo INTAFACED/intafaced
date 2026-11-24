@@ -80,6 +80,9 @@ export interface ControlForm {
   readonly ownerType: (typeof OWNER_TYPES)[number] | '';
   readonly ownerIdPrefix: string;
   readonly rail: string;
+  /** The venue and the partner whose reports a control compares our own records with (`accountSet.reports`). */
+  readonly reportVenue: string;
+  readonly reportPartner: string;
   readonly accountKind: (typeof ACCOUNT_KINDS)[number] | '';
   readonly purpose: string;
   readonly assetId: string;
@@ -108,6 +111,8 @@ export function emptyControlForm(): ControlForm {
     ownerType: '',
     ownerIdPrefix: '',
     rail: '',
+    reportVenue: '',
+    reportPartner: '',
     accountKind: '',
     purpose: '',
     assetId: '',
@@ -146,6 +151,8 @@ export function formFromControl(view: ReconciliationControlView): ControlForm {
     ownerType: accountSet.mode === 'query' ? (accountSet.ownerType ?? '') : '',
     ownerIdPrefix: accountSet.mode === 'query' ? (accountSet.ownerIdPrefix ?? '') : '',
     rail: accountSet.mode === 'query' ? (accountSet.rail ?? '') : '',
+    reportVenue: accountSet.mode === 'query' ? (accountSet.reports?.venue ?? '') : '',
+    reportPartner: accountSet.mode === 'query' ? (accountSet.reports?.partner ?? '') : '',
     accountKind: accountSet.mode === 'query' ? (accountSet.kind ?? '') : '',
     purpose: accountSet.mode === 'query' ? (accountSet.purpose ?? '') : '',
     assetId: accountSet.mode === 'query' ? (accountSet.assetId ?? '') : '',
@@ -205,6 +212,14 @@ function accountSetOf(form: ControlForm): DefineReconciliationControlInput['acco
     ...(form.ownerType ? { ownerType: form.ownerType } : {}),
     ...(form.ownerIdPrefix.trim() ? { ownerIdPrefix: form.ownerIdPrefix.trim() } : {}),
     ...(form.rail.trim() ? { rail: form.rail.trim() } : {}),
+    ...(form.reportVenue.trim() || form.reportPartner.trim()
+      ? {
+          reports: {
+            ...(form.reportVenue.trim() ? { venue: form.reportVenue.trim() } : {}),
+            ...(form.reportPartner.trim() ? { partner: form.reportPartner.trim() } : {}),
+          },
+        }
+      : {}),
     ...(form.accountKind ? { kind: form.accountKind } : {}),
     ...(form.purpose.trim() ? { purpose: form.purpose.trim() } : {}),
     ...(form.assetId.trim() ? { assetId: form.assetId.trim() } : {}),
@@ -260,6 +275,8 @@ function contractWhy(error: {
   if (where === 'reason') return 'Write the reason first (12 to 500 characters).';
   if (where === 'accountSet.rail')
     return 'Rail boundary names its own accounts: leave owner type and owner id blank, and kind blank or available.';
+  if (where.startsWith('accountSet.reports'))
+    return 'Venue and partner reports name their own accounts: leave rail, owner type and owner id blank, kind blank or available, and write each id in lower case.';
   if (issue.message === 'ops.control_policy_unset')
     return `${where === 'accountSet' ? 'Account set' : where || 'Policy'}: ops.control_policy_unset. Name at least one account or one account filter.`;
   return `${where || 'Control'}: ${issue.message}`;
@@ -354,6 +371,8 @@ export function describeAccountSet(view: ReconciliationControlView): string {
     set.ownerType && `owner type ${set.ownerType}`,
     set.ownerIdPrefix && `owner id starts ${set.ownerIdPrefix}`,
     set.rail && `boundary of rail ${set.rail}`,
+    set.reports?.venue && `our own records at venue ${set.reports.venue}`,
+    set.reports?.partner && `our own records at partner ${set.reports.partner}`,
     set.kind && `kind ${set.kind}`,
     set.purpose && `purpose ${set.purpose}`,
     set.assetId && `asset ${set.assetId}`,
@@ -436,6 +455,16 @@ export function describeRun(run: ReconciliationControlRunView): string {
       ? [`Error: ${run.errorCode.value}${run.phase.status === 'set' ? ` at ${run.phase.value}` : ''}.`]
       : []),
     ...run.assets.map(describeEvidence),
+    ...(run.reports ?? []).flatMap((side) => [
+      `${side.reporter === 'venue' ? 'Venue' : 'Partner'} ${side.place} report: ${
+        side.asOf === 'not_reported'
+          ? 'not reported for this instant, never a match'
+          : side.asOf === 'unset'
+            ? 'unset (no address for its report)'
+            : `as of ${side.asOf}`
+      }.`,
+      ...side.assets.map((asset) => `${side.reporter} ${side.place} ${describeEvidence(asset)}`),
+    ]),
     ...(run.reconcilingItems
       ? [
           `${run.reconcilingItems.length} reconciling item${run.reconcilingItems.length === 1 ? '' : 's'}${run.reconcilingItems.length ? ':' : '.'}`,

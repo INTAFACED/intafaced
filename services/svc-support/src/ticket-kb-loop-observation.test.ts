@@ -13,14 +13,13 @@ import {
   createTicketKbLoopObserver,
   ticketKbLoopObservedInLiveCompose,
 } from './ticket-kb-loop-observation.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const HTTP_APP = resolve(import.meta.dirname, 'http-app.ts');
 
 function supportServiceBlock(source: string): string {
-  const match = source.match(/^  svc-support:\n(?:.*\n)*?(?=^  [a-z]|(?![\s\S]))/m);
-  if (!match) throw new Error('svc-support service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-support');
 }
 
 describe('ticket+KB loop is not observed in a live compose env', () => {
@@ -47,7 +46,7 @@ describe('ticket+KB loop is not observed in a live compose env', () => {
       '  svc-support:',
       '    environment:',
       '      SERVICE_NAME: svc-support',
-      'Z not a service key',
+      '      Z_NOT_A_SERVICE_KEY: kept',
       '    healthcheck: *healthcheck',
       '',
     ].join('\n');

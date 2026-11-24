@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { CampaignCompetition, CampaignState, CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignsError } from './codes.js';
@@ -52,6 +52,8 @@ export interface CompetitionFill {
   readonly quoteAsset: string;
   readonly notional: string;
   readonly builderFee: string;
+  /** The asset the builder fee was charged in, as the venue reports it; absent from an older read. */
+  readonly feeAsset?: string;
   readonly filledAt: string;
 }
 
@@ -236,7 +238,7 @@ export class CompetitionService {
 
   /** One prize as a reward intent, inside the caller's transaction with the campaign locked; the pool must cover it. */
   private async writePrize(
-    tx: Sql,
+    tx: Queryable,
     row: CompetitionRow,
     accountId: string,
     key: string,

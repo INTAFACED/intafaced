@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AccountsPanel, isFactoryUnset } from './AccountsPanel';
+import { AccountsPanel } from './AccountsPanel';
+import { isFactoryUnset } from './wallet-text';
 import { COMPROMISE_STEPS, SAFETY_LESSONS, SafetyPanel } from './SafetyPanel';
 import { WEB3_ROUTES } from '../routes';
 
@@ -12,14 +13,17 @@ const wallet = { status: 'connected', address: ME as string | null, guard: { ok:
 const predictAccount = vi.fn();
 vi.mock('./WalletProvider', async (actual) => ({ ...(await actual<typeof import('./WalletProvider')>()), useWallet: () => wallet }));
 vi.mock('../api', () => ({ createProtocolApi: () => ({ predictAccount }) }));
-const session = { userId: 'u1' as string | null, api: {} };
 const venueStatus = vi.fn();
 const venueSubs = vi.fn();
+// The venue is faked at the session's transport, so trade's own venue client and venue mode run as they do in the app.
+type RestOptions = { query?: Record<string, string | undefined>; signal?: AbortSignal };
+const rest = (path: string, _schema: unknown, options: RestOptions = {}) => {
+  if (path === '/venue/status') return venueStatus(options.signal);
+  if (path === '/venue/sub-accounts') return venueSubs(options.query?.owner, options.signal);
+  throw new Error(`unexpected ${path}`);
+};
+const session = { userId: 'u1' as string | null, api: { rest } };
 vi.mock('../../session/session', () => ({ useApi: () => ({}), useSession: () => session }));
-vi.mock('../../trade/venue-api', async (actual) => ({
-  ...(await actual<typeof import('../../trade/venue-api')>()),
-  venueApi: () => ({ status: venueStatus, subAccounts: venueSubs }),
-}));
 const VENUE_UP = {
   enabled: true,
   available: true,

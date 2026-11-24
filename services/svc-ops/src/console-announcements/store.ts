@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { BANNER_CONFLICT, windowsOverlap, type Announcement, type AnnouncementAction } from '@intafaced/contracts';
+import type { Announcement, AnnouncementAction } from '@intafaced/contracts';
+import { BANNER_CONFLICT, windowsOverlap } from '@intafaced/contracts/ops-console-announcements';
 import { OpsError } from '../codes.js';
 
 /**

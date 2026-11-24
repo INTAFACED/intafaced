@@ -17,6 +17,3 @@ export const effectiveRateSchema = z.object({
   rateStatus: z.enum(['exact', 'rounded', 'no_volume', 'refused']),
 });
 export type EffectiveRate = z.infer<typeof effectiveRateSchema>;
-
-/** The part of `merchantAnalytics.fees` this read uses. Older services do not send `rates`. */
-export const feeRatesReadSchema = z.object({ rates: z.array(effectiveRateSchema).optional() });

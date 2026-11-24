@@ -2,37 +2,19 @@ import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
   kybApplicationChangeTypeInputSchema,
-  kybApplicationCurrentInputSchema,
-  kybApplicationRestartInputSchema,
   kybApplicationSaveSectionInputSchema,
   kybApplicationStartInputSchema,
-  kybApplicationSubmitInputSchema,
   kybApplicationViewSchema,
-  kybDocumentChecklistViewSchema,
-  kybDocumentFileInputSchema,
-  kybDocumentFileSchema,
-  kybDocumentReviewInputSchema,
-  kybDocumentReviewViewInputSchema,
-  kybDocumentReviewViewSchema,
-  kybDocumentsChecklistInputSchema,
-  kybDocumentsUploadInputSchema,
-  kybDocumentsUploadResultSchema,
-  kybDecisionBindingSchema,
-  kybEntityTypesViewSchema,
+} from '@intafaced/contracts/kyb-application';
+import { kybRequirementsReadInputSchema, kybRequirementsViewSchema } from '@intafaced/contracts/kyb-entity-types';
+import {
   kybRequestAnswerInputSchema,
   kybRequestCloseInputSchema,
   kybRequestCreateInputSchema,
-  kybRequestFileBytesSchema,
-  kybRequestFileInputSchema,
   kybRequestResultSchema,
-  kybRequestsListInputSchema,
-  kybRequestsViewSchema,
-  kybRequirementsReadInputSchema,
-  kybRequirementsViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/kyb-information-requests';
+import { kybDecisionBindingSchema } from '@intafaced/contracts/merchant-portal';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -52,6 +34,22 @@ import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ow
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
+import {
+  PAY_KYB_DOCUMENTS_FILE,
+  PAY_KYB_REQUESTS_FILE,
+  PAY_KYB_REQUESTS_REVIEW_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+  PAY_KYB_ENTITY_TYPES_READ,
+  PAY_KYB_APPLICATION_CURRENT,
+  PAY_KYB_APPLICATION_RESTART,
+  PAY_KYB_APPLICATION_SUBMIT,
+  PAY_KYB_DOCUMENTS_CHECKLIST,
+  PAY_KYB_DOCUMENTS_UPLOAD,
+  PAY_KYB_REQUESTS_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW,
+} from '@intafaced/contracts/pay-kyb-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from './record-refusal.js';
 
 /**
  * DIGITAL KYB + PSP PRICING / MODE — operator + merchant surfaces (`pay.psp`).
@@ -236,9 +234,7 @@ export function createKybPspRouter(
          * requires and the countries it is offered in. Empty when none are published. The door is `pay:onboard`
          * because a business reads this before it has a merchant row; nothing here names a merchant.
          */
-        read: scopedProcedure('pay:onboard', { module: 'pay' })
-          .output(kybEntityTypesViewSchema)
-          .query(() => wrap(async () => ({ entityTypes: await entityTypes.list() }))),
+        read: mountRecord(PAY_KYB_ENTITY_TYPES_READ, () => wrap(async () => ({ entityTypes: await entityTypes.list() })), payRefusal),
       }),
 
       application: router({
@@ -254,15 +250,15 @@ export function createKybPspRouter(
           ),
 
         /** The merchant's open draft, or its latest submitted application; null when none was started. */
-        current: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationCurrentInputSchema)
-          .output(kybApplicationViewSchema.nullable())
-          .query(({ ctx, input }) =>
+        current: mountRecord(
+          PAY_KYB_APPLICATION_CURRENT,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
               return applicationService().current(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Save one section; names the version it read. A stale version is a conflict. */
         saveSection: scopedProcedure('pay:onboard', { module: 'pay' })
@@ -276,15 +272,15 @@ export function createKybPspRouter(
           ),
 
         /** Clear the draft's sections (needs `confirm: true`). The history of earlier saves is kept. */
-        restart: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationRestartInputSchema)
-          .output(kybApplicationViewSchema)
-          .mutation(({ ctx, input }) =>
+        restart: mountRecord(
+          PAY_KYB_APPLICATION_RESTART,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().restart({ applicationId: input.applicationId, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Change the draft's entity type or country: the sections clear and what is needed is listed again for the new type. */
         changeType: scopedProcedure('pay:onboard', { module: 'pay' })
@@ -298,59 +294,58 @@ export function createKybPspRouter(
           ),
 
         /** Submit once every required section is complete (`pay.kyb_incomplete` names the rest). Moves KYB to pending. */
-        submit: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybApplicationSubmitInputSchema)
-          .output(kybApplicationViewSchema)
-          .mutation(({ ctx, input }) =>
+        submit: mountRecord(
+          PAY_KYB_APPLICATION_SUBMIT,
+          ({ ctx, input }) =>
             wrap(async () => {
               const { merchantId } = await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().submit({ applicationId: input.applicationId, merchantId, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       documents: router({
         /** What the application's type requires, each document's state, the owner's upload rules, and the automatic check (`vendor.kyc`, not connected). */
-        checklist: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybDocumentsChecklistInputSchema)
-          .output(kybDocumentChecklistViewSchema)
-          .query(({ ctx, input }) =>
+        checklist: mountRecord(
+          PAY_KYB_DOCUMENTS_CHECKLIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return documentService().checklist(input.applicationId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Upload one required document to an open draft. Refuses without published upload rules or an encryption key, a wrong type, or an oversize file. */
-        upload: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybDocumentsUploadInputSchema)
-          .output(kybDocumentsUploadResultSchema)
-          .mutation(({ ctx, input }) =>
+        upload: mountRecord(
+          PAY_KYB_DOCUMENTS_UPLOAD,
+          ({ ctx, input }) =>
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return { row: await documentService().upload({ ...input, actorId: ctx.principal.userId }) };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Compliance: a merchant's current application and each document, with who gave each verdict. Interactive sign-in with a second factor. */
-        reviewView: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentReviewViewInputSchema)
-          .output(kybDocumentReviewViewSchema)
-          .query(({ ctx, input }) =>
+        reviewView: mountRecord(
+          PAY_KYB_DOCUMENTS_REVIEW_VIEW,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return documentService().reviewView(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /**
          * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
          * with the reason given here. One reviewer is enough: a verdict unlocks nothing, `kyb.decide` stays two-person.
          */
-        review: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentReviewInputSchema)
-          .output(kybDocumentsUploadResultSchema)
-          .mutation(({ ctx, input }) =>
+        review: mountRecord(
+          PAY_KYB_DOCUMENTS_REVIEW,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return {
@@ -363,32 +358,33 @@ export function createKybPspRouter(
                 }),
               };
             }),
-          ),
+          payRefusal,
+        ),
 
         /** Compliance: the bytes of one upload, so the reviewer can read it. A mutation, because every read is recorded. */
-        file: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybDocumentFileInputSchema)
-          .output(kybDocumentFileSchema)
-          .mutation(({ ctx, input }) =>
+        file: mountRecord(
+          PAY_KYB_DOCUMENTS_FILE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return documentService().file({ ...input, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       /** Information requests (J-merchant-02 step 4): compliance asks, the business answers once, compliance closes. */
       requests: router({
         /** The business's requests, newest first, each with its due date, answer and who closed it. */
-        list: scopedProcedure('pay:onboard', { module: 'pay' })
-          .input(kybRequestsListInputSchema)
-          .output(kybRequestsViewSchema)
-          .query(({ ctx, input }) =>
+        list: mountRecord(
+          PAY_KYB_REQUESTS_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
               return requestService().list(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /** The business answers an open request once: a note, a file (scanned before it is kept), or both. */
         answer: scopedProcedure('pay:onboard', { module: 'pay' })
@@ -408,15 +404,15 @@ export function createKybPspRouter(
           ),
 
         /** For compliance: one merchant's requests. */
-        reviewList: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestsListInputSchema)
-          .output(kybRequestsViewSchema)
-          .query(({ ctx, input }) =>
+        reviewList: mountRecord(
+          PAY_KYB_REQUESTS_REVIEW_LIST,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return requestService().list(input.merchantId);
             }),
-          ),
+          payRefusal,
+        ),
 
         /** For compliance: ask a merchant for more, with a due date in the future. The request key makes it idempotent. */
         create: scopedProcedure('admin:compliance', { module: 'pay' })
@@ -441,15 +437,15 @@ export function createKybPspRouter(
           ),
 
         /** For compliance: the decrypted bytes of an answer's file. Each read is recorded. */
-        file: scopedProcedure('admin:compliance', { module: 'pay' })
-          .input(kybRequestFileInputSchema)
-          .output(kybRequestFileBytesSchema)
-          .mutation(({ ctx, input }) =>
+        file: mountRecord(
+          PAY_KYB_REQUESTS_FILE,
+          ({ ctx, input }) =>
             wrap(async () => {
               requireMfa(ctx.principal);
               return requestService().file({ requestId: input.requestId, actorId: ctx.principal.userId });
             }),
-          ),
+          payRefusal,
+        ),
       }),
 
       requirements: router({

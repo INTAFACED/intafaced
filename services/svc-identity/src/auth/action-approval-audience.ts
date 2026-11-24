@@ -33,7 +33,7 @@
  * type alone. A target service consumes by target id and payload hash, not by the type string, so deciding on the type
  * only would let a founder-only action be filed under a harmless-looking type.
  */
-import { isSamePersonActionType, PROTECTIVE_OPERATOR_APPROVALS } from '@intafaced/contracts';
+import { isSamePersonActionType, PROTECTIVE_OPERATOR_APPROVALS } from '@intafaced/contracts/action-approval';
 import { factorActor } from './factor-gate.js';
 
 export type ActionAudience = 'founder' | 'operator' | 'self' | 'trade_ops';

@@ -1,12 +1,13 @@
 // World: book, gates, restart, stack
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { connectWhenAsked } from './dex.mjs';
+import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -421,32 +422,52 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
 }) => {
   test.setTimeout(240_000);
   const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
+  // A book this step owns: a fresh TEST market no other file trades, so nothing another journey left resting on a shared
+  // market (a buy above the venue maker's bid, or this person's own buy from an earlier attempt) can meet the second
+  // trader's sell before Confirm (#8546: on BTC-USDC after J-agents-21 and J-bank-13, the sell filled at once and the
+  // review saw nothing change). Its book is empty, so a limit buy at 10 rests as a maker.
+  const market = await freshListedMarket('R');
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${market.symbol}`, s.walletKey);
   const open = await venueOpen(owner);
+  const price = '10';
+  const amount = '1';
+  expect((await testVenue('/book', { symbol: market.symbol, depth: 5 })).body.value).toMatchObject({ bids: [], asks: [] });
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await form.getByRole('textbox', { name: 'Price' }).fill(price);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at
+  // most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so the preview is asked again until it answers.
+  const amountBox = form.getByRole('textbox', { name: 'Amount' });
   const door = doorCalls(page);
-  // A buy one tick over the venue's bid: it would rest, as a maker, filling nothing now.
-  const { body } = await testVenue('/markets', {});
-  const tick = toUnits(body.value.find((m) => m.symbol === SYMBOL).tickSize);
-  const bid = toUnits(await awayBid(100));
-  const price = fromUnits(bid + tick);
-  const { review } = await reviewLimitBuy(page, price);
+  await expect(async () => {
+    await amountBox.fill('');
+    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+    await amountBox.fill(amount);
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
+  await page.getByRole('button', { name: `Buy ${market.base}` }).click();
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  await expect.poll(async () => (await review.getByTestId('client-order-id').innerText()).trim()).toMatch(/^\S+$/);
   await expect(review.locator('dt', { hasText: 'Fee role' }).locator('xpath=..')).toContainText('Maker');
   // After the review opened, another TEST trader offers at that price on the venue, so this buy would now take it.
-  const seller = `${J}-7-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}`;
+  const seller = `${J}-7-${market.symbol}-${owner.slice(2, 10)}`;
+  const sellerOwner = otherTraderKey(seller).address.toLowerCase();
   await testVenue('/test/deposit', {
-    account: await venueAccount(otherTraderKey(seller).address),
-    asset: 'BTC',
-    amount: '1',
-    depositRef: `seed:${seller}:BTC`,
+    account: await venueAccount(sellerOwner),
+    asset: market.base,
+    amount,
+    depositRef: `seed:${seller}:${market.base}`,
   });
   const offerKey = `order:${seller}:js2-7-ask`;
   const offer = await otherTraderRun(seller, {
     kind: 'place_order',
-    symbol: SYMBOL,
+    symbol: market.symbol,
     side: 'sell',
     type: 'limit',
-    amount: AMOUNT,
+    amount,
     price,
     timeInForce: 'GTC',
     reduceOnly: false,
@@ -454,8 +475,22 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     builderFee: null,
   });
   expect(offer.definite && offer.accepted, JSON.stringify(offer)).toBe(true);
-  const asked = signatures(wallet);
   try {
+    // The sell really rests at the order's price before Confirm: the seller's own open order, unfilled, and the venue's
+    // book holding it as the only ask, with no bid.
+    const resting = (await venueRecord(sellerOwner, '/open-orders')).value.filter((o) => o.symbol === market.symbol);
+    expect(resting, JSON.stringify(resting)).toHaveLength(1);
+    expect(resting[0]).toMatchObject({ side: 'sell', status: 'open' });
+    expect(sameDecimal(resting[0].price, price) && sameDecimal(resting[0].remaining, amount)).toBe(true);
+    const book = (await testVenue('/book', { symbol: market.symbol, depth: 5 })).body.value;
+    expect(book.bids, JSON.stringify(book)).toEqual([]);
+    expect(
+      book.asks.map((l) => [toUnits(l.price), toUnits(l.amount)]),
+      JSON.stringify(book),
+    ).toEqual([[toUnits(price), toUnits(amount)]]);
+    const asked = signatures(wallet);
+    const reviewed = door.of('preview').at(-1);
+    const reviewedCount = door.of('preview').length;
     await review.getByRole('button', { name: 'Confirm buy' }).click();
     // The new numbers show, and the person is asked again: nothing is prepared, signed or sent.
     await expect(review.getByTestId('venue-review-moved')).toHaveText(
@@ -463,9 +498,11 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     );
     await expect(review.locator('dt', { hasText: 'Fee role' }).locator('xpath=..')).toContainText('Taker');
     await expect(review.getByRole('button', { name: 'Confirm buy' })).toBeVisible();
+    // Confirm asked the venue again, for the same reviewed draft (the same client order key).
     const previews = door.of('preview');
+    expect(previews.length).toBeGreaterThan(reviewedCount);
     const shown = previews.at(-1);
-    expect(shown.body.intent.clientOrderKey).toBe(door.of('preview')[0].body.intent.clientOrderKey);
+    expect(shown.body.intent.clientOrderKey).toBe(reviewed.body.intent.clientOrderKey);
     expect(door.of('prepare')).toHaveLength(0);
     expect(door.of('submit')).toHaveLength(0);
     expect(signatures(wallet)).toBe(asked);
@@ -474,85 +511,25 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     expect(door.of('prepare')).toHaveLength(0);
     expect(await venueOpen(owner)).toEqual(open);
   } finally {
-    await otherTraderRun(seller, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: offerKey });
+    await otherTraderRun(seller, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: offerKey });
   }
 });
 
 // ── #8: a halted market, by the venue or by our operators ──────────────────────────────────────────────────────────
 
-let operators;
-async function ops() {
-  if (!operators) {
-    const ctx = await makeContext({ log: () => undefined });
-    operators = { ctx, sessions: await approverSessions(ctx) };
-  }
-  return operators;
-}
-
-/** Keys sorted, no spaces: the canonical form svc-trade hashes (services/svc-trade/src/admin/common.ts payloadHash). */
-function canonical(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  const keys = Object.keys(value)
-    .filter((k) => value[k] !== undefined)
-    .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-}
-const hashOf = (body) => `sha256:${createHash('sha256').update(canonical(body)).digest('hex')}`;
-const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data;
-
 /** Two operators change one venue market's listing through svc-trade's own two-person door (setup for #8). */
-async function operatorsWrite(symbol, action, procedure, fields, expectedVersion) {
-  const { ctx, sessions } = await ops();
-  const venueId = (await venueInfo()).id;
-  const reason = `LOCAL TEST ${J}: ${procedure} ${symbol}`;
-  const ids = await twoPerson(ctx, sessions, {
-    actionType: action,
-    targetService: 'svc-trade',
-    targetId: `venue-listing:${venueId}:${symbol}`,
-    expectedVersion,
-    payloadHash: hashOf({ actionType: action, venueId, symbol, ...fields, expectedVersion, reason }),
-    policyVersion: 'trade-venue-markets-v1',
-  });
-  const res = await ctx.edge.mutate(
-    'trade',
-    `admin.venueMarkets.${procedure}`,
-    { symbol, ...fields, expectedVersion, reason, ...ids },
-    await sessions.a.tradeOpsToken(),
-  );
-  expect(trpcData(res)?.listing?.version, res.text.slice(0, 300)).toBe(Number(expectedVersion) + 1);
-}
+const operatorsWrite = (symbol, action, procedure, fields, expectedVersion) =>
+  venueListingWrite(J, symbol, action, procedure, fields, expectedVersion);
 
 /** A fresh TEST spot market on the TEST venue, listed by two operators and open: no other file trades it. */
-async function freshListedMarket(tag) {
-  const base = `JS2${tag}${randomBytes(3).toString('hex').toUpperCase()}`;
-  const symbol = `${base}-USDC`;
-  const added = await testVenue('/test/market-add', {
-    symbol,
-    baseAsset: base,
-    quoteAsset: 'USDC',
-    maxOrderQty: null,
-    maxOrderNotional: null,
-  });
-  expect(added.status, JSON.stringify(added.body)).toBe(200);
-  await operatorsWrite(symbol, 'trade.venue_listing_set', 'listingSet', { opensAt: new Date(Date.now() - 60_000).toISOString() }, '0');
-  return { symbol, base };
-}
+const freshListedMarket = (tag) => ownSpotMarket(J, 'JS2', tag);
 
-/**
- * Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). The desk may
- * restore the still-authorised wallet on its own, so Connect is pressed only while no address shows.
- */
+/** Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). */
 async function deskAgain(page, wallet, path) {
   await page.goto(path);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
 }
 

@@ -85,7 +85,7 @@ describe('adl-last-resort', () => {
   });
 
   it('refuses invalid maxReduceBps (zero / non-integer) — no invent', async () => {
-    for (const policy of [{ maxReduceBps: 0 }, { maxReduceBps: 1.5 }, { maxReduceBps: -1 }] as unknown as AdlOwnerPolicy[]) {
+    for (const policy of [{ maxReduceBps: 0 }, { maxReduceBps: 1.5 }, { maxReduceBps: -1 }] as AdlOwnerPolicy[]) {
       const outcome = await runAdlLastResort({
         policy,
         bankrupt: {

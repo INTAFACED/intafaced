@@ -228,21 +228,30 @@ export const QUANT_BACKTEST_ASSUMPTIONS = [
   'take_profit_without_slippage',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
-  'stop_out_before_exits',
+  'venue_close_before_exits',
   'margin_level_at_bar_low',
   'loss_beyond_margin',
   'equity_stop_at_bar_low',
 ] as const;
 
 /**
- * The simulated account's rules (ENGINE RK-5): one netting position, the leverage the developer picks up to the
- * owner's maximum, and the owner's margin-call and stop-out levels as a percent of the margin used. Blank is not set.
+ * The simulated account's rules (ENGINE RK-5, J-algo-dev-02 #5): one netting position, the leverage the developer picks
+ * up to the venue's published maximum, the venue's published maintenance level (the venue closes the position when equity
+ * falls to it), and our own margin-call warning, an owner value as a percent of the margin used. The venue's figures are
+ * read from the venue for the market and never set here; null is not published. Ours is labelled ours; null is blank.
  */
 export const quantAccountRulesSchema = z.object({
   mode: z.literal('netting'),
+  /** The venue's perpetual on the strategy's asset whose rules these are (`BTC-PERP`); null: the venue lists none. */
+  venueMarket: z.string().nullable(),
+  /** The venue's published maximum leverage on that market, in times. */
   maxLeverage: z.string().nullable(),
+  /** The venue's published maintenance margin, as a percent of the position's value. */
+  maintenancePercent: z.string().nullable(),
+  /** Our margin-call warning, not the venue's: the margin level (equity over margin used, in percent) it fires at. */
   marginCallPercent: z.string().nullable(),
-  stopOutPercent: z.string().nullable(),
+  /** The venue the figures came from is a TEST venue. */
+  test: z.boolean(),
 });
 export type QuantAccountRules = z.infer<typeof quantAccountRulesSchema>;
 /**
@@ -261,10 +270,11 @@ export const quantRiskEventSchema = z.object({
 });
 export type QuantRiskEvent = z.infer<typeof quantRiskEventSchema>;
 
-export const QUANT_MARGIN_EVENTS = ['margin_call', 'stop_out'] as const;
+export const QUANT_MARGIN_EVENTS = ['margin_call', 'venue_close'] as const;
 /**
- * A margin call or stop-out on a backtest, at the bar price that reached its level (the bar's open when it gapped past),
- * with the margin level there. A stop-out's sell fills at that bar price less slippage, as its trade row shows.
+ * Our margin-call warning, or the venue's close of the position at its maintenance level, on a backtest: at the bar price
+ * that reached its level (the bar's open when it gapped past), with the margin level there. The venue close's sell fills
+ * at that bar price less slippage, as its trade row shows.
  */
 export const quantMarginEventSchema = z.object({
   ts: z.string(),
@@ -293,15 +303,16 @@ export const quantBacktestInputSchema = z.object({
   enforceHoldout: z.boolean().optional(),
   /**
    * Trade on margin (AL-backtest-02): the leverage, a string so a blank one refuses by name. Absent, the run is a cash
-   * account that cannot spend more than it holds. The margin rules are the owner's, never the caller's.
+   * account that cannot spend more than it holds. The margin rules are the venue's and our warning, never the caller's.
    */
   simulatedAccount: z.object({ leverage: z.string() }).optional(),
   /**
    * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
-   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
+   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`. Any JSON
+   * scalar is taken, so the published schema says what is accepted (a record's input never accepts an unshaped value).
    */
-  outOfSampleStatus: z.unknown().optional(),
-  strategyVariantCount: z.unknown().optional(),
+  outOfSampleStatus: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  strategyVariantCount: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
 
@@ -364,7 +375,7 @@ export type QuantCheck = z.infer<typeof quantCheckSchema>;
 export const quantBacktestTradeSchema = z.object({
   ts: z.string(),
   side: z.enum(['buy', 'sell']),
-  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'stop_out', 'close_out']),
+  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'venue_close', 'close_out']),
   qty: decimalText,
   barPrice: decimalText,
   price: decimalText,
@@ -533,9 +544,9 @@ export const quantBacktestResultSchema = z.object({
   holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
   /** Fields the request sent that only the service may set; they were ignored. */
   ignoredInputs: z.array(z.string()),
-  /** The margin account the run simulated, with the owner's rules as they stood. Null: a cash account. */
+  /** The margin account the run simulated, with the venue's rules and our warning as they stood. Null: a cash account. */
   account: quantAccountRulesSchema.extend({ leverage: z.string() }).nullable(),
-  /** Margin calls and stop-outs, in the order they happened. */
+  /** Our margin calls and the venue's closes, in the order they happened. */
   marginEvents: z.array(quantMarginEventSchema),
   /** The risk screen's equity stop (AL-risk-01): recorded once, at the first bar whose low took equity below the floor. */
   riskEvents: z.array(quantRiskEventSchema),
@@ -832,7 +843,7 @@ export const quantTierSetOutputSchema = z.object({
 
 /**
  * Paper runs on the exchange's own prices (AL-live-01). A paper run keeps going until it is stopped; its fills,
- * position and equity are derived on every read from the exchange's own closed candles since it started, by the same
+ * position and equity are derived on every read from the venue's own closed candles since it started, by the same
  * engine and costs as a backtest. Our own venue data is the only feed that starts; an outside market feed is listed and
  * refuses `feed.market` (not connected in this build). Nothing here posts to a ledger: every figure is paper.
  */
@@ -840,21 +851,6 @@ export const QUANT_PAPER_FEEDS = ['own_venue', 'outside_market'] as const;
 export type QuantPaperFeed = (typeof QUANT_PAPER_FEEDS)[number];
 /** The published page size of the paper run list. */
 export const QUANT_PAPER_LIST_MAX = 50;
-
-/**
- * `paper.start`. The run key is `algo:paper:<strategyId>:v<version>:<ordinal>`, where the ordinal is the count of that
- * version's paper runs the screen read when the start dialog opened: a retry after a lost reply reads the same run.
- */
-export const quantPaperStartInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  cash: z.string().max(40),
-  holdings: z.array(z.object({ symbol: z.string().max(32), qty: z.string().max(40) })).max(20),
-  feed: z.string().max(40),
-  costs: z.object({ feeRole: z.string().max(10), slippageBps: z.string().max(20), delayBars: z.string().max(5) }),
-  ordinal: z.number().int().nonnegative(),
-});
-export type QuantPaperStartInput = z.infer<typeof quantPaperStartInputSchema>;
 
 export const quantPaperRunSummarySchema = z.object({
   runId: z.string(),
@@ -880,6 +876,12 @@ export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
   costs: z.object({ feeRole: z.enum(QUANT_FEE_ROLES), slippageBps: decimalText, delayBars: z.number().int().nonnegative() }),
   symbol: z.string(),
   barSize: z.string(),
+  /**
+   * Where the run's prices come from (J-algo-dev-04 #2): the venue's own prints on the spot market we list on the
+   * strategy's asset (`venueMarket`, TEST on a TEST venue), never a book of ours. While the venue is not read, `venueMarket`
+   * is null and `unavailable` says why: the run is unpriced and nothing fills.
+   */
+  prices: z.object({ venueMarket: z.string().nullable(), test: z.boolean(), unavailable: z.string().nullable() }),
   /** Whether a closed bar has traded since the start. Before one has, nothing fills: no price is carried over. */
   priced: z.boolean(),
   /** The end of the newest closed bar read, or null before the first. */
@@ -913,11 +915,6 @@ export const quantNotifySettingsSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 export type QuantNotifySettings = z.infer<typeof quantNotifySettingsSchema>;
-
-export const quantNotifySetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  channels: z.array(z.string().max(20)).max(8),
-});
 
 /**
  * A strategy's risk screen (AL-risk-01). Every cap is the developer's own and starts blank; a blank cap stays blank and is
@@ -956,17 +953,6 @@ export const quantRiskScreenSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 export type QuantRiskScreen = z.infer<typeof quantRiskScreenSchema>;
-export const quantRiskSetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  caps: z.object({
-    depositPercent: z.string().max(40),
-    maxPositionNotional: z.string().max(40),
-    maxDailyLoss: z.string().max(40),
-    equityFloor: z.string().max(40),
-  }),
-  floorPolicy: z.string().max(20),
-});
-export const quantRiskTradingInputSchema = z.object({ strategyId: z.string().min(1).max(128), on: z.boolean() });
 
 /**
  * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only
@@ -1077,11 +1063,6 @@ export type QuantLifecycle = z.infer<typeof quantLifecycleSchema>;
  * `lifecycle.promote`. Keyed `quant.stage:<strategyId>:v<version>:paper:candidate:<seq>`, where `seq` is the number of
  * gate decisions of this version the screen read: a second press with the same reading replays the first answer.
  */
-export const quantPromoteInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  seq: z.number().int().nonnegative(),
-});
 export const quantPromoteOutputSchema = z.object({
   decision: quantGateDecisionSchema,
   stage: quantStageRowSchema.nullable(),
@@ -1161,10 +1142,6 @@ export const quantLiveOrderTypeSchema = z.object({
   code: z.enum(['trade.order_type_unsupported', 'quant.live_plan_unsupported']).nullable(),
 });
 export type QuantLiveOrderType = z.infer<typeof quantLiveOrderTypeSchema>;
-export const quantLiveCheckInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-});
 export const quantLiveCheckSchema = z.object({
   strategyId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -1176,13 +1153,11 @@ export const quantLiveCheckSchema = z.object({
   compiles: z.boolean(),
   /** The platform's live switch as the owner set it now; off when blank. */
   liveEnabled: z.boolean(),
+  /**
+   * The account's second-approver rule for this version (RC-algo-dev-01; J-algo-dev-06 #3): `required` only while the
+   * owner turned the rule on; `allowed` while the rule is off or a different member's approval still matches the version.
+   */
+  approval: z.object({ required: z.boolean(), allowed: z.boolean() }),
   asOf: z.string(),
 });
 export type QuantLiveCheck = z.infer<typeof quantLiveCheckSchema>;
-/**
- * `live.deploy`: the wizard's Deploy. With the platform's live switch off it refuses `quant.live_disabled` before
- * anything is read or written: no deploy intent exists. The amount is the TEST move the person's wallet would sign.
- */
-export const quantLiveDeployInputSchema = quantLiveCheckInputSchema.extend({
-  amount: z.string().max(40),
-});

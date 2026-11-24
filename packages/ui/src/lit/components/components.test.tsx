@@ -9,15 +9,19 @@ import {
   ActionKey,
   Button,
   Change,
+  Checkbox,
   Dock,
   Field,
   Figure,
   LegalSlot,
   Logo,
+  Radio,
   Rail,
   RefusalBox,
   RiskMoment,
+  Select,
   Surface,
+  TextArea,
   type DoorLink,
 } from './index.js';
 
@@ -106,7 +110,15 @@ describe('components', () => {
 
   it('Change says the direction in words, not only colour', () => {
     expect(html(<Change text="£84.10" dir="up" spoken="en hausse" />)).toContain('<span class="lit-sr">en hausse </span>');
-    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain('▼');
+    // The arrow is drawn, pointing the way it moved; a flat change has none.
+    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain(
+      '<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down"></span>',
+    );
+    expect(html(<Change text="£84.10" dir="up" spoken="up" />)).toContain(
+      '<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up"></span>',
+    );
+    expect(html(<Change text="£0.00" dir="flat" spoken="no change" />)).not.toContain('lt-arrow');
+    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).not.toMatch(/[▲▼]/);
   });
 
   it('RefusalBox names the blocker, keeps the code small, and draws hold and pause apart', () => {
@@ -145,6 +157,57 @@ describe('components', () => {
   it('Field keeps a caller description next to its own hint', () => {
     const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
     expect(out).toContain('aria-describedby="terms a-hint"');
+  });
+
+  it('Field draws a mark before and a control after its text inside one box, and is unchanged without them', () => {
+    const out = html(<Field label="To" id="to" before="@" after={<button type="button">Paste</button>} error="No one has that handle" />);
+    expect(out).toBe(
+      '<div class="lit-field-control"><label for="to">To</label><div data-part="box"><span data-part="before" aria-hidden="true">@</span><input id="to" aria-invalid="true" aria-describedby="to-error"/><button type="button">Paste</button></div><span id="to-error" data-part="error" role="alert">No one has that handle</span></div>',
+    );
+    expect(html(<Field label="To" id="to" />)).toBe('<div class="lit-field-control"><label for="to">To</label><input id="to"/></div>');
+  });
+
+  it('Select is a labelled native select whose change hands back the value', () => {
+    const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
+    // Named by its words alone, not by its words and the chosen option (J-developer-08 #3 finds "Status" exactly).
+    const named = out.match(/^<label class="lt-field"><span id="([^"]+)">Role<\/span><select aria-labelledby="([^"]+)">/);
+    expect(named?.[1]).toBeTruthy();
+    expect(named?.[2]).toBe(named?.[1]);
+    expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
+    expect(out).toContain('<small>Pick one</small>');
+  });
+
+  it('Radio is a native radio button named by its words, one of a shared name', () => {
+    const out = html(
+      <Radio name="scope" value="all" checked readOnly>
+        All components
+      </Radio>,
+    );
+    expect(out).toBe(
+      '<label class="lt-field"><input readOnly="" type="radio" name="scope" checked="" value="all"/><span>All components</span></label>',
+    );
+  });
+
+  it('Checkbox is a native tick box named by its words or its own label', () => {
+    const out = html(
+      <Checkbox checked readOnly aria-label="Allow Runner">
+        Allowed
+      </Checkbox>,
+    );
+    expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
+    expect(out).toContain('checked=""');
+    expect(out).toContain('aria-label="Allow Runner"');
+  });
+
+  it('TextArea is a labelled native text box whose hint describes it and whose change hands back the text', () => {
+    const out = html(<TextArea id="why" label="Why" value="TEST" readOnly maxLength={500} hint="Up to 500 characters" aria-invalid />);
+    expect(out).toMatch(
+      /^<label class="lt-field"><span>Why<\/span><textarea [^>]*>TEST<\/textarea><small id="why-hint">Up to 500 characters<\/small><\/label>$/,
+    );
+    expect(out).toContain('aria-describedby="why-hint"');
+    expect(out).toContain('maxLength="500"');
+    expect(out).toContain('aria-invalid="true"');
+    expect(html(<TextArea label="Note" name="note" />)).not.toContain('aria-describedby');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

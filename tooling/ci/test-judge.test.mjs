@@ -27,7 +27,6 @@ import {
   JUDGE_SCHEMA,
   moneyGuard,
   setAsideDays,
-  setAsideRefusal,
   retryProblem,
   mainSetAsideDays,
   setAsideCap,
@@ -83,7 +82,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
   // the judge stands in for those reads only if every file they named is judged here.
   const TEST_CONFIG = /^tooling\/(scripts\/local-stack-services|profiles\/test-owner-values)\//;
   const reachKind = (f) =>
-    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !/\.test\.mjs$/.test(f));
+    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !f.endsWith('.test.mjs'));
   const tree = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 << 20 })
     .split('\n')
     .filter(Boolean);
@@ -106,7 +105,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
 test('no drift: every file the journey tests and look sweeps import on this tree is judged', () => {
   const dir = 'apps/customer/tests/real-app';
   const entries = readdirSync(dir)
-    .filter((f) => /\.pw\.mjs$/.test(f))
+    .filter((f) => f.endsWith('.pw.mjs'))
     .map((f) => `${dir}/${f}`);
   const read = (p) => {
     try {
@@ -626,6 +625,106 @@ test('decided without the judge: nothing to judge passes without reading the wor
   assert.match(none.deterministic.map((d) => d.line).join(' '), /no step words for J-x-01 #2/);
 });
 
+// ── A retired step (#9324, #10592) ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The J-bank-05 shape of #10592 (head ea98806e1): the owner retired steps 4 and 5 (`Journey-retired: J-bank-05 #4 #5`),
+ * the words and the head's journeys.json carry #1 to #3 only, and the pull request moves the file's tests to those three
+ * steps. Before the fix, #4 and #5 each failed "no step words", so no retirement could pass.
+ */
+const RJ = 'apps/customer/tests/real-app/J-bank-05.pw.mjs';
+const stepTest = (n, body = `expect(await quote(${n})).toBe('${n}');`) => [`test(\`\${J} #${n} step\`, async () => {`, `  ${body}`, '});'];
+const bankFile = (steps, body) =>
+  ["import { test, expect } from './journey.mjs';", "const J = 'J-bank-05';", ...steps.flatMap((n) => stepTest(n, body?.(n))), ''].join(
+    '\n',
+  );
+/** A diff that rewrites the whole file, as git writes one: every old line removed, every new line added. */
+const rewrite = (path, before, after) => {
+  const a = before.split('\n').slice(0, -1);
+  const b = after.split('\n').slice(0, -1);
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${a.length} +1,${b.length} @@`,
+    ...a.map((l) => `-${l}`),
+    ...b.map((l) => `+${l}`),
+    '',
+  ].join('\n');
+};
+const bankWords = (steps) =>
+  [
+    '## J-bank-05: A bank quote',
+    '',
+    '| # | The person does | They see |',
+    '| - | - | - |',
+    ...steps.map((n) => `| ${n} | Asks quote ${n} | Sees quote ${n} |`),
+  ].join('\n');
+const bankList = (steps) => JSON.stringify([{ id: 'J-bank-05', steps: steps.map((n) => ({ n, slices: ['S'] })) }]);
+const retireCase = async ({ before = [1, 2, 3, 4, 5], after = [1, 2, 3], words = [1, 2, 3], list = [1, 2, 3], other = null } = {}) => {
+  const base = bankFile(before);
+  const head = bankFile(after, (n) => `expect(await quote(${n})).toBe('${n}.00');`);
+  const OTHER = 'apps/customer/tests/real-app/J-bank-05-more.pw.mjs';
+  const files = { [RJ]: base, 'apps/customer/tests/real-app/journey.mjs': 'export const test = 1; export const expect = 2;\n' };
+  if (other) files[OTHER] = other;
+  const headFiles = { ...files, [RJ]: head, 'docs/roadmap/journeys.json': list === 'broken' ? '{not json' : bankList(list) };
+  const src = {
+    diff: async () => ({ diff: rewrite(RJ, base, head), mergeBase: BASE }),
+    read: async (sha, p) => (sha === HEAD ? headFiles : files)[p] ?? null,
+    journeys: async () => (other ? [RJ, OTHER] : [RJ]),
+    readGraph: (p) => files[p] ?? null,
+  };
+  return buildInputs({
+    src,
+    base: BASE,
+    head: HEAD,
+    pr: 10592,
+    brief: 'B',
+    loadWords: async () => ({ words: parseStepWords(bankWords(words)), ref: 'r' }),
+  });
+};
+const failed = (got) => got.deterministic.map((d) => d.step);
+
+test('replay #10592: a step retired from the words and the list may lose its test without a FAIL', async () => {
+  const got = await retireCase();
+  assert.deepEqual(failed(got), [], got.deterministic.map((d) => d.line).join('; '));
+  assert.deepEqual(got.facts.retired, ['J-bank-05 #4', 'J-bank-05 #5']);
+  // The live steps whose tests changed are still judged by the model.
+  assert.deepEqual(got.required.steps, ['J-bank-05 #1', 'J-bank-05 #2', 'J-bank-05 #3']);
+  const text = summaryLines({ verdict: 'PASS', head: HEAD, facts: got.facts, deterministic: got.deterministic }, new Set()).join('\n');
+  assert.match(text, /J-bank-05 #4: retired: no words at project-state, no test for it at the head/);
+});
+
+test('a removed test of a step that still has words goes to the judge as before, never retired', async () => {
+  const got = await retireCase({ words: [1, 2, 3, 4, 5], list: [1, 2, 3, 4, 5] });
+  assert.deepEqual(failed(got), []);
+  assert.deepEqual(got.facts.retired ?? [], []);
+  assert.deepEqual(got.required.steps, ['J-bank-05 #1', 'J-bank-05 #2', 'J-bank-05 #3', 'J-bank-05 #4', 'J-bank-05 #5']);
+  // Its words are in the prompt, so the model judges the removal against them.
+  assert.match(got.prompt, /Asks quote 4/);
+  // Words still there, even with the step gone from the list: still judged, never let through by the list alone.
+  const unlisted = await retireCase({ words: [1, 2, 3, 4, 5] });
+  assert.deepEqual(unlisted.facts.retired ?? [], []);
+  assert.ok(unlisted.required.steps.includes('J-bank-05 #4') && unlisted.required.steps.includes('J-bank-05 #5'));
+});
+
+test('a step with no words still FAILs when the head keeps its test, still lists it, or its list cannot be read', async () => {
+  // Its test is still at the head (changed): a test can't be judged against words that don't exist.
+  const kept = await retireCase({ after: [1, 2, 3, 4, 5] });
+  assert.deepEqual(failed(kept), ['J-bank-05 #4', 'J-bank-05 #5']);
+  assert.match(kept.deterministic[0].line, /no step words for J-bank-05 #4/);
+  // Its test moved to another journey file at the head: still there, still a FAIL.
+  const moved = await retireCase({ other: bankFile([4, 5]) });
+  assert.deepEqual(failed(moved), ['J-bank-05 #4', 'J-bank-05 #5']);
+  // The head's journeys.json still lists it: a live listed step can't lose its test silently.
+  const listed = await retireCase({ list: [1, 2, 3, 4, 5] });
+  assert.deepEqual(failed(listed), ['J-bank-05 #4', 'J-bank-05 #5']);
+  // The head's list can't be read: nothing is retired (fail closed).
+  const broken = await retireCase({ list: 'broken' });
+  assert.deepEqual(failed(broken), ['J-bank-05 #4', 'J-bank-05 #5']);
+  assert.deepEqual(broken.facts.retired ?? [], []);
+});
+
 // ── The seal ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const run = (jobs, over = {}) => ({
@@ -889,7 +988,7 @@ test('planted (U4): a journey step file whose step no longer checks its words fa
   assert.equal(prompt.match(/^BEGIN UNTRUSTED DIFF$/gm).length, 1);
   assert.equal(prompt.match(/^END UNTRUSTED DIFF$/gm).length, 1);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
-  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'tests']);
+  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'cleared', 'tests']);
   assert.deepEqual(COMBINED_SCHEMA.properties.tests, JUDGE_SCHEMA);
 
   const answer = (tests, review = { verdict: 'PASS', findings: [] }) => {
@@ -944,7 +1043,7 @@ test('U4 (#1819): the combined call with look-baseline images streams the same p
     ...realBriefs(),
     images,
   });
-  assert.match(said, /one call for the review and the test part .*; 1 look-baseline image\(s\) attached$/);
+  assert.match(said, /one call for the review and the test part .*; 1 image\(s\) attached$/);
   assert.ok(existsSync(join(dir, 'combined')));
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
   const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');

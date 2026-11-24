@@ -20,7 +20,7 @@ export function createDevelopersMock(ctx) {
       ? []
       : [
           {
-            id: 'TEST-key-1',
+            id: '7e570000-0000-4000-8000-000000000001',
             name: 'TEST Checkout system',
             prefix: 'test_ab12',
             scopes: ['pay:read', 'pay:write'],
@@ -32,7 +32,7 @@ export function createDevelopersMock(ctx) {
             ipAllowlist: ['203.0.113.10'],
           },
           {
-            id: 'TEST-key-2',
+            id: '7e570000-0000-4000-8000-000000000002',
             name: 'TEST Reporting',
             prefix: 'test_cd34',
             scopes: ['pay:read'],
@@ -44,7 +44,7 @@ export function createDevelopersMock(ctx) {
             ipAllowlist: [],
           },
           {
-            id: 'TEST-key-3',
+            id: '7e570000-0000-4000-8000-000000000003',
             name: 'TEST Old script',
             prefix: 'test_ef56',
             scopes: ['pay:read'],
@@ -110,6 +110,15 @@ export function createDevelopersMock(ctx) {
   });
   const canManage = () => WEBHOOK_ROLES.has(ctx.role);
   const secret = (n) => `TEST-secret-${n}-${'x'.repeat(24)}`;
+  /** A key's two signing flags as the service answers them beside its allowlist: what was set here, else the key's own. */
+  const signingOf = (keyId) => {
+    const key = dev.keys.find((k) => k.id === keyId);
+    const set = dev.signing.get(keyId);
+    return {
+      requireSignature: Boolean(set?.requireSignature ?? key?.requireSignature),
+      requireNonEmptyIpAllowlist: Boolean(set?.requireNonEmptyIpAllowlist ?? key?.requireNonEmptyIpAllowlist),
+    };
+  };
 
   return {
     async handle(procedure, input, route) {
@@ -120,14 +129,14 @@ export function createDevelopersMock(ctx) {
             dev.keys.map((k) => ({
               requireSignature: false,
               requireNonEmptyIpAllowlist: false,
-              ipAllowlist: [],
               ...k,
-              ...(dev.signing.get(k.id) ?? {}),
+              ...dev.signing.get(k.id),
               ipAllowlist: dev.ips.get(k.id) ?? k.ipAllowlist ?? [],
             })),
           );
         case 'apiKeys.create': {
-          const id = `TEST-key-${dev.keys.length + 1}`;
+          // A key id is a GUID, as the service's own is (its records check it); 7e57 marks the stand-in's.
+          const id = `7e570000-0000-4000-8000-${String(dev.keys.length + 1).padStart(12, '0')}`;
           // The list shows the start of the very key that was handed out, as the real service does.
           const handedOut = ['test', `TEST-NOT-A-REAL-KEY-${id}`].join('_');
           const prefix = handedOut.slice(0, 9);
@@ -143,7 +152,7 @@ export function createDevelopersMock(ctx) {
             requireNonEmptyIpAllowlist: false,
             ipAllowlist: [],
           });
-          return ok(route, { id, key: handedOut, prefix, mode: 'sandbox' });
+          return ok(route, { id, key: handedOut, prefix, mode: 'sandbox', scopes: input.scopes });
         }
         case 'apiKeys.revoke': {
           const key = dev.keys.find((k) => k.id === input.keyId);
@@ -165,11 +174,11 @@ export function createDevelopersMock(ctx) {
           return ok(route, { id: input.keyId, signingSecret: 'ifs_TEST-rotated-secret' });
         case 'bindApiKeyIpAllowlist':
           dev.ips.set(input.keyId, input.ips);
-          return ok(route, { id: input.keyId, ipAllowlist: input.ips });
+          return ok(route, { id: input.keyId, ipAllowlist: input.ips, ...signingOf(input.keyId) });
         case 'unbindApiKeyIpAllowlist': {
           const next = (dev.ips.get(input.keyId) ?? []).filter((ip) => ip !== input.ip);
           dev.ips.set(input.keyId, next);
-          return ok(route, { id: input.keyId, ipAllowlist: next });
+          return ok(route, { id: input.keyId, ipAllowlist: next, ...signingOf(input.keyId) });
         }
         case 'merchantOps.webhooks.list': {
           const rows = dev.endpoints.filter(

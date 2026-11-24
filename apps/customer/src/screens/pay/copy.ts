@@ -6,6 +6,8 @@ const messages = {
   Pay: 'Pay',
   'Pay tagline': 'Send money to anyone on INTAFACED. It arrives instantly.',
   'Send or receive': 'Send or receive',
+  // The close key of a confirmation toast.
+  Dismiss: 'Dismiss',
   Send: 'Send',
   Receive: 'Receive',
   // Send: To
@@ -65,6 +67,8 @@ const messages = {
   From: 'From',
   'Your {asset}': 'Your {asset}',
   'Your {asset}, {name} space': 'Your {asset}, {name} space',
+  'Your {asset} account at {partner}': 'Your {asset} account at {partner}',
+  'Your {asset}, {name} space at {partner}': 'Your {asset}, {name} space at {partner}',
   'You send': 'You send',
   'Pay rooms': 'More in Pay',
   Cancel: 'Cancel',

@@ -1,11 +1,13 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
-import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
+import { ADMIN } from './admin.mjs';
 import { setPartner } from './partner.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
 // One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account whose payment method is the
@@ -15,9 +17,13 @@ import { setPartner } from './partner.mjs';
 // (`charge:collected:partner-reserve:test:…`, keyed on the partner's own payment id); a retried request id charges once,
 // and nothing else moves, in the partner's figures or in the person's own ledger balances. The run uses the stack's TEST
 // rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox engine; #5 to #7 check its cost
-// against the published rate, the partner's own figures (svc-bank `spaces.list`, held at the TEST partner bank) and the
-// ledger's own transactions, read by a founder through the console's ledger lookup.
-// Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
+// against the published rate, the partner's own figures and the ledger's own transactions, read by a founder through the
+// console's ledger lookup. The partner's figures are its own book, read straight from the TEST partner bank on loopback
+// through the outside record read (venue.mjs venueRecord and venueBalance; svc-bank partner/test-partner-record.ts),
+// never through the person's bank API: every step checks there what moved at the partner, and only #6 moves anything.
+// #1's empty state is seen last in this file, on the stack's empty-catalogue profile (`LOCAL_STACK_AGENTS_CATALOGUE=off`:
+// svc-agents on a database of its own with no agent stored; tooling/scripts/local-stack-services/agents.mjs), and
+// svc-agents is put back on the stack's database after. Not checkable on this stack: #2's ineligible agent (the TEST
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
@@ -91,36 +97,42 @@ async function selectRanSession(page) {
   return main(page).getByRole('region', { name: 'Selected session' });
 }
 
-/** The person's USDT main balance as the partner reports it; the space says it is held at the TEST partner bank. */
-async function partnerUsdt() {
-  const res = await (
-    await api(agents.account())
-  ).get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  const main = res.body.result.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
-  expect(main?.heldAt?.label, 'the person’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
-  return main.balance;
+/** The TEST partner bank's own book on loopback (svc-bank partner/test-partner-record.ts). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+/** INTAFACED's own account at the partner, where a person's usage payment lands (svc-bank agents/usage-payment.ts). */
+const PARTNER_INTAFACED = 'partner:intafaced';
+/** The partner's move key for one usage window's payment (svc-bank agents/usage-payment.ts usagePaymentKey). */
+const usagePaymentKey = (chargeKey) => `agents.usage-payment:${chargeKey}`;
+
+/** A person's user id, as identity answers their sign-in (once per person in this file): their name in the partner's book. */
+const userIds = new Map();
+async function userIdOf(who = agents.account()) {
+  if (!userIds.has(who.email)) userIds.set(who.email, (await api(who)).userId);
+  return userIds.get(who.email);
 }
+
+/** The person's USDT main balance at the partner, as the TEST partner bank's own book says. */
+async function partnerUsdt(who = agents.account()) {
+  return (await venueBalance(await userIdOf(who), 'USDT', PARTNER_RECORD)).total;
+}
+
+/** Every move on the person's record at the partner, oldest first, as the partner's own book lists it. */
+async function partnerMoves(who = agents.account()) {
+  return (await venueRecord(await userIdOf(who), '/moves', {}, PARTNER_RECORD, null)).value;
+}
+
+/** The person's usage payments in the partner's own book: moves from their USDT main balance to INTAFACED's account there. */
+const usagePayments = (moves) => moves.filter((m) => m.key.startsWith('agents.usage-payment:') && m.to.owner === PARTNER_INTAFACED);
+
+/** What the partner's own book holds for the person now: their USDT and every move, to compare after a step. */
+const partnerBook = async (who) => ({ usdt: await partnerUsdt(who), moves: await partnerMoves(who) });
 
 /**
- * Founder A, signed in to the console once, in a context of its own. One sign-in per step: each sign-in spends a fresh
- * authenticator step (identity refuses a replayed one), so a sign-in per lookup waited for a new 30 s window on every
- * lookup after the second, and #6's four lookups ran past the step's 90 s (main run 43653086390).
+ * svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup, on the console
+ * session the `founders` fixture keeps for this file (journey.mjs), so the step's lookups share one sign-in.
  */
-async function founderConsole(browser) {
-  const context = await browser.newContext();
-  try {
-    const founder = await context.newPage();
-    await founderSignIn(founder);
-    return { founder, close: () => context.close() };
-  } catch (error) {
-    await context.close();
-    throw error;
-  }
-}
-
-/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
-async function ledgerTrace({ founder }, businessKey) {
+async function ledgerTrace(founders, businessKey) {
+  const { page: founder } = await founders.console('a');
   const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
   expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
   return await res.json();
@@ -141,7 +153,14 @@ test(`${J} starts: a verified TEST account whose payment method is the TEST part
     await api(who)
   ).post('/api/bank/trpc/testPartner.fund', { fundId: `${J}-${who.email}`.slice(0, 64), assetId: 'USDT', amount: AT_PARTNER });
   expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+  // The app says where the money is held, and the partner's own book holds exactly what was paid in.
+  const spaces = await (await api(who)).get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(spaces.status, JSON.stringify(spaces.body).slice(0, 300)).toBe(200);
+  const usdtMain = spaces.body.result.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(usdtMain?.heldAt?.label, 'the person’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
   expect(await partnerUsdt()).toBe(AT_PARTNER);
+  expect(usdtMain.balance, 'the app shows what the partner holds').toBe(AT_PARTNER);
+  expect(usagePayments(await partnerMoves()), 'nothing has been paid for agents at the partner yet').toEqual([]);
   await signIn(page, agents.account());
   await page.goto('/more');
   await main(page)
@@ -157,6 +176,7 @@ test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sor
   // The catalogue is the stored list: the cards are exactly the agents svc-agents answers the page (agent.catalogue),
   // no more and no fewer, each with its stored status. A card for an agent the stored list does not hold would be a
   // sample card, which the step's words rule out (with none published, the empty state shows no card at all).
+  const partnerBefore = await partnerBook();
   const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
   await openAgents(page, agents);
   await expect(main(page).getByRole('heading', { name: 'Agent catalogue' })).toBeVisible();
@@ -226,11 +246,14 @@ test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sor
   const blocker = 'No session can be opened: this agent’s data source is not connected, so it cannot plan or place anything.';
   await expect(portfolio.getByRole('note')).toHaveText(blocker);
   await expect(openPortfolio).toHaveAccessibleDescription(blocker);
+  // Browsing the catalogue moves nothing at the partner, as its own book says.
+  expect(await partnerBook()).toEqual(partnerBefore);
 });
 
 test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and tasks side by side from the stored guardrail`, async ({
   page,
 }) => {
+  const partnerBefore = await partnerBook();
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
   await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
@@ -296,6 +319,8 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   // Each column's verdict is that column's own stored eligibility, word for word.
   await expect(verdicts.nth(1)).toHaveText(verdictFor(navigator.eligibility));
   await expect(verdicts.nth(2)).toHaveText(verdictFor(support.eligibility));
+  // Comparing moves nothing at the partner, as its own book says.
+  expect(await partnerBook()).toEqual(partnerBefore);
 });
 
 test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
@@ -309,11 +334,12 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
     const { signUpInBrowser } = await import('./stack.mjs');
     const { randomBytes } = await import('node:crypto');
     const handle = `ag01e${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
-    await signUpInBrowser(page, {
+    const person = {
       handle,
       email: `${handle}@local-test.invalid`,
       password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
-    });
+    };
+    await signUpInBrowser(page, person);
     await page.goto('/agents');
     // Both columns' stored guardrails, each read as the page asks for it: each must say this person is left out and why.
     const read = (agentId) =>
@@ -352,6 +378,8 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
       await expect(cells.nth(i + 1)).toHaveText(verdictFor(g.eligibility));
       await expect(cells.nth(i + 1)).toContainText(`Not on your ${g.eligibility.reason}`);
     }
+    // The person left out holds nothing at the partner and nothing moved there for them, as its own book says.
+    expect(await partnerBook(person)).toEqual({ usdt: '0', moves: [] });
   } finally {
     await context.close();
   }
@@ -360,6 +388,7 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
   page,
 }) => {
+  const partnerBefore = await partnerBook();
   await openAgents(page, agents);
   // The detail page reads Navigator's stored guardrail; its own answer is what the page must show.
   const read = page.waitForResponse((r) => r.url().includes('/api/agents/trpc/agent.get'));
@@ -369,11 +398,19 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
-  // Each declared tool, held to its stored guardrail row by row: its name, and every refusal it can return in words, in
-  // the stored order. The stored guardrail publishes no input or output shape for a tool, so each such cell says so in
-  // words, never an empty cell.
+  // Each declared tool, held to the service's own answer row by row: its name, its declared input and output fields
+  // with their types, and every refusal it can return in words, in the stored order. A tool that declares no shape says
+  // so in words, never an empty cell and never a guessed shape. Navigator declares both kinds: trade.quote has a shape,
+  // identity.session.read has none.
   const declared = stored?.result?.data?.tools ?? [];
   expect(declared.length, JSON.stringify(stored).slice(0, 400)).toBeGreaterThan(0);
+  const shapeOf = (name) => declared.find((tool) => tool.name === name)?.shape;
+  expect(shapeOf('trade.quote'), 'trade.quote declares its shape').toEqual({
+    input: { marketId: expect.any(String) },
+    output: { marketId: expect.any(String), last: expect.any(String), asOf: expect.any(String) },
+  });
+  expect(shapeOf('identity.session.read'), 'identity.session.read declares no shape').toBeNull();
+  const fields = (shape) => Object.entries(shape).map(([field, type]) => `${field}: ${type}`);
   const rows = tools.getByRole('row').filter({ has: page.getByRole('cell') });
   await expect(rows).toHaveCount(declared.length);
   for (const [i, tool] of declared.entries()) {
@@ -383,11 +420,15 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
     await expect(cells.nth(0)).toHaveText(tool.name);
     await expect(cells.nth(1)).toHaveText(tool.mode);
     await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
-    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
-    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
-    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
-    await expect(cells.nth(3)).toHaveText('Not published by this agent');
-    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    if (tool.shape) {
+      expect(Object.keys(tool.shape.input).length, `${tool.name} declares its inputs`).toBeGreaterThan(0);
+      expect(Object.keys(tool.shape.output).length, `${tool.name} declares its outputs`).toBeGreaterThan(0);
+      await expect(cells.nth(3).getByRole('listitem')).toHaveText(fields(tool.shape.input));
+      await expect(cells.nth(4).getByRole('listitem')).toHaveText(fields(tool.shape.output));
+    } else {
+      await expect(cells.nth(3)).toHaveText('Not published by this agent');
+      await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    }
     // Every refusal is worded, never left as its raw code.
     for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
     await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
@@ -400,11 +441,14 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
     'Research only: it cannot place, change or cancel orders, or withdraw',
   );
   await expect(main(page)).toContainText('This agent acts as you, and never with more access than you have.');
+  // Reading an agent's detail moves nothing at the partner, as its own book says.
+  expect(await partnerBook()).toEqual(partnerBefore);
 });
 
 test(`${J} #4 reads the rate card and asks for an estimate: the published rate, the worst case equal to the cap check, no expected range without history`, async ({
   page,
 }) => {
+  const partnerBefore = await partnerBook();
   await openAgents(page, agents);
   await agentCard(page, 'Navigator').getByRole('button', { name: 'Open a session' }).click();
   const rates = tableIn(main(page), 'Published engine routing prices');
@@ -434,6 +478,12 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
     'The worst case is the session’s spend cap: a run that could cost more is refused before the engine is called.',
   );
   await expect(estimate).toContainText('No expected range yet: this agent has no run history.');
+  // An estimate charges nothing: the partner's own book is as it was, and the worst case is within what the person holds
+  // there, so the run #5 makes is not refused for funds.
+  expect(await partnerBook()).toEqual(partnerBefore);
+  expect(toUnits(cap) <= toUnits(partnerBefore.usdt), `the cap ${cap} is within the ${partnerBefore.usdt} USDT held at the partner`).toBe(
+    true,
+  );
 });
 
 /** One agents query or mutation through Edge as the run's account, on its own sign-in: `{ status, body }`. */
@@ -461,11 +511,13 @@ const ledgerBalances = async () => (await api(agents.account())).balances();
 
 test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the engine; the reply and its exact cost; one request id twice is one run and one charge`, async ({
   page,
+  stepPicture,
 }) => {
   const sessionId = await openNavigatorSession(page, agents);
   agents.run.write({ sessionId });
   const before = await ledgerBalances();
   const partnerBefore = await partnerUsdt();
+  const movesBefore = await partnerMoves();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   // A question about a market, so the reply comes with findings: the market the platform read itself before the engine ran.
   await ask.fill(QUESTION);
@@ -559,7 +611,10 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(toUnits(usage.body.result.data.sessionTotal)).toBe(cost);
   expect(toUnits(usage.body.result.data.pending)).toBe(cost);
   expect(await ledgerBalances()).toEqual(before);
+  // Nor has the partner: its own book holds the same USDT and the same moves, with no usage payment yet.
   expect(await partnerUsdt()).toBe(partnerBefore);
+  expect(await partnerMoves()).toEqual(movesBefore);
+  expect(usagePayments(movesBefore)).toEqual([]);
   // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
   const detail = await agentsCall('session.detail', { sessionId }, 'GET');
   expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
@@ -568,9 +623,19 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const engineRuns = log.body.result.data.filter((entry) => entry.kind === 'completion' && entry.status === 'executed');
   expect(engineRuns).toHaveLength(1);
   expect(engineRuns[0].cost).toBe(run.cost);
+  // The step's picture: the one run row whole, with its request id, status and exact cost, above the reply and its
+  // findings. The row fits its column, so nothing of it is scrolled out of view, and the page is shown from its top.
+  const runsTable = workspace(page).getByRole('region', { name: 'Runs', exact: true });
+  expect(await runsTable.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the runs table fits its column').toBe(true);
+  for (const text of [requestId, 'Completed', `${fromUnits(cost)} USDT`]) await expect(row).toContainText(text);
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
 });
 
-test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, browser }) => {
+test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, founders }) => {
   // The session #5 ran, with its usage window still open. A request this agent may not run is refused and logged first,
   // so the history #7 reads has a refusal in it; it bills nothing.
   const { cost } = agents.run.read();
@@ -608,58 +673,67 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   const paidFrom = (await settled.getByTestId('paid-from').innerText()).trim();
   const paymentRef = paidFrom.match(/^TEST partner bank, payment (\S+)$/)?.[1];
   expect(paymentRef, `the window names the partner's payment: ${paidFrom}`).toBeTruthy();
-  // The partner took exactly the window's cost from the person's balance there, once.
+  // The partner took exactly the window's cost from the person's balance there, once: its own book holds one usage
+  // payment, the very payment the window names, keyed on the window's charge, from the person's USDT main balance to
+  // INTAFACED's account there, for exactly the cost.
   expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  const userId = await userIdOf();
+  const payments = usagePayments(await partnerMoves());
+  expect(payments, JSON.stringify(payments).slice(0, 400)).toHaveLength(1);
+  expect(payments[0]).toMatchObject({
+    id: paymentRef,
+    key: usagePaymentKey(chargeKey),
+    from: { owner: userId, assetId: 'USDT', spaceId: null },
+    to: { owner: PARTNER_INTAFACED, assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(payments[0].amount)).toBe(toUnits(cost));
   // We keep no prepaid balance: the person's own ledger balances did not move at all.
   const after = await ledgerBalances();
   expect(after).toEqual(before);
   // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
   // earned key, revenue up by the cost and the person's receivable down by it.
-  const desk = await founderConsole(browser);
-  try {
-    const earned = await ledgerTrace(desk, earnedKey(chargeKey));
-    expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
-    expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
-    expect(earned.transaction.postings).toHaveLength(2);
-    for (const posting of earned.transaction.postings) {
-      expect(posting).toMatchObject({ assetId: 'USDT' });
-      expect(toUnits(posting.amount)).toBe(toUnits(cost));
-    }
-    const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
-    expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
-    // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
-    // partner goes up by the cost.
-    const collected = await ledgerTrace(desk, collectedKey(paymentRef));
-    expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
-    expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
-    expect(collected.transaction.postings).toHaveLength(2);
-    for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
-    const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
-    expect(owedBack.accountId).toBe(owedAt.accountId);
-    expect(toUnits(owedBack.balanceAfter)).toBe(0n);
-
-    // Closing again settles nothing more, and the closed session takes no new request.
-    await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
-    await expect(selected).toContainText('This session is closed.');
-    const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
-    expect(closeAgain.status).toBe(200);
-    expect(closeAgain.body.result.data.status).toBe('closed');
-    const afterRun = await agentsCall('run.complete', {
-      sessionId: ranSession(),
-      requestId: `${ranSession()}:after-close`,
-      task: agents.run.read().task,
-      messages: [{ role: 'user', content: 'TEST' }],
-    });
-    expect(afterRun.status).toBe(400);
-    expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
-    expect(await ledgerBalances()).toEqual(after);
-    // Nothing more left the partner balance, and the window's keys still name those same two transactions.
-    expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
-    expect((await ledgerTrace(desk, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
-    expect((await ledgerTrace(desk, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
-  } finally {
-    await desk.close();
+  const earned = await ledgerTrace(founders, earnedKey(chargeKey));
+  expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
+  expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
+  expect(earned.transaction.postings).toHaveLength(2);
+  for (const posting of earned.transaction.postings) {
+    expect(posting).toMatchObject({ assetId: 'USDT' });
+    expect(toUnits(posting.amount)).toBe(toUnits(cost));
   }
+  const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+  expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
+  // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
+  // partner goes up by the cost.
+  const collected = await ledgerTrace(founders, collectedKey(paymentRef));
+  expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
+  expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
+  expect(collected.transaction.postings).toHaveLength(2);
+  for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
+  const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
+  expect(owedBack.accountId).toBe(owedAt.accountId);
+  expect(toUnits(owedBack.balanceAfter)).toBe(0n);
+
+  // Closing again settles nothing more, and the closed session takes no new request.
+  await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
+  await expect(selected).toContainText('This session is closed.');
+  const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
+  expect(closeAgain.status).toBe(200);
+  expect(closeAgain.body.result.data.status).toBe('closed');
+  const afterRun = await agentsCall('run.complete', {
+    sessionId: ranSession(),
+    requestId: `${ranSession()}:after-close`,
+    task: agents.run.read().task,
+    messages: [{ role: 'user', content: 'TEST' }],
+  });
+  expect(afterRun.status).toBe(400);
+  expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
+  expect(await ledgerBalances()).toEqual(after);
+  // Nothing more left the partner balance, the partner's book still holds that one payment, and the window's keys still
+  // name those same two transactions.
+  expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  expect(usagePayments(await partnerMoves())).toEqual(payments);
+  expect((await ledgerTrace(founders, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+  expect((await ledgerTrace(founders, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
@@ -668,6 +742,11 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
 }) => {
   const { inputTokens, outputTokens, cost } = agents.run.read();
   if (cost === undefined) throw new Error(`${J} #5 recorded no run, so this step has no usage to read`);
+  // The exact usage is what the partner was paid for it: the one usage payment in its own book is the run's cost.
+  const partnerBefore = await partnerBook();
+  const payments = usagePayments(partnerBefore.moves);
+  expect(payments, JSON.stringify(payments).slice(0, 400)).toHaveLength(1);
+  expect(toUnits(payments[0].amount)).toBe(toUnits(cost));
   // A newer session, so the one #5 ran is not simply the newest: what is shown below is the person's own selection.
   const newer = await agentsCall('session.open', { agentId: 'navigator' });
   expect(newer.status).toBe(200);
@@ -712,4 +791,42 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
   } finally {
     await other.close();
   }
+  // Reading history moves nothing at the partner, as its own book says.
+  expect(await partnerBook()).toEqual(partnerBefore);
+});
+
+// Last in this file. With no agent published, Agents says so and shows no card: no sample card stands in. On the shared
+// stack every product agent is stored, so svc-agents is restarted on the stack's empty-catalogue profile (a database of
+// its own, made new, with no agent stored) and put back on the stack's database after, whatever happened.
+test(`${J} #1 with none published, the empty state says so and shows no sample card`, async ({ page }) => {
+  // Two restarts of agents and the profile's new database, on top of the browser steps.
+  test.setTimeout(420_000);
+  let failure = null;
+  const partnerBefore = await partnerBook();
+  try {
+    await restartService('agents', { LOCAL_STACK_AGENTS_CATALOGUE: 'off' });
+    // The stored list is empty for everyone: the service's own catalogue answers none.
+    const stored = await (await api(agents.account())).get('/api/agents/trpc/agent.catalogue');
+    expect(stored.status, JSON.stringify(stored.body).slice(0, 300)).toBe(200);
+    expect(stored.body.result.data, 'the empty-catalogue profile stores no agent').toEqual([]);
+    const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
+    await openAgents(page, agents);
+    expect((await (await catalogue).json())?.result?.data, 'the page read the empty stored list').toEqual([]);
+    await expect(main(page).getByRole('heading', { name: 'Agent catalogue', exact: true })).toBeVisible();
+    // The honest empty state, in words, and not one agent card: no sample card stands in.
+    await expect(main(page).getByText('No agents are published in this deployment.', { exact: true })).toBeVisible();
+    await expect(main(page).getByRole('article')).toHaveCount(0);
+    await expect(main(page).getByRole('button', { name: /Details/ })).toHaveCount(0);
+    // An empty catalogue moves nothing at the partner, as its own book says.
+    expect(await partnerBook()).toEqual(partnerBefore);
+  } catch (err) {
+    failure = err;
+  }
+  // Agents goes back on the stack's database whatever happened; a failure to put it back never hides the step's own.
+  try {
+    await restartService('agents', { LOCAL_STACK_AGENTS_CATALOGUE: undefined });
+  } catch (err) {
+    failure ??= err;
+  }
+  if (failure) throw failure;
 });

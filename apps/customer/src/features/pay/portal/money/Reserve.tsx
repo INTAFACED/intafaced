@@ -1,12 +1,11 @@
 import { useId } from 'react';
 import type { Resource } from '../../../../shared/resource';
-import { PortalLoading } from '../components';
 import { DateTime } from '../ui/DateTime';
-import { MoneyText } from '../ui/MoneyText';
-import { MoneyFailure } from './common';
+import { Loading, MoneyText } from '../volt/parts';
+import { MoneyFailure } from './kit-parts';
 import { mc } from './copy';
 import { bpsPercent } from './model';
-import type { ReserveView } from './schemas';
+import type { MerchantReserveView as ReserveView } from '@intafaced/contracts/merchant-control';
 import type { PartnerTerms } from './partner-terms-api';
 import { PartnerReserveLine } from './PartnerTerms';
 
@@ -31,18 +30,14 @@ export function ReserveCard({
   const heading = useId();
   const r = resource;
   return (
-    <section className="pay-section" aria-labelledby={heading} data-testid="money-reserve">
-      <header>
-        <div>
-          <h2 id={heading}>{t('balReserveTitle')}</h2>
-          <p className="muted">
-            <strong>{t('balReserveLabel')}</strong> · {t('balReserveBody')}
-          </p>
-        </div>
-      </header>
+    <section aria-labelledby={heading} data-testid="money-reserve">
+      <h2 id={heading}>{t('balReserveTitle')}</h2>
+      <p className="lt-hint">
+        <strong>{t('balReserveLabel')}</strong> · {t('balReserveBody')}
+      </p>
       {partner && <PartnerReserveLine terms={partner} />}
       {r.status === 'loading' ? (
-        <PortalLoading rows={2} />
+        <Loading rows={2} />
       ) : r.status === 'failed' ? (
         <MoneyFailure result={r.failure} retry={retry} />
       ) : (
@@ -53,14 +48,14 @@ export function ReserveCard({
               : t('balReserveNoRule')}
           </p>
           {r.data.payoutsRefused && (
-            <p className="pp-callout" role="note">
+            <p className="lt-held" role="note">
               {t('balReservePayouts')}
             </p>
           )}
           {r.data.assets.length === 0 ? (
-            <p className="muted">{t('balReserveNone')}</p>
+            <p className="lt-hint">{t('balReserveNone')}</p>
           ) : (
-            <dl className="pp-facts">
+            <dl className="lt-kv">
               {r.data.assets.map((a) => (
                 <div key={a.assetCode}>
                   <dt>
@@ -69,7 +64,7 @@ export function ReserveCard({
                   <dd>
                     <MoneyText value={a.recordedAmount} asset={a.assetCode} test={test} />
                     {a.nextReleaseAt && (
-                      <span className="muted">
+                      <span className="lt-hint">
                         {' · '}
                         {t('balReserveNext')} <DateTime value={a.nextReleaseAt} />
                       </span>

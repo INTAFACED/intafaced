@@ -9,6 +9,7 @@ import { AcademyAssignmentEditor } from '@/components/academy-assignment-editor'
 import { loadAssignment } from '@/lib/academy/assignments-server';
 import { AcademyQuizEditor } from '@/components/academy-quiz-editor';
 import { loadQuiz } from '@/lib/academy/quizzes-server';
+import { itemPanels } from '@/lib/academy/item-panels';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,22 +28,17 @@ export default async function Page({ params }: { params: Promise<{ courseId: str
     loadAssignment(founder, itemId),
     loadQuiz(founder, itemId),
   ]);
-  // Every item but an assignment answers academy.assignment_not_found, and every item but a quiz academy.quiz_not_found;
-  // any other answer, a failed read too, is shown.
-  const brief =
-    assignment.assignment.kind === 'failed' && assignment.assignment.code === 'academy.assignment_not_found' ? null : assignment;
-  const quizView = quiz.quiz.kind === 'failed' && quiz.quiz.code === 'academy.quiz_not_found' ? null : quiz;
+  const panels = itemPanels(lesson, assignment, quiz);
   return (
     <AcademyLessonEditor
       courseId={courseId}
       itemId={itemId}
       initial={lesson}
       brief={
-        brief ? (
-          <AcademyAssignmentEditor itemId={itemId} initial={brief} />
-        ) : (
-          quizView && <AcademyQuizEditor itemId={itemId} initial={quizView} />
-        )
+        <>
+          {panels.assignment && <AcademyAssignmentEditor itemId={itemId} initial={panels.assignment} />}
+          {panels.quiz && <AcademyQuizEditor itemId={itemId} initial={panels.quiz} />}
+        </>
       }
       files={<CourseItemFiles itemId={itemId} initial={media} />}
     />

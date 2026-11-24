@@ -56,7 +56,7 @@ describe('merchantControl.topUp.options (no top-up rail)', () => {
       pay,
       ledger,
       sql,
-    }).createCaller(ctxOf(userId)) as unknown as {
+    }).createCaller(ctxOf(userId)) as {
       merchantControl: { topUp: { options: (input: { merchantId: string }) => Promise<unknown> } };
     };
   const refusal = (promise: Promise<unknown>) =>

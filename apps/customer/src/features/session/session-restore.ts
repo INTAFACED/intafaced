@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { createApiClient, type ApiResult } from '../../shared/api';
+import { createApiClient, type ApiResult, callAs } from '../../shared/api';
 import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
+import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION, IDENTITY_AUTH_REFRESH } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -132,7 +133,7 @@ export function createSessionRefresher(
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
   const attempt = async (idle: boolean) =>
-    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+    mapRefreshResult(await callAs(api, IDENTITY_AUTH_REFRESH, idle ? { idle: true } : {}, sessionSchema));
   async function once(idle: boolean): Promise<RefreshOutcome> {
     const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
@@ -174,14 +175,6 @@ export function createSessionRefresher(
 }
 export type SessionRefresher = ReturnType<typeof createSessionRefresher>;
 
-const subAccountSessionReply = z.object({
-  accessToken: z.string().min(1),
-  expiresAt: z.string().datetime({ offset: true }),
-  userId: z.string().guid(),
-  subAccountId: z.string().guid(),
-  label: z.string(),
-});
-
 /** `auth.subAccountSession` on the main account's token: a token for this tab only, never stored or shared. */
 export async function requestSubAccountSession(
   main: Session,
@@ -189,7 +182,7 @@ export async function requestSubAccountSession(
   options: { fetch?: typeof fetch } = {},
 ): Promise<ApiResult<Session>> {
   const api = createApiClient({ token: () => main.accessToken, ...(options.fetch ? { fetch: options.fetch } : {}) });
-  const result = await api.mutate('identity', 'auth.subAccountSession', { subAccountId }, subAccountSessionReply);
+  const result = await api.call(IDENTITY_AUTH_SUB_ACCOUNT_SESSION, { subAccountId });
   if (!result.ok) return result;
   const { label, ...rest } = result.data;
   return { ok: true, data: { ...rest, subAccountLabel: label } };

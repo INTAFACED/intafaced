@@ -1,0 +1,54 @@
+{
+  "inputs": {
+    "health": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": [
+    "{\"result\":{\"data\":{\"ok\":true,\"service\":\"svc-p2p\",\"moderationConfigured\":false,\"moderation\":{\"status\":\"absent\",\"code\":\"p2p.moderation_unreachable\"},\"offerLimitsConfigured\":false,\"offerLimitsPosture\":\"unset\",\"instrumentKmsConfigured\":false,\"instrumentKeyProvider\":\"none\"}}}"
+  ],
+  "answers": {
+    "boot health": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent customer": [200, 0],
+      "absent customer-US": [200, 0],
+      "absent customer-KP": [200, 0],
+      "absent all": [200, 0],
+      "absent forged": [200, 0],
+      "null anon": [200, 0],
+      "null no-scope": [200, 0],
+      "null customer": [200, 0],
+      "null customer-US": [200, 0],
+      "null customer-KP": [200, 0],
+      "null all": [200, 0],
+      "null forged": [200, 0],
+      "wrong-type anon": [200, 0],
+      "wrong-type no-scope": [200, 0],
+      "wrong-type customer": [200, 0],
+      "wrong-type customer-US": [200, 0],
+      "wrong-type customer-KP": [200, 0],
+      "wrong-type all": [200, 0],
+      "wrong-type forged": [200, 0],
+      "empty anon": [200, 0],
+      "empty no-scope": [200, 0],
+      "empty customer": [200, 0],
+      "empty customer-US": [200, 0],
+      "empty customer-KP": [200, 0],
+      "empty all": [200, 0],
+      "empty forged": [200, 0],
+      "sample anon": [200, 0],
+      "sample no-scope": [200, 0],
+      "sample customer": [200, 0],
+      "sample customer-US": [200, 0],
+      "sample customer-KP": [200, 0],
+      "sample all": [200, 0],
+      "sample forged": [200, 0],
+      "sample-nulls anon": [200, 0],
+      "sample-nulls no-scope": [200, 0],
+      "sample-nulls customer": [200, 0],
+      "sample-nulls customer-US": [200, 0],
+      "sample-nulls customer-KP": [200, 0],
+      "sample-nulls all": [200, 0],
+      "sample-nulls forged": [200, 0]
+    }
+  }
+}

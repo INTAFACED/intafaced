@@ -15,7 +15,7 @@ import {
   type CourseListView,
 } from '@/lib/academy/courses-model';
 import type { AcademyCourseDetail, AcademyTopicList } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
 import { OutlineEditor } from '@/components/academy-outline-editor';
 import { CoursePrivateLinks } from '@/components/academy-course-preview';
@@ -398,7 +398,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               <dt>Thumbnail</dt>
               <dd>
                 {detail.data.course.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- an address staff typed, shown as it is; nothing is fetched server-side
+                  // An <img>, not next/image: an address staff typed, shown as it is; nothing is fetched server-side.
                   <img src={detail.data.course.thumbnailUrl} alt="Course thumbnail" width={160} referrerPolicy="no-referrer" />
                 ) : (
                   'None'

@@ -1,14 +1,8 @@
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  isScheduleKey,
-  isScheduleOpen,
-  nextScheduleTransition,
-  TRADING_SCHEDULES,
-  upcomingMaintenanceFor,
-  type TradingSchedule,
-  type UpcomingMaintenance,
-} from '@intafaced/contracts';
+import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -29,6 +23,7 @@ import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
@@ -78,6 +73,11 @@ export interface PublicRestDeps {
   publishedFeeRates?(markets: readonly Market[]): Promise<ReadonlyMap<string, { makerBps: number; takerBps: number }> | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
+  /**
+   * A market's chart feed control (J-charts-desk-19): disabled or switched to an unconnected fallback refuses the candle
+   * read by name; delisted with history serves only candles that opened before the delisting. Absent: every chart serves.
+   */
+  chartFeedGate?: (symbol: string) => Promise<CandleGate>;
   /**
    * Matching's published trading rulebook (RC-cex-spot-08): `current` is GET /rulebook, `versions` GET /rulebook/versions,
    * passed on as matching serves them. Absent, or throwing, answers 503 (trade.rulebook_unavailable); never invented text.
@@ -135,7 +135,12 @@ export interface PublicRestDeps {
    * (`spot/ticker-stats.ts`). Optional: a mount without it serves the old
    * top-of-book ticker with null rollups — never invented numbers.
    */
-  tickerStats?(marketIds: readonly string[], nowMs: number): Promise<Map<string, TickerStats24h>>;
+  /** `newestPrintMs`: each market's newest public print, as just read; stats cached before it are read again. */
+  tickerStats?(
+    marketIds: readonly string[],
+    nowMs: number,
+    newestPrintMs?: ReadonlyMap<string, number>,
+  ): Promise<Map<string, TickerStats24h>>;
   /** Injectable clock for tests. */
   now?: () => number;
   /**
@@ -386,6 +391,12 @@ export function listingStatusOf(market: Pick<Market, 'status' | 'delistsAt'>): L
   }
 }
 
+/** The end of a market's opening window as ISO, while it is still ahead of `nowMs`; null otherwise. */
+export function openingWindowEndsAtOf(market: Pick<Market, 'openingWindowEndsAt'>, nowMs: number): string | null {
+  const ends = market.openingWindowEndsAt;
+  return ends instanceof Date && !Number.isNaN(ends.getTime()) && ends.getTime() > nowMs ? ends.toISOString() : null;
+}
+
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
   if (market.status !== 'active') return false;
@@ -484,6 +495,19 @@ export function presentCcxtMarket(
     listing: listingStatusOf(market),
     /** The date a delisting market leaves the board, or null when none is set. */
     delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
+    /**
+     * When a new listing's opening window ends (J-cex-spot-14 #7): until then only limit orders are taken, and a market
+     * or stop order refuses `trade.opening_window`. Null when the market has no window or its window has ended.
+     */
+    openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
+    /**
+     * The higher-risk zone (J-cex-spot-14 #7): `higher_risk` when the market sits in it, else null. A zone market takes
+     * limit orders only, each worth at most `zoneOrderCap` in the quote asset; a null cap there means unset, and the
+     * market takes no order (`trade.zone_setting_unset`).
+     */
+    zone: market.zone === 'higher_risk' ? ('higher_risk' as const) : null,
+    zoneOrderCap:
+      market.zone === 'higher_risk' && market.zoneOrderCap != null ? formatAmount(market.zoneOrderCap) : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1002,12 +1026,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     try {
       // Top of book only — ticker is BBO + last, not full depth.
       const ts = now();
-      const [depth, tape, stats] = await Promise.all([
-        deps.depth(market.id, 1),
-        deps.publicTape(market.id, 1),
-        // Stats are best effort: a failed stats query serves null rollups, never a 5xx ticker.
-        deps.tickerStats ? deps.tickerStats([market.id], ts).catch(() => undefined) : Promise.resolve(undefined),
-      ]);
+      const [depth, tape] = await Promise.all([deps.depth(market.id, 1), deps.publicTape(market.id, 1)]);
+      // The stats are read after the last print, so they include it (J-cex-spot-14 #8). They are best effort: a failed
+      // stats query serves null rollups, never a 5xx ticker.
+      const printed = tape[0] ? new Map([[market.id, tape[0].ts.getTime()]]) : undefined;
+      const stats = deps.tickerStats ? await deps.tickerStats([market.id], ts, printed).catch(() => undefined) : undefined;
       return reply.code(200).send(presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null));
     } catch (err) {
       // MatchingNoBookError → 404 trade.no_book. MatchingUnavailable → 502.
@@ -1031,17 +1054,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
     const markets = await deps.markets(limit);
     const ts = now();
-    const out: Record<string, ReturnType<typeof presentTicker>> = {};
-    // Stats are best effort: a failed stats query serves null rollups, never a 5xx map.
-    const stats = deps.tickerStats
-      ? await deps
-          .tickerStats(
-            markets.map((m) => m.id),
-            ts,
-          )
-          .catch(() => undefined)
-      : undefined;
-
+    const books: Array<{ market: Market; depth: EngineDepth; last: PublicTapePrint | null }> = [];
     await Promise.all(
       markets.map(async (market) => {
         let depth: EngineDepth;
@@ -1052,9 +1065,29 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           throw err;
         }
         const tape = await deps.publicTape(market.id, 1);
-        out[market.symbol] = presentTicker(market.symbol, depth, tape[0] ?? null, ts, stats?.get(market.id) ?? null, { sparkline: true });
+        books.push({ market, depth, last: tape[0] ?? null });
       }),
     );
+    // The stats are read after every last print, so each row's volume, high and low include its last price (J-cex-spot-14
+    // #8). They are best effort: a failed stats query serves null rollups, never a 5xx map.
+    const printed = new Map(books.flatMap((b) => (b.last ? [[b.market.id, b.last.ts.getTime()] as const] : [])));
+    const stats = deps.tickerStats
+      ? await deps
+          .tickerStats(
+            markets.map((m) => m.id),
+            ts,
+            printed,
+          )
+          .catch(() => undefined)
+      : undefined;
+
+    const out: Record<string, ReturnType<typeof presentTicker>> = {};
+    const byId = new Map(books.map((b) => [b.market.id, b]));
+    for (const market of markets) {
+      const book = byId.get(market.id);
+      if (book)
+        out[market.symbol] = presentTicker(market.symbol, book.depth, book.last, ts, stats?.get(market.id) ?? null, { sparkline: true });
+    }
 
     return reply.code(200).send(out);
   });
@@ -1156,8 +1189,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
 
     try {
+      const gate = deps.chartFeedGate ? await deps.chartFeedGate(market.symbol) : ({ kind: 'serve', until: null } as const);
+      if (gate.kind === 'refuse') {
+        return sendCcxt(reply, { status: 503, body: { code: 'ExchangeNotAvailable', message: gate.message, intafacedCode: gate.code } });
+      }
       const candles = await deps.candles(market.id, tf.data, limit, sinceParsed.sinceMs);
-      return reply.code(200).send(candles.map(presentOhlcv));
+      const until = gate.until?.getTime() ?? null;
+      const served = until === null ? candles : candles.filter((c) => c.openTimeMs < until);
+      return reply.code(200).send(served.map(presentOhlcv));
     } catch (err) {
       return sendMapped(reply, err);
     }
@@ -1236,6 +1275,9 @@ export function fakeMarket(partial: {
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
+  openingWindowEndsAt?: Date | null;
+  zone?: Market['zone'];
+  zoneOrderCap?: Amount | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1256,6 +1298,9 @@ export function fakeMarket(partial: {
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
+    ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
+    ...(partial.zone !== undefined ? { zone: partial.zone } : {}),
+    ...(partial.zoneOrderCap !== undefined ? { zoneOrderCap: partial.zoneOrderCap } : {}),
   };
 }
 

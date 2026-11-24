@@ -7,11 +7,11 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { failedTests, failureSummary } from './tooling-tests.mjs';
+import { failedTests, failureSummary, runFiles, runsAlone } from './tooling-tests.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling/scripts/tooling-tests.mjs');
@@ -133,7 +133,10 @@ test('end to end: a red tooling test is named on the first lines of stdout and i
     assert.match(first, /✖ the planted rule {2}\(tooling\/scripts\/b-red\.test\.mjs:3:1\)/);
     assert.match(first, /planted: one is not two/);
     assert.ok(r.stdout.indexOf('FAILED TOOLING TESTS') < r.stdout.indexOf('TAP version 13'));
-    assert.match(r.stderr, /TOOLING TESTS FAILED — exit 1, 1 failed, 0 cancelled, 1 passed across 2 files\.\nFAILED TOOLING TESTS \(1\)/);
+    assert.match(
+      r.stderr,
+      /TOOLING TESTS FAILED — 1 of 2 files: 1 failed, 0 cancelled, 1 passed, in \d+ s\.\n {2}✖ tooling\/scripts\/b-red\.test\.mjs: 1 failed, 0 cancelled\nFAILED TOOLING TESTS \(1\)/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -142,7 +145,108 @@ test('end to end: a red tooling test is named on the first lines of stdout and i
 test("gates.mjs keeps a gate's whole output: the tooling tests' TAP is over execFileSync's default 1 MB", async () => {
   const { GATE_OUTPUT_MAX } = await import('../ci/gates.mjs');
   assert.ok(GATE_OUTPUT_MAX >= 64 * 1024 * 1024);
-  const src = readFileSync(join(ROOT, 'tooling/ci/gates.mjs'), 'utf8');
-  const call = src.slice(src.indexOf('output = execFileSync(process.execPath, [join(ROOT, gate.script)'));
-  assert.match(call.slice(0, 400), /maxBuffer: GATE_OUTPUT_MAX/, "the gate runner's execFileSync passes the larger buffer");
+  // The runner itself, on a planted gate printing 2 MB (twice the default) and then failing: its last line survives.
+  const { runGate } = await import('../ci/gates.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gate-output-'));
+  try {
+    const big = join(dir, 'big.mjs');
+    writeFileSync(big, "process.stdout.write('x'.repeat(2 * 1024 * 1024) + '\\nnot ok 1 - the last line\\n');\nprocess.exitCode = 1;\n");
+    const r = await runGate({ id: 'big', script: relative(process.cwd(), big) });
+    assert.equal(r.ok, false);
+    assert.ok(r.output.length > 2 * 1024 * 1024, `the runner kept ${r.output.length} bytes`);
+    assert.match(r.output, /not ok 1 - the last line\n$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The run takes several files at once (ps#3684: one at a time it ran past its 5-minute limit on #9648 and #9650), so a
+// hang must still be stopped and named, a file marked alone must still run with nothing beside it, and the whole run's limit
+// must still hold.
+const plant = (files) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tooling-tests-'));
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), `import test from 'node:test';\n${body}\n`);
+  return dir;
+};
+const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT'));
+// Each file writes when it starts and when it ends, so the test can see what ran beside what.
+const logged = (name, ms) =>
+  `import { appendFileSync } from 'node:fs';\ntest('${name}', async () => { appendFileSync('log', 'start ${name}\\n'); await new Promise((r) => setTimeout(r, ${ms})); appendFileSync('log', 'end ${name}\\n'); });`;
+
+test('a planted hang (a server left listening) is stopped at its own limit and named; the files beside it still pass', async () => {
+  const dir = plant({
+    'hang.test.mjs': "import { createServer } from 'node:http';\ntest('leaves a server running', () => { createServer().listen(0); });",
+    'fine.test.mjs': "test('fine', () => {});",
+  });
+  try {
+    const started = Date.now();
+    const [hang, fine] = await runFiles(['hang.test.mjs', 'fine.test.mjs'], { cwd: dir, env, alone: [], atOnce: 2, fileTimeoutMs: 3000 });
+    assert.ok(Date.now() - started < 15_000, 'the hang held the run past its limit');
+    assert.equal(hang.timedOut, true);
+    assert.notEqual(hang.status, 0);
+    assert.equal(fine.status, 0, fine.output);
+    assert.match(fine.output, /^# pass 1$/m);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('files run at once, and a file marked alone runs after them with nothing beside it', async () => {
+  const dir = plant({ 'a.test.mjs': logged('a', 600), 'b.test.mjs': logged('b', 600), 'c.test.mjs': logged('c', 600) });
+  try {
+    const rs = await runFiles(['a.test.mjs', 'b.test.mjs', 'c.test.mjs'], { cwd: dir, env, alone: ['b.test.mjs'], atOnce: 2 });
+    assert.deepEqual(
+      rs.map((r) => [r.file, r.status]),
+      [
+        ['a.test.mjs', 0],
+        ['b.test.mjs', 0],
+        ['c.test.mjs', 0],
+      ],
+    );
+    const log = readFileSync(join(dir, 'log'), 'utf8').trim().split('\n');
+    // a and c overlap; b starts only after both ended, and ends before anything else starts.
+    assert.ok(log.indexOf('start c') < log.indexOf('end a') && log.indexOf('start a') < log.indexOf('end c'), log.join(', '));
+    assert.deepEqual(log.slice(-2), ['start b', 'end b'], log.join(', '));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("past the whole run's limit, the files not started are not run, and say so", async () => {
+  const dir = plant({ 'slow.test.mjs': logged('slow', 3000), 'later.test.mjs': "test('later', () => {});" });
+  try {
+    const [slow, later] = await runFiles(['slow.test.mjs', 'later.test.mjs'], { cwd: dir, env, alone: [], atOnce: 1, timeoutMs: 1000 });
+    assert.equal(slow.timedOut, true, 'the running file is stopped at the run limit');
+    assert.equal(later.notRun, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('end to end: a planted hang turns the gate red and names the file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tooling-tests-'));
+  try {
+    mkdirSync(join(dir, 'tooling', 'scripts'), { recursive: true });
+    writeFileSync(join(dir, 'tooling', 'scripts', 'a-pass.test.mjs'), "import test from 'node:test';\ntest('fine', () => {});\n");
+    // A test that never ends, which node:test's own runner would wait for forever. TOOLING_TESTS_FILE_TIMEOUT_MS can
+    // only lower the per-file limit, so the planted hang is stopped in 3 s rather than 3 minutes, by the gate itself.
+    writeFileSync(
+      join(dir, 'tooling', 'scripts', 'b-hang.test.mjs'),
+      "import test from 'node:test';\ntest('never ends', () => new Promise(() => setInterval(() => {}, 1000)));\n",
+    );
+    const r = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8', env: { ...env, TOOLING_TESTS_FILE_TIMEOUT_MS: '3000' } });
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /TOOLING TESTS FAILED — 1 of 2 files/);
+    assert.match(r.stderr, /✖ tooling\/scripts\/b-hang\.test\.mjs: stopped after \d+ s, its limit/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a file is run alone only by its own mark in its first lines, never by a mention further down', () => {
+  const mark = ['// tooling-tests', 'alone. It takes the checkout index.lock.'].join(': ');
+  assert.equal(runsAlone(`${mark}\nimport test from 'node:test';\n`), true);
+  assert.equal(runsAlone(`// a header\n${mark}\n`), true);
+  assert.equal(runsAlone(`${'\n'.repeat(20)}${mark}\n`), false);
+  assert.equal(runsAlone(`const s = '${mark}';\n`), false);
 });

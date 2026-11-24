@@ -1,5 +1,5 @@
-import type { FounderCallFailure } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import type { FounderCallFailure } from '@/lib/desk';
+import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 import { explainSupportFailure, supportCodeOf } from './refusal';
 
 const BY_CODE: Readonly<Record<string, Omit<RefusalView, 'code' | 'changed'>>> = {

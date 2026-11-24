@@ -18,6 +18,7 @@ import { SqlAllowanceStore } from './own-agent-allowance-store.js';
 import { OwnAgentRebalance, SqlRebalanceStore } from './own-agent-rebalance.js';
 import { createOwnAgentPolicy } from './own-agent-policy-client.js';
 import { OwnAgentTrading } from './own-agent-trading.js';
+import { createIdentityFreezeRead } from '../quant/live-run/ports.js';
 import type { UserVenueDoor } from './user-venue-door.js';
 
 export function wireVenueAgents(deps: {
@@ -27,6 +28,8 @@ export function wireVenueAgents(deps: {
   outS2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }) {
   const { sql, userVenue, stepUp, outS2s } = deps;
+  // The owner's own freeze (J-wallet-13), read from identity on each call that makes or changes an agent permission.
+  const freeze = createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
   // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
   const agentAccountStore = new SqlAgentAccountStore(sql);
   const agentAccountValues = parseAgentAccountValues(env);
@@ -36,6 +39,7 @@ export function wireVenueAgents(deps: {
         store: agentAccountStore,
         stepUp,
         values: agentAccountValues,
+        freeze,
         now: () => new Date(),
       })
     : null;
@@ -50,6 +54,7 @@ export function wireVenueAgents(deps: {
         keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
         stepUp,
         values: agentAccountValues,
+        freeze,
         now: () => new Date(),
       })
     : null;
@@ -85,6 +90,7 @@ export function wireVenueAgents(deps: {
         store: new SqlAllowanceStore(sql),
         policy: env.AGENTS_URL.trim() ? createOwnAgentPolicy(env.AGENTS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s) : null,
         values: agentAccountValues,
+        freeze,
         now: () => new Date(),
       })
     : null;

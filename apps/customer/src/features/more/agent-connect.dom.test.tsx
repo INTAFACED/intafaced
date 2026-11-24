@@ -96,6 +96,9 @@ vi.mock('../session/session', () => {
       }
       return { ok: false, reason: 'error', message: 'unexpected' };
     },
+    /** A record call, answered as the query it is, by its path. */
+    call: async (record: { path: string; kind: 'query' | 'mutation' }) =>
+      record.kind === 'query' ? api.query('identity', record.path) : { ok: false, reason: 'error', message: 'unexpected' },
   };
   return { useSession: () => ({ api, userId: 'user-1' }) };
 });

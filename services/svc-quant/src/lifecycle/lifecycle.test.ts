@@ -76,7 +76,7 @@ const history: HistoryPort = {
     return bars;
   },
 };
-const fees = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as unknown as FeePort;
+const fees = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
 function setup() {
   // The run store stamps a paper start with the wall clock, so the router's clock starts there too.

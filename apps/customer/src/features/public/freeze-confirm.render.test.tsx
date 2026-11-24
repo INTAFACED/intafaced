@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { FreezeConfirm } from './FreezeConfirm';
 
 // The freeze link from a security notice (I-account-lifecycle-08, J-identity-11 #2): /freeze/confirm spends the link

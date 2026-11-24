@@ -2,12 +2,22 @@
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { signIn } from './desk.mjs';
+import { TOKEN_USD } from './dex.mjs';
+import { api, journeyState, stepState } from './stack.mjs';
+import {
+  chainBalance,
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  testVenue,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { data, myRewards, operatorPair, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-11, in the running app (docs/roadmap/journeys.json): enter a trading competition. One test per step, titled
 // "J-campaigns-11 #<n>", run in order. The competition is this run's TEST campaign, made by the stack's two LOCAL TEST
@@ -21,6 +31,7 @@ import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 const J = 'J-campaigns-11';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const DAY = 86_400_000;
@@ -39,28 +50,8 @@ const POOL = '0.05';
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
+const operators = operatorPair();
 const funds = rewardFunds({ J, RUN, operators });
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
 
 /** This run's TEST competition, live now, made and approved by the two TEST founders. */
 async function liveCompetition(name) {
@@ -90,57 +81,20 @@ async function liveCompetition(name) {
   return live;
 }
 
-/** Basic verification through the verification room, granted by the stack's TEST reviewer. */
-async function verifyBasic(page) {
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-}
-
 /** The person's own TEST wallet: a key made from this run's name, holding nothing real. It trades and receives prizes. */
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST competition wallet ${J} ${RUN} ${who.handle}`));
-const sheet = (page) => page.locator('[data-sheet="sign"]');
-
-/** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
-async function connectWallet(page, who, privateKey) {
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
-  await page.getByRole('button', { name: 'Connect to my account' }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
-async function trader(browser, prefix) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await chosePro(page);
-  const who = await signUp(page, prefix);
-  await verifyBasic(page);
-  const key = walletKeyOf(who);
-  const wallet = privateKeyToAccount(key).address.toLowerCase();
-  fundOnTestChain(wallet, 'venue');
-  const connecting = await (await browser.newContext()).newPage();
-  await connectWallet(connecting, who, key);
-  await connecting.context().close();
-  await context.close();
-  return { who, key, wallet };
-}
-
+const trader = traderOf(walletKeyOf);
 /** One action through svc-trade's user-venue door as `who`, signed with their own TEST wallet: prepare, sign, submit. */
 async function door(p, intent, actionKey) {
   const session = await api(p.who);
   const signer = { role: 'owner', address: p.wallet };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at most
+  // every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so prepare (which places nothing) is asked again.
+  let prepared;
+  await expect(async () => {
+    prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
+    expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
   const t = prepared.body.prepared.typedData;
   const signature = await privateKeyToAccount(p.key).signTypedData({
     domain: t.domain,
@@ -178,13 +132,13 @@ async function directly(p, intent) {
 }
 
 let orders = 0;
-/** A TEST bid for `amount` BTC at PRICE from another TEST trader on the venue, so the person's sells fill against it. */
-async function restingBid(amount) {
+/** A TEST bid for `amount` of the market's base at PRICE from another TEST trader, so the person's sells fill against it. */
+async function restingBid(market, amount) {
   const buyer = `${J}-buyer-${RUN}-${(orders += 1)}`;
   await testDeposit(otherTraderKey(buyer).address, 'USDC', '200000', `seed:${buyer}:USDC:${Date.now()}`);
   const bid = await otherTraderRun(buyer, {
     kind: 'place_order',
-    symbol: 'BTC-USDC',
+    symbol: market.symbol,
     side: 'buy',
     type: 'limit',
     amount,
@@ -197,20 +151,20 @@ async function restingBid(amount) {
   expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
 }
 
-/** The person's venue account holds TEST BTC, and they approve our builder fee through the door once. */
-async function readyToSell(p, btc) {
+/** The person's venue account holds the market's TEST base asset, and they approve our builder fee through the door once. */
+async function readyToSell(p, market, amount) {
   const account = { venueId: (await testVenue('/venue')).body.venue.id, owner: p.wallet, subAccount: null };
   const funded = await testVenue('/test/deposit', {
     account,
-    asset: 'BTC',
-    amount: btc,
-    depositRef: `84532:${keccak256(toHex(`${J} ${RUN} ${p.wallet} BTC ${Date.now()}`))}:0`,
+    asset: market.base,
+    amount,
+    depositRef: `84532:${keccak256(toHex(`${J} ${RUN} ${p.wallet} ${market.base} ${Date.now()}`))}:0`,
   });
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
   const status = (await (await api(p.who)).get('/api/v1/venue/status')).body;
   expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true });
   const markets = await testVenue('/markets', { account: null });
-  const cap = markets.body.value.find((m) => m.symbol === 'BTC-USDC').builderFeeCapBps.value;
+  const cap = markets.body.value.find((m) => m.symbol === market.symbol).builderFeeCapBps.value;
   await door(
     p,
     { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap },
@@ -218,13 +172,13 @@ async function readyToSell(p, btc) {
   );
 }
 
-/** Sells SELL BTC at PRICE through INTAFACED's venue door, `n` times, each into a TEST bid. */
-async function sellThroughUs(p, n) {
-  await restingBid(String(Number(SELL) * n));
+/** Sells SELL of the market's base at PRICE through INTAFACED's venue door, `n` times, each into a TEST bid. */
+async function sellThroughUs(p, market, n) {
+  await restingBid(market, String(Number(SELL) * n));
   for (let i = 0; i < n; i += 1) {
     await door(p, {
       kind: 'place_order',
-      symbol: 'BTC-USDC',
+      symbol: market.symbol,
       side: 'sell',
       type: 'limit',
       amount: SELL,
@@ -255,24 +209,27 @@ const notionalOf = (f) => {
   return frac ? `${n.slice(0, -18)}.${frac}` : n.slice(0, -18);
 };
 
+/**
+ * The person's competition volume as the TEST venue itself reports it: the notional of each venue fill, since the
+ * competition opened, of an order placed through INTAFACED (with our builder fee), and how many such fills there are.
+ */
+async function venueVolume(p, since) {
+  const { ours } = await venueFills(p, since);
+  return { volume: sumDecimal(ours.map(notionalOf)), fills: ours.length };
+}
+
+/** A decimal string as 18-place units, to compare sizes. */
+const units18 = (x) => {
+  const [w, f = ''] = String(x).split('.');
+  return BigInt(w + f.padEnd(18, '0'));
+};
+
 async function boardOf(who, campaignId) {
   const res = await (
     await api(who)
   ).get(`/api/campaigns/trpc/competition.board?input=${encodeURIComponent(JSON.stringify({ campaignId }))}`);
   if (!res.body?.result) throw new Error(`competition.board refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
   return res.body.result.data;
-}
-
-async function myRewards(who) {
-  const res = await (await api(who)).get(`/api/campaigns/trpc/rewards.mine?input=${encodeURIComponent('{}')}`);
-  if (!res.body?.result) throw new Error(`rewards.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data.rewards;
-}
-
-/** TEST USD units (6 decimals) of a USDC decimal amount. */
-function usdUnits(amount) {
-  const [w, f = ''] = String(amount).split('.');
-  return BigInt(w + f.padEnd(6, '0').slice(0, 6));
 }
 
 /** The competition page, ready. */
@@ -301,6 +258,8 @@ async function shownStandings(page) {
 test(`${J} starts: signed in; an active volume competition with a threshold, seats and a prize pool`, async ({ browser }) => {
   test.setTimeout(900_000);
   run.reset({});
+  // The competition's opening: every step reads the venue's fills since then.
+  const since = new Date(Date.now() - 60_000).toISOString();
   // INTAFACED's TEST reward pot and rewards wallet: builder fees this file's own TEST sells earned us.
   const house = await trader(browser, 'jc11h');
   const fees = await funds.earnBuilderFees(house.who, 6);
@@ -316,16 +275,25 @@ test(`${J} starts: signed in; an active volume competition with a threshold, sea
   expect(joined.body?.result?.data?.created, JSON.stringify(joined.body).slice(0, 300)).toBe(true);
   const board = await boardOf(rival.who, campaign.id);
   expect(board).toMatchObject({ basis: 'volume', seats: 2, seatsLeft: 1, closed: false, pool: POOL, prizeAsset: ASSET });
-  run.write({ campaignId: campaign.id, rival, ann, cat });
+  run.write({ campaignId: campaign.id, since, rival, ann, cat });
 });
 
 test(`${J} #1 opens a competition at /campaigns/<id>: rules, threshold, prize table, seats left and the ranking basis (volume)`, async ({
   browser,
 }) => {
-  const { campaignId, ann } = state('campaignId', 'ann');
+  const { campaignId, since, ann, rival } = state('campaignId', 'since', 'ann', 'rival');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, ann.who);
   const room = await openCompetition(page, campaignId);
+  // The ranking basis is the venue's own record: the one entrant so far (the rival, seat 1) shows exactly the volume and
+  // fill count the TEST venue reports for their wallet's orders placed through INTAFACED. Nobody has traded yet.
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(rivalOnVenue).toEqual({ volume: '0', fills: 0 });
+  const [standing] = await shownStandings(page);
+  expect(await shownStandings(page)).toHaveLength(1);
+  expect(standing.slice(0, 3)).toEqual([1, 1, false]);
+  expect(sameDecimal(standing[3], rivalOnVenue.volume), `shown ${standing[3]}, venue ${rivalOnVenue.volume}`).toBe(true);
+  expect(standing[4]).toBe(rivalOnVenue.fills);
   await expect(page.getByTestId('campaign-type-name')).toHaveText('Competition');
   await expect(page.getByTestId('campaign-rules')).toContainText(`a place needs ${THRESHOLD} ${ASSET} of volume`);
   await expect(room.getByTestId('competition-basis')).toHaveAttribute('data-basis', 'volume');
@@ -370,6 +338,17 @@ test(`${J} #2 joins when only one seat is left, together with another account: o
   expect(board.mine).toMatchObject({ seat: 2 });
   expect(board.seatsLeft).toBe(0);
   expect(board.standings.map((s) => s.seat)).toEqual([1, 2]);
+  // Each seat's figures are the venue's own record of its holder's wallet: seat 1 the rival's, seat 2 the winner's.
+  const { since, rival } = state('since', 'rival');
+  for (const [seat, holder] of [
+    [1, rival],
+    [2, winner],
+  ]) {
+    const onVenue = await venueVolume(holder, since);
+    const row = board.standings.find((s) => s.seat === seat);
+    expect(sameDecimal(row.volume, onVenue.volume), `seat ${seat}: shown ${row.volume}, venue ${onVenue.volume}`).toBe(true);
+    expect(row.fills).toBe(onVenue.fills);
+  }
   // The other account presses Join on the page: the typed seat refusal, and no seat.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, loser.who);
@@ -389,16 +368,20 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   test.setTimeout(300_000);
   const { campaignId, winner, rival } = state('campaignId', 'winner', 'rival');
   const since = new Date(Date.now() - 1_000).toISOString();
-  await readyToSell(winner, '3');
-  await readyToSell(rival, '2');
+  // A book this step owns: a fresh TEST market no other file trades. On the shared BTC-USDC book the stack's TEST ladder
+  // rests a bid at PRICE, and what an earlier file in the shard took of it decided whether a sell here met one bid or
+  // split across two, so the fill count moved with the run order (#8596: three fills for two sells after J-agents-18).
+  const market = await ownSpotMarket(J, 'JCX', 'V');
+  await readyToSell(winner, market, '3');
+  await readyToSell(rival, market, '2');
   // Through INTAFACED: two sells for the winner, one for the rival.
-  await sellThroughUs(winner, 2);
-  await sellThroughUs(rival, 1);
+  await sellThroughUs(winner, market, 2);
+  await sellThroughUs(rival, market, 1);
   // Through another front end, with no INTAFACED fee: the venue fills it, and it adds nothing.
-  await restingBid('0.25');
+  await restingBid(market, '0.25');
   await directly(winner, {
     kind: 'place_order',
-    symbol: 'BTC-USDC',
+    symbol: market.symbol,
     side: 'sell',
     type: 'limit',
     amount: '0.25',
@@ -408,18 +391,29 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
     clientOrderKey: `order:${J}:${RUN}:direct:${Date.now()}`,
     builderFee: null,
   });
+  // Each order fills in full, but in as many venue fills as the book splits it into: a sell meets the TEST makers' bid at
+  // PRICE before this step's own, and an earlier journey on the same stack may have left that bid part-filled, so one
+  // 0.5 sell can fill against both (run 43800724154: three fills for two orders). The orders and their sizes are fixed;
+  // the count of fills is the venue's, and the board must count exactly that.
   let mine;
   let theirs;
+  const orderFills = (fills) => [new Set(fills.map((f) => f.venueClientOrderId)).size, sumDecimal(fills.map((f) => f.amount))];
   await expect
     .poll(
       async () => {
         mine = await venueFills(winner, since);
         theirs = await venueFills(rival, since);
-        return [mine.ours.length, mine.without.length, theirs.ours.length];
+        return [orderFills(mine.ours), orderFills(mine.without), orderFills(theirs.ours)];
       },
       { timeout: 30_000 },
     )
-    .toEqual([2, 1, 1]);
+    .toEqual([
+      [2, '1'],
+      [1, '0.25'],
+      [1, SELL],
+    ]);
+  expect(mine.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
+  expect(theirs.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
   // What the venue itself reports: the notional of each fill of an order placed through INTAFACED.
   const expected = sumDecimal(mine.ours.map(notionalOf));
   const expectedRival = sumDecimal(theirs.ours.map(notionalOf));
@@ -429,8 +423,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
   const wanted = [
-    [1, 2, true, expected, 2],
-    [2, 1, false, expectedRival, 1],
+    [1, 2, true, expected, mine.ours.length],
+    [2, 1, false, expectedRival, theirs.ours.length],
   ];
   await expect
     .poll(async () => (await page.reload(), await openCompetition(page, campaignId), shownStandings(page)), { timeout: 60_000 })
@@ -451,18 +445,26 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   }
   const board = await boardOf(rival.who, campaignId);
   expect(board.standings.map((s) => [s.rank, s.seat, s.you, s.volume, s.fills])).toEqual([
-    [1, 2, false, expected, 2],
-    [2, 1, true, expectedRival, 1],
+    [1, 2, false, expected, mine.ours.length],
+    [2, 1, true, expectedRival, theirs.ours.length],
   ]);
   expect(board.standings.every((s) => s.qualifies)).toBe(true);
 });
 
 test(`${J} #4 reaches a milestone tier: the milestone shows reached, and its prize is queued once`, async ({ browser }) => {
   test.setTimeout(120_000);
-  const { campaignId, winner, rival } = state('campaignId', 'winner', 'rival');
+  const { campaignId, since, winner, rival } = state('campaignId', 'since', 'winner', 'rival');
+  // The tier is reached on the venue's own record: the winner's volume there is at or over the milestone, and the
+  // rival's is under it.
+  const winnerOnVenue = await venueVolume(winner, since);
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(units18(winnerOnVenue.volume) >= units18(MILESTONE.volume), JSON.stringify(winnerOnVenue)).toBe(true);
+  expect(units18(rivalOnVenue.volume) < units18(MILESTONE.volume), JSON.stringify(rivalOnVenue)).toBe(true);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
+  // The volume the room counts toward the milestone is exactly the venue's.
+  await expect(room.getByTestId('competition-mine')).toHaveAttribute('data-volume', winnerOnVenue.volume);
   const tier = room.locator('[data-testid="competition-milestone"][data-tier="1"]');
   await expect(tier).toHaveAttribute('data-reached', 'true', { timeout: 30_000 });
   await expect(tier.getByTestId('competition-milestone-state')).toHaveText('Reached: prize queued');
@@ -490,7 +492,17 @@ test(`${J} #5 the period closes: prizes are paid once each to the winners' conne
   browser,
 }) => {
   test.setTimeout(420_000);
-  const { campaignId, winner, rival, milestoneKey } = state('campaignId', 'winner', 'rival', 'milestoneKey');
+  const { campaignId, since, winner, rival, milestoneKey } = state('campaignId', 'since', 'winner', 'rival', 'milestoneKey');
+  // Places follow the venue's own record: the winner's venue volume is over the rival's, both over the threshold.
+  const winnerOnVenue = await venueVolume(winner, since);
+  const rivalOnVenue = await venueVolume(rival, since);
+  expect(units18(winnerOnVenue.volume) > units18(rivalOnVenue.volume)).toBe(true);
+  expect(units18(rivalOnVenue.volume) >= units18(THRESHOLD)).toBe(true);
+  // What the TEST chain itself holds in each winner's connected wallet before any prize is paid.
+  const before = new Map([
+    [winner.wallet, await chainBalance(TOKEN_USD.address, winner.wallet)],
+    [rival.wallet, await chainBalance(TOKEN_USD.address, rival.wallet)],
+  ]);
   // The founders close the period.
   const { ctx, pair } = await operators();
   const ended = data(
@@ -544,6 +556,11 @@ test(`${J} #5 the period closes: prizes are paid once each to the winners' conne
     prize.rewardKey = row.rewardKey;
   }
   expect(new Set(prizes.map((p) => p.chainTx)).size).toBe(3);
+  // The TEST chain's own balance of each connected wallet grew by exactly that wallet's prizes, once each.
+  for (const p of [winner, rival]) {
+    const owed = prizes.filter((x) => x.p === p).reduce((n, x) => n + usdUnits(x.amount), 0n);
+    expect(await chainBalance(TOKEN_USD.address, p.wallet)).toBe(before.get(p.wallet) + owed);
+  }
   // On screen: the competition's results, and the winner's prizes in My Rewards with their chain reference.
   const page = await (await browser.newContext()).newPage();
   await signIn(page, winner.who);

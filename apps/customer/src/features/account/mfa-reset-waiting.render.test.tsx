@@ -21,6 +21,21 @@ const api = {
     world.asked.push(args.slice(0, 3));
     return world.cancel();
   },
+  call(
+    this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+    return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+      record.module,
+      record.path,
+      input,
+      record.output,
+      opts,
+    ]);
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 
@@ -87,7 +102,7 @@ describe('a waiting second-step reset in Security', () => {
     await show(waiting);
     await act(async () => stopButton()!.click());
     await settle();
-    expect(host.querySelector('.error-text')!.textContent).toContain('cannot stop a reset');
+    expect(host.querySelector('[data-testid="mfa-reset-delegated"]')!.textContent).toContain('cannot stop a reset');
     expect(stopButton()).toBeDefined();
   });
 

@@ -712,7 +712,7 @@ for (const language of ['en', 'es', 'fr'])
       if (language !== 'en') await locale(context, language);
       await page.setViewportSize({ width, height: 900 });
       await login(page);
-      const button = page.locator('.promotions__link .button');
+      const button = page.locator('.promotions__link :is(.button, .lt-button)');
       await button.focus();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('dialog')).toBeVisible();

@@ -1,8 +1,10 @@
+import { Suspense, lazy } from 'react';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
 import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
-import { WalletBar, useOwner } from '../../features/trade/venue/VenueKit';
+import { useOwner } from '../../features/trade/venue/VenueKit';
+import { WalletBar } from '../../features/trade/venue/WalletBar';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { usePreferences } from '../../shared/preferences';
@@ -10,6 +12,8 @@ import { useStanding } from '../money/standing-data';
 import { StandingTotal } from '../money/StandingTotal';
 import { standingCopy } from '../money/standing-copy';
 import type { Loadable } from './deps';
+
+const PayYourself = lazy(() => import('./PayYourself'));
 
 /**
  * The launch model on Home (OWNER 226; J-home-ia-01 #1): with svc-trade's user-venue door on, Home's total is where the
@@ -46,8 +50,8 @@ function Standing({ status, chainId, hidden, pro }: { status: VenueUp; chainId: 
   const owner = useOwner();
   if (!owner)
     return (
-      <div data-testid="home-standing-connect" className="form-stack">
-        <p className="muted">{t('Connect first')}</p>
+      <div data-testid="home-standing-connect" className="lt-stack">
+        <p className="lt-hint">{t('Connect first')}</p>
         <WalletBar />
       </div>
     );
@@ -56,20 +60,28 @@ function Standing({ status, chainId, hidden, pro }: { status: VenueUp; chainId: 
 
 function Read({ owner, status, chainId, hidden, pro }: { owner: string; status: VenueUp; chainId: number; hidden: boolean; pro: boolean }) {
   const { displayCurrency } = usePreferences();
-  const { standing, pricesFailed } = useStanding(
+  const { standing, pricesFailed, wallet, venue, partner } = useStanding(
     owner,
     chainId,
     { network: networkLabel(chainId).name, venue: status.venue.displayName, venueTest: status.test },
     displayCurrency === 'BTC' ? 'BTC' : 'USD',
   );
   return (
-    <StandingTotal
-      standing={standing}
-      pricesFailed={pricesFailed}
-      displayCurrency={displayCurrency}
-      hidden={hidden}
-      pro={pro}
-      testId="home-standing"
-    />
+    <>
+      <StandingTotal
+        standing={standing}
+        pricesFailed={pricesFailed}
+        displayCurrency={displayCurrency}
+        hidden={hidden}
+        pro={pro}
+        testId="home-standing"
+      />
+      {/* J-bank-31: Spendable now and Pay yourself, loaded with its own copy only when Home shows where you stand. */}
+      {hidden ? null : (
+        <Suspense fallback={null}>
+          <PayYourself owner={owner} status={status} partner={partner} venue={venue} wallet={wallet} />
+        </Suspense>
+      )}
+    </>
   );
 }

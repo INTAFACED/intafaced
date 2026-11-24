@@ -989,7 +989,7 @@ describe('TRADEV4-0005 liquidation off alert', () => {
         fundingMaxAbsRate: null,
       },
       setIntervalFn: (() => 0) as unknown as typeof setInterval,
-      clearIntervalFn: (() => undefined) as unknown as typeof clearInterval,
+      clearIntervalFn: (() => undefined) as typeof clearInterval,
     });
     expect(on.host.list()).toContain('futures.liquidation');
     expect(on.alerts).toEqual([]);

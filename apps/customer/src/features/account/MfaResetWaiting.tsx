@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { mfaResetCancelSchema as cancelSchema, mfaResetStatusSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetWaitingCopy as copy } from './mfa-reset-waiting-copy';
+import { IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL } from '@intafaced/contracts/identity-mfa-reset-procedures';
 
 /**
  * A waiting reset of the second step, in Security (I-signin-sessions-12, J-identity-05 #3): when it ends and a way to
@@ -30,9 +31,7 @@ export function MfaResetWaiting() {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'mfaReset.status', undefined, mfaResetStatusSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: { waiting: null } }),
+      userId ? api.call(IDENTITY_MFA_RESET_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: { waiting: null } }),
     `mfa-reset:${userId}`,
   );
 
@@ -42,7 +41,7 @@ export function MfaResetWaiting() {
     setFailure(null);
     setDelegated(false);
     try {
-      const answer = await api.mutate('identity', 'mfaReset.cancel', {}, cancelSchema);
+      const answer = await api.call(IDENTITY_MFA_RESET_CANCEL, {});
       if (!mounted.current) return;
       if (!answer.ok) {
         if (answer.reason !== 'uncertain' && answer.code === 'identity.delegated_refused') setDelegated(true);
@@ -62,16 +61,12 @@ export function MfaResetWaiting() {
     return (
       <section
         data-testid="security__card"
-        className="security__mfa-reset security__card"
+
         aria-label={t('title')}
         lang={languageFor('title')}
       >
         <h2>{t('title')}</h2>
-        {note && (
-          <p className="notice" role="status">
-            {t(note)}
-          </p>
-        )}
+        {note && <p role="status">{t(note)}</p>}
         <Failure result={resource.failure} retry={reload} />
       </section>
     );
@@ -81,7 +76,7 @@ export function MfaResetWaiting() {
   return (
     <section
       data-testid="security__card"
-      className="security__mfa-reset security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
@@ -91,24 +86,20 @@ export function MfaResetWaiting() {
           <p role="alert">
             <strong>{t('body', { time: stamp(waiting.completesAt, timeZone) })}</strong>
           </p>
-          <p className="muted">{t('asked', { time: stamp(waiting.waitingSince, timeZone) })}</p>
+          <p className="lt-hint">{t('asked', { time: stamp(waiting.waitingSince, timeZone) })}</p>
           <p>{t('notYou')}</p>
         </>
       )}
-      {note && (
-        <p className="notice" role="status">
-          {t(note)}
-        </p>
-      )}
+      {note && <p role="status">{t(note)}</p>}
       {failure && <Failure result={failure} />}
       {delegated && (
-        <p className="error-text" role="alert">
+        <p className="lt-refusal" role="alert" data-testid="mfa-reset-delegated">
           {t('refusedDelegated')}
         </p>
       )}
       {waiting && (
-        <div className="row">
-          <Button disabled={busy} onClick={() => void stop()}>
+        <div className="lt-actions">
+          <Button tone="primary" disabled={busy} onClick={() => void stop()}>
             {busy ? t('stopping') : t('stop')}
           </Button>
         </div>

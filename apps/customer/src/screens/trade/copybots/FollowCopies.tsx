@@ -47,7 +47,9 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const [closing, setClosing] = useState<CopiedPosition | null>(null);
   const [part, setPart] = useState<CopiedPosition | null>(null);
   const [amount, setAmount] = useState('');
-  const [tooMuch, setTooMuch] = useState(false);
+  // The part the service refused as more than is open: what was asked, of which position, and what was open then.
+  const [tooMuch, setTooMuch] = useState<{ position: CopiedPosition; qty: string } | null>(null);
+  const asked = useRef<{ position: CopiedPosition; qty: string } | null>(null);
   // A re-read keeps the last list on screen instead of blanking it while it loads.
   const last = useRef<CopiedPosition[] | null>(null);
   const lastMarkets = useRef<CopiedMarket[] | null>(null);
@@ -76,7 +78,8 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const close = (position: CopiedPosition, qty?: string) => {
     setClosing(null);
     setPart(null);
-    setTooMuch(false);
+    setTooMuch(null);
+    asked.current = qty ? { position, qty } : null;
     rereads.current = 0;
     void guard
       .run(
@@ -90,7 +93,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   const { failure, setFailure } = guard;
   useEffect(() => {
     if (failure?.code !== 'trade.copy_close_qty_exceeds') return;
-    setTooMuch(true);
+    setTooMuch(asked.current);
     setFailure(null);
   }, [failure, setFailure]);
 
@@ -99,7 +102,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     { id: 'bought', header: t('Amount'), value: (r) => r.bought, numeric: true, cell: (r) => displayAmount(r.bought) },
     { id: 'open', header: t('Open'), value: (r) => r.open, numeric: true, cell: (r) => displayAmount(r.open) },
     { id: 'status', header: t('State'), value: (r) => t(POSITION_STATE[r.status] as 'Open') },
-    { id: 'share', header: t('Leader profit share'), value: () => t('Not set by the platform') },
+    { id: 'share', header: t('Leader profit share'), value: () => t('Not set by the platform'), width: '15rem' },
     {
       id: 'actions',
       header: t('Action'),
@@ -111,7 +114,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         const closeOff = busy || (isZero(r.open) && r.status !== 'closing');
         const partOff = busy || isZero(r.open);
         return (
-          <span className="cb-action-row">
+          <span className="lt-actions">
             <Button variant="secondary" size={32} disabled={closeOff} onClick={() => setClosing(r)}>
               {t('Close')}
             </Button>
@@ -167,7 +170,6 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
           <EmptyState size="inline" title={t('No copied positions')} reason={t('A position appears here when a copied buy fills.')} />
         }
       />
-      {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
       {reportedBy ? (
         <InfoNote>
           <span data-testid="copied-positions-source">
@@ -176,6 +178,16 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
               time: new Date(reportedBy.asOf).toLocaleTimeString(),
             })}
           </span>
+        </InfoNote>
+      ) : null}
+      {tooMuch ? (
+        <InfoNote tone="warn">
+          {t('That is more than is open.')}{' '}
+          {t('You asked to close {qty} of {market}; {open} is open. Nothing was sent.', {
+            qty: displayAmount(tooMuch.qty),
+            market: tooMuch.position.market,
+            open: displayAmount(tooMuch.position.open),
+          })}
         </InfoNote>
       ) : null}
       <Table
@@ -262,7 +274,10 @@ const SKIP_WORDS: Record<string, string> = {
   insufficient_funds: 'Your balance did not cover it',
   max_copy_total: 'It would have gone past your limits',
   copy_slippage_exceeded: 'The price moved past your slippage limit',
+  per_contract_cap: 'It would have gone past your most per contract',
+  daily_cap: 'It would have gone past your most per day; copying resumes the next day',
   position_closed: 'Nothing you copied was left open to close',
+  not_lead_order: 'The leader marked that order as not a lead trade, so it is not copied',
   refused: 'The copy was refused',
 };
 /** The words for a skip reason id; an id this screen does not know reads as a plain refusal, never as the id. */

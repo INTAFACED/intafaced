@@ -187,7 +187,7 @@ export class CopyBotsOtcAdmin {
          ORDER BY created_at DESC, quote_id DESC
          LIMIT ${LIST_LIMIT}`;
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: auditId,
           kind: COPY_LOOKUP_AUDIT_KIND,

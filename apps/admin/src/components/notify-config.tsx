@@ -1,6 +1,6 @@
 import { Chip } from '@/components/chip';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { ChannelSetting, Effective, NotifyConfigView, TemplateRow } from '@/lib/notify/config-model';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';

@@ -7,11 +7,15 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, STACK_PORTS, stackUrl, stepState } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueBalance, venueRecord } from './venue.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
+import { data, operatorPair, potFunding } from './campaign-desk.mjs';
+import { chainTransfers, chainUsd, mineBlocks, tokenUsdUnits as usdUnits } from './chain-node.mjs';
+import { sumDecimal } from './reward-funds.mjs';
+import { connectAndSign, connectedNow, connections, ownerDoor, sheet, userVenue, venueDoor } from './venue-room.mjs';
 
 // J-campaigns-04, in the running app (docs/roadmap/journeys.json): finish the welcome checklist. One test per step, titled
 // "J-campaigns-04 #<n>", run in order. The welcome campaigns are this run's TEST campaigns, made by the stack's two LOCAL
@@ -20,7 +24,9 @@ import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-te
 // (svc-protocol's record, J-wallet-09). Each task ticks only from its own real fact: verification approved
 // (identity.kyc.approved), and a USDC deposit the venue credited into the venue account the connected wallet owns, read
 // from the venue (svc-trade's user-venue door on the stack's TEST venue, which takes the TEST chain's TEST USD at its
-// TEST deposit address and credits it as TEST USDC). The ledger posts nothing for a deposit.
+// TEST deposit address and credits it as TEST USDC). The ledger posts nothing for a deposit. #2 and #3 hold what the app
+// shows to the TEST venue's own record of the wallet's account, read from the venue itself on loopback (venue.mjs
+// `venueRecord`, `venueBalance`), never through our door: its deposits, the transfer each came from, and its USDC.
 // #2 restarts trade with `LOCAL_STACK_USER_VENUE=on` (which starts the TEST venue) and the file puts it back off after.
 // Rewards are TEST USDC, INTAFACED's own money (launch money model, OWNER 288): each claim is recorded owed once from the
 // campaign's budget, then paid once from INTAFACED's TEST rewards wallet on the stack's TEST chain to the wallet the person
@@ -31,6 +37,7 @@ import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-te
 // to that wallet; money of their own on top does.
 const J = 'J-campaigns-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const SHORT_WINDOW = 90;
 const ASSET = 'USDC';
@@ -45,27 +52,8 @@ const DEPOSIT = '25';
 
 test.describe.configure({ mode: 'default' });
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
+const operators = operatorPair();
+const { fundPotFromFees } = potFunding(operators, ASSET);
 
 /** A TEST welcome campaign, live now; `blank` leaves those tasks' rewards blank, `windowSeconds` is its welcome window. */
 async function liveWelcome(name, { windowSeconds, blank = [], rewards = REWARDS }) {
@@ -109,80 +97,12 @@ async function endCampaign(id) {
   expect(ended.state).toBe('ended');
 }
 
-/** Founder A asks to sweep earned builder fees into the USDC reward pot; founder B approves, which posts it. */
-async function fundPot(reference, amount) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  data(
-    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'builder', asset: ASSET, amount }, a),
-    'ops.pot.request',
-  );
-  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
-  expect(funded.state, JSON.stringify(funded)).toBe('posted');
-}
-
-/** Funds the pot with builder fees once svc-trade has posted them to the ledger (it posts on its own cadence). */
-async function fundPotFromFees(reference, amount) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          await fundPot(`${reference}-${Date.now().toString(36)}`, amount);
-          return 'posted';
-        } catch (err) {
-          return String(err).slice(0, 200);
-        }
-      },
-      { timeout: 90_000, intervals: [5_000] },
-    )
-    .toBe('posted');
-}
-
-/** Adds decimal strings exactly (no float). */
-function sumDecimal(values) {
-  const scale = 18;
-  const units = (x) => {
-    const [w, f = ''] = String(x).split('.');
-    return BigInt(w + f.padEnd(scale, '0'));
-  };
-  const sum = values
-    .reduce((n, v) => n + units(v), 0n)
-    .toString()
-    .padStart(scale + 1, '0');
-  const frac = sum.slice(-scale).replace(/0+$/, '');
-  return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
-}
-
-/** A decimal TEST USD amount in the token's base units (6 decimals), exactly. */
-const usdUnits = (amount) => {
-  const [w, f = ''] = amount.split('.');
-  return BigInt(w + f.padEnd(TOKEN_USD.decimals, '0'));
-};
-
 // ── Builder fees to fund the pot and our rewards wallet: a TEST trader of this file sells through our venue door ──────
 
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const traderKey = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${RUN}`)));
 const traderOwner = traderKey.address.toLowerCase();
-
-/** One action through svc-trade's user-venue door as `who`: prepare, sign with the TEST trader's key, submit. */
-async function door(who, intent, actionKey) {
-  const session = await api(who);
-  const signer = { role: 'owner', address: traderOwner };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: traderOwner, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const p = prepared.body.prepared;
-  const t = p.typedData;
-  const signature = await traderKey.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: p.digest, signature, signedBy: traderOwner },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
+const door = ownerDoor(traderKey);
 
 /**
  * Builder fees the TEST venue credits us on this file's own sells: `who` approves our builder fee, sells SELL_SIZE BTC
@@ -253,21 +173,6 @@ async function earnBuilderFees(who, sells) {
   return sumDecimal(fees);
 }
 
-/** TEST USD (base units) `address` holds on the TEST chain, read from the node itself. */
-async function chainUsd(address) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
-    }),
-  });
-  return BigInt((await res.json()).result);
-}
-
 const TRANSFER_FN = 'function transfer(address to, uint256 value) returns (bool)';
 /**
  * Pays INTAFACED's TEST rewards wallet from our own TEST builder fees, as the launch money model moves them: this file's
@@ -302,22 +207,6 @@ async function claimOurBuilderFees() {
   expect(claimed.status, JSON.stringify(claimed.body)).toBe(200);
 }
 
-const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-/** The TEST chain's own receipt of `txHash`: the token transfers it made, as { token, to, value } (read from the chain). */
-async function chainTransfers(txHash) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
-  });
-  const receipt = (await res.json()).result;
-  expect(receipt, `the TEST chain has a receipt for ${txHash}`).toBeTruthy();
-  expect(receipt.status).toBe('0x1');
-  return receipt.logs
-    .filter((l) => l.topics[0] === TRANSFER_TOPIC)
-    .map((l) => ({ token: l.address.toLowerCase(), to: `0x${l.topics[2].slice(26)}`, value: BigInt(l.data) }));
-}
-
 /** The door on (it starts the TEST venue), as #2 turns it on when it is off. */
 async function doorOn(who) {
   if (!(await venueDoor(who)).deposit) {
@@ -326,7 +215,10 @@ async function doorOn(who) {
   }
 }
 
-/** The person deposits `amount` TEST USDC from their wallet into their venue account, signing it in the wallet. */
+/**
+ * The person deposits `amount` TEST USDC from their wallet into their venue account, signing it in the wallet. Returns
+ * the hash of the transfer the wallet sent on the TEST chain.
+ */
 async function depositFromWallet(page, wallet, amount) {
   const sent = wallet.sends.length;
   await connectedNow(page);
@@ -338,6 +230,29 @@ async function depositFromWallet(page, wallet, amount) {
   // The TEST venue credits after 3 confirmations, and the stack's anvil mines a block per transaction only.
   await mineBlocks(2);
   await expect(page.getByTestId('venue-deposit')).toHaveText(`The venue credited ${amount} TEST USDC.`, { timeout: 60_000 });
+  return String(wallet.sends[sent].hash).toLowerCase();
+}
+
+/** What identifies one deposit on the venue's list: the transfer, what it carried, its state and when the venue saw it. */
+const depositFacts = (d) => ({
+  depositRef: d.depositRef,
+  txHash: d.txHash.toLowerCase(),
+  asset: d.asset,
+  amount: d.amount,
+  status: d.status,
+  seenAt: new Date(d.seenAt).toISOString(),
+});
+
+/** The wallet's credited deposits as the TEST venue itself lists them (read on loopback, never through our door), oldest first. */
+async function creditedOnVenue(address) {
+  const { value } = await venueRecord(address, '/deposits');
+  return value.filter((d) => d.status === 'credited').sort((x, y) => Date.parse(x.seenAt) - Date.parse(y.seenAt));
+}
+
+/** The same list as our door hands it to the person (svc-trade's `/api/v1/venue/deposits`), oldest first. */
+async function creditedThroughDoor(who, address) {
+  const res = await (await api(who)).get(`/api/v1/venue/deposits?owner=${address.toLowerCase()}`);
+  return res.body.value.filter((d) => d.status === 'credited').sort((x, y) => Date.parse(x.seenAt) - Date.parse(y.seenAt));
 }
 
 async function checklistOf(who) {
@@ -367,44 +282,29 @@ async function openChecklist(page, path = '/uc/promotion') {
 
 const row = (page, event) => page.locator(`[data-testid="welcome-task"][data-event="${event}"]`);
 
-/** Restarts trade with the user-venue door on (which starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
-}
+/**
+ * A time as the checklist writes it (WelcomeChecklist.tsx `when`): the app's English date and time, in the browser's own
+ * time zone, so it is worked out in the page.
+ */
+const shownTime = (page, iso) =>
+  page.evaluate(
+    (at) =>
+      new Intl.DateTimeFormat('en', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZoneName: 'short',
+      }).format(new Date(at)),
+    iso,
+  );
+
 let doorTurnedOn = false;
 test.afterAll(() => {
   if (doorTurnedOn) userVenue(false);
 });
 
-/** svc-trade's user-venue door as the person reads it. */
-async function venueDoor(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/venue/status');
-  if (status !== 200) throw new Error(`venue status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body;
-}
-
-/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
-async function mineBlocks(n) {
-  for (let i = 0; i < n; i += 1) {
-    const res = await fetch(testChain().gateUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
-    });
-    const body = await res.json();
-    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
-  }
-}
-
-const sheet = (page) => page.locator('[data-sheet="sign"]');
 const venueAction = (page, name) => page.getByRole('region', { name: 'Venue actions' }).getByRole('button', { name });
 
 /** Signed in, with the TEST wallet in this page, on Wallet's Venue account tab, the browser wallet connected. */
@@ -416,42 +316,6 @@ async function openVenue(page, who, privateKey, { rpcUrl = null } = {}) {
   await expect(page).toHaveURL(/\/wallet\/venue$/);
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   return wallet;
-}
-
-/** The room has read the connection back: Connected, Connection expired, or Connect. */
-async function roomSettled(page) {
-  await expect(
-    page
-      .getByRole('heading', { name: 'Connected' })
-      .or(page.getByRole('heading', { name: 'Connection expired' }))
-      .or(page.getByRole('button', { name: 'Connect to my account' })),
-  ).toBeVisible();
-}
-
-async function connectAndSign(page, button = 'Connect to my account') {
-  await page.getByRole('button', { name: button }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** The stack's TEST connection lasts 60 s: a signed action needs this much of it left. */
-const CONNECTION_MARGIN_MS = 45_000;
-async function connectedNow(page) {
-  await roomSettled(page);
-  if (await page.getByRole('heading', { name: 'Connected' }).isVisible()) {
-    const expiresAt = Date.parse(await page.getByTestId('venue-connection-expires').getAttribute('datetime'));
-    if (expiresAt - Date.now() > CONNECTION_MARGIN_MS) return;
-    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible({ timeout: CONNECTION_MARGIN_MS + 15_000 });
-  }
-  if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
-  if (await page.getByRole('button', { name: 'Connect to my account' }).isVisible()) await connectAndSign(page);
-}
-
-/** The person's wallets as svc-protocol records them, through Edge. */
-async function connections(who) {
-  const { status, body } = await (await api(who)).get('/api/protocol/trpc/venueWallet.status');
-  if (status !== 200) throw new Error(`venueWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data.connections;
 }
 
 /** A new account signs up under the live welcome campaign and connects its own TEST wallet: the journey's start. */
@@ -499,7 +363,7 @@ function redeliverKyc(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -510,7 +374,7 @@ function redeliverKyc(userId) {
 /** Until svc-campaigns' welcome verification consumer has taken and acknowledged every message on the bus. */
 async function kycConsumerCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])
@@ -522,6 +386,7 @@ async function kycConsumerCaughtUp() {
 
 test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time window, and a blank reward reads "not set"`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   run.reset({});
@@ -530,6 +395,7 @@ test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time 
   const page = await (await browser.newContext()).newPage();
   const early = await newAccountWithWallet(page, 'jc04x', short.id);
   const list = await openChecklist(page, '/uc/promotion');
+  await expect(list.getByRole('heading', { name: 'Welcome checklist', exact: true })).toBeVisible();
   await expect(list.getByTestId('welcome-campaign')).toHaveText(short.name);
   const window = list.getByTestId('welcome-window');
   await expect(window).toHaveAttribute('data-state', 'open');
@@ -538,15 +404,23 @@ test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time 
   expect(new Date(shown.window.closesAt).getTime() - new Date(shown.window.opensAt).getTime()).toBe(SHORT_WINDOW * 1000);
   await expect(window).toHaveAttribute('data-opens', shown.window.opensAt);
   await expect(window).toHaveAttribute('data-closes', shown.window.closesAt);
+  // The window as the person reads it: from the account's sign-up to its close, with the time left.
+  expect(shown.window.opensAt).toBe(shown.signedUpAt);
+  await expect(window).toContainText(
+    `Your welcome window: From ${await shownTime(page, shown.window.opensAt)} to ${await shownTime(page, shown.window.closesAt)},`,
+  );
+  await expect(window).toHaveText(/,\s\d+\s(seconds?|minutes?) left\.$/);
   await expect(page.getByTestId('welcome-task')).toHaveCount(3);
   await expect(row(page, 'pay.deposit').getByTestId('welcome-reward')).toHaveText('not set');
   await expect(row(page, 'identity.verified').getByTestId('welcome-reward')).toHaveText('0.01 USDC');
   await expect(row(page, 'trade.fill').getByTestId('welcome-reward')).toHaveText('0.03 USDC');
   for (const event of Object.keys(TITLES)) await expect(row(page, event)).toHaveAttribute('data-state', 'open');
-  // A blank reward is never claimable: no button, and the service refuses it by name.
+  // A blank reward is never claimable: no button, the service refuses it by name, and nothing is written.
   await expect(page.getByRole('button', { name: /^Claim the reward for/ })).toHaveCount(0);
   const blank = await (await api(early.who)).post('/api/campaigns/trpc/tasks.welcome.claim', { event: 'pay.deposit' });
-  expect(blank.body?.error?.message ?? '').toMatch(/\[campaigns\.(reward_unset|tasks_incomplete)\]/);
+  expect(blank.body?.error?.message ?? '').toContain('[campaigns.reward_unset]');
+  expect(taskOf(await checklistOf(early.who), 'pay.deposit')).toMatchObject({ reward: null, record: null });
+  await stepPicture(page);
   await signOutBrowser(page.context());
 
   // The main account signs up under the full campaign, with every reward set and a week's window.
@@ -564,6 +438,7 @@ test(`${J} #1 opens /uc/promotion on a new account: the checklist with its time 
 
 test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue account: the matching tasks tick once, the deposit read from the venue; a redelivered event changes nothing`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   const { me, meKey } = state('me', 'meKey', 'fullId');
@@ -585,6 +460,17 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
   expect(door).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: { chainId: CHAIN_ID, asset: 'USDC' } });
   await expect.poll(async () => (await checklistOf(me)).deposit?.source, { timeout: 30_000 }).toBe('read');
   expect(taskOf(await checklistOf(me), 'pay.deposit').state).toBe('open');
+  // The TEST venue's own record of this wallet's account before anything is sent, read from the venue itself, never
+  // through our door: it has seen no deposit and holds no USDC. The open task above is the app reading exactly that.
+  expect((await venueRecord(address, '/deposits')).value).toEqual([]);
+  expect(await venueBalance(address, ASSET)).toMatchObject({ free: '0', locked: '0' });
+  // On the checklist: verification is ticked, and the deposit task is still to do, read from the venue.
+  await signIn(page, me);
+  await openChecklist(page);
+  await expect(row(page, 'identity.verified')).toHaveAttribute('data-state', 'done');
+  await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'open');
+  await expect(row(page, 'pay.deposit').getByTestId('welcome-state')).toHaveText('To do');
+  await expect(row(page, 'pay.deposit').getByTestId('welcome-deposit-source')).toHaveAttribute('data-source', 'read');
   fundOnTestChain(address, 'venue');
   const ledgerBefore = await (await api(me)).balances();
 
@@ -601,19 +487,45 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
   await mineBlocks(2);
   await expect(page.getByTestId('venue-deposit')).toHaveText(`The venue credited ${DEPOSIT} TEST USDC.`, { timeout: 60_000 });
 
-  // The venue's own record of the deposit: the task ticks from it, at the moment the venue saw it.
-  const venueRead = await (await api(me)).get(`/api/v1/venue/deposits?owner=${address.toLowerCase()}`);
-  const credited = venueRead.body.value.filter((d) => d.status === 'credited');
+  // The TEST venue's own record of the deposit, read from the venue itself, never through our door: one credited deposit
+  // of exactly the amount, from the transfer this wallet signed, and that much USDC in the wallet's venue account.
+  const onVenue = await creditedOnVenue(address);
+  expect(onVenue).toHaveLength(1);
+  expect(onVenue[0]).toMatchObject({ asset: ASSET, amount: DEPOSIT, status: 'credited' });
+  expect(onVenue[0].txHash.toLowerCase()).toBe(String(wallet.sends[0].hash).toLowerCase());
+  expect((await venueRecord(address, '/deposits')).value).toHaveLength(1);
+  expect(await venueBalance(address, ASSET)).toMatchObject({ free: DEPOSIT, locked: '0' });
+  // Our door hands the person the venue's list unchanged: the same transfer, amount, state and moment.
+  const credited = await creditedThroughDoor(me, address);
   expect(credited).toHaveLength(1);
   expect(credited[0]).toMatchObject({ asset: 'USDC', amount: DEPOSIT });
+  expect(credited.map(depositFacts)).toEqual(onVenue.map(depositFacts));
+  // The task ticks from the venue's record, at the moment the venue itself saw the transfer.
   await waitForTask(me, 'pay.deposit', 'done');
   const before = await checklistOf(me);
+  const seenAt = new Date(onVenue[0].seenAt).toISOString();
+  expect(taskOf(before, 'pay.deposit').doneAt).toBe(seenAt);
   expect(taskOf(before, 'pay.deposit').doneAt).toBe(new Date(credited[0].seenAt).toISOString());
+  expect(before.tasks.map((t) => [t.event, t.state])).toEqual([
+    ['identity.verified', 'done'],
+    ['pay.deposit', 'done'],
+    ['trade.fill', 'open'],
+  ]);
   await openChecklist(page);
   await expect(row(page, 'identity.verified')).toHaveAttribute('data-state', 'done');
   await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'done');
   await expect(row(page, 'trade.fill')).toHaveAttribute('data-state', 'open');
   await expect(row(page, 'pay.deposit').getByTestId('welcome-why')).toContainText('Done on');
+  // Each matching task reads Done with its own moment: verification's approval, and for the deposit the venue's time.
+  const ticked = {
+    'identity.verified': `Done on ${await shownTime(page, taskOf(before, 'identity.verified').doneAt)}.`,
+    'pay.deposit': `Done on ${await shownTime(page, seenAt)}.`,
+  };
+  for (const [event, text] of Object.entries(ticked)) {
+    await expect(row(page, event).getByTestId('welcome-state')).toHaveText('Done');
+    await expect(row(page, event).getByTestId('welcome-why')).toHaveText(text);
+  }
+  await expect(row(page, 'trade.fill').getByTestId('welcome-state')).toHaveText('To do');
 
   // The same transfer reported to the venue again credits nothing: the task stays ticked once, at the same moment, and
   // the identity task likewise.
@@ -634,15 +546,28 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
     expect(taskOf(after, 'pay.deposit')).toEqual(taskOf(before, 'pay.deposit'));
     expect(taskOf(after, 'identity.verified')).toEqual(taskOf(before, 'identity.verified'));
   }
+  // Nothing changed on the venue either: its own record is the one deposit, credited once, and the same USDC.
+  expect((await creditedOnVenue(address)).map(depositFacts)).toEqual(onVenue.map(depositFacts));
+  expect((await venueRecord(address, '/deposits')).value).toHaveLength(1);
+  expect(await venueBalance(address, ASSET)).toMatchObject({ free: DEPOSIT, locked: '0' });
+  // And on the checklist: the same two tasks ticked at the same moments, the third still to do, and no reward made.
   await page.reload();
   await expect(page.getByTestId('welcome-task')).toHaveCount(3);
   await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'done');
+  for (const [event, text] of Object.entries(ticked)) {
+    await expect(row(page, event)).toHaveAttribute('data-state', 'done');
+    await expect(row(page, event).getByTestId('welcome-why')).toHaveText(text);
+  }
+  await expect(row(page, 'trade.fill')).toHaveAttribute('data-state', 'open');
+  expect((await checklistOf(me)).tasks.map((t) => t.record)).toEqual([null, null, null]);
+  await stepPicture(page);
   // The ledger posts nothing for the deposit: the person's ledger balances are exactly as before.
   expect(await (await api(me)).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposit task does not tick, the deposit checked against our payout records to that wallet`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   state('me', 'fullId');
@@ -676,7 +601,10 @@ test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposi
   });
   await claimOurBuilderFees();
   await expect.poll(async () => taskOf(await checklistOf(other.who), 'identity.verified').record?.state, { timeout: 180_000 }).toBe('paid');
-  const { payout } = taskOf(await checklistOf(other.who), 'identity.verified').record;
+  // Our payout record to that wallet: this reward, paid, to the wallet the person connected, with its chain transaction.
+  const paid = taskOf(await checklistOf(other.who), 'identity.verified').record;
+  expect(paid).toMatchObject({ state: 'paid', asset: ASSET, amount: PAID_BACK });
+  const { payout } = paid;
   expect(payout.toWallet).toBe(other.address.toLowerCase());
   expect(await chainTransfers(payout.chainTx)).toEqual([
     { token: TOKEN_USD.address, to: other.address.toLowerCase(), value: usdUnits(PAID_BACK) },
@@ -688,12 +616,21 @@ test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposi
   expect(await chainUsd(other.address)).toBe(usdUnits(PAID_BACK));
   const page = await (await browser.newContext()).newPage();
   const wallet = await openVenue(page, other.who, other.walletKey, { rpcUrl: testChain().gateUrl });
-  await depositFromWallet(page, wallet, PAID_BACK);
+  const sentBack = await depositFromWallet(page, wallet, PAID_BACK);
   expect(await chainUsd(other.address)).toBe(0n);
+  // The TEST venue's own record, read from the venue itself, never through our door: it credited one deposit of exactly
+  // what we paid, from the transfer this wallet signed, and the wallet's venue account holds that and nothing more.
+  const onVenue = await creditedOnVenue(other.address);
+  expect(onVenue).toHaveLength(1);
+  expect(onVenue[0]).toMatchObject({ asset: ASSET, amount: paid.amount, status: 'credited' });
+  expect(onVenue[0].txHash.toLowerCase()).toBe(sentBack);
+  expect((await venueRecord(other.address, '/deposits')).value).toHaveLength(1);
+  expect(await venueBalance(other.address, ASSET)).toMatchObject({ free: PAID_BACK, locked: '0' });
   // The venue credited the deposit, from the wallet we paid: the task reads it from the venue and does not tick.
   const venueRead = await (await api(other.who)).get(`/api/v1/venue/deposits?owner=${other.address.toLowerCase()}`);
   const credited = venueRead.body.value.filter((d) => d.status === 'credited');
   expect(credited).toEqual([expect.objectContaining({ asset: ASSET, amount: PAID_BACK })]);
+  expect(credited.map(depositFacts)).toEqual(onVenue.map(depositFacts));
   // Read from the venue after the venue saw the deposit, and still open.
   let read = null;
   await expect
@@ -708,11 +645,18 @@ test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposi
   expect(taskOf(read, 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null, record: null });
   await openChecklist(page);
   await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'open');
+  await expect(row(page, 'pay.deposit').getByTestId('welcome-state')).toHaveText('To do');
   await expect(row(page, 'pay.deposit').getByTestId('welcome-why')).toContainText(
     'Rewards INTAFACED paid to that wallet do not count if you send them back.',
   );
   await expect(row(page, 'pay.deposit').getByTestId('welcome-deposit-source')).toHaveAttribute('data-source', 'read');
   await expect(page.getByRole('button', { name: `Claim the reward for ${TITLES['pay.deposit']}` })).toHaveCount(0);
+  // The reward we paid reads as paid to that wallet on the same checklist: the record the deposit was checked against.
+  await expect(row(page, 'identity.verified').getByTestId('welcome-why')).toContainText(
+    `Paid to your connected wallet ${other.address.toLowerCase()} on`,
+  );
+  await expect(row(page, 'identity.verified').getByTestId('welcome-chain-tx')).toHaveAttribute('data-tx', payout.chainTx);
+  await stepPicture(page);
   // Asking to claim it anyway is refused by name, and nothing is written.
   const refused = await (await api(other.who)).post('/api/campaigns/trpc/tasks.welcome.claim', { event: 'pay.deposit' });
   expect(refused.body?.error?.message ?? '').toContain('[campaigns.tasks_incomplete]');
@@ -731,19 +675,26 @@ test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposi
       .or(page.getByRole('button', { name: 'Connect to my account' })),
   ).toBeVisible();
   if (await connectWallet.isVisible()) await connectWallet.click();
-  await depositFromWallet(page, wallet, '5');
+  const ownMoney = await depositFromWallet(page, wallet, '5');
   const both = (await (await api(other.who)).get(`/api/v1/venue/deposits?owner=${other.address.toLowerCase()}`)).body.value
     .filter((d) => d.status === 'credited')
     .sort((x, y) => Date.parse(x.seenAt) - Date.parse(y.seenAt));
   expect(both).toHaveLength(2);
+  // The TEST venue's own record now lists both transfers, the reward sent back first, and our door hands on the same.
+  const bothOnVenue = await creditedOnVenue(other.address);
+  expect(bothOnVenue.map((d) => d.txHash.toLowerCase())).toEqual([sentBack, ownMoney]);
+  expect(both.map(depositFacts)).toEqual(bothOnVenue.map(depositFacts));
   await waitForTask(other.who, 'pay.deposit', 'done');
   expect(taskOf(await checklistOf(other.who), 'pay.deposit').doneAt).toBe(new Date(both[1].seenAt).toISOString());
+  // It ticked at the moment the venue itself saw the second transfer, the first past what we paid; never the first.
+  expect(taskOf(await checklistOf(other.who), 'pay.deposit').doneAt).toBe(new Date(bothOnVenue[1].seenAt).toISOString());
   // The run's later sign-ups go back to the main campaign's rules; this one is left with the account it served.
   await endCampaign(back.id);
 });
 
 test(`${J} #4 claims after all tasks are done: one reward per task, each recorded owed once and paid once to the connected wallet`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(420_000);
   const { me, meKey, fullId } = state('me', 'meKey', 'fullId');
@@ -807,6 +758,8 @@ test(`${J} #4 claims after all tasks are done: one reward per task, each recorde
   await page.reload();
   for (const t of claimed.tasks) {
     await expect(row(page, t.event)).toHaveAttribute('data-state', 'claimed');
+    await expect(row(page, t.event).getByTestId('welcome-state')).toHaveText('Claimed');
+    await expect(row(page, t.event).getByTestId('welcome-reward')).toHaveText(`${REWARDS[t.event]} ${ASSET}`);
     await expect(row(page, t.event).getByTestId('welcome-why')).toContainText(`Paid to your connected wallet ${address} on`);
     await expect(row(page, t.event).getByTestId('welcome-chain-tx')).toHaveAttribute('data-tx', t.record.payout.chainTx);
     // Our booking of the payment is ours, never a transaction in the customer's own activity.
@@ -818,11 +771,14 @@ test(`${J} #4 claims after all tasks are done: one reward per task, each recorde
   const rows = page.locator(`[data-testid="reward-row"][data-campaign="${fullId}"]`);
   await expect(rows).toHaveCount(3, { timeout: 30_000 });
   await expect(rows.filter({ has: page.locator('[data-testid="reward-status"]', { hasText: 'Paid' }) })).toHaveCount(3);
+  // The step's picture: the page with every task claimed and paid, and the three rewards listed.
+  for (const event of Object.keys(TITLES)) await expect(row(page, event)).toHaveAttribute('data-state', 'claimed');
+  await stepPicture(page);
   // The owed reward never reached a ledger balance of the customer's: their USDC there is what it was (none).
   expect((await client.balances())[ASSET]?.free ?? '0').toMatch(/^0(\.0+)?$/);
 });
 
-test(`${J} #5 returns after the window: the tasks read expired and no reward is created`, async ({ browser }) => {
+test(`${J} #5 returns after the window: the tasks read expired and no reward is created`, async ({ browser, stepPicture }) => {
   test.setTimeout(300_000);
   const { early, shortId, fullId } = state('early', 'shortId', 'fullId');
   const opened = await checklistOf(early);
@@ -836,13 +792,19 @@ test(`${J} #5 returns after the window: the tasks read expired and no reward is 
   await signIn(page, early);
   const list = await openChecklist(page);
   await expect(list.getByTestId('welcome-window')).toHaveAttribute('data-state', 'expired');
+  // The window reads closed, with the same opening and close it had in #1.
+  await expect(list.getByTestId('welcome-window')).toContainText(
+    `It ran from ${await shownTime(page, opened.window.opensAt)} to ${await shownTime(page, opened.window.closesAt)} and has closed.`,
+  );
   for (const event of Object.keys(TITLES)) {
     await expect(row(page, event)).toHaveAttribute('data-state', 'expired');
+    await expect(row(page, event).getByTestId('welcome-state')).toHaveText('Expired');
     await expect(row(page, event).getByTestId('welcome-why')).toHaveText(
       'The welcome window closed before this task was claimed. No reward is given.',
     );
   }
   await expect(page.getByRole('button', { name: /^Claim the reward for/ })).toHaveCount(0);
+  await stepPicture(page);
   for (const event of Object.keys(TITLES)) {
     const res = await (await api(early)).post('/api/campaigns/trpc/tasks.welcome.claim', { event });
     expect(res.body?.error?.message ?? '').toContain('[campaigns.claim_expired]');

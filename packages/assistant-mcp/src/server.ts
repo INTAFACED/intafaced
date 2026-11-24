@@ -26,6 +26,11 @@ import { pathToFileURL } from 'node:url';
 
 export const SERVER_NAME = 'intafaced-assistant';
 export const SERVER_VERSION = '0.0.0';
+/**
+ * The dated API version this release was written against, sent on every call (`intafaced-version`, J-developer-16 #5).
+ * A pin, not the newest: a later API version does not change what this release sends.
+ */
+export const API_VERSION = '2026-11-20';
 /** The protocol revisions this server speaks, newest first; a client asking for another gets the newest. */
 export const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 export const AGENT_ORDERS_ROUTE = '/api/v1/venue/agent/orders';
@@ -168,6 +173,7 @@ export function createAssistantServer(config: AssistantConfig | { readonly missi
         headers: {
           authorization: `Bearer ${config.agentKey}`,
           'content-type': 'application/json',
+          'intafaced-version': API_VERSION,
           ...(config.signingSecret ? signedHeaders(config.signingSecret, { method: 'POST', path: AGENT_ORDERS_ROUTE, body }) : {}),
         },
         body,

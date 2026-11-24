@@ -46,6 +46,8 @@ const notice = (over: Partial<FundingNotice>): FundingNotice => ({
   asset: 'USDT',
   network: 'ethereum',
   phase: 'investigating',
+  category: null,
+  audience: 'everyone',
   ...over,
 });
 const ready = (data: Partial<FundingNotices>) => ({

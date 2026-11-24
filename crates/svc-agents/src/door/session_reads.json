@@ -1,0 +1,96 @@
+{
+  "about": "The session API's reads: every query under these prefixes that svc-agents' door serves (src/door/calls.rs), each with one input its schema accepts. A key lacking agents:read is refused on each (J-agents-12 #1 tries every one, from this list). tests/session_reads.rs holds it to the door, so a new read fails on the pull request that adds it until it is listed here with an input (#8495). An input string <sessionId>, <runId>, <requestId> or <sessionB> stands for that id of the person's own session A, its first run, the request that started it, or session B; an entry with no input is called with none.",
+  "prefixes": ["session", "run", "usage", "log", "webhook"],
+  "reads": {
+    "session.detail": {
+      "input": {
+        "sessionId": "<sessionId>"
+      }
+    },
+    "session.selected": {},
+    "session.log": {
+      "input": {
+        "sessionId": "<sessionId>",
+        "limit": 50
+      }
+    },
+    "session.mine": {
+      "input": {
+        "limit": 10
+      }
+    },
+    "session.events": {
+      "input": {
+        "sessionId": "<sessionId>",
+        "limit": 50
+      }
+    },
+    "run.list": {
+      "input": {
+        "sessionId": "<sessionId>",
+        "limit": 50
+      }
+    },
+    "run.get": {
+      "input": {
+        "runId": "<runId>"
+      }
+    },
+    "run.events": {
+      "input": {
+        "runId": "<runId>",
+        "limit": 50
+      }
+    },
+    "run.trace": {
+      "why": "One run's trace, by its session and the request that started it (J-agents-13).",
+      "input": {
+        "sessionId": "<sessionId>",
+        "requestId": "<requestId>"
+      }
+    },
+    "run.background.get": {
+      "why": "A background run is read by its own id; the scope is checked before any run is looked up.",
+      "input": {
+        "runId": "<runId>"
+      }
+    },
+    "usage.current": {
+      "input": {
+        "sessionId": "<sessionB>"
+      }
+    },
+    "usage.summary": {
+      "input": {
+        "limit": 50
+      }
+    },
+    "log.mine": {
+      "input": {
+        "limit": 50
+      }
+    },
+    "log.count": {
+      "input": {}
+    },
+    "log.export": {
+      "why": "The whole log's export, a page at a time; refused before any page or audit row is written.",
+      "input": {
+        "limit": 50
+      }
+    },
+    "webhook.list": {
+      "why": "The run webhooks the person's code registered (J-agents-12 #5).",
+      "input": {
+        "limit": 10
+      }
+    },
+    "webhook.deliveries": {
+      "why": "A run webhook's deliveries (J-agents-12 #5).",
+      "input": {
+        "runId": "<runId>",
+        "limit": 50
+      }
+    }
+  }
+}

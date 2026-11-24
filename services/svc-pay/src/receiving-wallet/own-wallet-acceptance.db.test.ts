@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   MemoryLedger,
@@ -11,6 +11,7 @@ import {
   merchantFeeReceivableAccount,
   partnerFeeReceivableAccount,
   parseAmount as amt,
+  recipes,
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { HDKey } from 'viem/accounts';
@@ -57,7 +58,7 @@ const PROFILES = REFERENCE_RAIL_ROUTING_PROFILES.map((p) =>
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_own_wallet_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -153,6 +154,17 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
       extendedPublicKey: key,
     });
   }
+
+  /** Another payment, in our custody, captured into the same business's pooled clearing: the money a wrong debit would take. */
+  const otherPlatformCapture = (merchantId: string, assetId: string, amount: string) =>
+    recipes.paymentCapture({
+      paymentId: '00000000-0000-4000-8000-0000000000ff',
+      merchantId,
+      assetId,
+      amount: amt(amount),
+      rail: 'crypto-native',
+      railRef: '0xtest-other-platform-payment',
+    });
 
   /** The payment a hosted checkout session opened, as svc-pay holds it. */
   const paymentOf = async (sessionToken: string) =>
@@ -251,6 +263,34 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
       code: 'pay.payment_not_in_our_custody',
     });
     expect(posts).toHaveLength(1);
+
+    // Nor charges it back: clearing is pooled per business, so a debit here would take another payment's money.
+    await ledger.post(otherPlatformCapture(m.id, 'USDT', '100'));
+    await expect(
+      pay.openChargeback({ disputeId: 'dp-test-wallet', paymentId: payment.id, merchantId: m.id, amount: '100', assetId: 'USDT' }),
+    ).rejects.toMatchObject({ code: 'pay.payment_not_in_our_custody' });
+    expect(posts.filter((p) => p.idempotencyKey.includes('dp-test-wallet'))).toHaveLength(0);
+    expect(formatAmount((await ledger.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('100');
+  });
+
+  it('shows final own-wallet funds before capture', async () => {
+    const pay = service();
+    const merchant = await business(pay);
+    await setWallet(merchant.id);
+    const link = await pay.createPaymentLink({ merchantId: merchant.id, label: 'TEST', amount: amt('100'), currency: 'USDT' });
+    const { session, sessionToken } = await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'DE', method: 'crypto' });
+    chain.creditAnother({
+      address: session.instruction!.reference,
+      assetId: 'USDT',
+      amount: amt('100'),
+      confirmations: 12,
+      txHash: '0xconfirmed',
+    });
+    const payment = await paymentOf(sessionToken);
+    expect((await pay.authorize(payment.id)).status).toBe('authorized');
+    expect((await outsideFundsOf(sql, ownerOf(merchant.id))).rows).toEqual([
+      expect.objectContaining({ holder: 'own_wallet', clearing: '0', available: '100', payments: 1 }),
+    ]);
   });
 
   it('with the custodial layer on, the same checkout is the custodial one, unchanged', async () => {
@@ -288,6 +328,14 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
     expect(formatAmount((await ledger.balance(merchantClearing(m.id, 'EUR'))).amount)).toBe('0');
     const funds = await outsideFundsOf(sql, ownerOf(m.id));
     expect(funds.rows).toEqual([expect.objectContaining({ assetId: 'EUR', holder: 'partner', source: 'partner', available: '30' })]);
+
+    // A dispute on it is the partner's to take back: nothing is debited from the business's pooled clearing.
+    await ledger.post(otherPlatformCapture(m.id, 'EUR', '30'));
+    await expect(
+      pay.openChargeback({ disputeId: 'dp-test-partner', paymentId: payment.id, merchantId: m.id, amount: '30', assetId: 'EUR' }),
+    ).rejects.toMatchObject({ code: 'pay.payment_not_in_our_custody' });
+    expect(posts.filter((p) => p.idempotencyKey.includes('dp-test-partner'))).toHaveLength(0);
+    expect(formatAmount((await ledger.balance(merchantClearing(m.id, 'EUR'))).amount)).toBe('30');
   });
 
   it('with no fee rate set for the partner, a bank transfer refuses before the payer is shown where to pay, and the business’s price never stands in', async () => {

@@ -1,0 +1,141 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received undefined\"},{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "ok =",
+    "ok {\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+    "issues [{\"code\":\"custom\",\"message\":\"amend must change qty, price, stopPrice, or tif\",\"path\":[]}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":false,\"path\":[\"expectedVersion\"],\"message\":\"Too small: expected number to be >0\"}]",
+    "issues [{\"expected\":\"int\",\"format\":\"safeint\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected int, received number\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received undefined\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received null\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received boolean\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received string\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received array\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"expectedVersion\"],\"message\":\"Invalid input: expected number, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"qty\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"qty\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"qty\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^\\\\d+(\\\\.\\\\d{1,18})?$/\",\"path\":[\"qty\"],\"message\":\"amounts are positive decimal strings with at most 18 decimal places\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"qty\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"qty\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received boolean\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\"],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"path\":[\"lifecycleProof\",\"action\"],\"message\":\"Invalid option: expected one of \\\"PLACE\\\"|\\\"PLACE_POST_ONLY\\\"|\\\"AMEND\\\"\"},{\"code\":\"invalid_value\",\"values\":[\"ELIGIBLE\"],\"path\":[\"lifecycleProof\",\"decision\"],\"message\":\"Invalid input: expected \\\"ELIGIBLE\\\"\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\",\"checkedAt\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\",\"snapshotId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\",\"transitionId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\",\"evidenceRefs\"],\"message\":\"Invalid input: expected array, received undefined\"},{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lifecycleProof\",\"snapshot\"],\"message\":\"Invalid input: expected object, received undefined\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    [
+      "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      6
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}",
+      7
+    ],
+    [
+      "{\"expectedVersion\":1,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      8
+    ],
+    [
+      "{\"expectedVersion\":0,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      9
+    ],
+    [
+      "{\"expectedVersion\":1.5,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      10
+    ],
+    [
+      "{\"expectedVersion\":1,\"tif\":\"IOC\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      6
+    ],
+    [
+      "{\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      11
+    ],
+    [
+      "{\"expectedVersion\":null,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      12
+    ],
+    [
+      "{\"expectedVersion\":7,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      6
+    ],
+    [
+      "{\"expectedVersion\":true,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      13
+    ],
+    [
+      "{\"expectedVersion\":\"\",\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      14
+    ],
+    [
+      "{\"expectedVersion\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      14
+    ],
+    [
+      "{\"expectedVersion\":[],\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      15
+    ],
+    [
+      "{\"expectedVersion\":{},\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      16
+    ],
+    [
+      "{\"expectedVersion\":1,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      8
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":null,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      17
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":7,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      18
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":true,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      19
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":\"\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      20
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      20
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":[],\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      21
+    ],
+    [
+      "{\"expectedVersion\":1,\"qty\":{},\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}",
+      22
+    ],
+    ["{\"expectedVersion\":1,\"qty\":\"1\"}", 23],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":null}", 24],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":7}", 25],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":true}", 26],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":\"\"}", 27],
+    [
+      "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      27
+    ],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":[]}", 28],
+    ["{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{}}", 29]
+  ]
+}

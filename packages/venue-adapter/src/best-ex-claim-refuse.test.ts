@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client';
 import { BEST_EX_CLAIM_UNSET, copyClaimsBestEx, describeBestExClaimRefuse, refuseBestExClaim } from './best-ex-claim-refuse.js';
+import { buildExecutionReport } from './execution-report.js';
+import * as pkg from './index.js';
+import { explainRoute, planRoute } from './router.js';
+import type { LiquiditySource } from './source.js';
 
 const UNSET_DETAIL = 'owner best-ex law is unset — refusing rather than claiming best execution';
-const here = dirname(fileURLToPath(import.meta.url));
 
 function expectRefused(verdict: ReturnType<typeof refuseBestExClaim>): void {
   expect(verdict.ok).toBe(false);
@@ -83,21 +84,56 @@ describe('describeBestExClaimRefuse — honesty board', () => {
   });
 });
 
+const AT = new Date('2026-08-12T00:00:00.000Z');
+
+function venue(id: string, price: string, amount: string): LiquiditySource {
+  return {
+    id,
+    kind: 'external-cex',
+    capabilities: ['quote'],
+    health: () => ({ healthy: true, latencyMs: 10, lastUpdate: AT }),
+    markets: async () => [],
+    quote: async (req) => ({
+      venueId: id,
+      symbol: req.symbol,
+      side: req.side,
+      amount: parseAmount(amount),
+      price: parseAmount(price),
+      feeBps: 10,
+      expiresAt: new Date('2026-08-12T01:00:00.000Z'),
+    }),
+    orderBook: async () => ({}) as never,
+    submit: async () => ({}) as never,
+  };
+}
+
 describe('live ranker is not a best-ex stamp', () => {
-  it('explainRoute / execution report source do not claim best-ex or best price', () => {
-    const router = readFileSync(join(here, 'router.ts'), 'utf8');
-    const report = readFileSync(join(here, 'execution-report.ts'), 'utf8');
-    const explainFn = router.slice(router.indexOf('export function explainRoute'));
-    expect(copyClaimsBestEx(explainFn)).toBe(false);
-    expect(copyClaimsBestEx(report)).toBe(false);
-    expect(explainFn.toLowerCase()).not.toMatch(/we found the best price/);
-    expect(report.toLowerCase()).not.toMatch(/best[- ]?execution/);
+  it('explainRoute and the execution report never claim best-ex or a best price, filled, split, short or empty', async () => {
+    const request = (amount: string) => ({ symbol: 'BTC/USDT', side: 'buy' as const, amount: parseAmount(amount) });
+    const plans = [
+      await planRoute(request('1'), [venue('a', '30000', '1')], { now: AT }),
+      await planRoute(request('2'), [venue('a', '30000', '1'), venue('b', '30010', '1')], { now: AT }),
+      await planRoute(request('10'), [venue('a', '30000', '1')], { now: AT }),
+      await planRoute(request('1'), [], { now: AT }),
+    ];
+    expect(plans.map((p) => p.legs.length)).toEqual([1, 2, 1, 0]);
+    for (const plan of plans) {
+      const explained = explainRoute(plan);
+      const report = JSON.stringify(buildExecutionReport(plan));
+      expect(copyClaimsBestEx(explained), explained).toBe(false);
+      expect(copyClaimsBestEx(report), report).toBe(false);
+      expect(explained.toLowerCase()).not.toMatch(/we found the best price|best[- ]?execution/);
+      expect(report.toLowerCase()).not.toMatch(/best[- ]?execution/);
+    }
   });
 });
 
 describe('package export seal', () => {
-  it('index re-exports best-ex-claim-refuse', () => {
-    const pkgIndex = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(pkgIndex).toMatch(/best-ex-claim-refuse/);
+  it('the package entry exports the best-ex refuse door itself', () => {
+    expect(pkg.refuseBestExClaim).toBe(refuseBestExClaim);
+    expect(pkg.copyClaimsBestEx).toBe(copyClaimsBestEx);
+    expect(pkg.describeBestExClaimRefuse).toBe(describeBestExClaimRefuse);
+    expect(pkg.BEST_EX_CLAIM_UNSET).toBe(BEST_EX_CLAIM_UNSET);
+    expectRefused(pkg.refuseBestExClaim({ claim: true }));
   });
 });

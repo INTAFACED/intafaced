@@ -9,7 +9,7 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
 // check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
 // through the customer's own API.
-// Steps #1, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
+// Steps #1, #4, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
 // Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
 // ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
 // (tooling/ci/journey-verdict.mjs judge, project-state #2232).
@@ -148,7 +148,9 @@ test(`${J} #3 nothing asks for a risk agreement, a knowledge check or a notice b
   expect(await positionsOf(who)).toHaveLength(0);
 });
 
-test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark and funding`, async ({ page }) => {
+test(`${J}, part of #4, checked on our own ledger: picks the contract and reads its strip: family, settle asset, contract size, mark and funding`, async ({
+  page,
+}) => {
   await desk(page);
   const strip = page.getByRole('region', { name: SYMBOL, exact: true });
   await expect(strip.getByText('Perpetual · Linear')).toBeVisible();
@@ -212,7 +214,10 @@ test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverag
   expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
 });
 
-test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({ page }) => {
+test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
+  page,
+  stepPicture,
+}) => {
   await desk(page);
   const sent = writes(page);
   const types = page.getByRole('group', { name: 'Order type' });
@@ -224,7 +229,27 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   await page.getByRole('button', { name: 'Order types not offered' }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  expect(await menu.getByRole('menuitem').count()).toBeGreaterThan(0);
+  // The resting types the service refuses for this contract, each listed, not selectable, with the service's refusal in words.
+  const catalogue = await page.request.get('/api/v1/futures/order-types?limit=50');
+  expect(catalogue.status()).toBe(200);
+  const entries = (await catalogue.json()).markets.find((m) => m.market === SYMBOL)?.orderTypes ?? [];
+  expect(
+    entries
+      .filter((e) => e.state === 'available')
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(['limit', 'market']);
+  const refusedTypes = entries.filter((e) => e.state === 'refused');
+  expect(refusedTypes.length, 'the service refuses resting types for this contract').toBeGreaterThan(0);
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(refusedTypes.length);
+  for (let i = 0; i < refusedTypes.length; i += 1) {
+    await expect(items.nth(i)).toBeDisabled();
+    await expect(items.nth(i)).toContainText(
+      'The futures book takes market and limit orders. Stop, take-profit and the other types are not offered.',
+    );
+  }
+  await stepPicture();
   await page.keyboard.press('Escape');
   expect(sent).toEqual([]);
 });

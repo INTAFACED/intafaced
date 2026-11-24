@@ -1048,7 +1048,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ord-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-01"], "noSlice": false },
@@ -1119,9 +1119,7 @@
     "steps": [
       { "n": 1, "slices": ["BK-xfer-03"], "noSlice": false },
       { "n": 2, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 3, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 4, "slices": ["BK-xfer-03"], "noSlice": false },
-      { "n": 5, "slices": ["BK-xfer-03"], "noSlice": false }
+      { "n": 3, "slices": ["BK-xfer-03"], "noSlice": false }
     ]
   },
   {
@@ -1248,7 +1246,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cissue-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cissue-02"], "noSlice": false },
@@ -1257,7 +1255,8 @@
       { "n": 5, "slices": ["BK-cissue-04"], "noSlice": false },
       { "n": 6, "slices": ["BK-cissue-04"], "noSlice": false },
       { "n": 7, "slices": ["RC-bank-02"], "noSlice": false },
-      { "n": 8, "slices": [], "noSlice": true }
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -1266,7 +1265,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cctl-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cctl-02"], "noSlice": false },
@@ -1502,7 +1501,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ccrypto-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-ccrypto-01"], "noSlice": false },
@@ -1547,6 +1546,21 @@
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-bank-32",
+    "title": "I take cash from an ATM with my card",
+    "module": "bank",
+    "persona": "retail",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -1883,7 +1897,7 @@
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-06"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-01"], "noSlice": false },
-      { "n": 3, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
+      { "n": 3, "slices": ["I-kyc-compliance-19", "I-kyc-compliance-02"], "noSlice": false },
       { "n": 4, "slices": ["W-deposit-05", "D-venue-11"], "noSlice": false },
       { "n": 5, "slices": ["SP-order-01", "SP-markets-data-01", "SP-developer-status-01"], "noSlice": false },
       { "n": 6, "slices": ["SP-order-entry-03", "SP-order-entry-04", "SP-fees-vip-02"], "noSlice": false },
@@ -2245,6 +2259,25 @@
       { "n": 8, "slices": ["RC-cex-spot-09", "RC-cex-spot-06"], "noSlice": false }
     ],
     "later": "custody"
+  },
+  {
+    "id": "J-cex-spot-21",
+    "title": "I stake HYPE with a validator, see my trading-fee discount, and unstake",
+    "module": "cex-spot",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true }
+    ]
   },
   {
     "id": "J-charts-desk-01",
@@ -2657,7 +2690,8 @@
       { "n": 3, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 4, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 5, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -2729,8 +2763,9 @@
       { "n": 3, "slices": ["CB-ops-01"], "noSlice": false },
       { "n": 4, "slices": ["CB-ops-01", "CB-copy-12"], "noSlice": false },
       { "n": 5, "slices": ["CB-ops-01"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false },
-      { "n": 7, "slices": ["CB-copy-pro-share-09", "CB-copy-pro-share-03"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false, "later": "custody" },
+      { "n": 7, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
+      { "n": 8, "slices": ["CB-copy-pro-share-09"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -2926,7 +2961,8 @@
       { "n": 3, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 4, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 5, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
-      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false }
+      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3510,7 +3546,8 @@
       { "n": 10, "slices": ["D-cross-01", "D-cross-03"], "noSlice": false },
       { "n": 11, "slices": ["D-cross-01"], "noSlice": false },
       { "n": 12, "slices": ["D-cross-05"], "noSlice": false },
-      { "n": 13, "slices": [], "noSlice": true }
+      { "n": 13, "slices": [], "noSlice": true },
+      { "n": 14, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3568,6 +3605,57 @@
       { "n": 6, "slices": ["D-venue-05", "D-venue-07"], "noSlice": false },
       { "n": 7, "slices": ["D-venue-08"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["D-venue-06"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-29",
+    "title": "My venue account's mode decides whether my spot and perps money is one balance or two",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true },
+      { "n": 10, "slices": [], "noSlice": true },
+      { "n": 11, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-30",
+    "title": "I see the builder-fee approval I gave INTAFACED, revoke it, and know why an approval can fail",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-31",
+    "title": "I put money in a venue vault, see it counted, and take it out after its lock-up",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -4720,6 +4808,22 @@
     ]
   },
   {
+    "id": "J-home-ia-12",
+    "title": "I cut my exposure from one risk screen",
+    "module": "home-ia",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 2, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 3, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 4, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 5, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 6, "slices": ["RC-home-ia-03"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-identity-01",
     "title": "I sign up with my email or phone and get into the app",
     "module": "identity",
@@ -4846,7 +4950,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-04", "I-kyc-compliance-05"], "noSlice": false },
       { "n": 2, "slices": ["I-kyc-compliance-08"], "noSlice": false },
@@ -5784,6 +5888,37 @@
     "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
+    "id": "J-merchant-43",
+    "title": "See every movement on my business balance, newest first",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 2, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 3, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 4, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 6, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" }
+    ]
+  },
+  {
+    "id": "J-merchant-44",
+    "title": "See what needs my business in its notifications",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 2, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 3, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 4, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 5, "slices": ["M-plat-org-11"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-more-catalogue-01",
     "title": "Find my way around the six More rooms",
     "module": "more-catalogue",
@@ -6017,7 +6152,7 @@
       { "n": 4, "slices": ["MC-launch-03"], "noSlice": false },
       { "n": 5, "slices": ["RC-more-catalogue-22"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-23"], "noSlice": false },
-      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false },
+      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false, "deferred": true },
       { "n": 8, "slices": ["MC-launch-01"], "noSlice": false }
     ]
   },
@@ -6212,7 +6347,8 @@
       { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
-      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false }
+      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
+      { "n": 13, "slices": [], "noSlice": true, "deferred": true }
     ]
   },
   {
@@ -6291,7 +6427,8 @@
       { "n": 4, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 5, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 6, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
-      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false }
+      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-ledger-desk-05"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -6674,6 +6811,19 @@
       { "n": 6, "slices": ["BK-ord-01", "BK-xfer-08"], "noSlice": false },
       { "n": 7, "slices": ["W-withdraw-01", "W-withdraw-06"], "noSlice": false },
       { "n": 8, "slices": ["OPS-reconciliation-02", "OPS-reconciliation-03", "OPS-reconciliation-04"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-ops-console-28",
+    "title": "Our builder fees keep coming in because our builder address stays in the venue's required mode",
+    "module": "ops-console",
+    "persona": "operator:founder",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -7484,7 +7634,8 @@
       { "n": 1, "slices": ["PF-balances-03"], "noSlice": false },
       { "n": 2, "slices": ["PF-balances-03"], "noSlice": false },
       { "n": 3, "slices": ["PF-balances-03"], "noSlice": false },
-      { "n": 4, "slices": ["PF-balances-03"], "noSlice": false }
+      { "n": 4, "slices": ["PF-balances-03"], "noSlice": false },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -7987,7 +8138,8 @@
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false },
-      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false }
+      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false },
+      { "n": 9, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8155,7 +8307,8 @@
       { "n": 3, "slices": ["W-balances-06"], "noSlice": false },
       { "n": 4, "slices": ["W-balances-02"], "noSlice": false },
       { "n": 5, "slices": ["W-balances-02"], "noSlice": false },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -8386,11 +8539,27 @@
     ]
   },
   {
-    "id": "J-wallet-23",
-    "title": "I approve a trading key once per session, so I do not sign every order with my wallet",
+    "id": "J-wallet-24",
+    "title": "My new wallet's first deposit reaches the venue: the right chain, the right asset and gas",
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-wallet-25",
+    "title": "Money I sent to the venue's own chain shows up, and I move it back to trading",
+    "module": "wallet",
+    "persona": "retail",
+    "tier": "advanced",
     "order": 2,
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import { mergeRouters, type Context } from '@intafaced/contracts';
@@ -36,7 +36,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_merchant_ops_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -452,6 +452,20 @@ describe('W15 merchant operations (Postgres)', () => {
       const bOnly = await exportCsv(userB, 'payouts');
       expect(bOnly.file.content).toContain(settlementsB[0]!);
       expect(bOnly.file.content).not.toContain(settlementsA[0]!);
+    });
+
+    it('excludes ledger-only settlements from payout CSVs', async () => {
+      // Posting writes payout_method = 'ledger' (settlement-status.ts); that is not a payout.
+      const unpaid = settlementsA[1]!;
+      await sql`UPDATE pay.settlements SET payout_method = 'ledger' WHERE id = ${unpaid}`;
+      try {
+        const { file } = await exportCsv(userA, 'payouts');
+        expect(file.content).toContain(settlementsA[0]!);
+        expect(file.content).not.toContain(unpaid);
+        expect(file.rowCount).toBe(1);
+      } finally {
+        await sql`UPDATE pay.settlements SET payout_method = NULL WHERE id = ${unpaid}`;
+      }
     });
 
     it('filters narrow the file and a bad filter is a typed refusal', async () => {

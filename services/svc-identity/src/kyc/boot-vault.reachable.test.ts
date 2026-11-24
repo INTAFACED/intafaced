@@ -30,6 +30,7 @@ import { stubActionApprovals } from '../auth/privileged-dual-control.js';
 import type { AuthService, KycRecordView } from '../auth/auth-service.js';
 import type { RankService } from '../rank/rank-service.js';
 import { bootKycVault } from './boot-vault.js';
+import { IDENTITY_KYC_GET_DOCUMENT, IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
@@ -100,7 +101,7 @@ function fakeSql(): Sql {
     }
     return [];
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 /** Exact production fragment: helper + spread. Omitting the spread is the silent-dark store. */
@@ -190,7 +191,12 @@ describe('kyc.status never returns document bytes or provider_ref', () => {
   });
 
   it('bytes read is compliance getDocument only — kyc.status stays meta', () => {
-    expect(routerSrc).toMatch(/getDocument:\s*scopedProcedure\('admin:compliance'\)/);
+    expect(routerSrc).toMatch(/getDocument:\s*mountRecord\(\s*IDENTITY_KYC_GET_DOCUMENT,/);
+    expect(IDENTITY_KYC_GET_DOCUMENT.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
+    // kyc.status's answer is meta: no field of a record it returns carries bytes or the provider pointer.
+    for (const field of Object.keys(IDENTITY_KYC_STATUS.output.shape.records.element.shape)) {
+      expect(field).not.toMatch(/bytes|ciphertext|providerRef/i);
+    }
     expect(routerSrc).toContain('vault.getFor');
     expect(routerSrc).toContain('storeDocument');
     expect(routerSrc).toContain('listDocuments');

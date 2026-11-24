@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StepUpBegin } from '../account/security-step-up';
+import type { StepUpBegin } from '../account';
 import { OrderActions } from './P2P';
 import type { PersonalPayApi } from './pay-api';
 import type { Trade } from './schemas';
@@ -63,6 +63,10 @@ const trade: Trade = {
   escrowedAt: '2026-10-23T20:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   feeBps: 100,
   releasePreview: { fee: '0.1', netAmount: '9.9' },
 };
@@ -91,7 +95,7 @@ describe('Release with the pre-release checklist and a fresh check (J-p2p-02 #5)
       ok: true as const,
       data: { ...trade, status: 'released' as const, resolution: 'released' as const },
     }));
-    const review = await openRelease(manageTrade as unknown as PersonalPayApi['manageTrade']);
+    const review = await openRelease(manageTrade as PersonalPayApi['manageTrade']);
     expect(review.textContent).toContain('@TESTbuyer');
     expect(review.textContent).not.toContain(BUYER);
     expect(review.textContent).toContain('The buyer gets');
@@ -128,7 +132,7 @@ describe('Release with the pre-release checklist and a fresh check (J-p2p-02 #5)
       data: { ...trade, status: 'released' as const, resolution: 'released' as const },
     }));
     const until = new Date(Date.now() + 5 * 60_000).toISOString();
-    const review = await openRelease(manageTrade as unknown as PersonalPayApi['manageTrade'], until);
+    const review = await openRelease(manageTrade as PersonalPayApi['manageTrade'], until);
     expect(review.querySelector('[data-testid="order-release-covered"]')?.textContent).toContain(
       'You confirmed it’s you here, so this release needs no new check until',
     );
@@ -146,7 +150,7 @@ describe('Release with the pre-release checklist and a fresh check (J-p2p-02 #5)
       message: 'auth.step_up_failed: confirm this release again',
       code: 'auth.step_up_failed',
     }));
-    const review = await openRelease(manageTrade as unknown as PersonalPayApi['manageTrade']);
+    const review = await openRelease(manageTrade as PersonalPayApi['manageTrade']);
     for (const box of review.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) await act(async () => box.click());
     await act(async () => byText('Use a passkey')[0]!.click());
     await act(async () => byText('Release to the buyer').at(-1)!.click());
@@ -156,7 +160,7 @@ describe('Release with the pre-release checklist and a fresh check (J-p2p-02 #5)
   });
 
   it('is not offered to the buyer', async () => {
-    const pay = {} as unknown as PersonalPayApi;
+    const pay = {} as PersonalPayApi;
     root = createRoot(host);
     const mounted = root;
     await act(async () =>

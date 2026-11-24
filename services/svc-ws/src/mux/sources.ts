@@ -174,29 +174,39 @@ export class HttpTickerSource implements TickerSource {
   }
 }
 
+/** A ticker amount that is not a decimal string or null: the whole row is refused. */
+class RefusedAmount extends Error {}
+
+/** `null`/absent → null, a decimal string → itself; anything else refuses the row. */
+function amountOrNull(value: unknown): string | null {
+  const out = decimalOrNull(value);
+  if (out === undefined) throw new RefusedAmount();
+  return out;
+}
+
 /** Exported for tests. `null` = refuse the row. */
 export function parseTicker(key: string, value: unknown): RawTicker | null {
   if (value === null || typeof value !== 'object') return null;
-  const v = value as Record<string, unknown>;
+  const v: Record<string, unknown> = { ...value };
   const symbol = typeof v.symbol === 'string' && v.symbol !== '' ? v.symbol : key;
-  const last = decimalOrNull(v.last);
-  const change = decimalOrNull(v.change);
-  const percentage = decimalOrNull(v.percentage);
-  const high = decimalOrNull(v.high);
-  const low = decimalOrNull(v.low);
-  const volume = decimalOrNull(v.baseVolume);
-  const quoteVolume = decimalOrNull(v.quoteVolume);
-  if ([last, change, percentage, high, low, volume, quoteVolume].includes(undefined)) return null;
-  return {
-    symbol,
-    last: last as string | null,
-    change24h: change as string | null,
-    changePct24h: percentage as string | null,
-    high: high as string | null,
-    low: low as string | null,
-    volume: volume as string | null,
-    quoteVolume: quoteVolume as string | null,
-  };
+  try {
+    return {
+      symbol,
+      last: amountOrNull(v.last),
+      change24h: amountOrNull(v.change),
+      changePct24h: amountOrNull(v.percentage),
+      high: amountOrNull(v.high),
+      low: amountOrNull(v.low),
+      volume: amountOrNull(v.baseVolume),
+      quoteVolume: amountOrNull(v.quoteVolume),
+      bid: amountOrNull(v.bid),
+      ask: amountOrNull(v.ask),
+      spread: amountOrNull(v.spread),
+    };
+  } catch (error) {
+    if (error instanceof RefusedAmount) return null;
+    throw error;
+  }
 }
 
 // ── Candles ────────────────────────────────────────────────────────────────

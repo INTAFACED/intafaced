@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALERT, FOUNDER, alertDetail, founderCtx as ctx, treasuryToken } from '@/lib/recon-alerts/fixtures.test-util';
+import { ALERT, FOUNDER, alertDetail, founderCtx as ctx, treasuryToken } from '@/testing/recon-alert-fixtures.test-util';
 import { POST } from './route';
 
 const gate = vi.hoisted(() => ({ session: vi.fn<() => Promise<unknown>>() }));

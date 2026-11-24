@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { z, type ZodType } from 'zod';
+import { startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
+import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
+import type { ZodType } from 'zod';
+import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
+import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { useSession } from '../../features/session/session';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { venueApi } from '../../features/trade';
+import { authoredRefusal, isVerifyFirst, type ApiResult, type AppProcedure } from '../../shared/api';
+import type { UiMessage } from '../../shared/ui-copy';
 import { useResource, type Resource } from '../../shared/resource';
-import type { HomePortfolio, Loadable } from './deps';
 import {
   alertStatus,
   buildSteps,
@@ -19,32 +25,21 @@ import {
   type EverRead,
   type Step,
   type StepStatus,
+  type VenueAccounts,
 } from './started';
+import { BANK_ACTIVITY_LIST, type ACTIVITY_KINDS } from '@intafaced/contracts/bank-activity-procedures';
 
-// Only the fields the checklist reads. The full screens (Verification, Security, Price alerts) hold the strict
-// contracts; here an extra field must not make a done step look undone.
-const kycAnswer = z.object({ tier: z.string(), records: z.array(z.object({ status: z.string() }).passthrough()) }).passthrough();
-const passkeysAnswer = z.array(z.object({ credentialId: z.string() }).passthrough());
-const alertsAnswer = z.object({ items: z.array(z.object({ kind: z.string(), status: z.string() }).passthrough()) }).passthrough();
-const historyAnswer = z
-  .object({ items: z.array(z.object({ id: z.string() }).passthrough()), nextCursor: z.string().nullable().optional() })
-  .passthrough();
-
-/** The answer Home already holds; every other step reads its own. */
-export interface StartedInputs {
-  portfolio: Loadable<HomePortfolio>;
-}
-
-/** Money coming in, as the history names it. */
-const MONEY_IN = ['deposit', 'welcome_funds', 'transfer_in'] as const;
+type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /**
  * "Not verified yet": no money can have moved in such an account. The tier guard answers `tier.insufficient`; the
  * jurisdiction guard in front of the bank answers a bare FORBIDDEN whose message names the tier, so that message is
  * matched too (any other 403, such as a region block, stays a failure).
  */
-const notVerified = (failure: { code?: string; status?: number; message?: string }): boolean =>
-  failure.code === 'tier.insufficient' || (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
+const notVerified = (failure: { code?: string; status?: number; message?: string; messageCopy?: UiMessage }): boolean =>
+  failure.code === 'tier.insufficient' ||
+  isVerifyFirst(failure) ||
+  (failure.status === 403 && /^Verification tier "/.test(failure.message ?? ''));
 
 /**
  * The bank scans a bounded window of the history per call and, when the window holds no match, answers an empty page
@@ -64,16 +59,35 @@ function useProbe<T>(enabled: boolean, name: string, module: string, procedure: 
   ).resource;
 }
 
+/** `useProbe` for a call with a written record: the record names the path and parses the answer. */
+function useRecordProbe<R extends AppProcedure>(
+  enabled: boolean,
+  name: string,
+  record: R,
+  input: ProcedureInput<R>,
+): Resource<ProcedureOutput<R>> {
+  const { api, userId } = useSession();
+  return useResource(
+    (signal) =>
+      enabled && userId ? api.call(record, input, { signal }) : Promise.resolve(authoredRefusal('aborted', { key: 'beforeDispatch' })),
+    `started-${name}:${userId}:${enabled}`,
+  ).resource;
+}
+
 /** "Has a line of these kinds ever been posted": a one-line, kind-filtered read of the history, following the cursor. */
-function useEver(enabled: boolean, name: string, filter: { kind: readonly string[]; direction?: 'in' }): Resource<{ found: boolean }> {
+function useEver(enabled: boolean, name: string, filter: { kind: readonly ActivityKind[] }): Resource<{ found: boolean }> {
   const { api, userId } = useSession();
   return useResource(async (signal): Promise<ApiResult<{ found: boolean }>> => {
     if (!enabled || !userId) return authoredRefusal('aborted', { key: 'beforeDispatch' });
     let cursor: string | undefined;
     for (let page = 0; page < EVER_PAGES; page++) {
-      const result = await api.query('bank', 'activity.list', { ...filter, limit: 1, ...(cursor ? { cursor } : {}) }, historyAnswer, {
-        signal,
-      });
+      const result = await api.call(
+        BANK_ACTIVITY_LIST,
+        { ...filter, kind: [...filter.kind], limit: 1, ...(cursor ? { cursor } : {}) },
+        {
+          signal,
+        },
+      );
       if (!result.ok) return result;
       if (result.data.items.length > 0) return { ok: true, data: { found: true } };
       if (!result.data.nextCursor) return { ok: true, data: { found: false } };
@@ -81,6 +95,39 @@ function useEver(enabled: boolean, name: string, filter: { kind: readonly string
     }
     return authoredRefusal('error', { key: 'loadFailed' });
   }, `started-${name}:${userId}:${enabled}`).resource;
+}
+
+/**
+ * The venue's balances for each trading account the person has: the venue account every wallet they connected owns
+ * (row d115). The wallets are svc-protocol's record of the person (`venueWallet.status`), so the answer is the same on
+ * any device and after the browser is cleared; a blocked wallet is not read. Each account is then read from the venue
+ * through svc-trade's user-venue door, the read Home's total and Assets make. An account the venue gives no answer for
+ * is null, never an empty one. INTAFACED's ledger is not read here: a deposit into it is no deposit at the venue.
+ */
+function useVenueAccounts(enabled: boolean): VenueAccounts {
+  const { api, userId } = useSession();
+  const { resource } = useResource(async (signal): Promise<ApiResult<VenueAccounts>> => {
+    if (!enabled || !userId) return authoredRefusal('aborted', { key: 'beforeDispatch' });
+    const wallets = await api.call(PROTOCOL_VENUE_WALLET_STATUS, undefined, { signal });
+    if (!wallets.ok) return wallets;
+    const owners = new Set(
+      wallets.data.connections
+        .filter((connection) => connection.status !== 'blocked')
+        .map((connection) => connection.address.toLowerCase()),
+    );
+    const venue = venueApi(api);
+    const accounts = await Promise.all(
+      [...owners].map(async (owner) => {
+        const read = await venue.balances(owner, signal);
+        return read.ok ? { balances: read.data.value } : null;
+      }),
+    );
+    return { ok: true, data: { state: 'read', accounts } };
+  }, `started-venue:${userId}:${enabled}`);
+  return useMemo(
+    () => (resource.status === 'loading' ? { state: 'loading' } : resource.status === 'failed' ? { state: 'unread' } : resource.data),
+    [resource],
+  );
 }
 
 const fromProbe = <T>(resource: Resource<T>, read: (data: T) => StepStatus): StepStatus =>
@@ -98,43 +145,30 @@ function ever(resource: Resource<{ found: boolean }>, verify: StepStatus): EverR
 }
 
 /**
- * The six Get started steps, each from a real record: the session (register), verification, passkeys, the balance and
- * the money history (add money, first trade) and price alerts. Nothing is stored on this device, so clearing the
- * browser changes no step. A read that fails is `unknown`, never `done`.
+ * The six Get started steps, each from a real record: the session (register), verification, passkeys, the venue's
+ * balances for the person's trading account (add money), the money history (first trade) and price alerts. Nothing is
+ * stored on this device, so clearing the browser changes no step. A read that fails is `unknown`, never `done`.
  */
-export function useGetStarted({ portfolio }: StartedInputs, enabled: boolean): Step[] {
-  const kyc = useProbe(enabled, 'kyc', 'identity', 'kyc.status', { limit: 10 }, kycAnswer);
-  const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, passkeysAnswer);
-  const alerts = useProbe(enabled, 'alerts', 'notify', 'notify.alerts', { limit: 100 }, alertsAnswer);
-  const moneyIn = useEver(enabled, 'money-in', { kind: MONEY_IN, direction: 'in' });
+export function useGetStarted(enabled: boolean): Step[] {
+  const kyc = useRecordProbe(enabled, 'kyc', IDENTITY_KYC_STATUS, { limit: 10 });
+  const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, startedPasskeysSchema);
+  const alerts = useRecordProbe(enabled, 'alerts', NOTIFY_ALERTS, { limit: 100 });
+  const venueAccounts = useVenueAccounts(enabled);
   // A conversion is a first trade too; Activity only names it apart (svc-bank `convert`).
   const trades = useEver(enabled, 'trade', { kind: ['trade', 'convert'] });
 
   return useMemo(() => {
     const verify = fromProbe(kyc, verificationStatus);
-    // The bank refuses the balance of an account that is not verified yet. Add money is only "to do" if the history read
-    // also proves nothing came in, so the refusal here is read as nothing held.
-    const unverified = verify === 'todo' || verify === 'review';
-    const balance =
-      portfolio.status === 'loading'
-        ? 'loading'
-        : portfolio.status === 'empty' ||
-            (portfolio.status === 'ready' && portfolio.data.holdings.length === 0) ||
-            (portfolio.status === 'refused' && unverified)
-          ? 'none'
-          : portfolio.status === 'ready'
-            ? 'held'
-            : 'failed';
     return buildSteps({
       // Home is only drawn for a signed-in person: the account exists.
       register: 'done',
       verify,
       secure: fromProbe(passkeys, (data) => securityStatus(data.length)),
-      deposit: depositStatus(balance, ever(moneyIn, verify)),
+      deposit: depositStatus(venueAccounts),
       trade: tradeStatus(ever(trades, verify)),
       alert: fromProbe(alerts, (data) => alertStatus(data.items)),
     });
-  }, [kyc, passkeys, alerts, moneyIn, trades, portfolio]);
+  }, [kyc, passkeys, alerts, venueAccounts, trades]);
 }
 
 /**
@@ -143,7 +177,6 @@ export function useGetStarted({ portfolio }: StartedInputs, enabled: boolean): S
  * no stored tick, only they can tell that every step is still done.
  */
 export function useStartedTile(
-  portfolio: Loadable<HomePortfolio>,
   /** False while the person has the tile hidden in Customise Home: then nothing is read. */
   allowed = true,
 ): { show: boolean; steps: Step[]; hide: () => void } {
@@ -155,7 +188,7 @@ export function useStartedTile(
     setDismissed(true);
   }, [userId]);
   const on = allowed && userId !== null && !dismissed;
-  const steps = useGetStarted({ portfolio }, on);
+  const steps = useGetStarted(on);
   const { complete, settled } = progress(steps);
   const lastOpen = useMemo(() => readLastOpen(userId), [userId]);
   useEffect(() => {

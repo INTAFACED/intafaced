@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react';
 import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource } from '@intafaced/contracts/quant-algo';
+import { FailureNote } from '../more';
 import type { ApiResult } from '../../shared/api';
-import { Failure } from '../../shared/ui';
 import { usageCopy } from './usage-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -29,11 +30,22 @@ export function quotaRefusalOf(
   return null;
 }
 
-/** A failure, said in the plan's words when the plan refused it; any other failure reads as it always does. */
-export function QuotaAwareFailure({ result, retry }: { result: Failed; retry?: () => void }) {
+/**
+ * A failure, said in the plan's words when the plan refused it; any other failure reads as it always does, drawn by the room's
+ * own failure part (`Fallback`: the reading rooms' FailureNote by default, the record rooms pass their FailureBox).
+ */
+export function QuotaAwareFailure({
+  result,
+  retry,
+  Fallback = FailureNote,
+}: {
+  result: Failed;
+  retry?: () => void;
+  Fallback?: (props: { result: Failed; retry?: () => void }) => ReactNode;
+}) {
   const { t } = usageCopy.useCopy();
   const quota = quotaRefusalOf(result);
-  if (!quota) return <Failure result={result} retry={retry} />;
+  if (!quota) return <Fallback result={result} retry={retry} />;
   const body =
     quota.kind === 'exceeded'
       ? t('exceeded', { resource: t(quota.resource).toLowerCase(), used: quota.used, limit: quota.limit })
@@ -45,12 +57,12 @@ export function QuotaAwareFailure({ result, retry }: { result: Failed; retry?: (
       data-testid="quant-quota-refusal"
       data-resource={quota.kind === 'profile_unset' ? '' : quota.resource}
       data-kind={quota.kind}
-      className="failure"
+      className="lt-refusal"
       role="status"
     >
-      <h3>{t('refusedTitle')}</h3>
-      <p>{body}</p>
-      <a className="text-link" href="/quant/strategies">
+      <h3 className="lt-refusal-title">{t('refusedTitle')}</h3>
+      <p className="lt-refusal-body">{body}</p>
+      <a className="lt-link" href="/quant/strategies">
         {t('refusedUsage')}
       </a>
     </div>

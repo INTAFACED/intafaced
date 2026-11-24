@@ -1,104 +1,15 @@
-// hand-declared-ok: svc-bank declares the global.* answers inline in its router, not in packages/contracts yet
-import { z } from 'zod';
+import type { GlobalCorridor as Corridor, GlobalHold, GlobalQuote, GlobalSend } from '@intafaced/contracts/bank-global-procedures';
 
-// The shapes `svc-bank` answers on `global.*` (services/svc-bank/src/personal-pay/router.ts). Hand-declared here, like the
-// rest of the Pay screen's answers; a wrong shape is refused rather than shown.
-const amount = z.string().regex(/^\d+(\.\d{1,18})?$/);
-export const corridorSchema = z.object({
-  country: z.string(),
-  currency: z.string(),
-  deliveryMethods: z.array(z.string()),
-  minAmount: amount.nullable(),
-  maxAmount: amount.nullable(),
-  cutOffTime: z.string().nullable(),
-  /** On a SWIFT corridor, who bears the banks' charges, as the partner answers it; null when it gave none. */
-  swiftCharges: z.enum(['SHA', 'OUR', 'BEN']).nullable(),
-  /** The delivery methods a payout partner pays out on: a send on any other is refused, with nothing taken. */
-  payoutMethods: z.array(z.string()),
-});
-export const recipientSchema = z.object({
-  id: z.string(),
-  label: z.string().nullable(),
-  name: z.string(),
-  account: z.string(),
-  accountKind: z.enum(['iban', 'ifsc', 'account_number']),
-  bic: z.string().nullable(),
-  country: z.string(),
-  createdAt: z.string(),
-});
-export const validationSchema = z.object({
-  format: z.enum(['valid', 'invalid']),
-  formatKind: z.enum(['iban', 'ifsc', 'account_number']).nullable(),
-  normalized: z.string().nullable(),
-  bicLookup: z.object({ status: z.string() }).passthrough(),
-});
-export const quoteSchema = z.object({
-  /** The rate lock: a send confirmed on it before `validUntil` is paid at exactly these figures. */
-  quoteId: z.string(),
-  /** The service's clock as the lock was taken: the lock lasts `validUntil - lockedAt`, whatever this device's clock says. */
-  lockedAt: z.string(),
-  rate: amount,
-  fee: amount,
-  feeAsset: z.string(),
-  receiveAmount: amount,
-  validUntil: z.string(),
-  eta: z.string(),
-});
-export const sendSchema = z.object({
-  id: z.string(),
-  fromSpaceId: z.string(),
-  assetId: z.string(),
-  amount,
-  toCurrency: z.string(),
-  recipientId: z.string(),
-  country: z.string(),
-  deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded']),
-  failureCode: z.string().nullable(),
-  failureBlocker: z.string().nullable(),
-  providerRef: z.string().nullable(),
-  quoteRate: z.string().nullable(),
-  quoteFee: z.string().nullable(),
-  quoteFeeAsset: z.string().nullable(),
-  quoteReceive: z.string().nullable(),
-  quoteValidUntil: z.string().nullable(),
-  quoteEta: z.string().nullable(),
-  quoteId: z.string().nullable(),
-  ledgerTxId: z.string().nullable(),
-  cancelledBy: z.enum(['customer', 'auto']).nullable(),
-  returnRef: z.string().nullable(),
-  returnedAt: z.string().nullable(),
-  refundedAt: z.string().nullable(),
-  recallReason: z.string().nullable(),
-  recallRequestedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-export const removedSchema = z.object({ removed: z.literal(true) });
-export const holdSchema = z.object({
-  state: z.enum(['requested', 'under_review', 'released', 'cancelled']),
-  infoRequest: z.string().nullable(),
-  proofUploaded: z.boolean(),
-  proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number().int().positive() }).nullable(),
-  /** The owner's auto-cancel rule for a send on hold, and when it cancels this one (null when unset or closed). */
-  autoCancel: z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable(), at: z.string().nullable() }),
-});
-/** The signed receipt of a send that left: the file's text, its SHA-256, the signature and the ledger transaction. */
-export const receiptSchema = z.object({
-  fileName: z.string(),
-  text: z.string(),
-  ledgerTxId: z.string(),
-  sha256: z.string(),
-  signature: z.string(),
-});
-export const sendPageSchema = z.object({ items: z.array(sendSchema), nextCursor: z.string().nullable() });
-
-export type Corridor = z.infer<typeof corridorSchema>;
-export type Recipient = z.infer<typeof recipientSchema>;
-export type GlobalQuote = z.infer<typeof quoteSchema>;
-export type GlobalSend = z.infer<typeof sendSchema>;
-export type GlobalHold = z.infer<typeof holdSchema>;
-export type GlobalReceipt = z.infer<typeof receiptSchema>;
+// The answers of `global.*` are svc-bank's own records (`@intafaced/contracts/bank-global-procedures`); this file holds
+// only what the Pay screen works out from them.
+export type {
+  GlobalCorridor as Corridor,
+  GlobalHold,
+  GlobalQuote,
+  GlobalReceipt,
+  GlobalRecipient as Recipient,
+  GlobalSend,
+} from '@intafaced/contracts/bank-global-procedures';
 
 /** One row of the destination list: a country and currency with one delivery method. */
 export type Destination = { key: string; country: string; currency: string; method: string; paysOut: boolean; corridor: Corridor };

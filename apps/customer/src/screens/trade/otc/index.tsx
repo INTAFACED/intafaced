@@ -84,12 +84,11 @@ function Room({ linkedId }: { linkedId: string | null }) {
 
   return (
     <RoomFrame
-      mode="Quote desk"
       title={t('Quote desk')}
       description={t('Quote desk description')}
       meta={<Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />}
     >
-      <div className="flex flex-col gap-4">
+      <div className="lt-stack">
         <DeskStatusStrip desk={desk} />
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} />
         {checkNote ? (
@@ -194,7 +193,7 @@ export default function Screen(props: ScreenProps) {
   const { userId } = useSession();
   if (!userId)
     return (
-      <RoomFrame mode="Quote desk" title={t('Quote desk')} description={t('Quote desk description')}>
+      <RoomFrame title={t('Quote desk')} description={t('Quote desk description')}>
         <EmptyState
           variant="refused"
           size="panel"

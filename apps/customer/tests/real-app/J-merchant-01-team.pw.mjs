@@ -1,6 +1,7 @@
 // World: stack
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
+import { settledAction } from './header-action.mjs';
 import { businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
 // J-merchant-01 step 4 in the running app: every room opens from navigation for the owner of a new business, with its
@@ -63,6 +64,10 @@ test(`${J} #4 every room opens from navigation with its own layout and an honest
   await expect(page.locator('main h1').first()).toBeVisible();
   await expect(page.getByText(/Only the account owner, admins and finance can ask/)).toHaveCount(0);
   await page.goto('/pay/refunds');
-  await expect(page.getByText('Only the account owner can refund payments.').first()).toBeVisible();
+  // Refunds are the owner's alone: the header's "Issue a refund" is drawn switched off, with who can beside it.
+  const head = page.getByTestId('plo-heading');
+  expect(await settledAction(head)).toEqual({ off: 'Only the account owner can refund payments.' });
+  await expect(head.getByRole('button', { name: 'Issue a refund', exact: true })).toBeDisabled();
+  await expect(head.getByRole('link', { name: 'Issue a refund', exact: true })).toHaveCount(0);
   expect(refused).toEqual([]);
 });

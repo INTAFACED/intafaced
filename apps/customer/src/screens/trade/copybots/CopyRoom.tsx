@@ -57,6 +57,9 @@ export function leaderRefOf(pathname: string): string | null {
 }
 
 /** Who the follow wizard starts with: a typed leader ID, or a listed leader picked from the directory or their page. */
+/** A venue market's symbol (BASE-QUOTE), not the TEST book's (BASE/QUOTE). */
+const isVenueMarket = (symbol: string) => /^[A-Z0-9]+-[A-Z0-9]+$/i.test(symbol);
+
 type WizardStart = { open: boolean; leader: string; listed: LeaderRow | null };
 
 export function CopyRoom({ path }: { path: string }) {
@@ -193,8 +196,11 @@ export function CopyRoom({ path }: { path: string }) {
     follows.reload();
     navigate('/trade/copy?tab=follows', true);
   };
+  // A leader is copied on the venue when the venue door is on and the leader trades a venue market (venue symbols are
+  // BASE-QUOTE, the TEST book's BASE/QUOTE); any other follow keeps the existing wizard (J-copy-bots-otc-03's follows).
+  const onVenue = venueMode.mode === 'on' && wizard.listed !== null && wizard.listed.assets.some(isVenueMarket);
   const wizardNode =
-    venueMode.mode === 'on' ? (
+    venueMode.mode === 'on' && onVenue ? (
       <VenueFrame mode={venueMode}>
         {/* Mounted while open: each opening starts a new request (its own key and agent account id). */}
         {wizard.open ? (
@@ -235,7 +241,7 @@ export function CopyRoom({ path }: { path: string }) {
 
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="copy" />
+      <ModeNav />
       <PageHeader
         title={t('Copy trading')}
         description={t(
@@ -259,9 +265,13 @@ export function CopyRoom({ path }: { path: string }) {
           </span>
         }
         actions={
-          <Button onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
-            {t('Follow by leader ID')}
-          </Button>
+          <>
+            {/* The directory is the main way in; a leader's code is for someone who was given one. */}
+            <Button onClick={() => setTab('leaders')}>{t('Find a leader')}</Button>
+            <Button variant="secondary" onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
+              {t('Follow with a leader’s code')}
+            </Button>
+          </>
         }
       />
 
@@ -435,8 +445,9 @@ export function CopyRoom({ path }: { path: string }) {
         onClose={() => setOpenFollowId(null)}
         api={api}
         guard={guard}
+        desk={desk.data}
         onChanged={follows.reload}
-        venue={venueMode.mode === 'on'}
+        venue={venueMode.mode === 'on' && openFollow !== null && openFollow.permittedMarkets.every(isVenueMarket)}
       />
     </Page>
   );

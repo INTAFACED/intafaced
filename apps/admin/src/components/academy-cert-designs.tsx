@@ -12,7 +12,7 @@ import type {
   CertDesignsView,
   IssuedCertsView,
 } from '@/lib/academy/cert-designs-model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { Failed } from '@/components/academy-courses-desk';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 

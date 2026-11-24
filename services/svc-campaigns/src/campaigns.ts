@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   BONUS_APPLIES_TO,
+  CAMPAIGN_STATES,
   CAMPAIGN_TYPES,
   CUSTOMER_CAMPAIGN_STATES,
+  DIVIDEND_OWNER_QUESTION,
+  DRAW_USER_TYPES,
   PARKED_CAMPAIGN_TYPES,
   type Campaign,
   type CampaignAction,
@@ -20,11 +24,17 @@ import {
   type CampaignType,
   type CampaignView,
   type CampaignVoucher,
+  VOUCHER_KINDS,
   VOUCHER_LIST_LIMIT,
+  VOUCHER_STATES,
   type VoucherWindow,
   type CampaignLimits,
   type CampaignReferral,
   type CampaignCompetition,
+  type CampaignDraw,
+  type CampaignDistribution,
+  type CampaignPool,
+  type CampaignTrialPass,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -81,58 +91,82 @@ import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 type Sql = postgres.Sql;
 
-type CampaignRow = {
-  id: string;
-  name: string;
-  type: CampaignType;
-  state: CampaignState;
-  revision: number;
-  rules: string;
-  starts_at: Date | null;
-  ends_at: Date | null;
-  weekdays: number[] | null;
-  hours_from: string | null;
-  hours_to: string | null;
-  participation: ParticipationRules | null;
-  budget_asset: string | null;
-  budget_limit: string | null;
-  reward_asset: string | null;
-  reward_amount: string | null;
-  tasks: CampaignTasks | null;
+/**
+ * A jsonb column the code writes itself and reads as the contract type: the row must hold an object (or, for `earning`,
+ * an array) there; its fields are the writer's, read as they were stored.
+ */
+const jsonObject = <T>() => z.custom<T>((v) => typeof v === 'object' && v !== null && !Array.isArray(v));
+const jsonArray = <T>() => z.custom<T>((v) => Array.isArray(v));
+
+const CampaignRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(CAMPAIGN_TYPES),
+  state: z.enum(CAMPAIGN_STATES),
+  revision: z.number(),
+  rules: z.string(),
+  starts_at: z.date().nullable(),
+  ends_at: z.date().nullable(),
+  weekdays: z.array(z.number()).nullable(),
+  hours_from: z.string().nullable(),
+  hours_to: z.string().nullable(),
+  participation: jsonObject<ParticipationRules>().nullable(),
+  budget_asset: z.string().nullable(),
+  budget_limit: z.string().nullable(),
+  reward_asset: z.string().nullable(),
+  reward_amount: z.string().nullable(),
+  tasks: jsonObject<CampaignTasks>().nullable(),
   /** True while the founder has not picked the campaign's time zone; false reads the platform zone. */
-  time_zone_blank: boolean;
-  earning: EarningRule[];
+  time_zone_blank: z.boolean(),
+  earning: jsonArray<EarningRule[]>(),
   /** A voucher campaign's claim-by and use-by, as ISO times; null for any other campaign. */
-  vouchers: VoucherWindow | null;
+  vouchers: jsonObject<VoucherWindow>().nullable(),
   /** The campaign's limits (CM-eligibility-rules-03); null while blank. */
-  limits: CampaignLimits | null;
+  limits: jsonObject<CampaignLimits>().nullable(),
   /** A referral campaign's programme (CM-referral-02); null for any other campaign. */
-  referral: CampaignReferral | null;
+  referral: jsonObject<CampaignReferral>().nullable(),
   /** A competition's terms (CM-promotions-events-01); null for any other campaign. */
-  competition: CampaignCompetition | null;
+  competition: jsonObject<CampaignCompetition>().nullable(),
+  /** A draw's terms (CM-promotions-events-02); null for any other campaign. */
+  draw: jsonObject<CampaignDraw>().nullable(),
+  /** A distribution's terms (CM-airdrop-campaigns-01); null for any other campaign. */
+  distribution: jsonObject<CampaignDistribution>().nullable(),
+  /** A reward pool's terms (CM-airdrop-campaigns-02); null for any other campaign. */
+  pool: jsonObject<CampaignPool>().nullable(),
+  /** A trial pass's terms (CM-vip-tiers-01); null for any other campaign. */
+  trial_pass: jsonObject<CampaignTrialPass>().nullable(),
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
-  budget_drawn?: string;
-  created_by: string;
-  submitted_by: string | null;
-  approved_by: string | null;
-  approved_revision: number | null;
-  created_at: Date;
-  updated_at: Date;
-};
+  budget_drawn: z.string().optional(),
+  created_by: z.string(),
+  submitted_by: z.string().nullable(),
+  approved_by: z.string().nullable(),
+  approved_revision: z.number().nullable(),
+  created_at: z.date(),
+  updated_at: z.date(),
+});
+type CampaignRow = z.infer<typeof CampaignRow>;
 
 /** An open change of a live campaign (ENGINE LC-5): revision n+1, beside the live row until it is approved. */
-type ChangeRow = {
-  campaign_id: string;
-  revision: number;
-  definition: CampaignDefinitionInput;
-  state: 'draft' | 'pending_approval';
-  created_by: string;
-  submitted_by: string | null;
-  created_at: Date;
-  updated_at: Date;
-};
+const ChangeRow = z.object({
+  campaign_id: z.string(),
+  revision: z.number(),
+  definition: jsonObject<CampaignDefinitionInput>(),
+  state: z.enum(['draft', 'pending_approval']),
+  created_by: z.string(),
+  submitted_by: z.string().nullable(),
+  created_at: z.date(),
+  updated_at: z.date(),
+});
+type ChangeRow = z.infer<typeof ChangeRow>;
 
-type RuleRow = { name: string; revision: number; tree: RuleGroup; created_by: string; created_at: Date };
+const RuleRow = z.object({
+  name: z.string(),
+  revision: z.number(),
+  tree: jsonObject<RuleGroup>(),
+  created_by: z.string(),
+  created_at: z.date(),
+});
+type RuleRow = z.infer<typeof RuleRow>;
 
 const toRuleEntry = (r: RuleRow): RuleLibraryEntry => ({
   name: r.name,
@@ -145,25 +179,35 @@ const toRuleEntry = (r: RuleRow): RuleLibraryEntry => ({
 /** States in which a campaign is past approval and still changed by a new revision rather than edited in place. */
 const REVISABLE: readonly CampaignState[] = ['approved', 'scheduled', 'active', 'paused'];
 
-type ParticipationRow = { participation_key: string; campaign_id: string; revision: number; created_at: Date };
-type VoucherRow = {
-  id: string;
-  campaign_id: string;
+const ParticipationRow = z.object({
+  participation_key: z.string(),
+  campaign_id: z.string(),
+  revision: z.number(),
+  created_at: z.date(),
+});
+type ParticipationRow = z.infer<typeof ParticipationRow>;
+const VoucherRow = z.object({
+  id: z.string(),
+  campaign_id: z.string(),
   /** Null for a code made in a batch or imported (J-campaigns-17): only its hash and last four are stored. */
-  code: string | null;
-  code_last4: string;
-  issue_key: string;
-  revision: number;
-  face_asset: string;
-  face_amount: string;
-  kind: CampaignVoucher['kind'];
-  fee_discount_bps: number | null;
-  state: CampaignVoucher['state'];
-  issued_by: string;
-  claim_by: Date | null;
-  use_by: Date | null;
-  created_at: Date;
-};
+  code: z.string().nullable(),
+  code_last4: z.string(),
+  issue_key: z.string(),
+  revision: z.number(),
+  face_asset: z.string(),
+  face_amount: z.string(),
+  kind: z.enum(VOUCHER_KINDS),
+  fee_discount_bps: z.number().nullable(),
+  fee_rebate_bps: z.number().nullable(),
+  fee_rebate_delay_seconds: z.number().nullable(),
+  state: z.enum(VOUCHER_STATES),
+  issued_by: z.string(),
+  claim_by: z.date().nullable(),
+  use_by: z.date().nullable(),
+  created_at: z.date(),
+});
+type VoucherRow = z.infer<typeof VoucherRow>;
+export type VoucherKindColumns = Pick<VoucherRow, 'kind' | 'fee_discount_bps' | 'fee_rebate_bps' | 'fee_rebate_delay_seconds'>;
 
 const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   id: v.id,
@@ -174,6 +218,10 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   kind: v.kind,
   feeSaver:
     v.kind === 'fee_saver' && v.fee_discount_bps !== null ? { discountBps: v.fee_discount_bps, orders: Number(v.face_amount) } : null,
+  feeRebate:
+    v.kind === 'fee_rebate' && v.fee_rebate_bps !== null && v.fee_rebate_delay_seconds !== null
+      ? { rebateBps: v.fee_rebate_bps, delaySeconds: v.fee_rebate_delay_seconds }
+      : null,
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
@@ -181,7 +229,14 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   useBy: v.use_by ? v.use_by.toISOString() : null,
 });
 
-type ReviewRow = { review_key: string; campaign_id: string; created_at: Date };
+const ReviewRow = z.object({ review_key: z.string(), campaign_id: z.string(), created_at: z.date() });
+type ReviewRow = z.infer<typeof ReviewRow>;
+const IdRow = z.object({ id: z.string() });
+const DrawnRow = z.object({ budget_drawn: z.string() });
+const CodeHolderRow = z.object({ id: z.string(), campaign_id: z.string() });
+const CountRow = z.object({ n: z.number() });
+const AheadRow = CampaignRow.pick({ participation: true, state: true, starts_at: true, ends_at: true });
+const JoinedCampaignRow = CampaignRow.extend({ p_key: z.string(), p_revision: z.number(), p_created_at: z.date() });
 
 const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 const ASSET = /^[A-Z0-9]{2,12}$/;
@@ -266,10 +321,14 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
+  // A dividend waits for the owner's decision (OWNER 87); an airdrop of our own pool does not.
+  if (row.type === 'distribution' && row.distribution?.kind === 'dividend') missing.push({ code: 'owner.decision', field: 'dividend' });
   // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
-  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
+  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+    missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -285,16 +344,37 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   const referral = row.type === 'referral';
   // A competition pays its prize table from its pool, the campaign's budget, in the budget's asset.
   const competition = row.type === 'competition';
-  if (!welcome && !feeSaver && !referral && !competition && (!row.reward_asset || row.reward_amount === null)) {
+  // A draw pays its prize table from the campaign's budget, in the budget's asset.
+  const draw = row.type === 'draw';
+  // A distribution and a reward pool pay shares of their pool, the campaign's budget, in the budget's asset.
+  const distribution = row.type === 'distribution';
+  const pool = row.type === 'pool';
+  // A trial pass grants a fee tier for a span: it pays nothing, so it asks for no reward or budget.
+  const trialPass = row.type === 'trial_pass';
+  if (
+    !welcome &&
+    !feeSaver &&
+    !referral &&
+    !competition &&
+    !draw &&
+    !distribution &&
+    !pool &&
+    !trialPass &&
+    (!row.reward_asset || row.reward_amount === null)
+  ) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
   if (referral) missing.push(...referralGaps(row.referral));
   if (competition) missing.push(...competitionGaps(row.competition, row.budget_limit));
+  if (draw) missing.push(...drawGaps(row.draw, row.budget_limit));
+  if (distribution) missing.push(...distributionGaps(row.distribution, row.starts_at, row.ends_at));
+  if (pool) missing.push(...poolGaps(row.pool, row.budget_limit));
+  if (trialPass) missing.push(...trialPassGaps(row.trial_pass));
   const rewardAssets = welcome
     ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
     : referral
       ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
-      : competition
+      : competition || draw || distribution || pool || trialPass
         ? []
         : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
@@ -344,7 +424,9 @@ function refuseGate(missing: CampaignGate['missing']): void {
   const names = missing.map((m) => m.field).join(', ');
   const message =
     first.code === 'owner.decision'
-      ? 'This campaign type waits for an owner decision'
+      ? first.field === 'dividend'
+        ? DIVIDEND_OWNER_QUESTION
+        : 'This campaign type waits for an owner decision'
       : `The campaign cannot go live until these are set: ${names}`;
   throw new CampaignsError(first.code, message);
 }
@@ -384,6 +466,10 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     limits: r.limits,
     referral: r.referral,
     competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -422,6 +508,10 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.limits ? { limits: d.limits } : {}),
     ...(d.referral ? { referral: d.referral } : {}),
     ...(d.competition ? { competition: d.competition } : {}),
+    ...(d.draw ? { draw: d.draw } : {}),
+    ...(d.distribution ? { distribution: d.distribution } : {}),
+    ...(d.pool ? { pool: d.pool } : {}),
+    ...(d.trialPass ? { trialPass: d.trialPass } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -451,6 +541,10 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     limits: d.limits,
     referral: d.referral,
     competition: d.competition,
+    draw: d.draw,
+    distribution: d.distribution,
+    pool: d.pool,
+    trial_pass: d.trialPass,
   };
 }
 
@@ -477,6 +571,10 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     limits: r.limits,
     referral: r.referral,
     competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
   });
 }
 
@@ -512,6 +610,10 @@ function toView(
     reward: c.reward,
     tasks: c.tasks,
     competition: c.competition,
+    draw: c.draw,
+    distribution: c.distribution,
+    pool: c.pool,
+    trialPass: c.trialPass,
     mine,
     eligibility,
   };
@@ -586,6 +688,10 @@ type Definition = {
   limits: CampaignLimits | null;
   referral: CampaignReferral | null;
   competition: CampaignCompetition | null;
+  draw: CampaignDraw | null;
+  distribution: CampaignDistribution | null;
+  pool: CampaignPool | null;
+  trialPass: CampaignTrialPass | null;
 };
 
 /**
@@ -653,6 +759,10 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     limits: input.limits ? limitsOf(input.limits) : null,
     referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
     competition: input.competition ? parseCompetition(type as CampaignType, input.competition) : null,
+    draw: input.draw ? parseDraw(type as CampaignType, input.draw) : null,
+    distribution: input.distribution ? parseDistribution(type as CampaignType, input.distribution) : null,
+    pool: input.pool ? parsePool(type as CampaignType, input.pool) : null,
+    trialPass: input.trialPass ? parseTrialPass(type as CampaignType, input.trialPass) : null,
   };
 }
 
@@ -710,6 +820,120 @@ function competitionGaps(c: CampaignCompetition | null, poolLimit: string | null
 }
 
 /**
+ * A draw's terms (CM-promotions-events-02), stored the same way every time. Blanks stay blank for the gate to name. Only
+ * a `draw` campaign has them; each place has one prize above zero, and each user type one cap.
+ */
+function parseDraw(type: CampaignType, input: CampaignDraw): CampaignDraw {
+  if (type !== 'draw') throw new CampaignsError('campaigns.draw_invalid', 'Only a draw campaign has draw terms');
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.draw_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.draw_invalid', 'Every prize is above zero');
+  });
+  if (new Set(input.caps.map((c) => c.userType)).size !== input.caps.length) {
+    throw new CampaignsError('campaigns.draw_invalid', 'Each user type has one cap');
+  }
+  return {
+    chancesPerFill: input.chancesPerFill,
+    caps: input.caps.map((c) => ({ userType: c.userType, cap: c.cap })),
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+  };
+}
+
+/**
+ * What a draw still lacks before it can go live: chances per fill, a cap for every user type, a prize table, and a budget
+ * that covers every prize. Running it is a separate door that waits for the owner (OWNER 87).
+ */
+function drawGaps(d: CampaignDraw | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.draw_unset', field: 'draw' }];
+  const out: CampaignGate['missing'] = [];
+  if (d.chancesPerFill === null) out.push({ code: 'campaigns.draw_unset', field: 'chancesPerFill' });
+  for (const userType of DRAW_USER_TYPES) {
+    const cap = d.caps.find((c) => c.userType === userType);
+    if (!cap || cap.cap === null) out.push({ code: 'campaigns.draw_unset', field: `cap.${userType}` });
+  }
+  if (d.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (poolLimit !== null && d.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A distribution's terms (CM-airdrop-campaigns-01), stored the same way every time. Blanks stay blank for the gate to
+ * name. Only a `distribution` campaign has them.
+ */
+function parseDistribution(type: CampaignType, input: CampaignDistribution): CampaignDistribution {
+  if (type !== 'distribution') {
+    throw new CampaignsError('campaigns.distribution_invalid', 'Only a distribution campaign has distribution terms');
+  }
+  const snapshotAt = input.snapshotAt ? parseWindowTime(input.snapshotAt, 'The snapshot time').toISOString() : null;
+  return { kind: input.kind, snapshotAt, equityAsset: input.equityAsset };
+}
+
+/**
+ * What a distribution still lacks before it can go live: its snapshot time, inside the campaign's time frame, and the
+ * asset equity is read in. A dividend is refused `owner.decision` by the gate itself.
+ */
+function distributionGaps(d: CampaignDistribution | null, startsAt: Date | null, endsAt: Date | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.distribution_unset', field: 'distribution' }];
+  const out: CampaignGate['missing'] = [];
+  if (!d.snapshotAt) out.push({ code: 'campaigns.distribution_unset', field: 'snapshotAt' });
+  else if ((startsAt && new Date(d.snapshotAt) < startsAt) || (endsAt && new Date(d.snapshotAt) > endsAt)) {
+    out.push({ code: 'campaigns.distribution_invalid', field: 'snapshotAt' });
+  }
+  if (!d.equityAsset) out.push({ code: 'campaigns.distribution_unset', field: 'equityAsset' });
+  return out;
+}
+
+/** A trial pass's terms (CM-vip-tiers-01), stored the same way every time. Only a `trial_pass` campaign has them. */
+function parseTrialPass(type: CampaignType, input: CampaignTrialPass): CampaignTrialPass {
+  if (type !== 'trial_pass') throw new CampaignsError('campaigns.trial_pass_invalid', 'Only a trial pass campaign has trial pass terms');
+  return { tierId: input.tierId?.trim() || null, seconds: input.seconds ?? null };
+}
+
+/** What a trial pass still lacks before it can go live: the tier it grants and for how long. */
+function trialPassGaps(t: CampaignTrialPass | null): CampaignGate['missing'] {
+  if (!t) return [{ code: 'campaigns.trial_pass_unset', field: 'trialPass' }];
+  const missing: CampaignGate['missing'] = [];
+  if (!t.tierId) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.tierId' });
+  if (t.seconds === null) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.seconds' });
+  return missing;
+}
+
+/** A reward pool's terms (CM-airdrop-campaigns-02), stored the same way every time. Only a `pool` campaign has them. */
+function parsePool(type: CampaignType, input: CampaignPool): CampaignPool {
+  if (type !== 'pool') throw new CampaignsError('campaigns.pool_invalid', 'Only a pool campaign has pool terms');
+  const amount = (raw: string | null) => (raw === null ? null : decimalOf(raw));
+  if (input.dailySlice !== null && parseAmount18(input.dailySlice) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The daily slice is above zero');
+  }
+  if (input.perUserCap !== null && parseAmount18(input.perUserCap) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The per-user cap is above zero');
+  }
+  return {
+    activityAsset: input.activityAsset,
+    dailySlice: amount(input.dailySlice),
+    perUserCap: amount(input.perUserCap),
+    minBalance: amount(input.minBalance),
+    daySeconds: input.daySeconds,
+  };
+}
+
+/** What a reward pool still lacks before it can go live: every term, and a budget that covers at least one day's slice. */
+function poolGaps(p: CampaignPool | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!p) return [{ code: 'campaigns.pool_unset', field: 'pool' }];
+  const out: CampaignGate['missing'] = [];
+  for (const field of ['activityAsset', 'dailySlice', 'perUserCap', 'minBalance', 'daySeconds'] as const) {
+    if (p[field] === null) out.push({ code: 'campaigns.pool_unset', field });
+  }
+  if (poolLimit !== null && p.dailySlice !== null && parseAmount18(p.dailySlice) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
  * A referral programme (CM-referral-02), stored the same way every time. Blanks stay blank for the gate to name. Only a
  * `referral` campaign has one; a single-sided programme rewards the referrer only, so it names no invitee reward.
  */
@@ -758,7 +982,19 @@ function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefin
     throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
   }
   const feeSaver = input.feeSaver ? { discountBps: input.feeSaver.discountBps, orders: input.feeSaver.orders } : null;
-  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null, ...(feeSaver ? { feeSaver } : {}) };
+  const feeRebate = input.feeRebate ? { rebateBps: input.feeRebate.rebateBps, delaySeconds: input.feeRebate.delaySeconds } : null;
+  if (feeSaver && feeRebate) {
+    throw new CampaignsError(
+      'campaigns.voucher_window_invalid',
+      'A coupon either lowers our builder fee or pays part of it back, not both',
+    );
+  }
+  return {
+    claimBy: claimBy ? iso(claimBy) : null,
+    useBy: useBy ? iso(useBy) : null,
+    ...(feeSaver ? { feeSaver } : {}),
+    ...(feeRebate ? { feeRebate } : {}),
+  };
 }
 
 /**
@@ -924,6 +1160,10 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.limits) === canonical(d.limits) &&
     canonical(r.referral) === canonical(d.referral) &&
     canonical(r.competition) === canonical(d.competition) &&
+    canonical(r.draw) === canonical(d.draw) &&
+    canonical(r.distribution) === canonical(d.distribution) &&
+    canonical(r.pool) === canonical(d.pool) &&
+    canonical(r.trial_pass) === canonical(d.trialPass) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -977,22 +1217,28 @@ export class CampaignService {
     try {
       return await transaction(this.sql, async (tx) => {
         await this.checkCampaignRule(tx, d);
-        const [row] = await tx<CampaignRow[]>`
+        const [row] = CampaignRow.array().parse(
+          await tx`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, trial_pass, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null}, ${input.actor})
-          RETURNING *`;
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as postgres.JSONValue)},
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
+            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
+            ${d.draw ? tx.json(d.draw) : null}, ${d.distribution ? tx.json(d.distribution) : null},
+            ${d.pool ? tx.json(d.pool) : null}, ${d.trialPass ? tx.json(d.trialPass) : null}, ${input.actor})
+          RETURNING *`,
+        );
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
       });
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      const [same] = await this.sql<CampaignRow[]>`
-        SELECT * FROM campaigns.campaign_rows WHERE lower(name) = lower(${d.name}) AND state <> 'archived'`;
+      const [same] = CampaignRow.array().parse(
+        await this.sql`
+        SELECT * FROM campaigns.campaign_rows WHERE lower(name) = lower(${d.name}) AND state <> 'archived'`,
+      );
       if (same && same.created_by === input.actor && same.state === 'draft' && sameDefinition(same, d)) {
         return toCampaign(same, this.timeZone(), this.now());
       }
@@ -1009,7 +1255,7 @@ export class CampaignService {
     const d = parseDefinition(input.definition, this.timeZone());
     try {
       return await transaction(this.sql, async (tx) => {
-        const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`;
+        const [row] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`);
         if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
         const state = effectiveState(row, this.now());
         if (REVISABLE.includes(state)) return await this.change(tx, row, d, input);
@@ -1020,19 +1266,25 @@ export class CampaignService {
           throw new CampaignsError('campaign.not_draft', `A campaign that is ${state} is not edited`);
         }
         await this.checkCampaignRule(tx, d);
-        const [out] = await tx<CampaignRow[]>`
+        const [out] = CampaignRow.array().parse(
+          await tx`
           UPDATE campaigns.campaigns SET name = ${d.name}, type = ${d.type}, rules = ${d.rules}, starts_at = ${d.startsAt},
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
-            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            tasks = ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+            earning = ${tx.json(d.earning as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
-          RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
+          RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`,
+        );
         await audit(tx, input.actor, 'campaign.update', input.id, { name: d.name, type: d.type });
         return toCampaign(out!, this.timeZone(), this.now());
       });
@@ -1044,12 +1296,12 @@ export class CampaignService {
 
   /** Writes the open change of a live campaign at the next revision; an edit sent for approval goes back to draft. */
   private async change(
-    tx: Sql,
+    tx: Queryable,
     row: CampaignRow,
     d: Definition,
     input: { id: string; revision: number; actor: string },
   ): Promise<Campaign> {
-    const [open] = await tx<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${row.id} FOR UPDATE`;
+    const [open] = ChangeRow.array().parse(await tx`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${row.id} FOR UPDATE`);
     const expected = open ? open.revision : row.revision;
     if (input.revision !== expected) {
       throw new CampaignsError('campaign.revision_conflict', `The campaign's latest revision is ${expected}, not ${input.revision}`);
@@ -1057,15 +1309,17 @@ export class CampaignService {
     if (d.type !== row.type) throw new CampaignsError('campaign.type_locked', 'A live campaign keeps its type');
     await this.checkCampaignRule(tx, d);
     await this.checkChange(tx, row, d);
-    const definition = tx.json(inputOf(d) as unknown as postgres.JSONValue);
-    const [out] = await tx<ChangeRow[]>`
+    const definition = tx.json(inputOf(d) as postgres.JSONValue);
+    const [out] = ChangeRow.array().parse(
+      await tx`
       INSERT INTO campaigns.campaign_changes (campaign_id, revision, definition, state, created_by)
       VALUES (${row.id}, ${expected + 1}, ${definition}, 'draft', ${input.actor})
       ON CONFLICT (campaign_id) DO UPDATE SET revision = EXCLUDED.revision, definition = EXCLUDED.definition, state = 'draft',
         created_by = EXCLUDED.created_by, submitted_by = NULL, updated_at = now()
-      RETURNING *`;
+      RETURNING *`,
+    );
     await audit(tx, input.actor, 'campaign.change', row.id, { revision: out!.revision, live: row.revision });
-    const [read] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+    const [read] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`);
     return toCampaign(read!, this.timeZone(), this.now(), out!);
   }
 
@@ -1073,13 +1327,15 @@ export class CampaignService {
    * What a change must still meet when it is written and again when it goes live, since rewards draw and names are taken
    * in between: its budget is not below what the campaign's rewards already draw, and no other campaign has its name.
    */
-  private async checkChange(tx: Sql, row: CampaignRow, d: Definition): Promise<void> {
-    const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+  private async checkChange(tx: Queryable, row: CampaignRow, d: Definition): Promise<void> {
+    const [drawn] = DrawnRow.array().parse(await tx`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`);
     if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
       throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
     }
-    const [other] = await tx<{ id: string }[]>`
-      SELECT id FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived' AND id <> ${row.id}`;
+    const [other] = IdRow.array().parse(
+      await tx`
+      SELECT id FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived' AND id <> ${row.id}`,
+    );
     if (other) throw new CampaignsError('campaign.name_taken', 'Another campaign already uses this name');
   }
 
@@ -1087,22 +1343,24 @@ export class CampaignService {
    * A move of an open change: `submit` asks for approval of it (the gate reads the change), `approve` by a second person
    * puts it live as the campaign's revision and keeps the revision it replaced in the history. Nothing else moves a change.
    */
-  private async moveChange(tx: Sql, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
+  private async moveChange(tx: Queryable, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
     const timeZone = this.timeZone();
     const now = this.now();
     const d = parseDefinition(open.definition, timeZone);
     const merged = rowWith(row, d);
     const read = async (change: ChangeRow | null) => {
-      const [r] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+      const [r] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`);
       return toCampaign(r!, timeZone, now, change);
     };
     if (action === 'submit') {
       if (open.state === 'pending_approval') return read(open);
       refuseGate(gateOf(merged, timeZone));
       if (d.endsAt && d.endsAt <= now) throw new CampaignsError('campaign.invalid_transition', 'The campaign’s end time has passed');
-      const [out] = await tx<ChangeRow[]>`
+      const [out] = ChangeRow.array().parse(
+        await tx`
         UPDATE campaigns.campaign_changes SET state = 'pending_approval', submitted_by = ${actor}, updated_at = now()
-        WHERE campaign_id = ${row.id} RETURNING *`;
+        WHERE campaign_id = ${row.id} RETURNING *`,
+      );
       await audit(tx, actor, 'campaign.change.submit', row.id, { revision: open.revision });
       return read(out!);
     }
@@ -1134,17 +1392,21 @@ export class CampaignService {
         weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
         participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-        tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
-            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+        tasks = ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+        earning = ${tx.json(d.earning as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
     await tx`
       INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-      VALUES (${row.id}, ${open.revision}, ${tx.json(open.definition as unknown as postgres.JSONValue)}, ${open.submitted_by!}, ${actor})
+      VALUES (${row.id}, ${open.revision}, ${tx.json(open.definition as postgres.JSONValue)}, ${open.submitted_by!}, ${actor})
       ON CONFLICT (campaign_id, revision) DO NOTHING`;
     await tx`DELETE FROM campaigns.campaign_changes WHERE campaign_id = ${row.id}`;
     await audit(tx, actor, 'campaign.change.approve', row.id, { revision: open.revision, replaced: row.revision });
@@ -1153,10 +1415,10 @@ export class CampaignService {
 
   /** The gate's answer for one campaign, every blank by name. Stores nothing. */
   async validate(input: { id: string }): Promise<CampaignGate> {
-    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
+    const [row] = CampaignRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     // An open change is what would go live next, so the check reads it.
-    const [open] = await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`;
+    const [open] = ChangeRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`);
     const timeZone = this.timeZone();
     return { missing: gateOf(open ? rowWith(row, parseDefinition(open.definition, timeZone)) : row, timeZone) };
   }
@@ -1168,9 +1430,9 @@ export class CampaignService {
   async transition(input: { id: string; action: CampaignAction; revision: number; actor: string }): Promise<Campaign> {
     const move = MOVES[input.action];
     return transaction(this.sql, async (tx) => {
-      const [open] = await tx<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id} FOR UPDATE`;
+      const [open] = ChangeRow.array().parse(await tx`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id} FOR UPDATE`);
       if (open && open.revision === input.revision) {
-        const [live] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`;
+        const [live] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${input.id} FOR UPDATE`);
         return this.moveChange(tx, live!, open, input.action, input.actor);
       }
       const row = await this.lock(tx, input.id, input.revision);
@@ -1225,18 +1487,20 @@ export class CampaignService {
         set.approved_revision = row.revision;
       }
       if (input.action === 'activate' && row.starts_at && row.starts_at > now) to = 'scheduled';
-      const [out] = await tx<CampaignRow[]>`
+      const [out] = CampaignRow.array().parse(
+        await tx`
         UPDATE campaigns.campaigns SET state = ${to},
           submitted_by = ${set.submitted_by ?? row.submitted_by},
           approved_by = ${set.approved_by ?? row.approved_by},
           approved_revision = ${set.approved_revision ?? row.approved_revision},
           updated_at = now()
         WHERE id = ${input.id}
-        RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
+        RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`,
+      );
       if (input.action === 'approve') {
         await tx`
           INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by!},
+          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as postgres.JSONValue)}, ${row.submitted_by!},
             ${input.actor})
           ON CONFLICT (campaign_id, revision) DO NOTHING`;
       }
@@ -1259,13 +1523,17 @@ export class CampaignService {
     return transaction(this.sql, async (tx) => {
       // One writer per name at a time, so two saves never take the same revision.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:rule:${name.toLowerCase()}`}))`;
-      const [latest] = await tx<RuleRow[]>`
-        SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${name}) ORDER BY revision DESC LIMIT 1`;
+      const [latest] = RuleRow.array().parse(
+        await tx`
+        SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${name}) ORDER BY revision DESC LIMIT 1`,
+      );
       if (latest && canonical(latest.tree) === canonical(input.tree)) return toRuleEntry(latest);
-      const [made] = await tx<RuleRow[]>`
+      const [made] = RuleRow.array().parse(
+        await tx`
         INSERT INTO campaigns.rule_library (name, revision, tree, created_by)
-        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as unknown as postgres.JSONValue)}, ${input.actor})
-        RETURNING *`;
+        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as postgres.JSONValue)}, ${input.actor})
+        RETURNING *`,
+      );
       await audit(tx, input.actor, 'campaign.rule.save', made!.name, { revision: made!.revision });
       return toRuleEntry(made!);
     });
@@ -1273,18 +1541,22 @@ export class CampaignService {
 
   /** Every name's latest revision, newest first. */
   async listRules(): Promise<RuleLibraryEntry[]> {
-    const rows = await this.sql<RuleRow[]>`
-      SELECT DISTINCT ON (lower(name)) * FROM campaigns.rule_library ORDER BY lower(name), revision DESC`;
+    const rows = RuleRow.array().parse(
+      await this.sql`
+      SELECT DISTINCT ON (lower(name)) * FROM campaigns.rule_library ORDER BY lower(name), revision DESC`,
+    );
     return rows.map(toRuleEntry).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   /** A campaign's rule is a copy of one library revision, checked against the library and the limits when it is saved. */
-  private async checkCampaignRule(tx: Sql, d: Definition): Promise<void> {
+  private async checkCampaignRule(tx: Queryable, d: Definition): Promise<void> {
     const rule = d.participation?.rule;
     if (!rule) return;
     checkRule(rule.tree, this.ruleLimits());
-    const [entry] = await tx<RuleRow[]>`
-      SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${rule.name}) AND revision = ${rule.revision}`;
+    const [entry] = RuleRow.array().parse(
+      await tx`
+      SELECT * FROM campaigns.rule_library WHERE lower(name) = lower(${rule.name}) AND revision = ${rule.revision}`,
+    );
     if (!entry || canonical(entry.tree) !== canonical(rule.tree)) {
       throw new CampaignsError(
         'campaigns.rule_unknown',
@@ -1307,26 +1579,31 @@ export class CampaignService {
     const code = input.code.trim().toUpperCase();
     const key = voucherKeyOf(input.campaignId, code);
     return transaction(this.sql, async (tx) => {
-      const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+      const [had] = VoucherRow.array().parse(await tx`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`);
       if (had) return toVoucher(had);
-      const { row, face, feeSaver } = await this.voucherTerms(tx, input.campaignId);
+      const { row, face, kindColumns } = await this.voucherTerms(tx, input.campaignId);
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${codeHashOf(code)}`}))`;
-      const [elsewhere] = await tx<{ id: string; campaign_id: string }[]>`
-        SELECT id, campaign_id FROM campaigns.vouchers WHERE code_hash = ${codeHashOf(code)} LIMIT 1`;
+      const [elsewhere] = CodeHolderRow.array().parse(
+        await tx`
+        SELECT id, campaign_id FROM campaigns.vouchers WHERE code_hash = ${codeHashOf(code)} LIMIT 1`,
+      );
       if (elsewhere && elsewhere.campaign_id !== row.id) {
         throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
       }
       if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'This campaign already holds this code in a batch');
-      const [made] = await tx<VoucherRow[]>`
+      const [made] = VoucherRow.array().parse(
+        await tx`
         INSERT INTO campaigns.vouchers (id, campaign_id, code, code_hash, code_last4, issue_key, revision, face_asset, face_amount,
-          kind, fee_discount_bps, issued_by, claim_by, use_by)
+          kind, fee_discount_bps, fee_rebate_bps, fee_rebate_delay_seconds, issued_by, claim_by, use_by)
         VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${codeHashOf(code)}, ${lastFourOf(code)}, ${key}, ${row.revision},
-          ${face.asset}, ${face.amount}, ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor},
+          ${face.asset}, ${face.amount}, ${kindColumns.kind}, ${kindColumns.fee_discount_bps}, ${kindColumns.fee_rebate_bps},
+          ${kindColumns.fee_rebate_delay_seconds}, ${input.actor},
           ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
-        RETURNING *`;
+        RETURNING *`,
+      );
       if (!made) {
-        const [raced] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
+        const [raced] = VoucherRow.array().parse(await tx`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`);
         return toVoucher(raced!);
       }
       await audit(tx, input.actor, 'campaign.voucher.issue', row.id, { voucher: made.id, code, revision: made.revision });
@@ -1341,10 +1618,16 @@ export class CampaignService {
    * ended, or has no reward. A campaign approved before revisions were recorded gets its live revision's row here.
    */
   async voucherTerms(
-    tx: Sql,
+    tx: Queryable,
     campaignId: string,
-  ): Promise<{ row: CampaignRow; face: { asset: string; amount: string }; feeSaver: { discountBps: number; orders: number } | null }> {
-    const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`;
+  ): Promise<{
+    row: CampaignRow;
+    face: { asset: string; amount: string };
+    feeSaver: { discountBps: number; orders: number } | null;
+    /** The voucher row's kind and its terms' columns, as every issue writes them. */
+    kindColumns: VoucherKindColumns;
+  }> {
+    const [row] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
     const now = this.now();
@@ -1367,19 +1650,28 @@ export class CampaignService {
     if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
       await tx`
         INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as postgres.JSONValue)}, ${row.submitted_by},
           ${row.approved_by})
         ON CONFLICT (campaign_id, revision) DO NOTHING`;
     }
-    return { row, face, feeSaver };
+    const feeRebate = row.vouchers?.feeRebate ?? null;
+    const kindColumns: VoucherKindColumns = {
+      kind: feeSaver ? 'fee_saver' : feeRebate ? 'fee_rebate' : 'cash',
+      fee_discount_bps: feeSaver?.discountBps ?? null,
+      fee_rebate_bps: feeRebate?.rebateBps ?? null,
+      fee_rebate_delay_seconds: feeRebate?.delaySeconds ?? null,
+    };
+    return { row, face, feeSaver, kindColumns };
   }
 
   /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */
   async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
-    const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    const [row] = IdRow.array().parse(await this.sql`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
-    const rows = await this.sql<VoucherRow[]>`
-      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
+    const rows = VoucherRow.array().parse(
+      await this.sql`
+      SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`,
+    );
     return rows.map(toVoucher);
   }
 
@@ -1400,17 +1692,17 @@ export class CampaignService {
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */
   async getForOps(input: { id: string }): Promise<Campaign> {
-    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
+    const [row] = CampaignRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
-    const [open] = await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`;
+    const [open] = ChangeRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_changes WHERE campaign_id = ${input.id}`);
     return toCampaign(row, this.timeZone(), this.now(), open ?? null);
   }
 
   async listForOps(): Promise<Campaign[]> {
-    const rows = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows ORDER BY created_at DESC LIMIT 200`;
+    const rows = CampaignRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_rows ORDER BY created_at DESC LIMIT 200`);
     const ids = rows.map((r) => r.id);
     const changes = ids.length
-      ? await this.sql<ChangeRow[]>`SELECT * FROM campaigns.campaign_changes WHERE campaign_id IN ${this.sql(ids)}`
+      ? ChangeRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_changes WHERE campaign_id IN ${this.sql(ids)}`)
       : [];
     const byId = new Map(changes.map((c) => [c.campaign_id, c]));
     const now = this.now();
@@ -1419,10 +1711,12 @@ export class CampaignService {
 
   /** The calendar (LC-6): every campaign with a time frame, by start, in the platform time zone. No state of its own. */
   async calendar(): Promise<CampaignCalendar> {
-    const rows = await this.sql<CampaignRow[]>`
+    const rows = CampaignRow.array().parse(
+      await this.sql`
       SELECT * FROM campaigns.campaign_rows
       WHERE state <> 'archived' AND starts_at IS NOT NULL AND ends_at IS NOT NULL
-      ORDER BY starts_at ASC, id ASC LIMIT 500`;
+      ORDER BY starts_at ASC, id ASC LIMIT 500`,
+    );
     const now = this.now();
     return {
       timeZone: this.timeZone(),
@@ -1451,10 +1745,10 @@ export class CampaignService {
     const now = this.now();
     const timeZone = this.customerZone();
     const [rows, mine] = await Promise.all([
-      this.sql<CampaignRow[]>`
+      this.sql`
         SELECT * FROM campaigns.campaign_rows
         WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now})
-        ORDER BY starts_at ASC, id ASC LIMIT 200`,
+        ORDER BY starts_at ASC, id ASC LIMIT 200`.then((r) => CampaignRow.array().parse(r)),
       this.mine(accountId),
     ]);
     const joined = new Map(mine.map((p) => [p.campaignId, p]));
@@ -1471,11 +1765,15 @@ export class CampaignService {
   async get(input: { id: string; accountId: string }): Promise<CampaignView> {
     const timeZone = this.customerZone();
     const [[row], [mine], [review]] = await Promise.all([
-      this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`,
-      this.sql<ParticipationRow[]>`
-        SELECT * FROM campaigns.participations WHERE participation_key = ${participationKeyOf(input.id, input.accountId)}`,
-      this.sql<ReviewRow[]>`
-        SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${reviewKeyOf(input.id, input.accountId)}`,
+      this.sql`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`.then((r) => CampaignRow.array().parse(r)),
+      this.sql`
+        SELECT * FROM campaigns.participations WHERE participation_key = ${participationKeyOf(input.id, input.accountId)}`.then((r) =>
+        ParticipationRow.array().parse(r),
+      ),
+      this.sql`
+        SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${reviewKeyOf(input.id, input.accountId)}`.then((r) =>
+        ReviewRow.array().parse(r),
+      ),
     ]);
     const now = this.now();
     if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
@@ -1499,9 +1797,9 @@ export class CampaignService {
   async requestReview(input: { campaignId: string; accountId: string }): Promise<CampaignReviewResult> {
     const key = reviewKeyOf(input.campaignId, input.accountId);
     const timeZone = this.customerZone();
-    const [existing] = await this.sql<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
+    const [existing] = ReviewRow.array().parse(await this.sql`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`);
     if (existing) return { review: { campaignId: existing.campaign_id, requestedAt: iso(existing.created_at) }, created: false };
-    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.campaignId}`;
+    const [row] = CampaignRow.array().parse(await this.sql`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.campaignId}`);
     const now = this.now();
     if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
     const current = effectiveState(row, now);
@@ -1510,15 +1808,17 @@ export class CampaignService {
     if (state === 'eligible') throw new CampaignsError('campaigns.review_not_needed', 'Your account can already take part');
     if (state === 'unread') throw new CampaignsError(...ELIGIBILITY_REFUSAL.unread);
     return transaction(this.sql, async (tx) => {
-      const [made] = await tx<ReviewRow[]>`
+      const [made] = ReviewRow.array().parse(
+        await tx`
         INSERT INTO campaigns.eligibility_reviews (review_key, campaign_id, account_id, reason)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${state})
         -- No target: the key and (campaign, account) are both unique and name the same review. With only review_key as
         -- the arbiter, two requests at once could meet on the other index first and raise instead (#6337, #6398).
         ON CONFLICT DO NOTHING
-        RETURNING *`;
+        RETURNING *`,
+      );
       if (!made) {
-        const [first] = await tx<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
+        const [first] = ReviewRow.array().parse(await tx`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`);
         return { review: { campaignId: first!.campaign_id, requestedAt: iso(first!.created_at) }, created: false };
       }
       await audit(tx, input.accountId, 'campaign.review_request', input.campaignId, { reviewKey: key, reason: state });
@@ -1542,18 +1842,20 @@ export class CampaignService {
     // Identity is read before the transaction, never while it holds a lock, and only for a first join of an active
     // campaign with rules. The transaction checks the rules it locked are the rules that were read.
     const [[ahead], [joined]] = await Promise.all([
-      this.sql<Pick<CampaignRow, 'participation' | 'state' | 'starts_at' | 'ends_at'>[]>`
-        SELECT participation, state, starts_at, ends_at FROM campaigns.campaigns WHERE id = ${input.campaignId}`,
-      this.sql<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`,
+      this.sql`
+        SELECT participation, state, starts_at, ends_at FROM campaigns.campaigns WHERE id = ${input.campaignId}`.then((r) =>
+        AheadRow.array().parse(r),
+      ),
+      this.sql`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`.then((r) => ParticipationRow.array().parse(r)),
     ]);
     if (joined) return { participation: toParticipation(joined), created: false };
     const readRules = ahead?.participation ?? null;
     const answer = readRules && effectiveState(ahead!, this.now()) === 'active' ? await this.eligibility(readRules, input.accountId) : null;
     return transaction(this.sql, async (tx) => {
-      const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
+      const [row] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`);
       const now = this.now();
       // The caller's own participation comes back first, even once the campaign has ended or closed.
-      const [existing] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
+      const [existing] = ParticipationRow.array().parse(await tx`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`);
       if (existing) return { participation: toParticipation(existing), created: false };
       if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
       if (row.type === 'welcome') {
@@ -1577,22 +1879,26 @@ export class CampaignService {
       let seat: number | null = null;
       if (row.type === 'competition') {
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:competition-seats:${row.id}`}))`;
-        const [mineNow] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
+        const [mineNow] = ParticipationRow.array().parse(await tx`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`);
         if (mineNow) return { participation: toParticipation(mineNow), created: false };
         const seats = row.competition?.seats ?? null;
         if (seats === null) throw new CampaignsError('campaigns.competition_unset', 'This competition has no seat count set');
-        const [taken] = await tx<{ n: number }[]>`
-          SELECT count(*)::int AS n FROM campaigns.competition_entries WHERE campaign_id = ${row.id}`;
+        const [taken] = CountRow.array().parse(
+          await tx`
+          SELECT count(*)::int AS n FROM campaigns.competition_entries WHERE campaign_id = ${row.id}`,
+        );
         if (taken!.n >= seats) throw new CampaignsError('campaigns.seats_full', 'Every seat in this competition is taken');
         seat = taken!.n + 1;
       }
-      const [made] = await tx<ParticipationRow[]>`
+      const [made] = ParticipationRow.array().parse(
+        await tx`
         INSERT INTO campaigns.participations (participation_key, campaign_id, account_id, revision)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${row.revision})
         ON CONFLICT (participation_key) DO NOTHING
-        RETURNING *`;
+        RETURNING *`,
+      );
       if (!made) {
-        const [first] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
+        const [first] = ParticipationRow.array().parse(await tx`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`);
         return { participation: toParticipation(first!), created: false };
       }
       if (seat !== null) {
@@ -1607,11 +1913,13 @@ export class CampaignService {
 
   /** The caller's own campaigns, newest join first, each as the customer sees it. */
   async myCampaigns(accountId: string): Promise<MyCampaigns> {
-    const rows = await this.sql<(CampaignRow & { p_key: string; p_revision: number; p_created_at: Date })[]>`
+    const rows = JoinedCampaignRow.array().parse(
+      await this.sql`
       SELECT c.*, p.participation_key AS p_key, p.revision AS p_revision, p.created_at AS p_created_at
       FROM campaigns.participations p JOIN campaigns.campaign_rows c ON c.id = p.campaign_id
       WHERE p.account_id = ${accountId}
-      ORDER BY p.created_at DESC LIMIT 200`;
+      ORDER BY p.created_at DESC LIMIT 200`,
+    );
     const now = this.now();
     const timeZone = this.customerZone();
     return {
@@ -1629,13 +1937,15 @@ export class CampaignService {
   }
 
   private async mine(accountId: string): Promise<Participation[]> {
-    const rows = await this.sql<ParticipationRow[]>`
-      SELECT * FROM campaigns.participations WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT 500`;
+    const rows = ParticipationRow.array().parse(
+      await this.sql`
+      SELECT * FROM campaigns.participations WHERE account_id = ${accountId} ORDER BY created_at DESC LIMIT 500`,
+    );
     return rows.map(toParticipation);
   }
 
-  private async lock(tx: Sql, id: string, revision: number): Promise<CampaignRow> {
-    const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${id} FOR UPDATE`;
+  private async lock(tx: Queryable, id: string, revision: number): Promise<CampaignRow> {
+    const [row] = CampaignRow.array().parse(await tx`SELECT * FROM campaigns.campaigns WHERE id = ${id} FOR UPDATE`);
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (row.revision !== revision) {
       throw new CampaignsError('campaign.revision_conflict', `The campaign is at revision ${row.revision}, not ${revision}`);
@@ -1644,6 +1954,6 @@ export class CampaignService {
   }
 }
 
-async function audit(tx: Sql, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
+async function audit(tx: Queryable, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
   await tx`INSERT INTO campaigns.audit_log (actor, action, target, detail) VALUES (${actor}, ${action}, ${target}, ${tx.json(detail as postgres.JSONValue)})`;
 }

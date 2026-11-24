@@ -1,32 +1,9 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { sessionSchema, type Session } from './session';
-
-const credentialDescriptor = z.object({ id: z.string(), type: z.literal('public-key'), transports: z.array(z.string()).optional() });
-const authenticationOptions = z.object({
-  challenge: z.string(),
-  timeout: z.number().optional(),
-  rpId: z.string().optional(),
-  allowCredentials: z.array(credentialDescriptor).optional(),
-  userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-});
-const registrationOptions = z.object({
-  challenge: z.string(),
-  rp: z.object({ id: z.string().optional(), name: z.string() }),
-  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
-  pubKeyCredParams: z.array(z.object({ type: z.literal('public-key'), alg: z.number().int() })),
-  timeout: z.number().optional(),
-  excludeCredentials: z.array(credentialDescriptor).optional(),
-  authenticatorSelection: z
-    .object({
-      authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
-      residentKey: z.enum(['discouraged', 'preferred', 'required']).optional(),
-      requireResidentKey: z.boolean().optional(),
-      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-    })
-    .optional(),
-  attestation: z.enum(['none', 'indirect', 'direct', 'enterprise']).optional(),
-});
+import { IDENTITY_AUTH_STEP_UP_OPTIONS } from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_WEBAUTHN_AUTH_OPTIONS, IDENTITY_WEBAUTHN_REGISTER_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 function bytes(value: string): ArrayBuffer {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
@@ -57,7 +34,7 @@ export async function signInWithPasskey(
   if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
     return authoredRefusal('not_supported', { key: 'passkeySecure' });
   if (!intent.beforeOptions() || !active()) return changed();
-  const options = await api.mutate('identity', 'webauthn.authOptions', { identifier }, authenticationOptions, { signal: intent.signal });
+  const options = await api.call(IDENTITY_WEBAUTHN_AUTH_OPTIONS, { identifier }, { signal: intent.signal });
   if (!options.ok) return options;
   const canonical = (value: string) => {
     try {
@@ -133,7 +110,7 @@ export async function signInWithPasskey(
 
 export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credentialId: string }>> {
   if (!window.isSecureContext || !window.PublicKeyCredential) return authoredRefusal('not_supported', { key: 'passkeySecure' });
-  const options = await api.mutate('identity', 'webauthn.registerOptions', {}, registrationOptions);
+  const options = await api.call(IDENTITY_WEBAUTHN_REGISTER_OPTIONS, undefined);
   if (!options.ok) return options;
   try {
     const json = options.data;
@@ -195,14 +172,14 @@ const passkeyFailure = (code: string, reason: Failed['reason'] = 'error'): Faile
 export async function requestPasskeyAssertion(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<PasskeyAssertion>> {
   if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
     return passkeyFailure('portal.passkey_unavailable', 'not_supported');
-  const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal });
+  const options = await api.call(IDENTITY_AUTH_STEP_UP_OPTIONS, undefined, { signal });
   if (!options.ok) return options;
   return signAssertion(options.data, signal);
 }
 
 /** Asks the browser to sign options the service already issued. Shared by every passkey confirmation. */
 export async function signAssertion(
-  json: z.infer<typeof authenticationOptions>,
+  json: ProcedureOutput<typeof IDENTITY_WEBAUTHN_AUTH_OPTIONS>,
   signal?: AbortSignal,
 ): Promise<ApiResult<PasskeyAssertion>> {
   if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)

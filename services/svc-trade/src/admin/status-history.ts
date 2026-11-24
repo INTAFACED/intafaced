@@ -2,6 +2,7 @@
  * Append-only market status transitions. Rows before this migration do not
  * exist; the read says so with `history_starts_at`.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { decodeCursor, encodeCursor, writeOperatorAudit } from './common.js';
@@ -15,7 +16,7 @@ export interface StatusTransitionInput {
   readonly reason?: string | null;
 }
 
-export async function recordMarketStatusTransition(sql: Sql, input: StatusTransitionInput): Promise<void> {
+export async function recordMarketStatusTransition(sql: Queryable, input: StatusTransitionInput): Promise<void> {
   if (input.fromStatus === input.toStatus) return;
   const id = randomUUID();
   const at = new Date();

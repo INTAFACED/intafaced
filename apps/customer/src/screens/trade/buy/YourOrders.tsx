@@ -32,6 +32,7 @@ import { plainRefusal } from './quote-flow';
 import { recheckCancel } from './cancel-recheck';
 import { usePendingNote } from './order-flow';
 import { clearPending, runGuarded, type Pending } from './write-lock';
+import { leaveTo } from '../../../app/location';
 
 /** The orders read is polled every 10 s; older than this it reads Stale. */
 const ORDERS_STALE_AFTER_MS = 30_000;
@@ -300,7 +301,7 @@ function OrdersPanel() {
         errorState={errorState}
         onRetry={retry}
         emptyState={<StateBlock kind="empty" title={t('Orders empty title')} body={t('Orders empty body')} />}
-        onRowActivate={() => window.location.assign(ORDERS_HREF)}
+        onRowActivate={() => leaveTo(ORDERS_HREF)}
         minWidth={640}
       />
       {checking.length > 0 ? (

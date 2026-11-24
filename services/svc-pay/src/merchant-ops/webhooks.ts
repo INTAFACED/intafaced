@@ -15,6 +15,7 @@ import { iso } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
 import { receiverGuide, webhookCatalogue } from './webhook-catalogue.js';
+import { DELIVERY_STATUSES } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * Merchant webhook endpoint operations.
@@ -32,7 +33,6 @@ import { receiverGuide, webhookCatalogue } from './webhook-catalogue.js';
  */
 
 const ENDPOINT_STATUSES = ['active', 'disabled'] as const;
-export const DELIVERY_STATUSES = ['pending', 'delivered', 'failed', 'dead', 'unknown'] as const;
 export type WebhookEndpointStatus = (typeof ENDPOINT_STATUSES)[number];
 export type WebhookDeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 

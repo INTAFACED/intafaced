@@ -18,7 +18,7 @@ import { signUpInBrowser } from './stack.mjs';
 // beside it keeps two workers from making the same member twice or spending the same code step.
 
 /** The roles the TEST roster defines, each with its one member. */
-export const STAFF_TEST_MEMBERS = {
+const STAFF_TEST_MEMBERS = {
   support: 'local-test-staff-support@local-test.invalid',
   compliance: 'local-test-staff-compliance@local-test.invalid',
   risk: 'local-test-staff-risk@local-test.invalid',

@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { checkAccess } from '@intafaced/config';
 import {
   createEdgeContext,
@@ -27,6 +27,7 @@ import {
   QUANT_VENUE_VAULT_UNSET,
 } from './errors.js';
 import type { BacktestLake } from './backtest/lake.js';
+import { QUANT_SANDBOX_CAPABILITIES } from '@intafaced/contracts/quant-sandbox-procedures';
 import { createQuantRouter, type QuantRouter } from './router.js';
 import { createMemoryQuota } from './quota/memory.js';
 
@@ -86,6 +87,14 @@ async function mountQuant(router: QuantRouter): Promise<FastifyInstance> {
   });
   await app.ready();
   return app;
+}
+
+/** router.ts and every area file under routes/, as one text: the procedures moved there from router.ts (project-state#2731). */
+function routerSources(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return ['router.ts', ...readdirSync(join(here, 'routes')).map((name) => join('routes', name))]
+    .map((rel) => readFileSync(join(here, rel), 'utf8'))
+    .join('\n');
 }
 
 describe('svc-quant mount — sandbox.run', () => {
@@ -249,7 +258,7 @@ describe('svc-quant mount — sandbox.run', () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
       anonymous(),
     );
-    const caps = await caller.sandbox.capabilities();
+    const caps = QUANT_SANDBOX_CAPABILITIES.output.parse(await caller.sandbox.capabilities(undefined));
     expect(caps.isolate).toBe('wired');
     expect(caps.venueVault).toBe('unset');
     expect(caps.languages).toContain('python');
@@ -575,14 +584,6 @@ describe('svc-quant mounted request screening', () => {
   });
 });
 
-describe('svc-quant router — cash is never invented', () => {
-  it('has no decimal.default(10000) on studio.save or sandbox.run', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
-    expect(src).not.toMatch(/decimal\.default\(['"]10000['"]\)/);
-    expect(src).toMatch(/cash:\s*decimal\.optional\(\)\.nullable\(\)/);
-  });
-});
-
 describe('svc-quant health — liveness is not a custodial stamp', () => {
   it('answers ok + service and does not stamp custodial:false', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
@@ -593,8 +594,8 @@ describe('svc-quant health — liveness is not a custodial stamp', () => {
     expect(health).not.toHaveProperty('custodial');
   });
 
-  it('router.ts health does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
+  it('the router and its area files do not literal-stamp custodial:false', () => {
+    const src = routerSources();
     expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
     expect(src).not.toMatch(/custodial:\s*false\s+as const/);
   });

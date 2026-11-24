@@ -4,10 +4,11 @@
 // (the three landing pages also at 390 wide).
 import { test, expect } from '@playwright/test';
 import { mkdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { installMock, EXEC_NOW, OTC_NOW, TEST_QUOTES, USER_ID } from './rooms.mock.mjs';
 
-const shots = process.env.ROOMS_SHOTS ?? '/Users/Nitro/.codex/context/work/design/trade-rooms/TROPT/harness/';
+const shots = process.env.ROOMS_SHOTS ?? join(homedir(), '.codex/context/work/design/trade-rooms/TROPT/harness/');
 mkdirSync(shots, { recursive: true });
 
 // "unavailable" counts only when it is the whole label (a bare word with no reason beside it).

@@ -87,7 +87,7 @@ The `/` board reads current module state and audit, and each module's panel host
 
 Also mounted here, all read through the signed-in founder's own session: `/api/pay-halts` (svc-pay `payHalts.*`), `/api/support` (svc-support `listQueue` / `get` / `claim`), `/api/notify-health` (svc-notify `operatorDeliveries`), and `/api/compliance` (edge `/admin/compliance/*`, console operator credential).
 
-Operator runbook: [`docs/OPS-KILL-SWITCH-RUNBOOK.md`](../../docs/OPS-KILL-SWITCH-RUNBOOK.md).
+Operator runbook: [`docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md`](../../docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md).
 
 ## Still not wired (honest residual)
 

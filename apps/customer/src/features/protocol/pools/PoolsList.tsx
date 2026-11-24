@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useResource } from '../../../shared/resource';
-import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Loading, Panel } from '../volt/parts';
 import { networkLabel } from '../blockers';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
 import { useExplorerWords } from './refusal';
@@ -46,7 +47,7 @@ export function PoolsList() {
         <BlockerNote
           title={t('poolsRefused', { reason: refusalWords(resource.failure, words) })}
           action={
-            <Button variant="secondary" onClick={pools.reload}>
+            <Button tone="secondary" onClick={pools.reload}>
               {t('retry')}
             </Button>
           }
@@ -63,13 +64,13 @@ export function PoolsList() {
   const next = resource.status === 'ready' ? (resource.data?.nextCursor ?? null) : null;
   return (
     <Panel title={t('poolsTitle')}>
-      <p className="muted">{t('poolsNote', { network })}</p>
-      <p className="muted">{t('symbolsNote')}</p>
-      <p className="protocol-actions">
-        <a className="button button--primary" href="/dex/pools/new">
+      <p className="lt-hint">{t('poolsNote', { network })}</p>
+      <p className="lt-hint">{t('symbolsNote')}</p>
+      <p className="lt-actions">
+        <a className="lt-button lt-button-primary" href="/dex/pools/new">
           {t('newPool')}
         </a>{' '}
-        <a className="button button--secondary" href="/dex/positions">
+        <a className="lt-button lt-button-secondary" href="/dex/positions">
           {t('positions')}
         </a>
       </p>
@@ -77,7 +78,7 @@ export function PoolsList() {
         {body}
       </DataTable>
       {next !== null && (
-        <Button variant="secondary" onClick={() => setCursor(next)}>
+        <Button tone="secondary" onClick={() => setCursor(next)}>
           {t('poolsMore')}
         </Button>
       )}

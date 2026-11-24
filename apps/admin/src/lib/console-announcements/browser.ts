@@ -1,5 +1,5 @@
 /** Browser hops for the announcement desk and the preferences page. Same-origin BFF only; the CSRF nonce is fetched per change. */
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { Preferences } from '@intafaced/contracts/ops-console-preferences';
 import type { AnnouncementsView, OpsRead } from './model';

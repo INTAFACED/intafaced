@@ -1,12 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv } from '@intafaced/config';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { MarketAction } from '@intafaced/exchange-contract';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import {
   assertMarketOpen,
+  assertOutsideOpeningWindow,
+  assertZoneOrder,
   assertNotional,
   assertPrice,
   assertQty,
@@ -387,6 +390,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     } catch (error) {
       pushError(refusals, error, 'symbol');
     }
+    try {
+      assertOutsideOpeningWindow(market, typeWire, deps.now());
+    } catch (error) {
+      pushError(refusals, error, 'type');
+    }
 
     const halt = deps.matchingHalt ? await deps.matchingHalt(market.id).catch(() => null) : null;
     if (halt?.venue) {
@@ -487,6 +495,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     } else if (priceWire !== null) {
       refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a market order must not carry a price' });
+    }
+
+    // The higher-risk zone, as place judges it: limit orders only, under the owner cap, none while the cap is unset. A
+    // limit order is judged only once its price reads.
+    if (orderType !== 'limit' || limitPrice !== null) {
+      try {
+        assertZoneOrder(market, { type: typeWire, price: orderType === 'limit' ? limitPrice : null, qty });
+      } catch (error) {
+        pushError(refusals, error, error instanceof TradeError && error.code === 'trade.zone_cap_exceeded' ? 'price' : 'type');
+      }
     }
 
     // The operator's limits for this market (fat finger, price band, open-order cap), the same gate place runs, so a

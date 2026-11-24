@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  bulkChangeOf,
-  bulkCodeWords,
-  bulkGate,
-  bulkSummary,
-  bulkTally,
-  emptyBulkForm,
-  readBulkPolicy,
-  readBulkResults,
-  type BulkForm,
-} from './bulk';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_BULK_POLICY } from '@intafaced/contracts/support-desk-procedures';
+import { bulkChangeOf, bulkCodeWords, bulkGate, bulkSummary, bulkTally, emptyBulkForm, readBulkResults, type BulkForm } from './bulk';
 import { readBulkReply } from './bulk-browser';
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -18,13 +10,13 @@ const form = (over: Partial<BulkForm> = {}): BulkForm => ({ ...emptyBulkForm, ..
 
 describe('the batch size', () => {
   it('reads a set size and a blank one, and nothing in between', () => {
-    expect(readBulkPolicy({ cap: 25, missing: null })).toEqual({ cap: 25 });
-    expect(readBulkPolicy({ cap: null, missing: 'support.bulk_cap' })).toEqual({ cap: null });
-    expect(readBulkPolicy({ cap: null, missing: null })).toBeNull();
-    expect(readBulkPolicy({ cap: 25, missing: 'support.bulk_cap' })).toBeNull();
-    expect(readBulkPolicy({ cap: 0, missing: null })).toBeNull();
-    expect(readBulkPolicy({ cap: 1.5, missing: null })).toBeNull();
-    expect(readBulkPolicy('25')).toBeNull();
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: 25, missing: null })).toMatchObject({ cap: 25 });
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: null, missing: 'support.bulk_cap' })).toMatchObject({ cap: null });
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: null, missing: null })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: 25, missing: 'support.bulk_cap' })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: 0, missing: null })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, { cap: 1.5, missing: null })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_BULK_POLICY, '25')).toBeNull();
   });
 });
 
