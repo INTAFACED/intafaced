@@ -223,20 +223,38 @@ test(`${J} #8 a private address while signed out goes to sign-in and back to tha
   await expect(page.getByRole('main').getByRole('link', { name: 'Sign in' })).toHaveCount(0);
 });
 
-test(`${J} #2 several wrong passwords give a typed lockout with the minutes left`, async ({ page, browser }) => {
+test(`${J} #2 several wrong passwords give a typed lockout with the minutes left`, async ({ page, browser, stepPicture }) => {
   const who = await account(browser);
   await page.goto('/login');
   const refusal = page.getByTestId('failure');
-  // The stack's TEST owner value: ten wrong passwords in fifteen minutes, then a pause.
-  for (let i = 0; i < 10; i++) {
-    await fillSignIn(page, who.email, `${who.password}-wrong-${i}`);
+  /** The page's own auth.login answer to one sign-in: its status, typed code and the seconds left it carries. */
+  const signIn = async (password) => {
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.login'));
+    await fillSignIn(page, who.email, password);
+    const res = await answered;
+    const data = (await res.json()).error?.data ?? {};
+    return { status: res.status(), code: data.intafacedCode ?? data.cause?.code ?? data.code, retryAfterSeconds: data.retryAfterSeconds };
+  };
+  // svc-identity's password policy (ATTEMPT_POLICY.password): ten wrong passwords in fifteen minutes lock sign-in for
+  // fifteen minutes. The first nine are wrong passwords, refused as such; the tenth is the one that sets the lock.
+  for (let i = 0; i < 9; i++) {
+    expect((await signIn(`${who.password}-wrong-${i}`)).code, `wrong password ${i + 1}`).toBe('auth.invalid_credentials');
     await expect(refusal).toContainText('Those details did not work');
     await page.reload();
   }
-  await fillSignIn(page, who.email, who.password);
-  // Even the right password waits out the pause, and the page says how long.
-  await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min\./);
+  await signIn(`${who.password}-wrong-9`);
+  await page.reload();
+  // Even the right password waits out the pause: a typed lockout, with the time left in the reply.
+  const locked = await signIn(who.password);
+  expect(locked.status).toBe(429);
+  expect(locked.code).toBe('auth.too_many_attempts');
+  expect(locked.retryAfterSeconds).toBeGreaterThan(0);
+  expect(locked.retryAfterSeconds).toBeLessThanOrEqual(15 * 60);
+  // The page says the minutes left, the reply's seconds rounded up to whole minutes, and stays on sign-in.
+  const minutes = Math.max(1, Math.ceil(locked.retryAfterSeconds / 60));
+  await expect(refusal).toHaveText(`Too many tries. You can try again in ${minutes} min.`);
   await expect(page).toHaveURL(/\/login/);
+  await stepPicture();
 });
 
 /**
