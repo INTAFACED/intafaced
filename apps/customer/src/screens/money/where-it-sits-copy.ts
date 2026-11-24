@@ -76,5 +76,8 @@ export const whereCopy = defineCopy('money.where', {
   TEST: 'TEST',
   'TEST note': 'Every venue figure here is a TEST figure from a TEST venue.',
   'Connect first': 'Connect your wallet to see what it holds and your venue account.',
+  'Holdings change rule':
+    'What your venue account held then and now, worked out from its balances, fills and credits. Valued only where a price is published.',
+  'Holdings change credits unavailable': 'The venue did not report its credits from outside, so starting amounts cannot be worked out.',
   Reading: 'Reading…',
 });

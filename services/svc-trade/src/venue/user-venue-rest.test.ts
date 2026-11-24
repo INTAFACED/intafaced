@@ -876,6 +876,31 @@ describe('/api/v1/venue/orders/by-client-id (J-cex-spot-15 #5)', () => {
   });
 });
 
+describe('/api/v1/venue/arrivals (J-portfolio-06 #3)', () => {
+  it('returns the credits the venue recorded for the account with decimal amounts and ISO times', async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    const ref = 'chain:rest-arrivals:1';
+    sim.deposit(account, 'USDT', parseAmount('125.5'), ref);
+
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/arrivals?owner=${owner}` });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect(typeof body.asOf).toBe('string');
+    expect(body.value).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          arrivalId: ref,
+          kind: 'deposit',
+          asset: 'USDT',
+          amount: '125.5',
+          arrivedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      ]),
+    );
+  });
+});
+
 describe('/api/v1/venue/* requestDeadline (J-cex-spot-04 #7)', () => {
   it('refuses an expired requestDeadline on preview, prepare and submit before any venue lock, admits a future one, and waives replays', async () => {
     const account = { venueId: sim.venue.id, owner, subAccount: null };

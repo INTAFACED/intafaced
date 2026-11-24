@@ -522,17 +522,30 @@ export function ageAccount(secrets, handle, seconds) {
 
 const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const COPY_REWIND_FILL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const COPY_REWIND_VENUE_FILL_ID = /^venue:0x[0-9a-f]{40}:(\d{1,15}):[A-Za-z0-9_.:-]{1,64}$/;
 
 /**
  * LOCAL TEST: the one statement that moves a follow's copy cursor back to just before a named leader fill, so the copy
- * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). The
- * cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time at millisecond
- * precision, then id), or that millisecond with no fill when none is. Only a follow of that fill's leader moves.
+ * driver's next sweep tries that fill again (J-copy-bots-otc-03 #5: a skipped fill tried again is logged once). For a
+ * book fill (UUID), the cursor becomes the leader's fill ordered just before it, by the driver's own order (fill time
+ * at millisecond precision, then id), or that millisecond with no fill when none is; only a follow of that fill's
+ * leader moves. For a venue fill (`venue:<owner>:<ms>:<venueFillId>`), the cursor moves to that exact millisecond with
+ * no fill id, and only a venue-bound follow (`trade.copy_venue_follows`) moves.
  */
 export function copyCursorRewindSql(followId, fillId) {
-  const fill = String(fillId ?? '').toLowerCase();
-  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '') || !COPY_REWIND_FILL_ID.test(fill))
-    throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '')) throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
+  const raw = String(fillId ?? '').trim();
+  const venue = COPY_REWIND_VENUE_FILL_ID.exec(raw);
+  if (venue) {
+    const ms = venue[1];
+    return `UPDATE trade.copy_follows c
+     SET copy_cursor_at = TIMESTAMPTZ 'epoch' + (${ms}::bigint * INTERVAL '1 millisecond'), copy_cursor_fill = NULL
+    FROM trade.copy_venue_follows v
+   WHERE c.follow_id = '${followId}' AND v.follow_id = c.follow_id
+  RETURNING c.follow_id, c.copy_cursor_at::text, coalesce(c.copy_cursor_fill, '')`;
+  }
+  const fill = raw.toLowerCase();
+  if (!COPY_REWIND_FILL_ID.test(fill)) throw new Error('usage: local-test-gates.mjs copy-rewind <followId> <leaderFillId>');
   return `WITH f AS (SELECT id, user_id::text AS leader, date_trunc('milliseconds', created_at) AS at
                 FROM trade.fills WHERE id = '${fill}'::uuid),
        prev AS (SELECT max(p.id::text) AS id FROM trade.fills p, f
