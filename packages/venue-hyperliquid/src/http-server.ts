@@ -70,6 +70,14 @@ export interface UserVenueRequest {
   readonly rawBody: string;
 }
 
+/**
+ * An answer as the bytes sent. The wallet's typed data passes the wire encoding untouched, and a user-signed action's
+ * uint64 nonce in it is a bigint: it travels as its decimal string, which a wallet signs as the same number.
+ */
+export function userVenueAnswerJson(payload: unknown): string {
+  return JSON.stringify(payload, (_key, value: unknown) => (typeof value === 'bigint' ? value.toString() : value));
+}
+
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** One request's answer, for any `UserVenue`. Exported so a test can drive it without a socket. */
@@ -132,7 +140,7 @@ export function userVenueHandler(venue: UserVenue, info: UserVenueServerInfo): h
       answerUserVenue(venue, info, { method: req.method ?? 'GET', path, rawBody: Buffer.concat(chunks).toString('utf8') })
         .then(([status, payload]) => {
           res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify(payload));
+          res.end(userVenueAnswerJson(payload));
         })
         .catch((err: unknown) => {
           res.writeHead(500, { 'content-type': 'application/json' });

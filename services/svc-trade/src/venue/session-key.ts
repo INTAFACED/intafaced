@@ -105,6 +105,7 @@ interface Parsed {
   readonly n: number;
   readonly agentAddress: string;
   readonly validUntil: Date | null;
+  readonly agentName: string;
 }
 
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -148,6 +149,7 @@ export class SessionKeys {
         n: Number(m[2]),
         agentAddress: intent.agentAddress.toLowerCase(),
         validUntil: intent.validUntil,
+        agentName: intent.agentName,
       });
     }
     // Oldest first, by when the venue prepared each one, then by sign-in and count: the same order from every store.
@@ -284,7 +286,8 @@ export class SessionKeys {
         {
           owner: account.owner,
           signer,
-          intent: { kind: 'approve_agent', agentAddress: p.agentAddress, agentName: SESSION_KEY_NAME, validUntil: p.validUntil },
+          // The stored approval as it was prepared, its name included: asking again is the same action.
+          intent: { kind: 'approve_agent', agentAddress: p.agentAddress, agentName: p.agentName, validUntil: p.validUntil },
           actionKey: p.row.businessKey,
         },
         { sessionKey: true },

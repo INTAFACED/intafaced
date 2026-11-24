@@ -444,11 +444,25 @@ describe('prepare builds exactly what the wallet signs', () => {
     const message = (revoke.typedData as UserSignedTypedData).message;
     expect((revoke.typedData as UserSignedTypedData).primaryType).toBe('HyperliquidTransaction:ApproveAgent');
     expect(message.agentAddress).toBe(keylessStandIn(AGENT, revoke.nonce));
+    // A fixed vector: the derivation is keccak256 of the revoked address and the nonce, its last 20 bytes.
+    expect(keylessStandIn('0x00000000000000000000000000000000000000a1', '1762646400000')).toBe(
+      '0x81ac6ec1caafeda86fe627ea69432025ca9610af',
+    );
     expect(message.agentAddress).not.toBe(AGENT);
     expect(message.agentName).toBe(`trading-session valid_until ${Number(revoke.nonce) + 86_400_000}`);
     const outcome = await venue.submit(revoke, await sign(ownerKey, revoke));
     expect(outcome).toMatchObject({ definite: true, accepted: true });
     expect(fake.exchangeBodies[0]!.action).toMatchObject({ type: 'approveAgent', agentAddress: keylessStandIn(AGENT, revoke.nonce) });
+    // Sent again after it landed (its answer lost): the stand-in is listed, so it is done, and nothing is posted twice.
+    fake.info.extraAgents = () => [
+      { name: `trading-session valid_until ${NOW + 86_400_000}`, address: keylessStandIn(AGENT, revoke.nonce), validUntil: null },
+    ];
+    expect(await venue.submit(revoke, await sign(ownerKey, revoke))).toMatchObject({ definite: true, accepted: true });
+    expect(fake.exchangeBodies).toHaveLength(1);
+    // ...but only with the owner's own signature over it.
+    await refusedWith(venue.submit(revoke, { ...(await sign(strangerKey, revoke)), signedBy: OWNER }), 'signature_mismatch');
+    expect(fake.exchangeBodies).toHaveLength(1);
+    fake.info.extraAgents = () => [{ name: `trading-session valid_until ${NOW + 3_600_000}`, address: AGENT, validUntil: NOW + 3_600_000 }];
     // A second revoke gets a different stand-in, so no address is ever approved twice.
     const again = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
     expect((again.typedData as UserSignedTypedData).message.agentAddress).not.toBe(message.agentAddress);
@@ -456,6 +470,13 @@ describe('prepare builds exactly what the wallet signs', () => {
     fake.info.extraAgents = () => [{ name: '', address: AGENT, validUntil: null }];
     const unnamed = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
     expect((unnamed.typedData as UserSignedTypedData).message.agentName).toBe('');
+    await refusedWith(
+      venue.prepare({ ...account, subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea' }, ownerSigner, {
+        kind: 'revoke_agent',
+        agentAddress: AGENT,
+      }),
+      'not_offered',
+    );
     // An agent key can never revoke.
     await refusedWith(venue.prepare(account, agentSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'agent_not_permitted');
   });
