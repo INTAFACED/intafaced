@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import './notifications.css';
-import { Button, StateBlock, Tabs, TabsList, TabsTab } from './deps';
+import { Button, EmptyState, ToggleChips } from '@intafaced/ui/lit';
 import { notifyCopy } from './copy';
 import { centreCopy } from './centre-copy';
-import { NotifyNav } from './NotifyNav';
+import { InboxFailure, InboxRow } from './InboxRow';
+import { Loading, Refused } from './parts';
 import { CATEGORIES, categoryOf, type Category } from './prefs';
-import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInboxView } from './use-notifications';
+import { useInboxPolicy, useInboxView, type InboxState } from './use-notifications';
 
 type Tab = 'all' | 'unread';
+const TABS: readonly Tab[] = ['all', 'unread'];
 type Topic = 'all' | Category;
 const TOPIC = {
   all: 'topicAll',
@@ -19,12 +19,25 @@ const TOPIC = {
   token: 'topicToken',
   agents: 'topicAgents',
 } as const satisfies Record<Topic, string>;
-const PAGE = 20;
 
 export default function NotificationsPage() {
   const copy = notifyCopy.useCopy();
   const [tab, setTab] = useState<Tab>('all');
-  const { inbox, state, markets } = useInboxView({ limit: PAGE, unreadOnly: tab === 'unread' });
+  // The owner's page size (notify.inboxPolicy). Unset, the list is never asked for: the page says why instead.
+  const policy = useInboxPolicy();
+  const pageSize = policy.status === 'ready' ? policy.data.pageSize : null;
+  const view = useInboxView({ limit: pageSize ?? 1, unreadOnly: tab === 'unread', enabled: pageSize !== null });
+  const { inbox, markets } = view;
+  // The settings read itself failing shows as the list failing, in the same plain words.
+  const state: InboxState =
+    policy.status === 'ready'
+      ? view.state
+      : policy.status === 'refused'
+        ? { status: 'failed', failure: { ok: false, reason: 'forbidden', code: policy.code, message: policy.code } }
+        : policy.status === 'error'
+          ? { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'inbox settings unreadable' } }
+          : { status: 'loading' };
+  const retry = policy.status === 'error' ? policy.retry : inbox.reload;
   const centre = centreCopy.useCopy();
   const [topic, setTopic] = useState<Topic>('all');
   const now = Date.now();
@@ -32,81 +45,64 @@ export default function NotificationsPage() {
   const shown = state.status === 'ready' ? state.items.filter((item) => topic === 'all' || categoryOf(item.kind) === topic) : [];
   const anyUnread = state.status === 'ready' && state.items.some((item) => !item.readAt);
   return (
-    <div data-testid="if-notify" className="if-notify">
-      <div className="nf-head">
-        <h1 data-testid="nf-h1" className="nf-h1">
-          {copy.t('Notifications')}
-        </h1>
-        <div className="nf-head__actions">
-          <Button variant="secondary" size={32} disabled={!anyUnread} onClick={() => void inbox.readAll()}>
-            {copy.t('Mark all as read')}
-          </Button>
+    <>
+      <div className="lt-actions">
+        <div className="lt-tabs" role="tablist" aria-label={copy.t('Notification filters')}>
+          {TABS.map((value) => (
+            <button key={value} type="button" role="tab" className="lt-tab" aria-selected={tab === value} onClick={() => setTab(value)}>
+              {copy.t(value === 'unread' ? 'Unread' : 'All')}
+            </button>
+          ))}
         </div>
+        <Button tone="secondary" disabled={!anyUnread} onClick={() => void inbox.readAll()}>
+          {copy.t('Mark all as read')}
+        </Button>
       </div>
-      <NotifyNav current="inbox" />
-      <Tabs value={tab} onValueChange={(next) => setTab(next === 'unread' ? 'unread' : 'all')}>
-        <TabsList divider aria-label={copy.t('Notification filters')} className="nf-tabs">
-          <TabsTab value="all">{copy.t('All')}</TabsTab>
-          <TabsTab value="unread">{copy.t('Unread')}</TabsTab>
-        </TabsList>
-      </Tabs>
       {state.status === 'ready' && state.items.length > 0 ? (
-        <div className="nf-chips" role="group" aria-label={centre.t('topicsLabel')}>
-          {(['all', ...CATEGORIES] as const)
+        <ToggleChips
+          label={centre.t('topicsLabel')}
+          value={topic}
+          onChange={(next) => {
+            if (next) setTopic(next);
+          }}
+          options={(['all', ...CATEGORIES] as const)
             .filter((id) => id === 'all' || id === topic || present.has(id))
-            .map((id) => (
-              <button
-                type="button"
-                key={id}
-                className={`nf-chip${topic === id ? ' nf-chip--on' : ''}`}
-                aria-pressed={topic === id}
-                onClick={() => setTopic(id)}
-              >
-                {centre.t(TOPIC[id])}
-              </button>
-            ))}
-        </div>
+            .map((id) => ({ value: id, label: centre.t(TOPIC[id]) }))}
+        />
       ) : null}
-      <section
-        data-testid="nf-card"
-        className="nf-card"
-        aria-label={copy.t('Notification list')}
-        aria-busy={state.status === 'loading' || undefined}
-      >
-        {state.status === 'loading' ? (
-          <StateBlock kind="loading" rows={5} rowHeight={72} label={copy.t('Notification list')} className="nf-card__loading" />
+      <section data-testid="nf-card" aria-label={copy.t('Notification list')} aria-busy={state.status === 'loading' || undefined}>
+        {policy.status === 'ready' && pageSize === null ? (
+          <Refused title={copy.t('Inbox not set up title')} body={copy.t('Inbox not set up body')} />
+        ) : state.status === 'loading' ? (
+          <Loading label={copy.t('Notification list')} rows={5} />
         ) : state.status === 'failed' ? (
-          <InboxFailure state={state} onRetry={inbox.reload} />
+          <InboxFailure state={state} onRetry={retry} />
         ) : state.items.length === 0 ? (
-          <StateBlock
-            kind="empty"
-            title={copy.t("You're all caught up.")}
-            body={copy.t(tab === 'unread' ? 'Nothing unread body' : 'Caught up body')}
-          />
+          <EmptyState title={copy.t("You're all caught up.")} body={copy.t(tab === 'unread' ? 'Nothing unread body' : 'Caught up body')} />
         ) : shown.length === 0 ? (
-          <StateBlock kind="empty" title={centre.t('topicEmpty')} body={state.nextCursor ? centre.t('topicEmptyMore') : undefined} />
+          <EmptyState title={centre.t('topicEmpty')} body={state.nextCursor ? centre.t('topicEmptyMore') : undefined} />
         ) : (
-          <ul className="nf-list">
+          <ul className="lt-rows">
             {shown.map((item) => (
               <li key={item.id}>
-                <NotificationRow item={item} markets={markets} now={now} onOpen={(row) => inbox.read(row.id)} />
+                <InboxRow item={item} markets={markets} now={now} onOpen={(row) => inbox.read(row.id)} />
               </li>
             ))}
           </ul>
         )}
       </section>
       {inbox.actionFailed ? (
-        <p className="nf-note" role="alert">
+        <p className="lt-refusal" role="alert">
           {copy.t('Couldn’t update your notifications.')}
         </p>
       ) : null}
       {state.status === 'ready' && state.nextCursor ? (
-        <div className="nf-more">
-          <Button variant="secondary" size={40} loading={inbox.loadingMore} onClick={inbox.loadMore}>
+        <div className="lt-actions">
+          <Button tone="secondary" aria-busy={inbox.loadingMore || undefined} disabled={inbox.loadingMore} onClick={inbox.loadMore}>
             {copy.t('Load more')}
           </Button>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

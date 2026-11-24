@@ -3,7 +3,19 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser, tool } from './stack.mjs';
+import {
+  api,
+  fromUnits,
+  fund,
+  journeyState,
+  ROOT,
+  signOutBrowser,
+  signUpInBrowser,
+  STACK_PORTS,
+  stackUrl,
+  tool,
+  toUnits,
+} from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { withPartner } from './partner.mjs';
@@ -59,6 +71,14 @@ async function terms(sender) {
   return {
     fee: toUnits(quote.fee) === 0n ? 'No fee' : `Fee: ${shown(quote.fee)} USDT`,
     reviewFee: toUnits(quote.fee) === 0n ? 'No fee' : `${shown(quote.fee)} USDT`,
+    // The network fee as the bank states it: a send on its own book crosses no network ("0"), a partner's is its figure.
+    network:
+      quote.networkFee === null
+        ? 'Network fee: not known.'
+        : toUnits(quote.networkFee) === 0n
+          ? 'No network fee.'
+          : `Network fee: ${shown(quote.networkFee)} USDT.`,
+    networkFee: quote.networkFee,
     allowance: `${shown(fromUnits(left))} of ${shown(quote.dailyLimit)} USDT left`,
     after: `${shown(fromUnits(left - toUnits(AMOUNT)))} USDT`,
     perPayment: `Up to ${shown(quote.perTransferLimit)} USDT per payment. ${shown(fromUnits(left))} USDT left today.`,
@@ -344,12 +364,19 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await expect(page.getByTestId('to-status').getByTestId('recipient-handle')).toHaveText(`@${recipient.handle}`);
 
   // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after.
-  await page.getByRole('combobox', { name: 'Asset to send' }).click();
-  const options = page.getByRole('option');
+  // The picker is the browser's own select (the Volt kit's SelectField): its options are read and chosen in place.
+  const picker = page.getByRole('combobox', { name: 'Asset to send', exact: true });
+  const options = picker.getByRole('option');
   await expect(options.first()).toHaveText('USDT');
   await expect(options.filter({ hasText: 'BTC' })).toHaveCount(1);
-  await options.first().click();
-  await expect(page.getByRole('combobox', { name: 'Asset to send' })).toContainText('USDT');
+  await expect(picker.locator('option:checked')).toHaveText('USDT');
+  // A real pick: away to BTC, whose amount the summary then reads in BTC, and back to the stablecoin.
+  await picker.selectOption({ label: 'BTC' });
+  await expect(picker.locator('option:checked')).toHaveText('BTC');
+  await page.getByLabel('Amount to send', { exact: true }).fill('0.005');
+  await expect(page.getByTestId('pay-summary-amount')).toHaveText('0.005 BTC');
+  await picker.selectOption({ label: 'USDT' });
+  await expect(picker.locator('option:checked')).toHaveText('USDT');
 
   // The amount is shown in exact units: every digit typed, nothing rounded or padded.
   const amount = page.getByLabel('Amount to send');
@@ -361,12 +388,32 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await expect(page.getByTestId('pay-summary-note')).toHaveText(NOTE);
   await expect(page.getByTestId('pay-summary-source')).toHaveText(await mainSpace(sender));
 
-  // The fee line is the published one for this amount: free here, as the quote answers.
+  // The fee line is the published one for this amount, free here, and the network fee the bank states for this send:
+  // A's money is on the bank's own book, so the move crosses no network and the quote says "0", which the line names.
   const expected = await terms(sender);
+  expect(expected.networkFee).toBe('0');
   const line = page.getByTestId('pay-terms');
   await expect(line).toHaveAttribute('data-terms', 'ok');
-  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
   await expect(page.getByTestId('pay-review')).toBeEnabled();
+
+  // A refuse that names the blocker: no payment limits are published for BTC, so the bank refuses every BTC send by
+  // name, the line says why and Review is off; back on USDT, the fee line returns.
+  const btc = await (
+    await api(sender)
+  ).get(`/api/bank/trpc/transfers.quote?input=${encodeURIComponent(JSON.stringify({ assetId: 'BTC', amount: '0.001' }))}`);
+  expect(JSON.stringify(btc.body)).toContain('bank.personal_transfer_terms_unset');
+  await picker.selectOption({ label: 'BTC' });
+  await amount.fill('0.001');
+  await expect(line).toHaveAttribute('data-terms', 'unset');
+  await expect(line).toHaveText('Sending BTC is paused: no payment limits are published for it.');
+  await expect(page.getByTestId('pay-review')).toBeDisabled();
+  await expect(page.getByTestId('pay-review')).toHaveText('Sending is paused');
+  await picker.selectOption({ label: 'USDT' });
+  await amount.fill(AMOUNT);
+  await page.locator('#pay-note').fill(NOTE);
+  await expect(line).toHaveAttribute('data-terms', 'ok');
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
 
   // The partner that moves it and does not say what that costs (the TEST partner switched to give no fee): the network
   // fee reads "not known", never 0, beside our own published fee.
@@ -379,7 +426,7 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   });
   await amount.fill('25.5');
   await amount.fill(AMOUNT);
-  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
@@ -398,7 +445,7 @@ test(`${J} #4 presses Review and sees amount, recipient identity, source, note, 
   await expect(dialog.getByTestId('pay-review-amount')).toContainText(`${AMOUNT} USDT`);
   await expect(dialog.getByTestId('pay-review-from')).toContainText(await mainSpace(sender));
   await expect(dialog.getByTestId('pay-review-note')).toContainText(NOTE);
-  await expect(dialog.getByTestId('pay-review-fee')).toContainText(expected.reviewFee);
+  await expect(dialog.getByTestId('pay-review-fee')).toHaveText(`${expected.reviewFee}. ${expected.network}`);
   await expect(dialog.getByTestId('pay-review-allowance')).toContainText(expected.allowance);
   await expect(dialog.getByTestId('pay-review-left')).toContainText(expected.after);
   // B is a first-time recipient: a caution, and the promise that no test payment is sent for them.
@@ -623,7 +670,7 @@ function redeliverPayment(ledgerTxId) {
     console.log(JSON.stringify(payload));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -634,7 +681,7 @@ function redeliverPayment(ledgerTxId) {
 /** Until svc-notify's consumer of posted personal sends has taken and acknowledged every message on the bus. */
 async function noticesCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

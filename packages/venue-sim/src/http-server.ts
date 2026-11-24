@@ -37,24 +37,46 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account}, /deposit-routes {},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
- *        /leverage {account,symbol}, /book {symbol,depth},
+ *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
+ *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
+ *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
+ *        /position-mode {account,symbol}   the position mode the account holds one perpetual in (J-derivatives-05 #3)
+ *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
+ *        /scheduled-cancel {account}                      the account's scheduled cancel (J-cex-spot-07): its time and last firing
+ *        /liquidation-status {account,symbol}, /liquidations {account,since}, /deleverages {account,since}   (J-derivatives-07)
+ *        /insurance-fund {}, /adl-rules {}, /liquidation-alerts {symbol|null,limit}   public, no account
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *   POST /test/deposit-route {asset, route: {network,how} | null}   the venue's route for an asset its bridge does not take
+ *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
+ *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
+ *                                                         the day's action count, the mode withheld from reads, a mode
+ *                                                         switch the venue refuses with that reason (null: takes it)
+ *        /staking, /staking-account {account}             the venue's staking terms, and one account's staking (J-cex-spot-21)
+ *        /test/staking-published {rewardRate?,tiers?}     the venue withholds its staking reward rate or discount tiers, or publishes them again
+ *        /test/staking {account,passLockUp?,passQueue?,reward?,fillPending?}   one account's staking, moved as the venue's
+ *                                                         clock or the venue would (a lock-up passed, the queue arrived, a
+ *                                                         reward paid, withdrawals queued up to the venue's limit)
+ *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
+ *                                                         (J-derivatives-31 #5); every other position keeps its own
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
- *                                                         `down` refuses every call on that owner's account venue_down;
+ *                                                         `down` refuses every call on that owner's account venue_down
+ *                                                         (and the read of its account mode as a builder);
  *                                                         `loseAnswers` applies the next N submits and answers each
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
+ *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
@@ -64,10 +86,16 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
- *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
- *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
- *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
- *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
+ *        /test/market-limits {symbol,maxOrderQty?,maxOrderNotional?,minOrderNotional?,priceBandBps?,maxOpenOrders?}
+ *                                                         decimal strings (the cap a whole number), or null for "not
+ *                                                         reported"; a key left out keeps that rule
+ *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"; a spot maker rate
+ *                                                         below zero is the venue's rebate (J-cex-spot-10 #4)
+ *        /test/fee-tier-update {owner}                     the venue's next update of that owner's fee tier, from its fills
+ *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional,minOrderNotional?,priceBandBps?,
+ *                          maxOpenOrders?}               one more TEST cash spot market, tick 0.1, lot 0.001, no ladder,
+ *                                                         TEST_SPOT_RULES unless named (null: not published); refused
+ *                                                         if already listed
  *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
  *        /test/session {symbol,state: 'open'|'off_hours',published?}  a stock perpetual's home market closes (the
  *                                                         venue's off-hours mode applies) or opens again; `published:
@@ -76,11 +104,49 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/open-interest-cap {symbol,capSize}         the deployer's cap on a market's open interest (base units, or null)
  *        /test/deployer-halt {symbol}                     the deployer halts the market: orders cancelled, positions settled
  *                                                         at the mark; /test/market-status trading resumes it
+ *        /test/insurance-fund {published}                 the venue publishes its TEST insurance fund, or none (it still runs it)
+ *        /test/adl-rules {version,text} | {published: false}   the auto-deleveraging rules the venue publishes now, or none
+ *        /test/deleverage {account,symbol,price}          the venue's auto-deleveraging closes that account's position at price
  *        /test/split {symbol,ratio}                       a TEST split: orders cancelled, positions settled at the mark, the
  *                                                         market reopened at once with its mark divided by the ratio
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
+
+/**
+ * The rules the TEST venue publishes on its cash spot markets (J-cex-spot-04 #2): the smallest order value, a price band
+ * around the middle of its own book, and the most open orders one account may hold, in the shape a real venue publishes
+ * them (Hyperliquid publishes a 10-unit quote minimum on spot and 1000 open orders per account by default). TEST figures,
+ * set loose so no journey's TEST order on the shared markets meets them: 1 USDC, 95% (9500 bps) of the book's middle,
+ * 1000 orders. A journey that proves the rules lists a market of its own (`/test/market-add`) with its own figures.
+ */
+export const TEST_SPOT_RULES = {
+  minOrderNotional: parseAmount('1'),
+  priceBandBps: parseAmount('9500'),
+  maxOpenOrders: 1000,
+} as const;
+
+const rates = (maker: string, taker: string) =>
+  ({
+    makerFeeBps: { known: true, value: parseAmount(maker) },
+    takerFeeBps: { known: true, value: parseAmount(taker) },
+  }) as const;
+
+/**
+ * The TEST venue's published fee tiers (J-cex-spot-10 #2 #6), counted on 30 days of the account's own fills in USDC. The
+ * base tier names the BTC markets' published rates; an account the venue placed in the base tier pays each market's own.
+ * The venue moves an account only at its next update (`/test/fee-tier-update`), as Hyperliquid updates tiers daily. Every
+ * figure is TEST.
+ */
+export const TEST_VENUE_FEE_TIERS = {
+  tiers: [
+    { name: 'TEST base', fromVolume: parseAmount('0'), spot: rates('1', '3.5'), perpetual: rates('1.5', '4.5') },
+    { name: 'TEST tier 1', fromVolume: parseAmount('100000'), spot: rates('0.8', '3'), perpetual: rates('1.2', '4') },
+    { name: 'TEST tier 2', fromVolume: parseAmount('1000000'), spot: rates('0.5', '2.5'), perpetual: rates('1', '3.5') },
+  ],
+  volumeAsset: 'USDC',
+  volumeDays: 30,
+};
 
 /** The venue itself as the lister of its own markets (the BTC markets). */
 const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
@@ -112,6 +178,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('100000000'),
     // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
   {
     symbol: 'BTC-PERP',
@@ -158,6 +225,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('2000000'),
     // TEST: the same spot builder-fee cap as BTC-USDC.
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
 
   {
@@ -335,10 +403,233 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // TEST: room for every TEST order on it; J-derivatives-02 #7 lowers it for one step.
     openInterestCap: parseAmount('1000'),
   },
+  {
+    // J-derivatives-07: a TEST perpetual of its own that the TEST venue liquidates on, so moving its mark to a position's
+    // liquidation price (/test/set-mark) reaches no other journey. Only J-derivatives-07 trades it. Priced by its TEST
+    // oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
+    symbol: 'XLIQ-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XLIQ',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
+  {
+    // J-derivatives-08: a TEST perpetual of its own whose TEST venue builds its funding rate from its mark and index and
+    // settles it, so closing a period (/test/settle-funding) and moving its index reach no other journey. Only
+    // J-derivatives-08 trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XFND-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XFND',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: hourly funding, an interest component of 0.00125% an hour, held within 4% an hour either way.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+  },
+  {
+    // J-derivatives-12: a TEST perpetual of its own on which the TEST venue settles funding and liquidates, so one account
+    // gets a funding payment, a close and a liquidation on its bills, and moving its mark or closing its period reaches no
+    // other journey. Only J-derivatives-12 trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XBIL-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XBIL',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: the venue takes USDC alone as margin here, at no haircut.
+    collateral: [{ asset: 'USDC', haircut: { known: true, value: parseAmount('0') } }],
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
+  {
+    // J-derivatives-26: a TEST perpetual of its own on cross margin, which the TEST venue liquidates at the account's cross
+    // liquidation level (simulator CROSS_RULE), so moving its mark reaches no other journey. Only J-derivatives-26 trades
+    // it. Priced by its TEST oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
+    symbol: 'XCRS-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XCRS',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['cross'],
+    maxLeverageBps: 200_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    // TEST: maintenance half the initial margin at the most leverage (20x).
+    maintenanceMarginRate: parseAmount('0.025'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        'TEST rule: on cross margin the venue judges the whole account, not one position: once the account’s equity falls to ' +
+        'half its maintenance requirement, it closes every cross position at its mark.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each position's value at the mark, capped at what the account has left, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
+  {
+    // J-derivatives-14: a TEST perpetual of its own that a developer reads and trades through our API: its open interest
+    // and long/short count come from positions only this journey opens, its funding periods only it closes, and it
+    // publishes no margin tiers (the risk-limit ladder reads unset). Only J-derivatives-14 trades it, and it has no TEST
+    // makers' ladder, so every position on it is one the journey opened. Priced by its TEST oracle, so a fill never moves
+    // its mark.
+    symbol: 'XDEV-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XDEV',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: open interest reported, with no deployer cap.
+    openInterestCap: null,
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    // TEST: a limit price more than 5% from the middle of its book is refused (the order price limit a developer reads).
+    priceBandBps: parseAmount('500'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    // TEST: liquidated as XBIL-PERP is, so the venue publishes its liquidation and auto-deleveraging alerts here.
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
+  'BTC-USDC',
+  'BTC-PERP',
+  'ETH-PERP',
+  'XAU-PERP',
+  'XSTK-PERP',
+  'XSTD-PERP',
+  'XLIQ-PERP',
+  'XFND-PERP',
+  'XBIL-PERP',
+  'XCRS-PERP',
+]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /**
@@ -356,6 +647,10 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
   'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
   'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XCRS-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -377,12 +672,26 @@ function account(body: Record<string, unknown>): UserVenueAccount {
   return { venueId: a.venueId, owner: a.owner.toLowerCase(), subAccount: a.subAccount ?? null };
 }
 
+/** A read's `since`: an ISO time. */
+function sinceOf(body: Record<string, unknown>): Date {
+  const since = body.since;
+  if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+  return since;
+}
+
 /** A market read's `limit`: a whole number from 1 to 500. */
 function readLimit(body: Record<string, unknown>): number {
   const limit = body.limit;
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 500)
     throw new VenueWireError('limit is a whole number from 1 to 500');
   return limit;
+}
+
+/** A decoded wire amount (the request's `amount` fields arrive as bigints): required. */
+function amountIn(body: Record<string, unknown>): Amount {
+  const v = body.amount;
+  if (typeof v !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+  return v;
 }
 
 function str(body: Record<string, unknown>, key: string): string {
@@ -449,7 +758,13 @@ export async function seedTestVenue(
       if (market.kind === 'perpetual') {
         const lev = await sim.leverage(acct, market.symbol);
         if (!lev.value)
-          await makerRun(sim, name, { kind: 'update_leverage', symbol: market.symbol, leverageBps: 100_000, marginMode: 'isolated' });
+          await makerRun(sim, name, {
+            kind: 'update_leverage',
+            symbol: market.symbol,
+            leverageBps: 100_000,
+            // Each market's own first mode: isolated, or cross where the market takes cross alone (XCRS-PERP).
+            marginMode: market.marginModes[0] ?? 'isolated',
+          });
         // A market with its deployer's own margin account is margined there: the maker moves TEST collateral in, signed.
         if (market.marginAccount) {
           const margin = await sim.marketMargin(acct, market.symbol);
@@ -623,7 +938,12 @@ export async function answerTestVenue(
     return [400, { error: (err as Error).message }];
   }
   try {
-    const owner = path.startsWith('/test/') ? null : ownerOf(body);
+    // A builder address's own mode read names it as `builder`, so its owner's `down` switch takes that read away too.
+    const owner = path.startsWith('/test/')
+      ? null
+      : path === '/builder-account-mode' && typeof body.builder === 'string'
+        ? body.builder.toLowerCase()
+        : ownerOf(body);
     const mine = owner ? switchesOf(sim, owner) : null;
     if (mine?.down) {
       throw new VenueRefusalError({
@@ -635,17 +955,17 @@ export async function answerTestVenue(
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
-      await route(sim, path, body);
+      await route({ sim, deposit }, path, body);
       mine.loseAnswers -= 1;
       return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
     }
     if (path === '/submit' && mine && mine.failAfterSend > 0) {
       // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
-      await route(sim, path, body);
+      await route({ sim, deposit }, path, body);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
     }
-    const value = await route(sim, path, body);
+    const value = await route({ sim, deposit }, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
     if (err instanceof VenueRefusalError) return [422, { refusal: err.refusal }];
@@ -654,7 +974,12 @@ export async function answerTestVenue(
   }
 }
 
-async function route(sim: TestVenueSimulator, path: string, body: Record<string, unknown>): Promise<unknown> {
+async function route(
+  at: { sim: TestVenueSimulator; deposit: UserVenueDepositRoute | null },
+  path: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const { sim, deposit } = at;
   switch (path) {
     case '/markets':
       return sim.markets(body.account ? account(body) : null);
@@ -676,6 +1001,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
       return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readLimit(body));
     }
+    case '/funding-payments':
+      return sim.fundingPayments(account(body), sinceOf(body));
+    case '/price-history': {
+      const kind = body.kind;
+      if (kind !== 'mark' && kind !== 'index') throw new VenueWireError('kind is mark or index');
+      return sim.priceHistory(str(body, 'symbol'), kind, sinceOf(body));
+    }
     case '/funding-history': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
@@ -693,6 +1025,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
+    case '/order-history':
+      return sim.orderHistory(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
     case '/order-signer':
@@ -704,18 +1038,56 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/withdrawal':
       return sim.withdrawal(account(body), str(body, 'nonce'));
+    case '/withdrawal-terms':
+      return sim.withdrawalTerms(str(body, 'asset'));
+    case '/deposit-routes': {
+      // The bridge's own asset takes the route the server publishes (`deposit`); the rest are the simulator's.
+      const routes = await sim.depositRoutes();
+      if (!deposit) return routes;
+      const how = `The venue's deposit address on ${deposit.network ?? `chain ${deposit.chainId}`}`;
+      const rows = routes.value.filter((r) => r.asset !== deposit.asset);
+      rows.push({ asset: deposit.asset, network: deposit.network ?? `chain ${deposit.chainId}`, how });
+      return { ...routes, value: rows.sort((a, b) => (a.asset < b.asset ? -1 : a.asset > b.asset ? 1 : 0)) };
+    }
     case '/deposits':
       return sim.deposits(account(body));
     case '/arrivals':
       return sim.arrivals(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
+    case '/fee-status':
+      return sim.feeStatus(body.account ? account(body) : null);
     case '/builder-totals':
       return sim.builderTotals(str(body, 'builder'));
     case '/builder-claims':
       return sim.builderClaims(str(body, 'builder'));
+    case '/builder-account-mode':
+      return sim.builderAccountMode(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
+    case '/leverage-change': {
+      const bps = body.leverageBps;
+      if (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number');
+      const mode = body.marginMode;
+      if (mode !== 'cross' && mode !== 'isolated') throw new VenueWireError('marginMode is cross or isolated');
+      return sim.leverageChange(account(body), str(body, 'symbol'), bps, mode);
+    }
+    case '/isolated-margin':
+      return sim.isolatedMargin(account(body), str(body, 'symbol'));
+    case '/account-summary':
+      return sim.accountSummary(account(body));
+    case '/account-mode':
+      return sim.accountMode(account(body));
+    case '/position-mode':
+      return sim.positionMode(account(body), str(body, 'symbol'));
+    case '/vaults':
+      return sim.vaults();
+    case '/vault-holdings':
+      return sim.vaultHoldings(account(body));
+    case '/staking':
+      return sim.staking();
+    case '/staking-account':
+      return sim.stakingAccount(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -727,11 +1099,45 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
       return sim.settlements(account(body), since);
     }
+    case '/scheduled-cancel':
+      return sim.scheduledCancel(account(body));
+    // J-derivatives-07: a liquidation and its aftermath, as the venue reports them.
+    case '/liquidation-status':
+      return sim.liquidationStatus(account(body), str(body, 'symbol'));
+    case '/liquidations':
+      return sim.liquidations(account(body), sinceOf(body));
+    case '/insurance-fund':
+      return sim.insuranceFund();
+    case '/adl-rules':
+      return sim.adlRules();
+    case '/deleverages':
+      return sim.deleverages(account(body), sinceOf(body));
+    case '/liquidation-alerts':
+      return sim.liquidationAlerts(body.symbol === null || body.symbol === undefined ? null : str(body, 'symbol'), readLimit(body));
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;
       if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
       return { credited: sim.deposit(account(body), str(body, 'asset'), amount as Amount, str(body, 'depositRef')), label: 'TEST' };
+    }
+    case '/test/stake': {
+      const amount = body.amount;
+      if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+      return { staked: sim.testStake(account(body), str(body, 'asset'), amount as Amount, str(body, 'stakeRef')), label: 'TEST' };
+    }
+    case '/test/deficit': {
+      const amount = body.amount;
+      if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+      return { booked: sim.bookDeficit(account(body), str(body, 'asset'), amount as Amount, str(body, 'lossRef')), label: 'TEST' };
+    }
+    case '/test/deposit-route': {
+      // TEST: the venue's route for one asset its bridge does not take, in its own words; null withdraws it (J-wallet-24 #5).
+      const given: unknown = body.route;
+      if (given === null) sim.setAssetRoute(str(body, 'asset'), null);
+      else if (typeof given === 'object' && !Array.isArray(given))
+        sim.setAssetRoute(str(body, 'asset'), { network: str({ ...given }, 'network'), how: str({ ...given }, 'how') });
+      else throw new VenueWireError('route is required: { network, how } or null');
+      return { ok: true, label: 'TEST' };
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
@@ -743,8 +1149,43 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
         sim.declareAgentPermissionReach(reach);
       }
+      if (body.amendsInPlace !== undefined) {
+        if (typeof body.amendsInPlace !== 'boolean') throw new VenueWireError('amendsInPlace must be true or false');
+        sim.declareAmendsInPlace(body.amendsInPlace);
+      }
+      if (body.cancelsPerAction !== undefined) {
+        const n = body.cancelsPerAction;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 1))
+          throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
+        sim.declareCancelsPerAction(n);
+      }
+      if (body.scheduledCancelMinLeadMs !== undefined) {
+        const n = body.scheduledCancelMinLeadMs;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n >= 0))
+          throw new VenueWireError('scheduledCancelMinLeadMs must be a whole number of ms, or null');
+        sim.declareScheduledCancel(n);
+      }
+      if (body.otherFeesUnpublished !== undefined) {
+        if (typeof body.otherFeesUnpublished !== 'boolean') throw new VenueWireError('otherFeesUnpublished must be true or false');
+        sim.switches.otherFeesUnpublished = body.otherFeesUnpublished;
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
+      if (body.withdrawalArrivalSeconds !== undefined) {
+        const n = body.withdrawalArrivalSeconds;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 0))
+          throw new VenueWireError('withdrawalArrivalSeconds must be a whole number of seconds, or null');
+        sim.switches.withdrawalArrivalSeconds = n;
+      }
+      if (body.withdrawalsHeld !== undefined) {
+        if (typeof body.withdrawalsHeld !== 'boolean') throw new VenueWireError('withdrawalsHeld must be true or false');
+        sim.switches.withdrawalsHeld = body.withdrawalsHeld;
+      }
+      if (body.builderModeRequirementUnpublished !== undefined) {
+        if (typeof body.builderModeRequirementUnpublished !== 'boolean')
+          throw new VenueWireError('builderModeRequirementUnpublished must be true or false');
+        sim.switches.builderModeRequirementUnpublished = body.builderModeRequirementUnpublished;
+      }
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
         const url = body.depositExplorerTxUrl;
         if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
@@ -756,11 +1197,84 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
+        amendsInPlace: sim.venue.amendsInPlace === true,
+        cancelsPerAction: sim.venue.cancelsPerAction ?? null,
+        scheduledCancelMinLeadMs: sim.venue.scheduledCancel?.minLeadMs ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
+        withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,
+        withdrawalsHeld: sim.switches.withdrawalsHeld,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
+        otherFeesUnpublished: sim.switches.otherFeesUnpublished,
+        builderModeRequirementUnpublished: sim.switches.builderModeRequirementUnpublished,
         label: 'TEST',
       };
+    }
+    case '/test/account-mode': {
+      // J-derivatives-29: the account's mode, its day's action count, a mode withheld from reads, a switch refused.
+      const set: Parameters<TestVenueSimulator['testAccountMode']>[1] = {};
+      if (body.mode !== undefined) {
+        if (body.mode !== 'standard' && body.mode !== 'unified' && body.mode !== 'portfolio_margin')
+          throw new VenueWireError("mode is 'standard', 'unified' or 'portfolio_margin'");
+        set.mode = body.mode;
+      }
+      if (body.actionsToday !== undefined) {
+        const n = body.actionsToday;
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 1_000_000)
+          throw new VenueWireError('actionsToday is a whole number 0 to 1000000');
+        set.actionsToday = n;
+      }
+      if (body.unreported !== undefined) {
+        if (typeof body.unreported !== 'boolean') throw new VenueWireError('unreported is true or false');
+        set.unreported = body.unreported;
+      }
+      if (body.refuseSwitch !== undefined) {
+        if (body.refuseSwitch !== null && (typeof body.refuseSwitch !== 'string' || body.refuseSwitch.trim() === ''))
+          throw new VenueWireError("refuseSwitch is the venue's reason, or null");
+        set.refuseSwitch = body.refuseSwitch;
+      }
+      sim.testAccountMode(account(body), set);
+      return { label: 'TEST', ...(await sim.accountMode(account(body))) };
+    }
+    case '/test/vault-lockup': {
+      // J-derivatives-31 #5: the venue's clock passes the lock-up of one account's position in one vault.
+      const vault = str(body, 'vault');
+      const endedAt = sim.testVaultLockUpPassed(account(body), vault);
+      return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
+    }
+    case '/test/staking-published': {
+      // J-cex-spot-21 #1: the venue withholds its reward rate or its discount tiers (false) or publishes them again (true).
+      const set: { rewardRate?: boolean; tiers?: boolean } = {};
+      for (const k of ['rewardRate', 'tiers'] as const) {
+        const v: unknown = body[k];
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw new VenueWireError(`${k} must be true or false`);
+        set[k] = v;
+      }
+      if (Object.keys(set).length === 0) throw new VenueWireError('rewardRate or tiers must be true or false');
+      sim.testStakingPublished(set);
+      return { label: 'TEST', ...(await sim.staking()) };
+    }
+    case '/test/staking': {
+      // J-cex-spot-21 #6 #7 #8 #9: one account's staking, as the venue's clock or the venue itself moves it.
+      const given: unknown = body.reward;
+      const reward: Record<string, unknown> | null =
+        given !== null && typeof given === 'object' ? Object.fromEntries(Object.entries(given)) : null;
+      sim.testStaking(account(body), {
+        ...(typeof body.passLockUp === 'string' ? { passLockUp: body.passLockUp } : {}),
+        ...(body.passQueue === true ? { passQueue: true } : {}),
+        ...(reward
+          ? {
+              reward: {
+                validator: str(reward, 'validator'),
+                amount: amountIn(reward),
+                rewardRef: str(reward, 'rewardRef'),
+              },
+            }
+          : {}),
+        ...(typeof body.fillPending === 'string' ? { fillPending: parseAmount(body.fillPending) } : {}),
+      });
+      return { label: 'TEST', ...(await sim.stakingAccount(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
@@ -778,6 +1292,20 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const price = body.price;
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setIndex(str(body, 'symbol'), price as Amount);
+      return { ok: true, label: 'TEST' };
+    }
+    // J-derivatives-08: the TEST venue closes a perpetual's funding period now, publishes or withholds its funding, and
+    // publishes or withholds its index.
+    case '/test/settle-funding':
+      return { ...sim.settleFunding(str(body, 'symbol')), label: 'TEST' };
+    case '/test/funding-published': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setFundingPublished(str(body, 'symbol'), body.published);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/index-published': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setIndexPublished(str(body, 'symbol'), body.published);
       return { ok: true, label: 'TEST' };
     }
     case '/test/ladder-mid': {
@@ -839,6 +1367,21 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setMarketMaxLeverage(symbol, cap);
       return { maxLeverageBps: cap, label: 'TEST' };
     }
+    case '/test/insurance-fund': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setInsuranceFundPublished(body.published);
+      return { fund: (await sim.insuranceFund()).value, label: 'TEST' };
+    }
+    case '/test/adl-rules': {
+      if (body.published === false) sim.setAdlRules(null);
+      else sim.setAdlRules({ version: str(body, 'version'), text: str(body, 'text') });
+      return { rules: (await sim.adlRules()).value, label: 'TEST' };
+    }
+    case '/test/deleverage': {
+      const price = body.price;
+      if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
+      return { deleverage: sim.deleverage(account(body), str(body, 'symbol'), price as Amount), label: 'TEST' };
+    }
     case '/test/deployer-halt':
       return { event: sim.settleMarket(str(body, 'symbol'), 'deployer_halt'), label: 'TEST' };
     case '/test/split': {
@@ -858,11 +1401,22 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { openInterest: market?.openInterest ?? { known: false }, label: 'TEST' };
     }
+    case '/test/market-triggers': {
+      const sources = body.sources;
+      if (!Array.isArray(sources) || sources.some((x) => x !== 'mark' && x !== 'last'))
+        throw new VenueWireError('sources is a list of "mark" and "last" ([] for none)');
+      sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/fee-tier-update':
+      return { ...sim.updateFeeTier(str(body, 'owner')), label: 'TEST' };
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {
         const v = body[k];
         if (v === null) return { known: false };
-        if (typeof v !== 'bigint' || v < 0n) throw new VenueWireError(`${k} is a decimal string of bps, or null for "not published"`);
+        // A maker rebate is a maker rate below zero; a taker rate never is.
+        if (typeof v !== 'bigint' || (v < 0n && k !== 'makerFeeBps'))
+          throw new VenueWireError(`${k} is a decimal string of bps, or null for "not published"`);
         return { known: true, value: v as Amount };
       };
       sim.setMarketFees(str(body, 'symbol'), { makerFeeBps: fee('makerFeeBps'), takerFeeBps: fee('takerFeeBps') });
@@ -875,7 +1429,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof v !== 'bigint') throw new VenueWireError(`${k} is a decimal string or null`);
         return v as Amount;
       };
-      sim.setMarketLimits(str(body, 'symbol'), { maxOrderQty: limit('maxOrderQty'), maxOrderNotional: limit('maxOrderNotional') });
+      // The published rules (J-cex-spot-04): a key left out keeps the rule as it is, null takes it away.
+      const rule = (k: string): Amount | null | undefined => (k in body ? limit(k) : undefined);
+      sim.setMarketLimits(str(body, 'symbol'), {
+        maxOrderQty: rule('maxOrderQty'),
+        maxOrderNotional: rule('maxOrderNotional'),
+        minOrderNotional: rule('minOrderNotional'),
+        priceBandBps: rule('priceBandBps'),
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : undefined,
+      });
       return { ok: true, label: 'TEST' };
     }
     case '/test/market-add': {
@@ -910,12 +1472,24 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         maxOrderNotional: cap('maxOrderNotional'),
         // TEST: the same spot builder-fee cap as BTC-USDC.
         builderFeeCapBps: { known: true, value: parseAmount('100') },
+        // The published rules: TEST_SPOT_RULES unless the body names its own (null: not published).
+        minOrderNotional: 'minOrderNotional' in body ? cap('minOrderNotional') : TEST_SPOT_RULES.minOrderNotional,
+        priceBandBps: 'priceBandBps' in body ? cap('priceBandBps') : TEST_SPOT_RULES.priceBandBps,
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
       });
       return { ok: true, symbol, label: 'TEST' };
     }
     default:
       return undefined;
   }
+}
+
+/** A TEST open-order cap from a body: a whole number above zero, or null for "not published". */
+function openOrdersCap(v: unknown): number | null {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0)
+    throw new VenueWireError('maxOpenOrders is a whole number above zero, or null');
+  return v;
 }
 
 /** The HTTP handler for one simulator. Bodies are capped at 1 MiB. */
@@ -948,6 +1522,8 @@ export interface StartTestVenueOptions {
   readonly port: number;
   /** The RAW `process.env.APP_ENV`. Anything but `dev` or `test` refuses to start. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly chainId?: number;
   readonly clock?: () => Date;
   /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
@@ -955,9 +1531,21 @@ export interface StartTestVenueOptions {
   readonly displayName?: string;
   /** The most orders it takes in one signed action (`place_orders`); default one per signature. */
   readonly ordersPerAction?: number;
+  /** True when it lowers a resting order in place (`amend_order`); default: changed by cancel-and-replace. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders it cancels in one signed action (`cancel_orders`); default: one cancel per signature. */
+  readonly cancelsPerAction?: number;
+  /** The least time ahead it takes a scheduled cancel (`schedule_cancel`), in ms; default: no scheduled cancel offered. */
+  readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes it declares (default: one-way only), and whether it moves an open position between accounts. */
+  readonly positionModes?: readonly ('one_way' | 'hedge')[];
+  readonly positionMoves?: boolean;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
+
+/** How often the TEST venue checks its scheduled cancels between calls. */
+const SCHEDULED_CANCEL_SWEEP_MS = 250;
 
 /** Start the TEST venue on loopback. Refuses outside APP_ENV dev/test and on a non-loopback host. */
 export async function startTestVenueServer(
@@ -969,13 +1557,31 @@ export async function startTestVenueServer(
   const sim = new TestVenueSimulator({
     clock: opts.clock ?? (() => new Date()),
     markets: TEST_VENUE_MARKETS,
+    feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
+    // Each start names its claims apart: a restarted venue counts claims from one again, and our books key a claim by its id.
+    claimIdPrefix: `sim-builder-claim-${Date.now().toString(36)}`,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
+    ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
+    ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
+    ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
+    ...(opts.positionModes ? { positionModes: opts.positionModes } : {}),
+    ...(opts.positionMoves ? { positionMoves: true } : {}),
   });
-  refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
+  refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
+  // A scheduled cancel fires on the venue's own clock, when nobody is talking to it (J-cex-spot-07 #3).
+  const sweep = setInterval(() => {
+    try {
+      sim.runScheduledCancels();
+    } catch {
+      /* a TEST sweep that throws is tried again on the next tick */
+    }
+  }, SCHEDULED_CANCEL_SWEEP_MS);
+  sweep.unref();
+  server.once('close', () => clearInterval(sweep));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => resolve());

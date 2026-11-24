@@ -1,7 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { type FounderCallContext, partFrom, type PartLabels, founderRecordRead } from '@/lib/desk';
 import { readChannelSettings, readTemplates, type NotifyConfigView } from './config-model';
+import { NOTIFY_CHANNEL_SETTINGS, NOTIFY_TEMPLATES } from '@intafaced/contracts/notify-notify-procedures';
 
 /**
  * svc-notify's owner settings reads (`notify.channelSettings`, `notify.templates`, scope `admin:read`) as the
@@ -17,8 +17,8 @@ const LABELS: PartLabels = {
 
 export async function loadNotifyConfig(ctx: FounderCallContext, now: Date = new Date()): Promise<NotifyConfigView> {
   const [channels, templates] = await Promise.all([
-    founderCall(ctx, 'notify', 'notify.channelSettings', 'GET', {}, readChannelSettings),
-    founderCall(ctx, 'notify', 'notify.templates', 'GET', {}, readTemplates),
+    founderRecordRead(ctx, NOTIFY_CHANNEL_SETTINGS, undefined, readChannelSettings),
+    founderRecordRead(ctx, NOTIFY_TEMPLATES, undefined, readTemplates),
   ]);
   return { asOf: now.toISOString(), channels: partFrom(channels, (d) => d, LABELS), templates: partFrom(templates, (d) => d, LABELS) };
 }

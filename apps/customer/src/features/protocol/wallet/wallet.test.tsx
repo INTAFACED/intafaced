@@ -42,29 +42,17 @@ function Probe() {
   api = useWallet();
   return <span data-status={api.status} />;
 }
-const mount = async (discovered?: DiscoveredWallet) => {
+const mount = async (discovered: DiscoveredWallet) => {
+  window.addEventListener('eip6963:requestProvider', () =>
+    window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: discovered.info, provider: discovered.provider } })),
+  );
   await act(async () => {
     root.render(
-      <WalletProvider discovery={false}>
+      <WalletProvider discovery>
         <Probe />
       </WalletProvider>,
     );
   });
-  if (discovered) {
-    // discovery is switched off in the provider; announce through the DOM instead
-    await act(async () => {
-      root.render(
-        <WalletProvider discovery>
-          <Probe />
-        </WalletProvider>,
-      );
-      window.addEventListener('eip6963:requestProvider', () =>
-        window.dispatchEvent(
-          new CustomEvent('eip6963:announceProvider', { detail: { info: discovered.info, provider: discovered.provider } }),
-        ),
-      );
-    });
-  }
 };
 
 beforeEach(() => {

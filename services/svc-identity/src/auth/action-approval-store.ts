@@ -2,6 +2,7 @@
  * Durable action-bound approval rows. Identity owns issue/verify;
  * the target service consumes. No balances.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { ActionApproval, ActionApprovalKind, ActionApprovalStatus } from '@intafaced/contracts';
@@ -484,7 +485,7 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
 }
 
 /** Lock the row in the caller's transaction before deciding whether it may be consumed. */
-export async function sqlGetApprovalForUpdate(sql: Sql, approvalId: string): Promise<StoredApproval | null> {
+export async function sqlGetApprovalForUpdate(sql: Queryable, approvalId: string): Promise<StoredApproval | null> {
   const rows = await sql<DbRow[]>`
     SELECT ${sql.unsafe(SELECT_COLS)} FROM action_approvals WHERE approval_id = ${approvalId} LIMIT 1 FOR UPDATE
   `;
@@ -492,7 +493,7 @@ export async function sqlGetApprovalForUpdate(sql: Sql, approvalId: string): Pro
 }
 
 /** Consume on the given connection, so a caller can use the same transaction as its own write. */
-export async function sqlCasConsume(sql: Sql, input: ConsumeCas): Promise<StoredApproval | null> {
+export async function sqlCasConsume(sql: Queryable, input: ConsumeCas): Promise<StoredApproval | null> {
   const principalUserId = input.principalUserId ?? null;
   const principalSessionId = input.principalSessionId ?? null;
   const requestId = input.requestId ?? null;

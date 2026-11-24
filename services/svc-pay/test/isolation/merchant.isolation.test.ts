@@ -539,7 +539,7 @@ describe('M: merchant isolation', () => {
   // ────────────────────────────────────────────────────────────────────────
   describe('M6: A’s webhooks and exports contain only A’s data', () => {
     const endpointsOf = async (merchantId: string) =>
-      (await w.sql`SELECT id, url, signing_secret, status FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as unknown as Array<{
+      (await w.sql`SELECT id, url, signing_secret, status FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as Array<{
         id: string;
         url: string;
         signing_secret: string;

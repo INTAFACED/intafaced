@@ -12,7 +12,9 @@ const contacts: Array<{ id: string; address: string; label: string; createdAt: s
 const transport = {
   canWrite: () => true,
   query: () => new Promise(() => undefined),
-  mutate: async (_module: string, procedure: string, input: Record<string, unknown>) => {
+  call: async ({ path: procedure }: { path: string }, input: Record<string, unknown>) => {
+    // The protocol API's pool reads the room also makes: never answered, as `query`.
+    if (procedure.startsWith('amm.')) return new Promise(() => undefined);
     procedures.push(procedure);
     if (procedure === 'walletSession.challenge') return { ok: true, data: { message: 'sign in', challenge: 'c', expiresAt: later } };
     if (procedure === 'walletSession.open') return { ok: true, data: { session: 's', address: ADDR, expiresAt: later } };
@@ -33,8 +35,8 @@ const transport = {
     throw new Error(`unexpected ${procedure}`);
   },
 };
-vi.mock('../../session/session', async (original) => {
-  const real = await original<typeof import('../../session/session')>();
+vi.mock('../../session', async (original) => {
+  const real = await original<typeof import('../../session')>();
   return { ...real, useApi: () => transport as never };
 });
 import { resetWalletSessions } from './address-book-api';
@@ -81,8 +83,11 @@ async function mount(panel: 'book' | 'send') {
   });
 }
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-const input = (label: string) =>
-  [...host.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+/** The input a field's label names, whichever kit drew the field: the label wraps it, or points at it. */
+const input = (label: string) => {
+  const found = [...host.querySelectorAll('label')].find((l) => (l.querySelector('span') ?? l).textContent === label)!;
+  return (found.querySelector('input') ?? host.ownerDocument.getElementById(found.htmlFor)) as HTMLInputElement;
+};
 function type(field: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
   setter.call(field, value);

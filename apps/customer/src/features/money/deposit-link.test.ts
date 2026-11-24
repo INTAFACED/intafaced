@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { depositHref, readDepositLink, resolveDepositLink } from './deposit-link';
 import type { DepositCatalogue } from './deposit-reads';
 
@@ -6,13 +7,13 @@ import type { DepositCatalogue } from './deposit-reads';
 const catalogue: DepositCatalogue = {
   assets: [
     {
-      assetId: 'USDT',
+      assetId: asAssetId('USDT'),
       networks: [
         { id: 'ethereum', label: 'Ethereum', minimumDeposit: '10', confirmationsRequired: 12, estimatedArrivalMinutes: 5 },
         { id: 'tron', label: 'Tron', minimumDeposit: '5.5', confirmationsRequired: 20, estimatedArrivalMinutes: 3 },
       ],
     },
-    { assetId: 'BTC', networks: [] },
+    { assetId: asAssetId('BTC'), networks: [] },
   ],
 };
 

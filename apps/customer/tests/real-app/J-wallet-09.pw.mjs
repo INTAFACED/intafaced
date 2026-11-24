@@ -3,10 +3,10 @@ import path from 'node:path';
 import { encodeFunctionData, keccak256, parseAbi, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, restartWith, ROOT } from './stack.mjs';
+import { api, journeyState, restartService, ROOT } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { testVenue, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
@@ -133,7 +133,7 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
   // A blank wallet sanctions list refuses every wallet, the person's own included, with its reason (OWNER 88).
   const blankPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS: 'off' });
     await openVenue(blankPage, who, walletKey);
     await blankPage.getByRole('button', { name: 'Connect to my account' }).click();
     await expect(blankPage.getByText('No wallet can be screened', { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -145,15 +145,15 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
     await expect(sheet(blankPage)).toHaveCount(0);
   } finally {
     await blankPage.close();
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', true);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS: undefined });
   }
 
   // A visitor from a blocked region is refused with its reason before any message, the person's own wallet included
   // (OWNER 88, OWNER 237): the TEST region AA blocked in svc-protocol, and Edge stamping every request from it.
   const regionPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
-    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
     await openVenue(regionPage, who, walletKey);
     // The room's read of the person's connections is refused by the same guard, so the refusal is there before Connect
     // too; pressing Connect is refused the same way, and no message is written.
@@ -171,9 +171,9 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
     await regionPage.close();
     // Edge first, so no request is stamped from the TEST region once it is served again.
     try {
-      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     } finally {
-      restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     }
   }
 
@@ -235,10 +235,7 @@ test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFAC
   // The connection is the service's: a reload reads it back with the same expiry.
   await page.reload();
   // The browser wallet may come back by itself (it is still authorised); otherwise the person connects it again.
-  const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(page.getByRole('heading', { name: 'Connected' }).or(again)).toBeVisible();
-  if (await again.isVisible()) await again.click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+  await connectWhenAsked(page, page.getByRole('heading', { name: 'Connected' }));
   await expect(page.getByTestId('venue-connection-expires')).toHaveAttribute('datetime', expiresAt);
 });
 
@@ -361,9 +358,7 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
   expect(read.body.value.find((b) => b.asset === 'USDC')).toMatchObject({ free: DEPOSIT, locked: '0' });
   // A reload reads the venue's figure again, never a figure the app kept: still exactly the deposit, credited once.
   await page.reload();
-  const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(page.getByRole('heading', { name: 'Connected' }).or(again)).toBeVisible();
-  if (await again.isVisible()) await again.click();
+  await connectWhenAsked(page, page.getByRole('heading', { name: 'Connected' }));
   await expect(figure).toHaveText(`${DEPOSIT} TEST USDC`);
 
   // The ledger posts nothing: the person's ledger balances are the same as before.
@@ -408,10 +403,7 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
     ['Withdraw TEST USDC', 'withdraw'],
   ]) {
     await page.reload();
-    const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-    await expect(page.getByRole('heading', { name: 'Connection expired' }).or(again)).toBeVisible();
-    if (await again.isVisible()) await again.click();
-    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible();
+    await connectWhenAsked(page, page.getByRole('heading', { name: 'Connection expired' }));
     await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
     await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
     const authorized = page.waitForResponse(

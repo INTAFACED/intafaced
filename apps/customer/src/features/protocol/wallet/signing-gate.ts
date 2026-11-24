@@ -1,5 +1,5 @@
 import type { ProtocolApi, RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 
 /**
  * The representation gate every signing action passes first (D-developer-compliance-03), as Send runs it: it never fails
@@ -15,12 +15,11 @@ export async function signingGate(api: ProtocolApi, address: string): Promise<Si
   if (!representation.ok)
     return {
       kind: 'refused',
-      key:
-        representation.code === REGION_BLOCKED_CODE
-          ? 'permitRefused_region'
-          : representation.code === 'compliance.representation_unset'
-            ? 'permitRefused_representation_unset'
-            : 'permitRefused_representation_unavailable',
+      key: isRegionBlocked(representation.code)
+        ? 'permitRefused_region'
+        : representation.code === 'compliance.representation_unset'
+          ? 'permitRefused_representation_unset'
+          : 'permitRefused_representation_unavailable',
     };
   return representation.data.accepted ? { kind: 'ok' } : { kind: 'needed', address, status: representation.data };
 }

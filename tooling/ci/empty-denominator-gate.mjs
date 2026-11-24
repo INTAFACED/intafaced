@@ -141,24 +141,14 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'architecture-map': {
-    kind: 'guard',
-    must: /ARCHITECTURE MAP FAILED - docs\/ARCHITECTURE\.md, apps\/, services\/ or packages\/ is missing or empty/,
-    note: 'refuses by name when the doc or the folders it counts are absent, instead of counting nothing and calling it current.',
-  },
-  'services-map': {
-    kind: 'guard',
-    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
-    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
-  },
   'truth-check': {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,
     note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
   },
-  reachability: {
+  'dead-code': {
     kind: 'guard',
-    must: /REACHABILITY - \d+ protected module\(s\) were deleted/,
+    must: /DEAD CODE - \d+ protected module\(s\) were deleted/,
     note: 'the protected keep-list is what makes emptiness loud: no subject means every protected module reads as deleted.',
   },
   'tooling-tests': {
@@ -191,10 +181,26 @@ export const ENFORCED = {
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
-  'invitation-outreach-golden': {
+
+  migrations: {
     kind: 'guard',
-    must: /no outreach-\*\.golden\.js under/,
-    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
+    must: /MIGRATION CHECK FAILED: found no migration folder/,
+    note: 'with no services/ or crates/ migration folder it refuses by name, rather than printing clean over nothing.',
+  },
+  'conflict-keys': {
+    kind: 'guard',
+    must: /CONFLICT KEYS FAILED: cannot find services\//,
+    note: 'with no services/ it has no migrations or inserts to read and refuses by name, rather than passing over nothing.',
+  },
+  'baseline-money': {
+    kind: 'guard',
+    must: /BASELINE MONEY FAILED: cannot read docs\/roadmap\/journeys\.json/,
+    note: 'with no journeys, slices or baseline it has no flag to check and refuses by name, rather than passing over nothing.',
+  },
+  'published-routes': {
+    kind: 'guard',
+    must: /PUBLISHED ROUTES FAILED — services\/svc-trade\/src\/route-declarations\.test-harness\.ts is missing/,
+    note: 'with svc-trade gone it cannot read a route and refuses by name, rather than matching an empty list to nothing.',
   },
   killswitch: {
     kind: 'guard',
@@ -207,23 +213,6 @@ export const ENFORCED = {
     note:
       'Class X list-content boundary: with screening.ts gone it cannot prove the list is unshipped and refuses by name ' +
       'rather than printing clean over nothing.',
-  },
-  'marketing-language': {
-    kind: 'guard',
-    must: /MARKETING LANGUAGE SCAN FAILED — packages\/config\/src\/marketing-language\.ts is missing/,
-    note:
-      'DIRECTION §8.9 / D26-P0-16: with the law module gone it cannot prove audited/insured/guaranteed product copy is ' +
-      'owner-sealed and refuses by name rather than printing clean over nothing.',
-  },
-  workspace: {
-    kind: 'guard',
-    must: /no service packages found, so checks 1-10 below each iterated an empty list/,
-    note: 'the most explicit statement of this law in the repo: "This gate cannot pass on a tree it did not open."',
-  },
-  'event-wiring': {
-    kind: 'guard',
-    must: /there is no catalog to check/,
-    note: 'one of the seven that learned this independently — the bus could not report silence, so now it refuses to.',
   },
   'skip-honesty': {
     kind: 'guard',
@@ -243,6 +232,11 @@ export const ENFORCED = {
     kind: 'uncaught',
     must: /ENOENT[\s\S]*env\.ts/,
     note: 'reads packages/config/src/env.ts to learn which secrets exist. Refuses, by throw.',
+  },
+  'service-tracing': {
+    kind: 'guard',
+    must: /service-tracing: found no service commands in the compose files; refusing to pass over nothing/,
+    note: "its denominator is the compose files' service commands. With none it refuses by name.",
   },
   'secret-rotation-readiness': {
     kind: 'guard',
@@ -312,13 +306,10 @@ export const BLIND = {
     observed: /0 Postgres-capable test file\(s\) of 0 scanned/,
     reason: 'prints its zero denominator inside a ✓ line: "0 … of 0 scanned, all on *_test databases". All of nothing.',
   },
-  migrations: {
-    observed: /no services yet/,
-    reason: 'clean on "no services yet" — true of a scaffold, indistinguishable from a services/ directory that stopped resolving.',
-  },
 };
 // Lowered 4 → 2 (2026-10-19) with the vendor removal: wallet-rpc-auth and vendor-shell went with their subject.
-export const BLIND_MAX = 2;
+// Lowered 2 → 1 (2026-11-19): migrations refuses a tree with no migration folder (ENFORCED).
+export const BLIND_MAX = 1;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 4. SELF — this gate, which cannot run inside its own fixture without

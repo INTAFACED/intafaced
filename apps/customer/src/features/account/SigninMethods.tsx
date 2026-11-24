@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { signWithBrowserWallet, useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { ServiceOffNotice } from '../../shared/service-off';
+import { Button, Field } from '@intafaced/ui/lit';
+import { ServiceOffNotice } from '@intafaced/ui/lit/templates';
+import { serviceOffCopy } from '../../shared/service-off';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import { shortAddress } from '../protocol/wallet/eip1193';
-import { signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
+import { shortAddress } from '../protocol';
 import { signinMethodsCopy as copy } from './signin-methods-copy';
-import { cleanPhone, methodStepUp, signinMethods, walletMethod, waysIn, type MethodName } from './signin-methods';
+import { cleanPhone, methodStepUp, walletMethod, waysIn, type MethodName } from './signin-methods';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import { IDENTITY_SIGNIN_METHODS } from '@intafaced/contracts/identity-signin-methods-procedures';
+import { IDENTITY_LINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-link-signin-method-procedures';
+import { IDENTITY_WALLET_LINK_CHALLENGE } from '@intafaced/contracts/identity-wallet-link-challenge-procedures';
+import { IDENTITY_LINK_PROVIDER_START } from '@intafaced/contracts/identity-link-provider-start-procedures';
+import { IDENTITY_UNLINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-unlink-signin-method-procedures';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** One change on its way: sent once without a confirmation, so a refusal costs none, then again with one. */
@@ -24,7 +30,6 @@ type Change = {
 };
 type Off = { code: 'vendor.sms' | 'idp.social'; action: string };
 // hand-declared-ok: svc-identity's sign-in methods and provider link answers have no browser-safe schema in packages/contracts yet
-const started = z.object({ provider: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() });
 
 /**
  * Ways to sign in, in Security (I-account-lifecycle-07): the password, a code by email, passkeys, wallets, a phone
@@ -34,6 +39,7 @@ const started = z.object({ provider: z.string(), authorizationUrl: z.string().ur
  */
 export function SigninMethods({ revision = 0, onChanged }: { revision?: number; onChanged?: () => void } = {}) {
   const { t, languageFor } = copy.useCopy();
+  const offWords = serviceOffCopy.useCopy().t;
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
   const [editing, setEditing] = useState<'password' | 'phone' | null>(null);
@@ -54,24 +60,25 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     };
   }, []);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId ? api.query('identity', 'signinMethods', {}, signinMethods, { signal }) : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_SIGNIN_METHODS, {}, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `signin-methods:${userId}:${revision}`,
   );
 
   const clear = () => (setFailure(null), setOff(null), setProblem(null), setNote(null));
   const send = (change: Change, stepUpApprovalId?: string) =>
-    api.mutate(
-      'identity',
-      change.change === 'link' ? 'linkSigninMethod' : 'unlinkSigninMethod',
-      {
-        method: change.method,
-        clientRequestId: change.clientRequestId,
-        ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
-        ...change.extra,
-      },
-      signinMethods,
-    );
+    change.change === 'link'
+      ? api.call(IDENTITY_LINK_SIGNIN_METHOD, {
+          method: change.method,
+          clientRequestId: change.clientRequestId,
+          ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+          ...change.extra,
+        })
+      : api.call(IDENTITY_UNLINK_SIGNIN_METHOD, {
+          method: change.method,
+          clientRequestId: change.clientRequestId,
+          ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+          ...change.extra,
+        });
 
   function answered(change: Change, answer: ApiResult<unknown>) {
     if (!mounted.current) return;
@@ -126,12 +133,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     clear();
     setBusy(true);
     try {
-      const answer = await api.mutate(
-        'identity',
-        'linkSigninMethod',
-        { method: 'sms_code', clientRequestId: crypto.randomUUID(), phone },
-        signinMethods,
-      );
+      const answer = await api.call(IDENTITY_LINK_SIGNIN_METHOD, { method: 'sms_code', clientRequestId: crypto.randomUUID(), phone });
       if (!mounted.current) return;
       if (answer.ok) {
         setTexted(phone);
@@ -150,7 +152,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     setBusy(true);
     try {
       const signed = await signWithBrowserWallet((address, chainId) =>
-        api.mutate('identity', 'walletLinkChallenge', { address, chainId, origin: location.origin }, walletChallengeSchema),
+        api.call(IDENTITY_WALLET_LINK_CHALLENGE, { address, chainId, origin: location.origin }),
       );
       if (!mounted.current) return;
       if (signed.status === 'none') return setProblem(t('noWallet'));
@@ -176,10 +178,10 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     clear();
     setBusy(true);
     try {
-      const answer = await api.mutate('identity', 'linkProviderStart', { provider: 'social' }, started);
+      const answer = await api.call(IDENTITY_LINK_PROVIDER_START, { provider: 'social' });
       if (!mounted.current) return;
       const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
-      if (target?.protocol === 'https:') return location.assign(target.href);
+      if (target?.protocol === 'https:') return leaveTo(target.href);
       if (!answer.ok && answer.code === 'idp.social') return setOff({ code: 'idp.social', action: t('socialSignIn') });
       if (!answer.ok) setFailure(answer);
     } finally {
@@ -204,28 +206,34 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
   return (
     <section
       data-testid="security__signin-methods"
-      className="security__signin-methods security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {note && (
-        <p className="notice" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       )}
       {problem && (
-        <p className="error-text" role="alert">
+        <p className="lt-hint" role="alert">
           {problem}
         </p>
       )}
-      {off && <ServiceOffNotice code={off.code} action={off.action} role="status" />}
+      {off && (
+        <ServiceOffNotice
+          code={off.code}
+          sentence={offWords('sentence', { action: off.action, dependency: offWords(off.code) })}
+          role="status"
+        />
+      )}
       {failure && <Failure result={failure} />}
       {waiting && (
         <form
           ref={form}
-          className="stack security__confirm"
+
           aria-label={t('confirmTitle')}
           noValidate
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -244,31 +252,30 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             disabled={busy}
             data-security-sensitive="true"
           />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('save')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
+            <Button tone="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
               {t('savePasskey')}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
+            <Button tone="quiet" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
               {t('cancel')}
             </Button>
           </div>
         </form>
       )}
-      <ul data-testid="security__rows" className="security__rows">
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('password')}>
+      <ul data-testid="security__rows">
+        <li data-testid="security__row" aria-label={t('password')}>
           <div>
-            <strong>{t('password')}</strong> <span className="muted">{methods.password ? t('passwordOn') : t('passwordOff')}</span>
+            <strong>{t('password')}</strong> <span className="lt-hint">{methods.password ? t('passwordOn') : t('passwordOff')}</span>
           </div>
           {methods.password ? (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'password'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'password'))}>
               {t('stopPassword')}
             </Button>
           ) : editing === 'password' ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -277,25 +284,25 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               }}
             >
               <Field label={t('newPassword')} name="password" type="password" autoComplete="new-password" disabled={busy} />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('setPassword')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
+                <Button tone="quiet" disabled={busy} onClick={() => setEditing(null)}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setEditing('password'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => (clear(), setEditing('password'))}>
               {t('setPassword')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('emailCode')}>
+        <li data-testid="security__row" aria-label={t('emailCode')}>
           <div>
             <strong>{t('emailCode')}</strong>{' '}
-            <span className="muted">
+            <span className="lt-hint">
               {methods.emailCode.on
                 ? t(methods.emailCode.proved ? 'emailCodeOn' : 'emailCodeOnUnproved', { address: methods.emailCode.address ?? '' })
                 : methods.emailCode.proved
@@ -304,35 +311,35 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </span>
           </div>
           {methods.emailCode.on ? (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'email_code'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('unlink', 'email_code'))}>
               {t('turnOff')}
             </Button>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => void attempt(change('link', 'email_code'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => void attempt(change('link', 'email_code'))}>
               {t('turnOn')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('passkeys')}>
+        <li data-testid="security__row" aria-label={t('passkeys')}>
           <div>
             <strong>{t('passkeys')}</strong>{' '}
-            <span className="muted">{methods.passkeys > 0 ? t('passkeyCount', { count: methods.passkeys }) : t('noPasskeys')}</span>
+            <span className="lt-hint">{methods.passkeys > 0 ? t('passkeyCount', { count: methods.passkeys }) : t('noPasskeys')}</span>
           </div>
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('wallets')}>
+        <li data-testid="security__row" aria-label={t('wallets')}>
           <div>
             <strong>{t('wallets')}</strong>
-            {methods.wallets.length === 0 && <span className="muted"> {t('noWallets')}</span>}
+            {methods.wallets.length === 0 && <span className="lt-hint"> {t('noWallets')}</span>}
             {methods.wallets.length > 0 && (
-              <ul className="security__wallets">
+              <ul>
                 {methods.wallets.map((wallet) => (
                   <li key={wallet.address}>
-                    <span lang="zxx" data-testid="security__ref" className="security__ref" title={wallet.address}>
+                    <span lang="zxx" data-testid="security__ref" className="lt-ref" title={wallet.address}>
                       {shortAddress(wallet.address)}
                     </span>{' '}
-                    <span className="muted">{t('walletLinked', { time: stamp(wallet.linkedAt, timeZone) })}</span>{' '}
+                    <span className="lt-hint">{t('walletLinked', { time: stamp(wallet.linkedAt, timeZone) })}</span>{' '}
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy}
                       aria-label={t('removeWallet', { address: shortAddress(wallet.address) })}
                       onClick={() => void attempt(change('unlink', walletMethod(wallet.address)))}
@@ -344,27 +351,27 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               </ul>
             )}
           </div>
-          <Button variant="secondary" disabled={busy} onClick={() => void linkWallet()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void linkWallet()}>
             {t('linkWallet')}
           </Button>
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('phone')}>
+        <li data-testid="security__row" aria-label={t('phone')}>
           <div>
             <strong>{t('phone')}</strong>{' '}
             {methods.phone ? (
               <>
-                <span lang="zxx" data-testid="security__ref" className="security__ref">
+                <span lang="zxx" data-testid="security__ref" className="lt-ref">
                   {methods.phone}
                 </span>{' '}
-                <span className="muted">{t('phoneLinked')}</span>
+                <span className="lt-hint">{t('phoneLinked')}</span>
               </>
             ) : (
-              <span className="muted">{t('noPhone')}</span>
+              <span className="lt-hint">{t('noPhone')}</span>
             )}
           </div>
           {methods.phone ? (
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={busy}
               aria-label={t('removePhone', { phone: methods.phone })}
               onClick={() => void attempt(change('unlink', 'sms_code'))}
@@ -373,7 +380,6 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </Button>
           ) : editing === 'phone' && texted ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -391,21 +397,20 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
                 disabled={busy}
                 data-security-sensitive="true"
               />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('confirmPhone')}
                 </Button>
-                <Button variant="secondary" disabled={busy} onClick={() => void textCode(texted)}>
+                <Button tone="secondary" disabled={busy} onClick={() => void textCode(texted)}>
                   {t('resendCode')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => (setEditing(null), setTexted(null), setWaiting(null))}>
+                <Button tone="quiet" disabled={busy} onClick={() => (setEditing(null), setTexted(null), setWaiting(null))}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : editing === 'phone' ? (
             <form
-              className="stack"
               noValidate
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
@@ -415,34 +420,34 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               }}
             >
               <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" disabled={busy} />
-              <div className="row">
-                <Button type="submit" disabled={busy}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy}>
                   {t('sendCode')}
                 </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
+                <Button tone="quiet" disabled={busy} onClick={() => setEditing(null)}>
                   {t('cancel')}
                 </Button>
               </div>
             </form>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setTexted(null), setEditing('phone'))}>
+            <Button tone="secondary" disabled={busy} onClick={() => (clear(), setTexted(null), setEditing('phone'))}>
               {t('linkPhone')}
             </Button>
           )}
         </li>
-        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('social')}>
+        <li data-testid="security__row" aria-label={t('social')}>
           <div>
             <strong>{t('social')}</strong>
-            {methods.providers.length === 0 && <span className="muted"> {t('noSocial')}</span>}
+            {methods.providers.length === 0 && <span className="lt-hint"> {t('noSocial')}</span>}
             {methods.providers.length > 0 && (
-              <ul className="security__wallets">
+              <ul>
                 {methods.providers.map((provider) => (
                   <li key={provider}>
-                    <span lang="zxx" data-testid="security__ref" className="security__ref">
+                    <span lang="zxx" data-testid="security__ref" className="lt-ref">
                       {provider}
                     </span>{' '}
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy}
                       aria-label={t('removeSocial', { provider })}
                       onClick={() => void attempt(change('unlink', `social:${provider}`))}
@@ -454,14 +459,14 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               </ul>
             )}
           </div>
-          <Button variant="secondary" disabled={busy} onClick={() => void linkSocial()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void linkSocial()}>
             {t('linkSocial')}
           </Button>
         </li>
       </ul>
-      {last && <p className="muted">{t('lastOne')}</p>}
-      <div className="actions">
-        <Button variant="secondary" onClick={reload}>
+      {last && <p className="lt-hint">{t('lastOne')}</p>}
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={reload}>
           {t('refresh')}
         </Button>
       </div>

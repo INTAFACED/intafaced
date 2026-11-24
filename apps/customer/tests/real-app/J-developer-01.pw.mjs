@@ -36,7 +36,7 @@ const FLOOR = {
     Authentication: null,
     'REST conventions': null,
     'API reference': null,
-    'WebSocket streams': 'DV-websocket-01',
+    'WebSocket streams': null,
     'Rate limits': null,
     Errors: null,
     'Order types': null,
@@ -56,7 +56,7 @@ const FLOOR = {
     'Assistant tools': 'DV-tools-02',
     'API explorer': null,
     'Machine-readable specs': null,
-    'Developer support': 'DV-portal-03',
+    'Developer support': null,
     'Service status': null,
   },
 };

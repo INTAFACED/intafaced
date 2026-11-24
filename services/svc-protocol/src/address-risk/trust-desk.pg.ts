@@ -1,6 +1,10 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type {
   HumanTokenTier,
+  ProtocolBlockedToken,
+  ProtocolPermissionedToken,
   ProtocolNameTagRequest,
   ProtocolOnboardingChecklist,
   ProtocolOnboardingOpenInput,
@@ -161,10 +165,20 @@ const NAME_TAG_SELECT = `
 const CHECKLIST_COLUMNS =
   'id, pool, legal_entity, token_contract, checker_address, wrapper_address, routing_registration, status, opened_by, approved_by, approval_reason, opened_at, approved_at';
 
+const stamp = z.union([z.date(), z.string()]);
+const BlockedRow = z.object({ token: z.string(), reason: z.string(), added_by: z.string(), added_at: stamp });
+const PermissionedRow = z.object({ token: z.string(), pool: z.string(), checker: z.string(), approved_at: stamp });
+const toBlocked = (r: z.infer<typeof BlockedRow>): ProtocolBlockedToken => ({
+  token: r.token,
+  reason: r.reason,
+  addedBy: r.added_by,
+  addedAt: iso(r.added_at),
+});
+
 export class PostgresTrustDeskStore implements TrustDeskStore {
   constructor(private readonly sql: Sql) {}
 
-  private async tierOf(q: Sql, chainId: number, token: string): Promise<ProtocolTokenTier> {
+  private async tierOf(q: Queryable, chainId: number, token: string): Promise<ProtocolTokenTier> {
     const rows = await q<TierRow[]>`
       SELECT k.token, t.tier, t.prior_tier, t.reason, t.since, r.requester_id, r.approver_id,
              p.id AS p_id, p.tier AS p_tier, p.reason AS p_reason, p.requester_id AS p_requester_id, p.asked_at AS p_asked_at
@@ -200,8 +214,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     reason: string;
     requesterId: string;
   }): Promise<TierAskOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const rows = await q<{ id: string }[]>`
         INSERT INTO protocol.token_tier_requests (chain_id, token, tier, reason, requester_id)
         VALUES (${input.chainId}, ${input.token}, ${input.tier}, ${input.reason}, ${input.requesterId})
@@ -215,8 +228,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async approveTier(input: { chainId: number; requestId: string; approverId: string }): Promise<TierApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [request] = await q<{ id: string; token: string; tier: HumanTokenTier; reason: string; requester_id: string }[]>`
         SELECT id, token, tier, reason, requester_id FROM protocol.token_tier_requests
         WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;
@@ -239,8 +251,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async removeTier(input: { chainId: number; token: string; reason: string; actorId: string }): Promise<TierRemoveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [current] = await q<{ tier: HumanTokenTier; prior_tier: HumanTokenTier | null; request_id: string }[]>`
         SELECT tier, prior_tier, request_id FROM protocol.token_tiers
         WHERE chain_id = ${input.chainId} AND token = ${input.token} FOR UPDATE`;
@@ -291,8 +302,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     approverId: string;
     reason: string;
   }): Promise<OnboardingApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [row] = await q<ChecklistRow[]>`
         SELECT ${q.unsafe(CHECKLIST_COLUMNS)} FROM protocol.pool_onboarding
         WHERE id = ${input.checklistId} AND chain_id = ${input.chainId} AND status = 'open' FOR UPDATE`;
@@ -314,7 +324,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     return rows.map(toNameTag);
   }
 
-  private async nameTagOf(q: Sql, id: string): Promise<ProtocolNameTagRequest> {
+  private async nameTagOf(q: Queryable, id: string): Promise<ProtocolNameTagRequest> {
     const [row] = await q<NameTagRow[]>`${q.unsafe(NAME_TAG_SELECT)} WHERE n.id = ${id}`;
     return toNameTag(row!);
   }
@@ -329,8 +339,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async approveNameTag(input: { chainId: number; requestId: string; approverId: string }): Promise<NameTagApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [row] = await q<{ id: string; address: string; tag: string; reason: string; first_approver_id: string | null }[]>`
         SELECT id, address, tag, reason, first_approver_id FROM protocol.name_tag_requests
         WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;
@@ -362,5 +371,52 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
         VALUES (${label!.id}, ${label!.version}, ${row.tag}, 'UNKNOWN', ${row.reason}, NULL, ${input.approverId})`;
       return { kind: 'approved', request: await this.nameTagOf(q, row.id) } as const;
     });
+  }
+
+  async blocklist(chainId: number) {
+    const blocked = BlockedRow.array().parse(
+      await this.sql`
+        SELECT token, reason, added_by, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId}
+        ORDER BY added_at DESC, token LIMIT 500`,
+    );
+    // A permissioned token is the token contract of an approved checklist, gated by that checklist's checker.
+    const permissioned = PermissionedRow.array().parse(
+      await this.sql`
+        SELECT token_contract AS token, pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
+        WHERE chain_id = ${chainId} AND status = 'approved' ORDER BY approved_at DESC, id LIMIT 500`,
+    );
+    return {
+      blocked: blocked.map(toBlocked),
+      permissioned: permissioned.map((r): ProtocolPermissionedToken => ({
+        token: r.token,
+        pool: r.pool,
+        checkerAddress: r.checker,
+        approvedAt: iso(r.approved_at),
+      })),
+    };
+  }
+
+  async addToBlocklist(input: { chainId: number; token: string; reason: string; actorId: string }) {
+    const [row] = BlockedRow.array().parse(
+      await this.sql`
+        INSERT INTO protocol.token_blocklist (chain_id, token, reason, added_by)
+        VALUES (${input.chainId}, ${input.token}, ${input.reason}, ${input.actorId})
+        ON CONFLICT (chain_id, token) DO NOTHING RETURNING token, reason, added_by, added_at`,
+    );
+    if (!row) return { kind: 'already_blocked' } as const;
+    return { kind: 'added', entry: toBlocked(row) } as const;
+  }
+
+  async blockedAmong(chainId: number, tokens: readonly string[]): Promise<string[]> {
+    if (tokens.length === 0) return [];
+    const rows = z
+      .object({ token: z.string() })
+      .array()
+      .parse(
+        await this.sql`
+          SELECT token FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ANY(${this.sql.array([...tokens])}::text[])
+          ORDER BY token`,
+      );
+    return rows.map((r) => r.token);
   }
 }

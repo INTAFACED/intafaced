@@ -2,7 +2,7 @@ import { TradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
@@ -35,7 +35,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -250,7 +250,7 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
    * ended the entry places nothing and the sweep must.
    */
   function failNextExitPlace() {
-    const own = trade as unknown as { placeOrder: TradeService['placeOrder'] };
+    const own = trade as { placeOrder: TradeService['placeOrder'] };
     const real = TradeService.prototype.placeOrder;
     own.placeOrder = async function (this: TradeService, principal, input) {
       if (/^(bracket:.+:exit|oto:.+:close)$/.test(input.clientOrderId ?? '')) {

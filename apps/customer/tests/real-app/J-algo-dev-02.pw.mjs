@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
+import { otherTraderKey, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
 // or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
@@ -15,6 +16,8 @@ const J = 'J-algo-dev-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+// #5 reads the venue's published margin rules through svc-trade's user-venue door, which is on for this file only.
+venueForThisFile(test);
 
 function developer() {
   const who = run.read().account;
@@ -289,17 +292,25 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
   expect(await figures(reread)).toEqual(first);
 });
 
-const MARGIN_SLIPPAGE = '15';
+// At the venue's maximum of 20x, a 500 basis-point slippage alone costs about 95 % of the margin on entry (20 × 5 % over
+// 1.05), so equity is under the venue's 0.5 % maintenance share of the position (about 9.5 % of the margin) in the bar it
+// entered, whatever the TEST tape does: the run shows our warning and the venue's close every time.
+const MARGIN_SLIPPAGE = '500';
 
-test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin calls and stop-outs in the stated order; a blank leverage refuses by name`, async ({
+test(`${J} #5 opens the simulated account and turns on margin: the venue's maximum leverage and maintenance level and our labelled margin-call warning, read only; a blank leverage refuses by name and nothing runs; at the venue's leverage our warnings, then the venue's close at its maintenance level, in that order`, async ({
   page,
 }) => {
   const { window } = run.read();
   if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
+  // The venue's own published rules for its perpetual on BTC, read from the TEST venue's own record on loopback, never
+  // through our door or the page. The rules are public, so any TEST trader's read of them is the same.
+  const markets = await venueRecord(otherTraderKey(J).address, '/markets');
+  const perp = markets.value.find((m) => m.kind === 'perpetual' && m.symbol === 'BTC-PERP');
+  expect(perp, 'the TEST venue lists no BTC-PERP').toBeTruthy();
+  expect(perp.maintenanceMarginRate?.known, 'the TEST venue publishes no single maintenance rate on BTC-PERP').toBe(true);
+  const venueMax = String(perp.maxLeverageBps / 10_000);
+  const venueMaintenance = String(Number(perp.maintenanceMarginRate.value) * 100);
   await signIn(page, developer());
-  // Every entry spends all the simulated equity on margin, so the leverage decides how far the price may move. At 100x
-  // a 15 basis-point slippage alone costs 15 % of the equity on entry: the margin level falls under the 90 % stop-out
-  // in the bar it entered, whatever the TEST tape does, so the run shows the call and the stop-out every time.
   const strategy = 'TEST margin strategy';
   await saveSignalStrategy(page, strategy, { kind: 'percent_equity', value: '100' });
   const room = await backtestForm(page, strategy, { ...window, slippage: MARGIN_SLIPPAGE });
@@ -307,16 +318,26 @@ test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin
   await expect(account).toContainText('Cash account: no order spends more than the simulated cash.');
   await account.getByRole('checkbox', { name: 'Trade on margin' }).check();
 
-  // The owner's published rules show read only, with the netting mode; the developer sets only the leverage.
-  const rule = (name) => account.getByTestId('quant-account-rules').locator(`[data-rule="${name}"]`);
-  await expect(rule('maxLeverage')).toHaveAttribute('data-value', '100');
+  // The venue's published rules for the market and our own warning, each named for whose it is, all read only.
+  const rules = account.getByTestId('quant-account-rules');
+  await expect(rules).toHaveAttribute('data-venue-market', 'BTC-PERP');
+  await expect(rules).toContainText('The venue’s published margin rules for BTC-PERP, read only.');
+  await expect(rules.getByTestId('quant-account-rules-test')).toBeVisible();
+  const rule = (name) => rules.locator(`[data-rule="${name}"]`);
+  await expect(rule('maxLeverage')).toHaveAttribute('data-value', venueMax);
+  await expect(rule('maxLeverage')).toHaveAttribute('data-source', 'venue');
+  await expect(rule('maxLeverage')).toContainText('Venue maximum leverage');
+  await expect(rule('maintenancePercent')).toHaveAttribute('data-value', venueMaintenance);
+  await expect(rule('maintenancePercent')).toHaveAttribute('data-source', 'venue');
+  await expect(rule('maintenancePercent')).toContainText('Venue maintenance level');
+  // Ours is the TEST owner value (tooling/profiles/test-owner-values/quant.json), labelled as ours.
   await expect(rule('marginCallPercent')).toHaveAttribute('data-value', '100');
-  await expect(rule('stopOutPercent')).toHaveAttribute('data-value', '90');
+  await expect(rule('marginCallPercent')).toHaveAttribute('data-source', 'ours');
+  await expect(rule('marginCallPercent')).toContainText('ours, not the venue’s');
   await expect(account).toContainText('One position, netted');
-  // Read only: nothing in the published rules can be typed into or chosen.
-  await expect(account.getByTestId('quant-account-rules').locator('input, select, textarea, [contenteditable="true"]')).toHaveCount(0);
+  await expect(rules.locator('input, select, textarea, [contenteditable="true"]')).toHaveCount(0);
 
-  // A blank leverage refuses by name and nothing runs.
+  // A blank leverage refuses by name and nothing runs; one above the venue's maximum refuses naming it.
   const started = [];
   page.on('response', (res) => {
     if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
@@ -325,45 +346,63 @@ test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin
   await expect(room.getByTestId('quant-backtest-refusal')).toHaveText('Fill in Leverage first. Nothing ran.');
   await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
   expect(started).toEqual([400]);
+  await account.getByLabel('Leverage', { exact: true }).fill(String(Number(venueMax) + 1));
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-backtest-refusal')).toHaveText(
+    `Leverage: must be from 1 up to the venue's published maximum of ${venueMax} on BTC-PERP. Nothing ran.`,
+  );
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  expect(started).toEqual([400, 400]);
 
-  await account.getByLabel('Leverage').fill('100');
+  await account.getByLabel('Leverage', { exact: true }).fill(venueMax);
   await room.getByTestId('quant-backtest-run').click();
   const result = room.getByTestId('quant-bar-result');
   await expect(result).toBeVisible();
   await expect(result.getByTestId('quant-bar-account')).toHaveText(
-    'Margin account at 100x leverage: margin call at 100 %, stop-out at 90 %, one netted position.',
+    `Margin account at ${venueMax}x leverage on BTC-PERP’s rules: our margin-call warning at 100 %, the venue’s close at its ${venueMaintenance} % maintenance level, one netted position.`,
   );
   await result.getByRole('button', { name: 'Orders and trades' }).click();
-  const events = await result
-    .getByTestId('quant-margin-event')
-    .evaluateAll((rows) =>
-      rows.map((row) => ({ kind: row.dataset.kind, ts: row.dataset.ts, level: row.dataset.level, price: row.dataset.price })),
-    );
+  await expect(result).toContainText('Our margin calls and the venue’s closes');
+  const events = await result.getByTestId('quant-margin-event').evaluateAll((rows) =>
+    rows.map((row) => ({
+      kind: row.dataset.kind,
+      ts: row.dataset.ts,
+      level: row.dataset.level,
+      price: row.dataset.price,
+      text: row.textContent,
+    })),
+  );
   const trades = await result
     .getByTestId('quant-bar-trade')
     .evaluateAll((rows) => rows.map((row) => ({ side: row.dataset.side, ts: row.dataset.ts, text: row.textContent })));
-  const stopOuts = events.filter((event) => event.kind === 'stop_out');
-  expect(stopOuts.length, 'the TEST tape gave no stop-out at 100x; rerun on a later window').toBeGreaterThan(0);
+  const closes = events.filter((event) => event.kind === 'venue_close');
+  expect(closes.length, 'the TEST tape made no entry to close; rerun on a later window').toBeGreaterThan(0);
+  expect(events.every((event) => ['margin_call', 'venue_close'].includes(event.kind))).toBe(true);
 
-  // The stated order: a position's margin call comes before its stop-out, at a level at or under each rule, and each
-  // stop-out closes the whole position with a sell at the same bar and price.
-  for (const stop of stopOuts) {
-    const index = events.indexOf(stop);
+  // The stated order: our warning on a position comes before the venue's close of it, at or under our level; the close
+  // comes at or under the venue's maintenance level (its share of the position's value is, at the entry price, the
+  // maintenance percent times the leverage of the margin) and closes the whole position with a sell at that bar.
+  const closeLevel = Number(venueMaintenance) * Number(venueMax);
+  for (const close of closes) {
+    const index = events.indexOf(close);
     const call = events
       .slice(0, index)
       .reverse()
       .find((event) => event.kind === 'margin_call');
-    expect(call, `stop-out at ${stop.ts} has no margin call before it`).toBeTruthy();
-    expect(Date.parse(call.ts)).toBeLessThanOrEqual(Date.parse(stop.ts));
+    expect(call, `the venue's close at ${close.ts} has no warning of ours before it`).toBeTruthy();
+    expect(call.text).toContain('Our margin-call warning');
+    expect(Date.parse(call.ts)).toBeLessThanOrEqual(Date.parse(close.ts));
     expect(Number(call.level)).toBeLessThanOrEqual(100);
-    expect(Number(stop.level)).toBeLessThanOrEqual(90);
-    const sell = trades.find((trade) => trade.side === 'sell' && trade.ts === stop.ts && trade.text.includes('Stop-out'));
-    expect(sell, `no stop-out sell at ${stop.ts}`).toBeTruthy();
-    expect(sell.text).toContain(stop.price);
+    expect(close.text).toContain('Venue close at maintenance');
+    expect(Number(close.level)).toBeLessThanOrEqual(closeLevel);
+    const sell = trades.find(
+      (trade) => trade.side === 'sell' && trade.ts === close.ts && trade.text.includes('Venue close at maintenance'),
+    );
+    expect(sell, `no venue-close sell at ${close.ts}`).toBeTruthy();
+    expect(sell.text).toContain(close.price);
   }
 
-  // The margin level is a column of the series (blank on a bar that ends with no position held, as every one does when
-  // each entry stops out in its own bar), and the run lists how it was checked.
+  // The margin level is a column of the series, and the run lists how it was checked.
   await result.getByRole('button', { name: 'Charts' }).click();
   await result.locator('summary', { hasText: 'Equity by bar' }).click();
   await expect(result.getByRole('columnheader', { name: 'Margin level (%)' })).toBeVisible();

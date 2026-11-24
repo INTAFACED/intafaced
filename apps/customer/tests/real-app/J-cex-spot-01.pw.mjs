@@ -5,10 +5,10 @@ import path from 'node:path';
 import { api, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
 import { confirm, deskPath, held, openDesk, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { createPublicClient, http, pad } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import {
   otherVenueTrader,
   testVenue,
@@ -220,10 +220,14 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await expect(page.getByTestId('account-summary')).toContainText(/Verification: .*trading/i);
   await page.keyboard.press('Escape');
   // The desk accepts orders: on the venue desk with the person's TEST wallet connected, the venue's own preview of this
-  // exact order (the price and amount typed below) is answered, its lock in USDC the order's price times its amount, and
-  // Buy is open with no refusal on verification.
+  // exact order (the price and amount typed below) is answered, its lock in USDC the order's price times its amount.
+  // Verification no longer stops it: the one thing in the way is the venue's money check, which the desk runs before
+  // Confirm (J-cex-spot-02 #6): the venue account holds nothing until #4, so the desk says in words that this order locks
+  // more USDC than is free, and never asks to verify. Nothing is signed, no order rests and nothing is locked on the venue
+  // or held in our ledger.
   await venueStatus(who);
   const { wallet, owner } = await venueDesk(page);
+  const asked = wallet.requests.length;
   const { bid } = await venueBook(VENUE_SPOT);
   const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
   const amount = '0.001';
@@ -241,30 +245,33 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   const preview = (await answer.json()).value;
   expect(preview?.lock?.asset, JSON.stringify(preview).slice(0, 400)).toBe('USDC');
   expect(wireUnits(preview.lock.amount)).toBe((toUnits(away) * toUnits(amount)) / toUnits('1'));
-  const buy = page.getByRole('button', { name: 'Buy BTC' });
-  await expect(buy).toBeEnabled();
   const reason = page.locator('#dk-reason-buy');
+  const short = reason.getByTestId('venue-ticket-short');
+  await expect(short).toBeVisible();
+  await expect(short).toContainText(/Not enough USDC free on your venue account/);
+  await expect(short).not.toContainText(/[a-z]+_[a-z_]+/);
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
-  // The place door takes the same order past verification to the venue's money check: confirmed and signed, the venue
-  // answers on funds (the venue account holds nothing until #4), not on permission; no order rests and nothing is locked
-  // on the venue or held in our ledger.
-  const submitted = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/submit');
-  await buy.click();
-  await expect(reviewSheet(page)).toBeVisible();
-  const asked = wallet.requests.length;
-  await confirm(page, 'buy');
-  await continueInWallet(page);
-  const placed = await submitted;
-  const placedBody = await placed.json();
-  expect(placed.status(), JSON.stringify(placedBody).slice(0, 400)).toBe(200);
-  expect(placedBody.outcome, JSON.stringify(placedBody).slice(0, 400)).toMatchObject({
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  expect(wallet.requests.length).toBe(asked);
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  // Our place door accepts this order from the verified person: the exact intent the desk previewed, prepared under this
+  // person's session and signed by their own TEST wallet key, goes past verification to the venue, which answers
+  // definitely on funds (the venue account holds nothing until #4) and never on permission. No order rests and nothing is
+  // locked on the venue or held in our ledger.
+  const intent = answer.request().postDataJSON().intent;
+  const placed = await placeThroughDoor(await api(who), owner, intent);
+  // Accepted at our door: prepared as this person's own order (its typed data to sign, its action key), where the held
+  // person below is refused 403 `denied.kyc_required`.
+  expect(placed.prepared.status, JSON.stringify(placed.prepared.body).slice(0, 400)).toBe(200);
+  expect(placed.prepared.body.actionKey).toEqual(expect.any(String));
+  expect(placed.prepared.body.prepared.typedData).toBeTruthy();
+  expect(placed.sent.status, JSON.stringify(placed.sent.body).slice(0, 400)).toBe(200);
+  expect(placed.sent.body.outcome, JSON.stringify(placed.sent.body).slice(0, 400)).toMatchObject({
     definite: true,
     accepted: false,
     refusal: { code: 'insufficient_balance' },
   });
-  expect(wallet.requests.length).toBe(asked + 1);
-  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(0n);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
@@ -294,6 +301,17 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     await hitPage.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
     await expect(hitPage.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
     await expect(hitPage.locator('#dk-reason-buy')).not.toContainText(/screen|sanction/i);
+    // The hold, not the empty venue account, is what refuses: the desk shows no money-check refusal, and our place door
+    // refuses this person's same order before it is ever signed or sent to the venue, which the verified person's passes.
+    await expect(hitPage.locator('#dk-reason-buy')).not.toBeEmpty();
+    await expect(hitPage.getByTestId('venue-ticket-short')).toHaveCount(0);
+    const hitOwner = hitWallet.address.toLowerCase();
+    const hold = await placeThroughDoor(await api(listed), hitOwner, intent);
+    // The trading level the hold keeps this person below: 403 PermissionDenied `denied.kyc_required`, before any typed data.
+    expect(hold.prepared.status, JSON.stringify(hold.prepared.body).slice(0, 400)).toBe(403);
+    expect(hold.prepared.body).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'denied.kyc_required' });
+    expect(hold.prepared.body.prepared).toBeUndefined();
+    expect(hold.sent).toBeNull();
   } finally {
     await hitContext.close();
   }
@@ -322,6 +340,34 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     restartWith('identity', 'LOCAL_STACK_IDENTITY_SANCTIONS_LIST', true);
   }
 });
+
+/**
+ * One order through our place door by API, as `session`: prepare it for `owner`, sign the venue's typed data with the run's
+ * TEST wallet key, and submit it. A refused prepare is returned with `sent` null: nothing was signed or sent.
+ */
+async function placeThroughDoor(session, owner, intent) {
+  const prepared = await session.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent,
+    actionKey: null,
+    stepUpApprovalId: null,
+  });
+  if (prepared.status !== 200) return { prepared, sent: null };
+  const p = prepared.body.prepared;
+  const t = p.typedData;
+  const signature = await privateKeyToAccount(personKey()).signTypedData({
+    domain: t.domain,
+    types: t.types,
+    primaryType: t.primaryType,
+    message: t.message,
+  });
+  const sent = await session.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: p.digest, signature, signedBy: owner },
+  });
+  return { prepared, sent };
+}
 
 /** The run's one TEST wallet key, kept in the run file (mode 600), made on first use. */
 function personKey() {
@@ -361,17 +407,8 @@ async function venueDesk(page, { signedIn = false } = {}) {
 async function connectWallet(page, wallet) {
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
-  const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
   const shown = wallet.address.toLowerCase();
-  // The wallet announces itself after the panel paints, and a still-authorised wallet is restored on its own, so the
-  // Connect button can go between seeing it and pressing it (#8287): press it only while no address is shown, and never
-  // wait on a button that has gone.
-  const address = panel.getByText(shown);
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, panel.getByText(shown), panel);
   await expect(panel).toContainText(shown);
   return panel;
 }
@@ -674,10 +711,10 @@ test(`${J} #6 types a limit buy of TEST 0.1 BTC and reviews: the venue's lock, t
   expect(status, JSON.stringify(preview).slice(0, 300)).toBe(200);
   const lock = listed(review, /lock/i);
   await expect(lock).toContainText(preview.value.lock.asset);
-  expect(shownUnits(await lock.innerText())).toBe(wireUnits(preview.value.lock.amount));
+  await expect.poll(async () => shownUnits(await lock.innerText())).toBe(wireUnits(preview.value.lock.amount));
   const venueFee = listed(review, /venue.?s fee/i);
   expect(preview.value.venueFee.known).toBe(true);
-  expect(shownUnits(await venueFee.innerText())).toBe(wireUnits(preview.value.venueFee.value.amount));
+  await expect.poll(async () => shownUnits(await venueFee.innerText())).toBe(wireUnits(preview.value.venueFee.value.amount));
   // Our builder fee is its own line and reads none: the venue charges builder fees only in the quote asset.
   expect(preview.value.builderFee).toMatchObject({ known: true });
   expect(wireUnits(preview.value.builderFee.value.amount)).toBe(0n);
@@ -796,7 +833,7 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
     const r = own.nth(i);
     await expect(r).toContainText('Buy');
     await expect(r.locator('[data-cell="role"]')).toHaveText('Maker');
-    expect(shownUnits(await r.locator('[data-cell="price"]').innerText())).toBe(toUnits(venueBuy.price));
+    await expect.poll(async () => shownUnits(await r.locator('[data-cell="price"]').innerText())).toBe(toUnits(venueBuy.price));
     shownFilled += shownUnits(await r.locator('[data-cell="amount"]').innerText());
   }
   expect(shownFilled, 'the desk shows the whole order filled').toBe(toUnits(VENUE_BUY));
@@ -807,8 +844,8 @@ test(`${J} #8 a TEST sell on the venue fills it: price, size, the venue's fee, n
   // The order the desk placed stays listed as the venue reads it: Filled, all of it, nothing locked, nothing to cancel.
   const orderRow = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${venueBuy.clientOrderId}"]`);
   await expect(orderRow.locator('[data-cell="status"]')).toHaveText('Filled', { timeout: 15_000 });
-  expect(shownUnits(await orderRow.locator('[data-cell="filled"]').innerText())).toBe(toUnits(VENUE_BUY));
-  expect(shownUnits(await orderRow.locator('[data-cell="locked"]').innerText())).toBe(0n);
+  await expect.poll(async () => shownUnits(await orderRow.locator('[data-cell="filled"]').innerText())).toBe(toUnits(VENUE_BUY));
+  await expect.poll(async () => shownUnits(await orderRow.locator('[data-cell="locked"]').innerText())).toBe(0n);
   await expect(orderRow.getByRole('button')).toHaveCount(0);
   // The venue balances moved by the fill: BTC up by what was bought (less a fee taken in BTC), USDC's lock spent.
   const after = { usdc: await venueBalance(who, owner, 'USDC'), btc: await venueBalance(who, owner, 'BTC') };
@@ -1053,9 +1090,9 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   for (const lot of booked) {
     const row = main.locator(`tr[data-lot="${lot.id}"]`);
     await expect(row).toHaveCount(1);
-    expect(shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
+    await expect.poll(async () => shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
     await expect(row.locator('td[data-col=cost]')).toHaveText(new RegExp(`^${DOLLARS}$`));
-    expect(shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
+    await expect.poll(async () => shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
     await expect(row.locator('td[data-col=days]')).toHaveText(/^\d+$/);
   }
   const count = await rows.count();
@@ -1246,7 +1283,7 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   const record = (await venueRead(who, `withdrawals/${encodeURIComponent(nonce)}`, owner)).value;
   expect(record).toMatchObject({ asset: 'USDC', status: 'done', destination: owner });
   expect(wireUnits(record.amount)).toBe(toUnits('10'));
-  if (record.fee.known) expect(shownUnits(await fee.innerText())).toBe(wireUnits(record.fee.value));
+  if (record.fee.known) await expect.poll(async () => shownUnits(await fee.innerText())).toBe(wireUnits(record.fee.value));
   else await expect(fee).toHaveText(/not known/i);
   const after = await venueBalance(who, owner, 'USDC');
   expect(wireUnits(before.total) - wireUnits(after.total)).toBe(toUnits('10') + (record.fee.known ? wireUnits(record.fee.value) : 0n));

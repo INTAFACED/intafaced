@@ -1,5 +1,5 @@
 import type { TreasuryData } from '@/lib/merchants/loaders';
-import { formatAmount } from '@/lib/merchants/money';
+import { formatAmount } from '@/lib/money';
 import { describeFreshness } from '@/lib/merchants/time';
 import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Card, FailureState, KpiTile, PageHead, StateBlock } from './ui';

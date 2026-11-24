@@ -2,16 +2,22 @@
 // Stack: fresh
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
-import { signIn } from './desk.mjs';
+import { founderPagesOf } from './admin.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, toUnits, tool } from './stack.mjs';
+import { agePast } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import { call, data, openHub, operatorPair, potFunding } from './campaign-desk.mjs';
+import { chainUsd, mineBlocks } from './chain-node.mjs';
+import { sumDecimal } from './reward-funds.mjs';
+import { ownerDoor } from './venue-room.mjs';
+import { testPasskey } from './p2p.mjs';
 
 // J-campaigns-03, in the running app (docs/roadmap/journeys.json): see what I have earned, what is on hold, and why.
 // One test per step, titled "J-campaigns-03 #<n>", run in order. The launch money model (OWNER 226, OWNER 288): a reward
@@ -29,6 +35,7 @@ import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFil
 // custodial layer's, with TEST USDT from the trade-fee pot, and run while the stack has custody on.
 const J = 'J-campaigns-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const SYMBOL = 'BTC/USDT';
 const TRADE = '0.001';
@@ -41,27 +48,8 @@ const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 
 test.describe.configure({ mode: 'default' });
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
+const operators = operatorPair();
+const { fundPotFromFees } = potFunding(operators, ASSET);
 
 /** A TEST task campaign with one step (buy BTC/USDT once) and every field the activation gate needs. */
 async function liveCampaign(name, { holdSeconds, asset = ASSET, amount = REWARD, budget = '0.05', lock = null }) {
@@ -98,19 +86,6 @@ async function liveCampaign(name, { holdSeconds, asset = ASSET, amount = REWARD,
   return live;
 }
 
-/** Founder A asks to sweep earned builder fees into the USDC reward pot; founder B approves, which posts it. */
-async function fundPot(reference, amount) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  data(
-    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'builder', asset: ASSET, amount }, a),
-    'ops.pot.request',
-  );
-  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
-  expect(funded.state, JSON.stringify(funded)).toBe('posted');
-}
-
 const person = (handle) => ({
   handle,
   email: `${handle}@local-test.invalid`,
@@ -128,15 +103,6 @@ async function verifyAs(page, who, level) {
   await expect(page.getByText('Your reviewed request')).toBeVisible();
   tool('local-test-gates.mjs', 'verify');
   await signOutBrowser(page.context());
-}
-
-const trpc = (procedure, input) => `/api/campaigns/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`;
-
-async function call(who, method, procedure, input) {
-  const client = await api(who);
-  const res = method === 'GET' ? await client.get(trpc(procedure, input)) : await client.post(`/api/campaigns/trpc/${procedure}`, input);
-  if (!res.body?.result) throw new Error(`${procedure} refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data;
 }
 
 const mine = (who) => call(who, 'GET', 'rewards.mine', {});
@@ -165,14 +131,6 @@ async function completeAll(who, ids) {
   }
 }
 
-async function openHub(page) {
-  await page.goto('/uc/promotion');
-  const hub = page.getByTestId('rewards-hub');
-  await expect(hub).toBeVisible();
-  await expect(hub).not.toHaveAttribute('data-state', 'loading', { timeout: 30_000 });
-  return hub;
-}
-
 const row = (hub, campaignId) => hub.locator(`[data-testid="reward-row"][data-campaign="${campaignId}"]`);
 const total = (hub, status) => hub.locator(`[data-testid="rewards-total"][data-status="${status}"][data-asset="${ASSET}"]`);
 
@@ -181,39 +139,7 @@ const total = (hub, status) => hub.locator(`[data-testid="rewards-total"][data-s
 venueForThisFile(test);
 const traderKey = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${RUN}`)));
 const traderOwner = traderKey.address.toLowerCase();
-
-/** One action through svc-trade's user-venue door as `who`: prepare, sign with the TEST key, submit. */
-async function door(who, intent, actionKey) {
-  const session = await api(who);
-  const signer = { role: 'owner', address: traderOwner };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: traderOwner, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const p = prepared.body.prepared;
-  const t = p.typedData;
-  const signature = await traderKey.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: p.digest, signature, signedBy: traderOwner },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
-
-/** Adds decimal strings exactly (no float). */
-function sumDecimal(values) {
-  const scale = 18;
-  const units = (x) => {
-    const [w, f = ''] = String(x).split('.');
-    return BigInt(w + f.padEnd(scale, '0'));
-  };
-  const sum = values
-    .reduce((n, v) => n + units(v), 0n)
-    .toString()
-    .padStart(scale + 1, '0');
-  const frac = sum.slice(-scale).replace(/0+$/, '');
-  return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
-}
+const door = ownerDoor(traderKey);
 
 /**
  * Builder fees the TEST venue credits us on this file's own sells: `who` approves our builder fee, sells SELL_SIZE BTC
@@ -284,33 +210,6 @@ async function earnBuilderFees(who, sells) {
 }
 
 const TRANSFER_FN = 'function transfer(address to, uint256 value) returns (bool)';
-/** TEST USD (6 decimals) `address` holds on the TEST chain, read from the node itself. */
-async function chainUsd(address) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
-    }),
-  });
-  return BigInt((await res.json()).result);
-}
-
-/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control), for the venue's confirmations. */
-async function mineBlocks(n) {
-  for (let i = 0; i < n; i += 1) {
-    const res = await fetch(testChain().gateUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
-    });
-    const body = await res.json();
-    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
-  }
-}
 
 /**
  * Pays INTAFACED's TEST rewards wallet from our own TEST builder fees, as the launch money model moves them: this file's
@@ -392,38 +291,48 @@ async function fundTradePot(reference, amount) {
   expect(funded.state, JSON.stringify(funded)).toBe('posted');
 }
 
+/** A person's own USDT deposit address on TEST Ethereum, asked of the bank through their own API (as J-wallet-07 does). */
+async function depositAddress(client) {
+  const res = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDT', networkId: 'ethereum' });
+  const address = res.body?.result?.data?.address;
+  expect(address, `deposits.address: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`).toBeTruthy();
+  return address;
+}
+
+/**
+ * The short `trade:withdraw` token a "Confirm it's you" buys, answered with a TEST passkey saved on the person's account
+ * through identity's own doors (p2p.mjs testPasskey; a passkey leaves password sign-in as it was, so later steps' api()
+ * sessions keep working).
+ */
+async function withdrawStepUp(who) {
+  const session = await api(who);
+  const passkey = await testPasskey(session);
+  const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
+  const challenge = options.body?.result?.data?.challenge;
+  expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
+  const stepped = await session.post('/api/identity/trpc/auth.stepUp', { webauthn: await passkey.assertion(challenge) });
+  const data = stepped.body?.result?.data;
+  expect(data?.scopes, JSON.stringify(stepped.body).slice(0, 300)).toContain('trade:withdraw');
+  return data.accessToken;
+}
+
+/** svc-pay's `withdrawal.create`, sent with the step-up token as its own bearer, as the withdraw form sends it. */
+async function withdrawWith(token, input) {
+  const res = await fetch(`${EDGE}/api/pay/trpc/withdrawal.create`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
 /** Adds two decimal strings exactly (no float). */
 const addDecimal = (a, b) => sumDecimal([a, b]);
-
-/** Funds the pot with builder fees once svc-trade has posted them to the ledger (it posts on its own cadence). */
-async function fundPotFromFees(reference, amount) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          await fundPot(`${reference}-${Date.now().toString(36)}`, amount);
-          return 'posted';
-        } catch (err) {
-          return String(err).slice(0, 200);
-        }
-      },
-      { timeout: 90_000, intervals: [5_000] },
-    )
-    .toBe('posted');
-}
 
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
 
 const founders = { a: null, b: null };
-async function founderPages(browser) {
-  for (const key of ['a', 'b']) {
-    if (founders[key]) continue;
-    founders[key] = await (await browser.newContext()).newPage();
-    await founderSignIn(founders[key], key);
-    await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
-  }
-  return founders;
-}
+const founderPages = founderPagesOf(founders);
 
 const freezeStep = (page, body) =>
   page.evaluate(async (payload) => {
@@ -602,8 +511,8 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   await completeAll(me, [hold.id]);
   const claimed = await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 60_000 }).toBe('owed');
-  const until = new Date(claimed.reward.holdUntil).getTime();
-  await page.waitForTimeout(Math.max(0, until - Date.now()));
+  // The hold ends: the TEST reward is made a hold's length earlier (the TEST age door), not waited out.
+  await agePast('campaigns', 'reward', claimed.reward.rewardKey, claimed.reward.holdUntil);
   // Paid once to the connected wallet, with its chain transaction.
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 30_000 }).toBe('paid');
   await page.waitForTimeout(12_000);
@@ -613,13 +522,16 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   const frozenHold = await liveCampaign(`TEST hold under freeze ${tag}`, { holdSeconds: 75 });
   await completeAll(me, [frozenHold.id]);
   const second = await call(me, 'POST', 'tasks.claim', { campaignId: frozenHold.id });
+  // Owed at its claim, as the first is: the freeze is about its payment when the hold ends, not the debt.
+  await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.state, { timeout: 60_000 }).toBe('owed');
   try {
     await setPostingFreeze(browser, true);
     const frozenUntil = new Date(second.reward.holdUntil).getTime();
     expect(Date.now(), 'the freeze must be on before the hold ends').toBeLessThan(frozenUntil);
-    await page.waitForTimeout(Math.max(0, frozenUntil - Date.now()) + 12_000);
+    await agePast('campaigns', 'reward', second.reward.rewardKey, second.reward.holdUntil);
     // The hold ended with posting frozen: the payment is refused by the freeze before anything is sent, so it stays owed
-    // and nothing is paid, with the freeze's own reason.
+    // and nothing is paid, with the freeze's own reason, once a pay pass after the hold has run.
+    await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.reason, { timeout: 60_000 }).toBe('ledger.frozen');
     const heldBack = (await progressOf(me, frozenHold.id)).reward;
     expect(heldBack).toMatchObject({ state: 'owed', reason: 'ledger.frozen', payout: null });
     const refused = heldBack.attempts.filter((a) => a.outcome === 'refused');
@@ -666,8 +578,9 @@ test(`${J} #4 fails the condition on a locked reward: it shows forfeited once an
   await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText(`Locked until you complete “${LOCK_STEP.title}” (0 of 1)`);
 
   // The customer never sells: the lock ends without its step, and it is forfeited once.
-  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
-  // A locked reward forfeits a grace minute after its lock ends (late fills may still count), then on the next pass.
+  // A locked reward forfeits a grace minute after its lock ends (late fills may still count, svc-campaigns
+  // LOCK_FILL_GRACE_SECONDS), then on the next pass: the TEST reward is made that much earlier (the TEST age door).
+  await agePast('campaigns', 'reward', reward.rewardKey, new Date(Date.parse(reward.lock.until) + 60_000).toISOString());
   await expect.poll(async () => (await progressOf(me, locked.id)).reward.state, { timeout: 150_000 }).toBe('forfeited');
   hub = await openHub(page);
   await expect(row(hub, locked.id)).toHaveAttribute('data-status', 'closed');
@@ -692,8 +605,8 @@ test(`${J} #4 fails the condition on a locked reward: it shows forfeited once an
 test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen explains it is owed by INTAFACED and not yet in the wallet; nothing is sent`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const { me } = state('me', 'fees');
+  test.setTimeout(360_000);
+  const { me, wallet } = state('me', 'fees', 'wallet');
   // Its own owed reward, with a day's hold so it is never paid during the run (#2 and #3 wait for theirs to be paid).
   const still = await liveCampaign(`TEST owed, held a day ${tag}`, { holdSeconds: 86_400 });
   await completeAll(me, [still.id]);
@@ -702,6 +615,10 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const owedId = still.id;
   const before = (await progressOf(me, owedId)).reward;
   expect(before.state).toBe('owed');
+  // What the outside records hold for the connected wallet before the click: the TEST venue's own record of its account,
+  // and the TEST chain's own record of the wallet's TEST USD. Nothing sent means neither moves.
+  const venueBefore = await venueBalance(wallet, ASSET);
+  const chainBefore = await chainUsd(wallet);
   await signIn(page, me);
   const hub = await openHub(page);
   const due = row(hub, owedId);
@@ -722,6 +639,9 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const after = (await progressOf(me, owedId)).reward;
   expect(after).toMatchObject({ state: 'owed', ledgerTxId: null });
   expect(after.attempts).toEqual(before.attempts);
+  // Not yet in the wallet, and nothing sent to it: the venue's and the chain's own records are what they were.
+  expect(await venueBalance(wallet, ASSET)).toEqual(venueBefore);
+  expect(await chainUsd(wallet)).toBe(chainBefore);
 
   // Later (OWNER 226): the withdraw path refuses a bonus and the screen explains the restriction. A bonus is the
   // custodial layer's (TEST USDT from the trade-fee pot), so this part runs only while custody is on.
@@ -741,6 +661,46 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   // The ledger itself keeps the bonus out of what can be withdrawn: the person's USDT is what it was before the claim.
   expect(await ledgerBalance(me, 'USDT')).toEqual(usdtBefore);
 
+  // The withdraw path itself refuses the bonus, whatever a screen lets through: the person, confirmed with their passkey,
+  // asks svc-pay to send their available USDT plus the bonus to another account on the platform (it settles inside, so
+  // the ledger is the one that answers). The ledger refuses it as more than is available, and nothing moves on either side.
+  await signOutBrowser(page.context());
+  const friend = await signUp(page, 'jc03f');
+  await verify(page, friend);
+  const friendAddress = await depositAddress(await api(friend));
+  const friendBefore = await ledgerBalance(friend, 'USDT');
+  const mineBefore = await ledgerBalance(me, 'USDT');
+  const token = await withdrawStepUp(me);
+  const over = addDecimal(mineBefore.free, REWARD);
+  const asked = await withdrawWith(token, {
+    assetId: 'USDT',
+    amount: over,
+    railId: 'internal',
+    destination: { kind: 'crypto', ref: friendAddress },
+    clientRef: `${J}-5-bonus-${tag}`,
+  });
+  const cause = asked.body?.error?.data?.cause;
+  expect(asked.status, JSON.stringify(asked.body).slice(0, 400)).not.toBe(200);
+  expect(cause?.code, JSON.stringify(asked.body).slice(0, 400)).toBe('pay.internal_settlement_refused');
+  // The person's own record of that withdrawal, as svc-pay keeps it: failed, with the ledger's reason, and nothing sent.
+  const history = await (await api(me)).get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit: 20 }))}`);
+  expect(history.status, JSON.stringify(history.body).slice(0, 300)).toBe(200);
+  const record = history.body.result.data.items.filter((w) => w.clientRef === `${J}-5-bonus-${tag}`);
+  expect(record, JSON.stringify(history.body).slice(0, 600)).toHaveLength(1);
+  expect(record[0], 'the ledger refused it as more than is available').toMatchObject({
+    assetId: 'USDT',
+    status: 'failed',
+    railRef: null,
+  });
+  // svc-bank's answer, from the book's own refusal: more than the person has available.
+  expect(record[0].failure?.code, JSON.stringify(record[0])).toMatch(/\.insufficient_funds$/);
+  expect(toUnits(record[0].amount)).toBe(toUnits(over));
+  // Nothing was sent: the person's USDT and the friend's are what they were, and the bonus is still locked, still theirs.
+  expect(await ledgerBalance(me, 'USDT')).toEqual(mineBefore);
+  expect(await ledgerBalance(friend, 'USDT')).toEqual(friendBefore);
+  expect((await progressOf(me, bonus.id)).reward.state).toBe('locked');
+  expect((await mine(me)).totals.filter((t) => t.status === 'locked' && t.asset === 'USDT').map((t) => t.amount)).toEqual([REWARD]);
+  await signIn(page, me);
   const bonusHub = await openHub(page);
   await expect(row(bonusHub, bonus.id)).toHaveAttribute('data-status', 'locked');
   await expect(row(bonusHub, bonus.id).getByTestId('reward-why')).toContainText(
@@ -771,9 +731,13 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
 
 test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restricted balance is zero`, async ({ page }) => {
   test.setTimeout(300_000);
-  const { me, bonusId } = state('me', 'bonusId');
+  const { me, bonusId, wallet } = state('me', 'bonusId', 'wallet');
   const reward = (await progressOf(me, bonusId)).reward;
-  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
+  // A bonus is INTAFACED's restricted balance, never the customer's outside money: its forfeit moves nothing on the TEST
+  // venue's own record of the connected wallet's account.
+  const venueBefore = await venueBalance(wallet, 'USDT');
+  // The bonus expires: the TEST reward is made its expiry's length earlier (the TEST age door), not waited out.
+  await agePast('campaigns', 'reward', reward.rewardKey, reward.lock.until);
   await expect.poll(async () => (await progressOf(me, bonusId)).reward.state, { timeout: 60_000 }).toBe('forfeited');
   await signIn(page, me);
   const hub = await openHub(page);
@@ -795,6 +759,7 @@ test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restrict
   const after = (await progressOf(me, bonusId)).reward;
   expect(after.attempts.filter((a) => a.outcome === 'forfeited')).toHaveLength(1);
   expect(after.ledgerTxId).toBeTruthy();
+  expect(await venueBalance(wallet, 'USDT')).toEqual(venueBefore);
 });
 
 test(`${J} #7 opens the hub while the campaigns service is down: the error state, no stale number shown as current`, async ({ page }) => {

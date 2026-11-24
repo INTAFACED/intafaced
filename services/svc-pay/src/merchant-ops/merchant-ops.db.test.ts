@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import { mergeRouters, type Context } from '@intafaced/contracts';
@@ -36,7 +36,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_merchant_ops_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -452,6 +452,20 @@ describe('W15 merchant operations (Postgres)', () => {
       const bOnly = await exportCsv(userB, 'payouts');
       expect(bOnly.file.content).toContain(settlementsB[0]!);
       expect(bOnly.file.content).not.toContain(settlementsA[0]!);
+    });
+
+    it('excludes ledger-only settlements from payout CSVs', async () => {
+      // Posting writes payout_method = 'ledger' (settlement-status.ts); that is not a payout.
+      const unpaid = settlementsA[1]!;
+      await sql`UPDATE pay.settlements SET payout_method = 'ledger' WHERE id = ${unpaid}`;
+      try {
+        const { file } = await exportCsv(userA, 'payouts');
+        expect(file.content).toContain(settlementsA[0]!);
+        expect(file.content).not.toContain(unpaid);
+        expect(file.rowCount).toBe(1);
+      } finally {
+        await sql`UPDATE pay.settlements SET payout_method = NULL WHERE id = ${unpaid}`;
+      }
     });
 
     it('filters narrow the file and a bad filter is a typed refusal', async () => {
@@ -1014,6 +1028,52 @@ describe('W15 merchant operations (Postgres)', () => {
       await expect(sql`DELETE FROM pay.merchant_notification_preference_events WHERE merchant_id = ${merchant}`).rejects.toThrow(
         /append-only/,
       );
+    });
+
+    it('an owner whose verification is not done saves their own preferences on pay:onboard; the role table and the scope still decide', async () => {
+      type Pref = { kind: string; inApp: boolean; updatedBy: string | null };
+      const fresh = id();
+      const business = (
+        await sql<Array<{ id: string; kyb_status: string }>>`
+        INSERT INTO pay.merchants (user_id) VALUES (${fresh}) RETURNING id, kyb_status::text`
+      )[0]!;
+      expect(business.kyb_status).not.toBe('approved');
+      const onboarding = as(fresh, { scopes: ['pay:onboard'] });
+      const set = (await onboarding.merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false })) as Pref;
+      expect(set).toMatchObject({ kind: 'export_ready', inApp: false, updatedBy: fresh });
+      const history = (await onboarding.merchantOps.notifications.preferences.history({ limit: 200 })) as {
+        items: Array<{ kind: string; inApp: boolean; actorId: string }>;
+      };
+      expect(history.items).toEqual([expect.objectContaining({ kind: 'export_ready', inApp: false, actorId: fresh })]);
+
+      // The money writes keep their KYB gate: the same session still may not send an invoice.
+      expect((await refusal(() => onboarding.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '1' }))).code).toBe(
+        'FORBIDDEN',
+      );
+      // A Viewer of that business, on pay:onboard, lacks notifications.manage.
+      const viewer = id();
+      await sql`INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+                VALUES (${business.id}, ${viewer}, 'viewer', 'active', ${fresh})`;
+      expect(
+        (
+          await refusal(() =>
+            as(viewer, { scopes: ['pay:onboard'] }).merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false }),
+          )
+        ).cause,
+      ).toBe('pay.team_role_forbidden');
+      // Without pay:onboard or pay:write, or without the second factor, nothing is saved.
+      expect(
+        (
+          await refusal(() =>
+            as(fresh, { scopes: ['pay:read'] }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+          )
+        ).code,
+      ).toBe('FORBIDDEN');
+      await refusal(() =>
+        as(fresh, { scopes: ['pay:onboard'], mfa: false }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+      );
+      const after = (await onboarding.merchantOps.notifications.preferences.list({})) as Pref[];
+      expect(after.find((p) => p.kind === 'dispute_due')).toMatchObject({ inApp: true, updatedBy: null });
     });
 
     it("each person's preferences are their own: a teammate's choice, feed, unread count and history leave the owner's alone", async () => {

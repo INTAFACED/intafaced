@@ -138,12 +138,12 @@ console.log(z.reason);`,
   const order = await first.getAttribute('data-order');
   expect(await eventKinds(page, order)).toEqual(['new', 'accepted', 'filled']);
   const placed = orderEvents(page).and(page.locator(`[data-order="${order}"][data-kind="new"]`));
-  expect(Number(await placed.getAttribute('data-limit'))).toBe(Number(BELOW));
-  expect(Number(await placed.getAttribute('data-market'))).toBe(Number(MARK));
+  await expect.poll(async () => Number(await placed.getAttribute('data-limit'))).toBe(Number(BELOW));
+  await expect.poll(async () => Number(await placed.getAttribute('data-market'))).toBe(Number(MARK));
   expect(Number(BELOW)).toBeLessThan(Number(MARK));
   const filled = orderEvents(page).and(page.locator(`[data-order="${order}"][data-kind="filled"]`));
-  expect(Number(await filled.getAttribute('data-price'))).toBeLessThanOrEqual(Number(BELOW));
-  expect(Number(await filled.getAttribute('data-market'))).toBeLessThanOrEqual(Number(BELOW));
+  await expect.poll(async () => Number(await filled.getAttribute('data-price'))).toBeLessThanOrEqual(Number(BELOW));
+  await expect.poll(async () => Number(await filled.getAttribute('data-market'))).toBeLessThanOrEqual(Number(BELOW));
 
   // Quantity zero: rejected with its reason, and the strategy itself saw the rejected event (its own log printed it).
   const zero = events.and(page.locator('[data-qty="0"]'));
@@ -175,10 +175,11 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   page,
 }) => {
   test.setTimeout(20 * 60_000);
-  // The TEST taker crosses about once a minute, so a 1 minute bar of the tape holds one trade and has no range. A second
-  // TEST account trades the book both ways every few seconds (a market buy meets the ask, a market sell the bid, the
-  // two nearly cancelling out), so the bars this run reads hold trades on both sides of their open. A buy's fee is taken
-  // in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller than the buy before it.
+  // The TEST taker crosses both sides on each of its turns (local-test-market.mjs `crossingLegs`), so a 1 minute bar of
+  // the tape spans the spread. A second TEST account also trades the book both ways every few seconds (a market buy
+  // meets the ask, a market sell the bid, the two nearly cancelling out), so the bars this run reads hold trades on both
+  // sides of their open. A buy's fee is taken in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller
+  // than the buy before it.
   const tape = await api(await fundedTrader(page, 'jt', '2000'));
   let tick = 0;
   async function tradeBothWays(seconds) {
@@ -191,7 +192,11 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
         amount: side === 'buy' ? '0.001' : '0.0009',
         clientOrderId: `${J}-tape-${process.env.JOURNEY_RUN_ID ?? 'local'}-${tick}`,
       });
-      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+      // The tape only feeds the bars the backtest reads; it is not what this step checks. When svc-matching is slow to
+      // answer for a moment, Edge (its halt-all guard) or svc-trade refuses that one order as unavailable: the tick is
+      // skipped and the tape goes on, and the backtest below still needs a bar that reached both exits.
+      const momentary = ['edge.venue_halt_unavailable', 'trade.matching_unavailable'].includes(res.body?.intafacedCode ?? res.body?.code);
+      expect(momentary || res.status < 300, `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`).toBe(true);
       await page.waitForTimeout(5_000);
     }
   }
@@ -423,7 +428,7 @@ test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns r
   const event = room.getByTestId('quant-risk-event').and(page.locator('[data-kind="equity_stop"]'));
   await expect(event).toHaveCount(1);
   await expect(event).toHaveAttribute('data-mode', 'reduce_only');
-  expect(Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
+  await expect.poll(async () => Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
   const at = await event.getAttribute('data-ts');
   await view(room, 'Orders and trades');
   const buysAfter = await room

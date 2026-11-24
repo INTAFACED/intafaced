@@ -234,23 +234,76 @@ test(`${J} #1 signs in to a restricted account: the status page shows the state,
 });
 
 test(`${J} #2 opens a refusal on any screen: the same reason wording everywhere`, async ({ page }) => {
-  test.setTimeout(300_000);
-  // A verified person with TEST USDT, so an order reaches the trading check: the restriction is what refuses it.
+  test.setTimeout(360_000);
+  // A verified person with TEST USDT, so each trade reaches the trading check: the restriction is what refuses it.
   const who = await fundedTrader(page, 'apw', '100');
   restrictTrading(who.handle);
   lifts.add(who.handle);
+  const client = await api(who);
+  const before = (await client.balances()).USDT;
+  // The words the status page gives the stored reason: the owner's sentence and its next step, never the code.
+  const reasonWords = `${TRADING_REASON.text} Next: ${TRADING_REASON.guidance}`;
+  /** One refusal screen: it says trading is on hold, gives the stored reason in the status page's words, and no code. */
+  async function sameWords(where, surface) {
+    await expect(surface.getByText('Trading is on hold on your account'), where).toBeVisible();
+    const reason = surface.getByTestId('trading-hold-reason');
+    await expect(reason, where).toHaveCount(1);
+    await expect(reason, where).toHaveText(reasonWords);
+    await expect(surface, where).not.toContainText(TRADING_REASON.code);
+  }
+
+  // The status page: the wording every refusal screen must match.
+  await signIn(page, who);
+  await page.goto('/uc/account');
+  const row = page.getByTestId('account-status__restrictions').locator('li[data-kind="trading_restricted"]');
+  await expect(row).toContainText(TRADING_REASON.text);
+  await expect(row).toContainText(`Next: ${TRADING_REASON.guidance}`);
+
+  // The spot desk: a limit order is refused by identity's trading check, and nothing rests.
   await openDesk(page, who);
   const answer = await sendOrder(page);
   expect(answer.status()).toBe(403);
   expect((await answer.json()).intafacedCode).toBe('trade.account_restricted');
-  // The desk's refusal gives the reason in the same words as the status page: the stored reason's owner sentence.
-  const main = page.getByRole('main');
-  await expect(main.getByText(TRADING_REASON.text)).toBeVisible();
-  await expect(main).not.toContainText(TRADING_REASON.code);
-  await expect(main).not.toContainText('trade.account_restricted');
-  await page.goto('/uc/account');
-  const row = page.getByTestId('account-status__restrictions').locator('li[data-kind="trading_restricted"]');
-  await expect(row).toContainText(TRADING_REASON.text);
+  await sameWords('the spot desk', page.getByTestId('dk-note--bad'));
+  await expect(page.getByRole('main')).not.toContainText('trade.account_restricted');
+  expect(await openOrders(who)).toEqual([]);
+
+  // The Buy screen: a 10 USD buy of BTC is refused by the same check.
+  await page.goto('/trade/buy?asset=BTC&side=buy');
+  const buy = page.getByTestId('buy-card');
+  await buy.getByLabel('Amount in USD').fill('10');
+  const bought = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+  await buy.getByRole('button', { name: 'Review buy' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  const buyAnswer = await bought;
+  expect(buyAnswer.status()).toBe(403);
+  expect((await buyAnswer.json()).intafacedCode).toBe('trade.account_restricted');
+  await sameWords('the Buy screen', buy);
+  await expect(page.getByTestId('receipt')).toHaveCount(0);
+
+  // The Convert screen: converting 10 USDT to BTC is refused by the same check, in the review it was sent from.
+  await page.goto('/trade/convert');
+  const convert = page.getByRole('region', { name: 'Convert', exact: true });
+  const chooser = page.getByRole('dialog', { name: 'Choose an asset' });
+  const coin = (ticker) =>
+    chooser.getByTestId('picker__row').filter({ has: page.getByTestId('picker__ticker').getByText(ticker, { exact: true }) });
+  await convert.getByRole('button', { name: 'Change the From asset' }).click();
+  await coin('USDT').click();
+  await convert.getByRole('button', { name: 'Change the To asset' }).click();
+  await coin('BTC').click();
+  await convert.getByRole('textbox', { name: 'Amount to convert' }).fill('10');
+  await convert.getByRole('button', { name: 'Preview conversion' }).click();
+  const reviewing = page.getByRole('alertdialog', { name: 'Review conversion' });
+  const go = reviewing.getByRole('button', { name: /^(Convert now|Accept new price)$/ });
+  if ((await go.innerText()) === 'Accept new price') await go.click();
+  const converted = page.waitForResponse((r) => /convert\.accept/.test(r.url()));
+  await reviewing.getByRole('button', { name: 'Convert now' }).click();
+  expect(JSON.stringify(await (await converted).json())).toContain('trade.account_restricted');
+  await sameWords('the Convert screen', reviewing);
+  await expect(page.getByTestId('cvt-receipt')).toHaveCount(0);
+
+  // Refused everywhere, nothing moved.
+  expect((await client.balances()).USDT).toEqual(before);
 });
 
 test(`${J} #2 ledger.frozen shows the platform message and never "account restricted"`, async ({ page, browser }) => {

@@ -6,7 +6,7 @@ import type {
   CampaignGate,
   CampaignState,
 } from '@intafaced/contracts/campaigns-catalogue';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The campaign builder (CM-campaign-types-01 and -02, CM-eligibility-rules-01 and -03, CM-campaign-admin-03; J-campaigns-16).

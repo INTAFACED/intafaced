@@ -1,5 +1,11 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { ChainNotConfiguredError, ChainSendRefusedError, type ConfirmedTransfer, type CryptoChainPort } from './chain-port.js';
+import {
+  ChainNotConfiguredError,
+  ChainSendRefusedError,
+  type ConfirmedTransfer,
+  type CryptoChainPort,
+  type SendDepth,
+} from './chain-port.js';
 import {
   railFailure,
   railHealthStaleReason,
@@ -579,6 +585,13 @@ export class CryptoNativeAdapter implements RailAdapter {
       const found = await this.chain.lookupSend(idempotencyKey);
       if (found.state === 'not_sent') return { status: 'not_sent' };
       if (found.state === 'unknown') return { status: 'unknown' };
+      // A journalled hash only says the send left. Its receipt says whether it moved anything: a reverted one never reads
+      // `sent` (ENGINE W-3), and no receipt yet (or a node that cannot say) is `unknown`, so the hold stays.
+      const depth = await this.chain.sendDepth(idempotencyKey);
+      if (depth === null || depth === 0) return { status: 'unknown' };
+      if (typeof depth === 'object') {
+        return { status: 'reverted', railRef: found.txHash, depth: depth.depth, final: depth.depth >= this.minConfirmations };
+      }
       return { status: 'sent', railRef: found.txHash, amount: found.amount, assetId: found.assetId };
     } catch (err) {
       if (err instanceof ChainNotConfiguredError) return { status: 'unknown' };
@@ -587,7 +600,7 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   /** The send's depth on the chain; the caller compares it with the owner's settle depth. The chain cannot say: `null`. */
-  async payoutDepth(s: SettlementInstruction): Promise<number | null> {
+  async payoutDepth(s: SettlementInstruction): Promise<SendDepth> {
     try {
       return await this.chain.sendDepth(this.payoutIdempotencyKey(s));
     } catch {

@@ -82,7 +82,7 @@ export function NetworkFee({
           return (
             <label key={entry} className="field field--check">
               <input type="radio" name="swap-fee" value={entry} checked={choice === entry} onChange={() => onChoice(entry)} />
-              <span>{t(`fee_${entry}`)}</span> <small className="muted numeric">{hint}</small>
+              <span>{t(`fee_${entry}`)}</span> <small className="lt-muted lt-num">{hint}</small>
             </label>
           );
         })}
@@ -102,10 +102,10 @@ export function NetworkFee({
         />
       )}
       {fees.status === 'failed' && <Failure result={fees.failure} retry={retry} />}
-      {ready && <p className="muted">{t('feeFrom', { blocks: String(ready.blocks), asOf: time })}</p>}
+      {ready && <p className="lt-muted">{t('feeFrom', { blocks: String(ready.blocks), asOf: time })}</p>}
       {refusal && <p role="alert">{refusal}</p>}
       {payIn && (
-        <label className="field">
+        <label className="lt-field">
           <span id={payInId}>{t('payIn')}</span>
           <select value={payIn.value} onChange={(event) => payIn.onChange(event.target.value)} aria-labelledby={payInId}>
             <option value={NATIVE}>{t('payInNative')}</option>
@@ -120,14 +120,14 @@ export function NetworkFee({
       {payIn?.refusal && <p role="alert">{payIn.refusal}</p>}
       {tokenFee?.status === 'ready' ? (
         <>
-          <p className="numeric" data-testid="fee-line">
+          <p className="lt-num" data-testid="fee-line">
             {t('feeInToken', {
               charge: formatUnits(BigInt(tokenFee.quote.charge), tokenFee.token.decimals, tokenFee.token.decimals),
               token: tokenFee.token.name,
               markup: bpsToPercent(tokenFee.quote.markupBps),
             })}
           </p>
-          <p className="muted numeric" data-testid="fee-token-basis">
+          <p className="lt-muted lt-num" data-testid="fee-token-basis">
             {t('feeInTokenBasis', {
               gas: formatUnits(BigInt(tokenFee.quote.gasWei), 18, 18),
               limit: tokenFee.quote.gasLimit,

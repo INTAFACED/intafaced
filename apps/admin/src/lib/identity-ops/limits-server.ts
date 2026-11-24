@@ -6,8 +6,7 @@ import {
   type LimitRequest,
   type LimitReviewInput,
 } from '@intafaced/contracts/api-rate-limits';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 
 /** The API limit request desk as the console shows it: svc-identity's answer, with when the console read it. */
 export interface LimitDeskView {

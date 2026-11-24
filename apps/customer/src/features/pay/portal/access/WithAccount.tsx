@@ -7,7 +7,7 @@ import type { MemberRole, MerchantRecord } from '../schemas';
 import { useMerchantAccess } from './MerchantAccess';
 
 /** A person with no business at all is sent to set one up, not shown an error. */
-export function NoMerchant() {
+function NoMerchant() {
   const { t } = portalCopy.useCopy();
   return (
     <EmptyState

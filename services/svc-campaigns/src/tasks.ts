@@ -1,5 +1,7 @@
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import type { PayoutBoard } from '@intafaced/contracts/campaigns-payout-board';
+import { payoutBoard } from './payout-board.js';
+import { transaction, type Queryable } from '@intafaced/db';
 import { REWARD_ASSET, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   REWARD_STATUS_OF,
@@ -178,10 +180,10 @@ export const rewardKeyOf = (campaignId: string, accountId: string, period: strin
  * intents that hold or spent value count, as for the budget.
  */
 /** Intent states that hold or spent none of a campaign's budget or limits: every other state counts against both. */
-export const NOT_HOLDING = ['failed', 'forfeited', 'withheld'] as const;
+export const NOT_HOLDING = ['failed', 'forfeited', 'withheld', 'cancelled'] as const;
 
 export async function limitRefusalOf(
-  tx: postgres.Sql,
+  tx: Queryable,
   campaignId: string,
   accountId: string,
   limits: CampaignLimits | null,
@@ -211,7 +213,7 @@ export const LIMIT_WORDS = {
  * What a campaign's reward intents hold or spent of its budget: every one not failed, forfeited or withheld (as the
  * `campaign_rows` view counts it). Read with the campaign row locked, so two writes never both fit the last room.
  */
-export async function drawnOf(tx: postgres.Sql, campaignId: string): Promise<bigint> {
+export async function drawnOf(tx: Queryable, campaignId: string): Promise<bigint> {
   const [drawn] = await tx<{ total: string }[]>`
     SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
     WHERE campaign_id = ${campaignId} AND state NOT IN ${tx(NOT_HOLDING)}`;
@@ -547,7 +549,7 @@ export class TaskService {
       const [sums] = await tx<{ campaign: string; mine: string }[]>`
         SELECT COALESCE(sum(amount), 0)::text AS campaign,
           COALESCE(sum(amount) FILTER (WHERE account_id = ${row.account_id}), 0)::text AS mine
-        FROM campaigns.reward_intents WHERE campaign_id = ${row.id} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
+        FROM campaigns.reward_intents WHERE campaign_id = ${row.id} AND state NOT IN ${tx(NOT_HOLDING)}`;
       const budgetRoom = parseAmount(locked.budget_limit) - parseAmount(sums!.campaign);
       const personRoom = parseAmount(locked.reward_amount) - parseAmount(sums!.mine);
       const pay = [amount, budgetRoom, personRoom].reduce((a, b) => (b < a ? b : a));
@@ -674,7 +676,7 @@ export class TaskService {
     if (!row.budget_asset || row.budget_limit === null) return null;
     const [sums] = await this.sql<{ reserved: string; spent: string }[]>`
       SELECT
-        coalesce(sum(amount) FILTER (WHERE state NOT IN ('paid', 'posted', 'failed', 'forfeited', 'withheld')), 0)::text AS reserved,
+        coalesce(sum(amount) FILTER (WHERE state NOT IN ('paid', 'posted', 'failed', 'forfeited', 'withheld', 'cancelled')), 0)::text AS reserved,
         coalesce(sum(amount) FILTER (WHERE state IN ('paid', 'posted')), 0)::text AS spent
       FROM campaigns.reward_intents WHERE campaign_id = ${row.id}`;
     const limit = parseAmount(row.budget_limit);
@@ -1251,6 +1253,11 @@ export class TaskService {
   }
 
   // ── Operators (campaigns:ops) ─────────────────────────────────────────────
+
+  /** The payout board (J-campaigns-19 #1 #2): every intent by where it stands, with its keys and its payment. Read only. */
+  payoutBoard(input: { campaignId?: string }): Promise<PayoutBoard> {
+    return payoutBoard(this.sql, input);
+  }
 
   /** Every reward record with its account and its attempts, newest first, for founder-ops and finance. */
   async payoutRecords(input: { campaignId?: string }): Promise<PayoutRecordList> {

@@ -9,7 +9,7 @@ import {
   type SupportForm,
   type SupportRequestForms,
 } from '@intafaced/contracts/support-forms';
-import { Field } from '../../shared/ui';
+import { CheckField, SelectField, TextField } from '@intafaced/ui/lit/templates';
 import { deskCopy } from './support-desk-copy';
 
 export type FormAnswers = Record<string, SupportFieldValue>;
@@ -77,19 +77,13 @@ export function RequestTypeFields({
   };
   return (
     <>
-      <label className="field">
-        <span>{copy.t('requestTypeField')}</span>
-        <select value={formId} onChange={(event) => onFormId(event.target.value)}>
-          <option value="">{copy.t('requestTypeGeneral')}</option>
-          {forms.map((row) => (
-            <option key={row.id} value={row.id} lang="und">
-              {row.name}
-            </option>
-          ))}
-        </select>
-        {catalogue && forms.length === 0 && <small>{copy.t('requestTypeNone')}</small>}
-        {unread && <small>{copy.t('requestTypeUnread')}</small>}
-      </label>
+      <SelectField
+        label={copy.t('requestTypeField')}
+        value={formId}
+        onChange={onFormId}
+        options={[{ value: '', label: copy.t('requestTypeGeneral') }, ...forms.map((row) => ({ value: row.id, label: row.name }))]}
+        hint={catalogue && forms.length === 0 ? copy.t('requestTypeNone') : unread ? copy.t('requestTypeUnread') : undefined}
+      />
       {form &&
         catalogue &&
         form.fields.map((entry) => {
@@ -105,38 +99,32 @@ export function RequestTypeFields({
           if (field.kind === 'choice') {
             const options = supportFieldAllowedOptions(field, shown);
             return (
-              <label className="field" key={field.id}>
-                <span>{label}</span>
-                <select
-                  aria-required={entry.required}
-                  required={entry.required}
-                  value={typeof value === 'string' && options.some((o) => o.value === value) ? value : ''}
-                  onChange={(event) => set(field.id, event.target.value)}
-                >
-                  <option value="">{copy.t('fieldPick')}</option>
-                  {options.map((option) => (
-                    <option key={option.value} value={option.value} lang="und">
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SelectField
+                key={field.id}
+                label={label}
+                aria-required={entry.required}
+                required={entry.required}
+                value={typeof value === 'string' && options.some((o) => o.value === value) ? value : ''}
+                onChange={(next) => set(field.id, next)}
+                options={[
+                  { value: '', label: copy.t('fieldPick') },
+                  ...options.map((option) => ({ value: option.value, label: option.label })),
+                ]}
+              />
             );
           }
           if (field.kind === 'checkbox')
             return (
-              <label className="field field--check" key={field.id}>
-                <input
-                  type="checkbox"
-                  required={entry.required}
-                  checked={value === true}
-                  onChange={(event) => set(field.id, event.target.checked)}
-                />
-                <span>{label}</span>
-              </label>
+              <CheckField
+                key={field.id}
+                label={label}
+                required={entry.required}
+                checked={value === true}
+                onChange={(checked) => set(field.id, checked)}
+              />
             );
           return (
-            <Field
+            <TextField
               key={field.id}
               label={label}
               type={field.kind === 'date' ? 'date' : 'text'}
@@ -145,7 +133,7 @@ export function RequestTypeFields({
               required={entry.required}
               maxLength={SUPPORT_FIELD_TEXT_MAX}
               value={typeof value === 'string' ? value : ''}
-              onChange={(event) => set(field.id, event.target.value)}
+              onChange={(next) => set(field.id, next)}
             />
           );
         })}

@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import type { Queryable } from '@intafaced/db';
 import { recordFundsPending } from './funds.js';
 import { assertCategoryAllows, merchantCategoryRule } from '../onboarding-policy/category.js';
 import { postPayLedger } from '../ledger-receipt.js';
@@ -18,7 +19,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import { withPaymentAdmission, type PreparedPaymentOperation } from '../payment-admission.js';
 import { FRESH, type GuardReplay } from '../seams/guards.js';
-import type { Sql } from 'postgres';
 import { formatAmount, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { isSandboxRailId } from '../sandbox-key-routing.js';
 import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent, type RailResult } from '../rails/rail-adapter.js';
@@ -133,7 +133,7 @@ export async function createPayment(
 export async function admitPaymentOperation<T>(
   svc: PayServiceInternal,
   input: PreparedPaymentOperation,
-  effect: (tx: Sql, admitted: boolean) => Promise<T>,
+  effect: (tx: Queryable, admitted: boolean) => Promise<T>,
 ): Promise<T> {
   try {
     return await withPaymentAdmission(
@@ -184,7 +184,11 @@ const BEYOND_CAPTURE: ReadonlySet<string> = new Set(['captured', 'settled', 'ref
  *              recovery (the post landed, the projection did not).
  * A rail capture whose ledger post rolled back leaves no trace and is `fresh`.
  */
-export async function classifyPaymentAdmission(svc: PayServiceInternal, tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+export async function classifyPaymentAdmission(
+  svc: PayServiceInternal,
+  tx: Queryable,
+  input: PreparedPaymentOperation,
+): Promise<GuardReplay> {
   const rows = await tx<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id=${input.paymentId}`;
   const status = rows[0]?.status;
   if (!status) return FRESH;
@@ -201,7 +205,7 @@ export async function classifyPaymentAdmission(svc: PayServiceInternal, tx: Sql,
 
 export async function existingPaymentCreation(
   svc: PayServiceInternal,
-  tx: Sql,
+  tx: Queryable,
   input: Parameters<PayService['createPayment']>[0],
   paymentId: string,
 ): Promise<PaymentView | null> {
@@ -626,7 +630,7 @@ export async function capture(
  */
 export async function finishBookedCapture(
   svc: PayServiceInternal,
-  tx: Sql,
+  tx: Queryable,
   row: PaymentRow,
   booked: BookedCaptureCompletion,
 ): Promise<PaymentView> {
@@ -704,7 +708,7 @@ function pendingReceived(result: RailResult): Amount {
  */
 export async function outsideCustodyFeePost(
   svc: PayServiceInternal,
-  tx: Sql,
+  tx: Queryable,
   row: PaymentRow,
   gross: Amount,
 ): Promise<import('@intafaced/ledger-client').PostRequest | null> {

@@ -18,7 +18,7 @@ function deps(overrides: Partial<ProtocolRouterDeps> = {}): ProtocolRouterDeps {
     ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
     swapSlippageBps: () => null,
     ...overrides,
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
 }
 const caller = (overrides: Partial<ProtocolRouterDeps>) => createProtocolRouter(deps(overrides)).createCaller(anonymous());
 
@@ -99,7 +99,7 @@ describe('protocol.amm.prices', () => {
     await expect(
       caller({
         ammFactoryAddress: () => FACTORY,
-        chain: chain as unknown as ProtocolRouterDeps['chain'],
+        chain: chain as ProtocolRouterDeps['chain'],
         priceSetting: () => null,
       }).amm.prices(),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('protocol.price_settings_unset') });

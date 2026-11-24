@@ -1,5 +1,5 @@
 import type { FounderCallFailure } from './founder-call';
-import { explainRefusal, type RefusalView } from './refusal-copy';
+import { explainRefusal, type RefusalView } from '../refusal-copy';
 
 /**
  * A refused or failed write as the console's reply: its HTTP status and the refusal map's words. A dropped or garbled answer

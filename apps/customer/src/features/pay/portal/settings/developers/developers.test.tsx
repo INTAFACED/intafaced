@@ -31,7 +31,7 @@ import { SandboxView } from './Sandbox';
 import type { ApiKey, Delivery, Endpoint, Health } from './schemas';
 
 // TEST DATA only.
-const api = {} as unknown as SettingsBApi;
+const api = {} as SettingsBApi;
 const ready = <T,>(data: T) => ({ status: 'ready' as const, data });
 const key = (patch: Partial<ApiKey> = {}): ApiKey => ({
   id: 'TEST-key-1',
@@ -234,7 +234,7 @@ describe('signing', () => {
   });
   it('turns "not revoked" into a refusal, and reads "not retried" as the replay of a request already queued', async () => {
     const tools = {
-      identityMutate: async () => ({ ok: true, data: { revoked: false } }),
+      identityMutateRecord: async () => ({ ok: true, data: { revoked: false } }),
       mutate: async () => ({ ok: true, data: { retried: false, delivery: {} } }),
     } as unknown as Parameters<typeof developersApi>[0];
     const real = developersApi(tools);
@@ -243,7 +243,7 @@ describe('signing', () => {
     expect(revoked.ok ? '' : revoked.message).toContain('already revoked, or it is not yours');
     const retried = await real.deliveryRetry('d', 'r');
     expect(retried.ok).toBe(true);
-    const done = developersApi({ identityMutate: async () => ({ ok: true, data: { revoked: true } }) } as unknown as Parameters<
+    const done = developersApi({ identityMutateRecord: async () => ({ ok: true, data: { revoked: true } }) } as unknown as Parameters<
       typeof developersApi
     >[0]);
     expect((await done.keyRevoke('k')).ok).toBe(true);

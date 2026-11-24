@@ -9,21 +9,14 @@ Rules: AGENTS.md.
 ## Proof
 
 <!-- Commands you ran and what you saw: the checks CI runs, the journey steps in the
-     running app (local stack or a journeys run on this exact head), the code review's
+     journeys run on this exact head, the code review's
      findings and your answers. Name anything you could not run, and why. -->
 
 ## Left or replaced
 
-<!-- The journey's steps this PR doesn't finish, and anything it replaces. "None" if so. -->
-
-## How to revert
-
-<!-- Usually "revert this squash commit". Say so when it isn't enough: a migration,
-     an event already published, state written elsewhere. -->
-
-## Risk
-
-<!-- What could break, for whom, and how you would notice. "None" only for docs. -->
+<!-- The journey's steps this PR doesn't finish, anything it replaces, and anything reverting
+     this squash commit doesn't undo (a migration, an event already published, state written
+     elsewhere). "None" if so. -->
 
 ## Money paths
 

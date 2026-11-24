@@ -25,3 +25,18 @@ export function refusalDetail(headers, text) {
   if (h('x-github-request-id') !== null) parts.push(`request ${h('x-github-request-id')}`);
   return parts.length ? ` (${parts.join('; ')})` : '';
 }
+
+/**
+ * When a refusal is only the spent hourly budget (x-ratelimit-remaining 0 with a reset time), the reset as an ISO time;
+ * otherwise null. A spent budget is a wait for its reset, not a refusal to read: the stop still holds (never retried in
+ * the same run), but a later run after the reset tries again from scratch, so it needs no issue. A secondary limit or a
+ * missing permission keeps remaining above 0 (or no header) and stays a refusal. Three issues in eight days were one
+ * spent budget that came back by itself (#8197, #8202, #9093; #9093 named it: "rate limit remaining 0").
+ */
+export function budgetSpentUntil(status, headers) {
+  if (status !== 403 && status !== 429) return null;
+  const h = (k) => headers?.get?.(k) ?? null;
+  const reset = Number(h('x-ratelimit-reset'));
+  if (h('x-ratelimit-remaining') !== '0' || !Number.isFinite(reset) || reset <= 0) return null;
+  return new Date(reset * 1000).toISOString();
+}

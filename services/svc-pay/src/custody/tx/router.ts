@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { founderProcedure } from '../../namespaces/founder-procedure.js';
 import { custodyTxToTrpcError } from './errors.js';

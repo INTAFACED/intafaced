@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
+import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool } from './stack.mjs';
+import { openTx, reverseWithTwoFounders } from './ledger-reversal-desk.mjs';
 
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
@@ -12,10 +13,9 @@ import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './
 // journey stops there with that blocker named. Steps 5-6 (OPS-reconciliation-02): a PASS, a FAIL and an ERROR run with
 // per-asset evidence, and pause, resume and retire a control. Steps 7-8 (OPS-reconciliation-03): svc-ops raises one alert per
 // control, failing asset and period from the ledger's settled evaluations, on the console's /ledger/alerts room. Steps 9-10
-// (OPS-reconciliation-04): resolve as fixed with booked ledger transaction ids and accept with two founders; a repeat failure
-// reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event delivered twice is stored once.
-// #9's corrective reversal stays red by name: no reversal can be booked on this stack until J-ops-console-05's desk exists.
-// #10's transition event received twice stays red by name: nothing consumes svc-ops' alert transition events yet.
+// (OPS-reconciliation-04): resolve as fixed with a corrective reversal booked on J-ops-console-05's reversal desk and accept
+// with two founders; a repeat failure reopens, a passing run resolves, an ERROR run is a platform alert, a run-failed event
+// delivered twice is stored once, and svc-notify applies an alert transition received twice once.
 
 const tag = randomUUID().slice(0, 8);
 const state = {
@@ -448,12 +448,67 @@ function deliverRunFailedTwice(key) {
     await nc.drain();`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', EVENT_KEY: key },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, EVENT_KEY: key },
     encoding: 'utf8',
     timeout: 60_000,
   });
   if (r.status !== 0) throw new Error(`delivering the run-failed event twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
   return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+/**
+ * Delivers one reconciliation alert transition to the bus twice, under the business key svc-ops published it with and two
+ * distinct stream message ids, so the stream keeps both, and waits until svc-notify's durable consumer has acknowledged both.
+ */
+function deliverTransitionTwice(entry) {
+  const code = `
+    import { connect } from 'nats';
+    import { buildEnvelope, encodeEnvelope } from './dist/index.js';
+    const e = JSON.parse(process.env.ENTRY);
+    const env = buildEnvelope(
+      'coreOpsReconciliationAlertUpdated',
+      { alertId: e.alertId, sequence: e.sequence, transition: e.kind, state: e.state, actor: e.actor, changedAt: e.occurredAt },
+      'ops',
+      { idempotencyKey: e.eventKey },
+    );
+    const nc = await connect({ servers: process.env.NATS_URL });
+    const js = nc.jetstream();
+    const acks = [];
+    for (const n of [1, 2]) acks.push(await js.publish(env.subject, encodeEnvelope(env), { msgID: env.idempotencyKey + ':redelivery:' + process.env.TAG + ':' + n }));
+    const jsm = await nc.jetstreamManager();
+    const seqs = acks.map((a) => a.seq);
+    let info;
+    for (let i = 0; i < 60; i++) {
+      info = await jsm.consumers.info(acks[0].stream, 'notify-recon-alert-updated');
+      if (info.ack_floor.stream_seq >= Math.max(...seqs) && info.num_ack_pending === 0) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.log(JSON.stringify({ seqs, duplicate: acks.some((a) => a.duplicate), ackFloor: info.ack_floor.stream_seq, ackPending: info.num_ack_pending }));
+    await nc.drain();`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(ROOT, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, ENTRY: JSON.stringify(entry), TAG: tag },
+    encoding: 'utf8',
+    timeout: 90_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the alert transition twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+/** svc-notify's record of one alert's transitions, as the alert page shows it: [{eventKey, kind, sequence}]. */
+async function feedOf(page, alertId) {
+  await openAlert(page, alertId);
+  const feed = page.getByTestId('alert-feed');
+  await expect(feed).toBeVisible({ timeout: 30_000 });
+  return feed.getByTestId('alert-feed-entry').evaluateAll((els) =>
+    els.map((el) => ({
+      eventKey: el.getAttribute('data-event-key'),
+      kind: el.getAttribute('data-kind'),
+      sequence: Number(el.getAttribute('data-sequence')),
+      state: el.getAttribute('data-state'),
+      actor: el.getAttribute('data-actor'),
+    })),
+  );
 }
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
@@ -1124,7 +1179,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     }
   });
 
-  test('J-ops-console-07 #9 resolve as fixed names booked ledger transactions; accepting needs a note and two founders and freezes the evidence', async ({
+  test('J-ops-console-07 #9 resolve as fixed with a corrective reversal id; accepting needs a note and two founders and freezes the evidence', async ({
     browser,
   }) => {
     test.setTimeout(900_000);
@@ -1188,22 +1243,37 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       ).toEqual(openedAs);
       await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
-      // The corrective booking: a TEST deposit of 2 USDT to a new customer, posted through the ledger's deposit recipe. (The
-      // reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what svc-ops
-      // checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
+      // The floor's figures move only by customer USDT, and a reversal of our own entry never touches a customer account, so
+      // the corrective reversal cannot be what clears this floor. Two things are kept apart, each from real postings:
+      // - #10's figures: a TEST deposit of 2 USDT to a new customer, through the ledger's deposit recipe. 2 is short of the 5
+      //   the floor wants, so #10's next run fails again and reopens the alert; #10 deposits the other 3 and the run passes.
+      // - #9's fix: the corrective reversal the alert is resolved with, made on J-ops-console-05's reversal desk and only
+      //   linked here. Its original is INTAFACED's own TEST entry (a house market-maker seed through the ledger's
+      //   `marketMakerSeedFund` recipe, in an asset no other journey reads); founder a asks and runs, founder b approves.
       state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
       await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
-      const booked = fund(state.fixPayer.email, 'USDT', '2');
-      expect(booked.tx, `the deposit names its ledger transaction: ${booked.out}`).toMatch(/^[0-9a-f-]{36}$/);
-      const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by deposit ${tag}`);
+      const deposit = fund(state.fixPayer.email, 'USDT', '2');
+      expect(deposit.tx, `the deposit names its ledger transaction: ${deposit.out}`).toMatch(/^[0-9a-f-]{36}$/);
+      const own = fund('house', 'AUD', '0.5', `ops07-fix-${tag}`);
+      expect(own.tx, `our own entry names its ledger transaction: ${own.out}`).toMatch(/^[0-9a-f-]{36}$/);
+      const reversal = await reverseWithTwoFounders(a, b, own.tx, {
+        reason: `LOCAL TEST J-ops-console-07 corrective reversal ${tag}`,
+        caseRef: `LOCAL-TEST-OPS07-${tag}`,
+      });
+      // The id linked below is a booked reversal: the ledger's own record of it names the entry it reverses.
+      const reversing = await openTx(a, reversal);
+      await expect(reversing.getByTestId('tx-reverses')).toHaveAttribute('data-tx-id', own.tx.toLowerCase());
+      await expect(reversing.getByTestId('ledger-lookup-business-key')).toHaveText(`ops:reversal:${own.tx.toLowerCase()}:1`);
+
+      const resolved = await resolveWith(a, opened.id, [reversal.toUpperCase()], `LOCAL TEST fixed by reversal ${tag}`);
       await expect(resolved).toHaveAttribute('data-state', 'resolved', { timeout: 30_000 });
       const record = resolved.getByTestId('alert-resolved');
       await expect(record).toHaveAttribute('data-resolution', 'fixed');
       await expect(record.getByTestId('alert-resolved-tx')).toHaveCount(1);
-      await expect(record.getByTestId('alert-resolved-tx')).toHaveAttribute('data-tx-id', booked.tx.toLowerCase());
+      await expect(record.getByTestId('alert-resolved-tx')).toHaveAttribute('data-tx-id', reversal);
       const resolvedEntry = resolved.locator('[data-testid="timeline-entry"][data-kind="resolved"]');
       await expect(resolvedEntry).toHaveCount(1);
-      await expect(resolvedEntry.getByTestId('timeline-tx')).toHaveAttribute('data-tx-id', booked.tx.toLowerCase());
+      await expect(resolvedEntry.getByTestId('timeline-tx')).toHaveAttribute('data-tx-id', reversal);
       // A resolved alert offers no second resolution and no acceptance.
       await expect(resolved.getByTestId('alert-resolve-why')).toBeVisible();
 
@@ -1278,8 +1348,8 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(accepted.getByTestId('alert-evidence')).toHaveText(evidenceText);
       await expect(accepted.locator('[data-testid="timeline-entry"][data-kind="accepted"]')).toHaveCount(1);
       const acceptedVersion = Number(await accepted.getAttribute('data-version'));
-      // Frozen: a later resolve, even with a booked transaction id, is refused by its one code and changes nothing.
-      const late = await resolveDirect(a, toAccept.id, acceptedVersion, [booked.tx]);
+      // Frozen: a later resolve, even with a booked reversal's id, is refused by its one code and changes nothing.
+      const late = await resolveDirect(a, toAccept.id, acceptedVersion, [reversal]);
       expect(late.body?.code, JSON.stringify(late)).toBe('ops.alert_state_illegal');
       const reread = await openAlert(a, toAccept.id);
       await expect(reread).toHaveAttribute('data-state', 'accepted');
@@ -1447,23 +1517,54 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
     }
   });
-});
 
-// The clause this stack cannot prove: the corrective transaction linked at #9 must be a reversal. A ledger reversal is booked
-// only by J-ops-console-05's reversal desk (OPS-ledger-desk-02), which is not built, so #9 links a TEST deposit instead and
-// this clause stays red, by name, until that desk books one here. It sits outside the serial journey so its red never
-// skips #10.
-test('J-ops-console-07 #9 the fix links a corrective reversal booked in the ledger', async () => {
-  throw new Error(
-    'Blocked: no reversal can be booked on this stack. J-ops-console-05 (OPS-ledger-desk-02) is not built, so #9 resolved with a TEST deposit, not a reversal.',
-  );
-});
+  // The receiver of svc-ops' alert transitions is svc-notify: it keeps one feed row per business key. The fixed alert's real
+  // transitions (#7 to #10) arrived there in order; its reopen, delivered twice more, changes nothing.
+  test('J-ops-console-07 #10 a transition event received twice applies once', async ({ browser, stepPicture }) => {
+    test.setTimeout(300_000);
+    if (!state.fixAlertId) throw new Error('#10’s transition check reads the alert #9 resolved and #10 reopened, and #9 did not finish');
+    const { a } = await founders(browser);
+    let before;
+    await expect
+      .poll(
+        async () => {
+          before = await feedOf(a, state.fixAlertId);
+          return before.map((e) => e.kind);
+        },
+        { message: 'svc-notify receives the alert’s transitions from svc-ops', timeout: 90_000, intervals: [3_000] },
+      )
+      .toEqual(expect.arrayContaining(['opened', 'resolved', 'reopened']));
+    await expect(a.getByTestId('alert-feed')).toHaveAttribute('data-bus', 'attached');
+    const keys = before.map((e) => e.eventKey);
+    expect(new Set(keys).size, 'one row per business key').toBe(keys.length);
+    for (const e of before) expect(e.eventKey).toBe(`ops:reconciliation-alert:${state.fixAlertId}:${e.sequence}`);
+    expect(
+      before.map((e) => e.sequence),
+      'in sequence order',
+    ).toEqual(before.map((e) => e.sequence).sort((x, y) => x - y));
 
-// The other clause this stack cannot prove: svc-ops publishes each alert transition under its business key, but no service
-// consumes the core-ops reconciliation_alert subjects yet, so "a transition event received twice applies once" has no
-// receiver to show it. #10 shows svc-ops' own consumer of the ledger's run-failed event applying a double delivery once.
-test('J-ops-console-07 #10 a transition event received twice applies once', async () => {
-  throw new Error(
-    'Blocked: no consumer of intafaced.core-ops.reconciliation_alert.* exists on this stack, so no receiver can be shown applying a transition event once.',
-  );
+    const reopen = before.find((e) => e.kind === 'reopened');
+    const row = a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`);
+    const shown = (await row.textContent()) ?? '';
+    const delivered = deliverTransitionTwice({
+      alertId: state.fixAlertId,
+      sequence: reopen.sequence,
+      eventKey: reopen.eventKey,
+      kind: 'reopened',
+      state: reopen.state,
+      actor: reopen.actor,
+      occurredAt: new Date().toISOString(),
+    });
+    expect(delivered.seqs, 'the stream kept both deliveries').toHaveLength(2);
+    expect(delivered.duplicate, 'neither delivery was dropped by the stream as a duplicate').toBe(false);
+    // svc-notify's durable consumer acknowledged both: each was read and handled, not left in flight.
+    expect(delivered.ackPending, JSON.stringify(delivered)).toBe(0);
+    expect(delivered.ackFloor, JSON.stringify(delivered)).toBeGreaterThanOrEqual(Math.max(...delivered.seqs));
+
+    const after = await feedOf(a, state.fixAlertId);
+    expect(after, 'both deliveries applied as the one reopen already there').toEqual(before);
+    await expect(a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`)).toHaveCount(1);
+    await expect(a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`)).toHaveText(shown);
+    await stepPicture(a);
+  });
 });

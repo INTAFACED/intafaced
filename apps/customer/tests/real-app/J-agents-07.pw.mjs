@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, STACK_PORTS } from './stack.mjs';
 
 // J-agents-07, in the running app (docs/roadmap/journeys.json): schedule an agent, trigger it from an event and hand
 // work to a specialist. One test per step, titled "J-agents-07 #<n>", run in order on one verified TEST account with a
@@ -131,11 +131,13 @@ test(`${J} #2 sets a cadence and a per-run cap: the schedule list with status an
     .poll(
       async () => {
         held = await schedulesHeld();
-        return held.find((s) => s.repeat === 'repeat')?.recent.find((r) => r.ordinal === 1)?.state ?? 'none';
+        // Both workers' wakes are written as they wake, so the second can land just after the run reads 'ran'.
+        const run = held.find((s) => s.repeat === 'repeat')?.recent.find((r) => r.ordinal === 1);
+        return { state: run?.state ?? 'none', wakes: run?.wakes ?? 0 };
       },
       { timeout: 60_000 },
     )
-    .toBe('ran');
+    .toEqual({ state: 'ran', wakes: 2 });
   const capped = held.find((s) => s.repeat === 'repeat');
   expect(capped).toMatchObject({ state: 'active', intervalMinutes: 1, perRunCap: '0.1', ask: ASK });
   expect(capped.nextDueAt).not.toBeNull();
@@ -213,7 +215,7 @@ function redeliverFill(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });

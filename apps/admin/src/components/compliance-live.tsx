@@ -12,7 +12,7 @@ import {
 } from '@/lib/compliance/model';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import { actorRef, codeWords } from '@/lib/desk/words';
+import { actorRef, codeWords } from '@/lib/code-words';
 
 /**
  * LIVE COMPLIANCE STATE — what svc-edge says right now, with an as-of time.

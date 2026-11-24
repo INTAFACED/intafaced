@@ -6,14 +6,18 @@ import { fundedTrader } from './desk.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, signInWithCode } from './merchant.mjs';
 import { api, DEVICE_KEY, EDGE, fund, json, ORIGIN, ROOT, toUnits } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-agents-11, in the running app (docs/roadmap/journeys.json): run agents for my team: roles, a shared pool and
 // per-project limits. One test per step, titled "J-agents-11 #<n>", run in order. The start is real: a TEST owner sets up
 // a business account at /bank/business and adds three TEST members as makers on its Team panel (BusinessPeople), each
 // with an agent of their own. The agents Team page (/agents/team) reads that team from svc-bank at every call and keeps
 // roles, the pool, project limits, team runs, held actions and usage in svc-agents. Members are told apart by their
-// account ID, which the page shows beside each role. A pool is a limit, never a balance: every run is charged to the
-// member who runs it, in TEST USDT, per usage window.
+// account ID, which the page shows beside each role. A pool is a limit, never a balance. The business's payment method
+// is the TEST partner bank: its administrator's money is held there (`testPartner.set({ custody: 'off' })`, OWNER 226)
+// and funded there with TEST USDT. Each sealed usage window of a team run is recorded once in our ledger as owed by the
+// business, naming the member (`charge:earned:agents:<session>.<window>`), and collected from the business's payment
+// method (`charge:collected:partner-reserve:test:USDT:<the partner's payment id>`); no member's own balance moves.
 const J = 'J-agents-11';
 const agents = agentsRun(J);
 const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
@@ -29,6 +33,10 @@ const rowOf = (table, key) => table.getByRole('row').filter({ hasText: person(ke
 /** A TEST account ID that is on no business team. */
 const NOT_A_MEMBER = '00000000-0000-4000-8000-00000000a911';
 const BUSINESS = 'TEST Agents Team';
+/** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
+const PARTNER_BANK = 'TEST partner bank';
+/** What the business holds at the TEST partner at the start, in TEST USDT. */
+const AT_PARTNER = '10';
 
 /** A person kept in the run file (its authenticator secret, if any, is a TEST one), with its code generator put back. */
 function person(key) {
@@ -86,6 +94,47 @@ async function ledgerTotal(key) {
   if (read.status !== 200) throw new Error(`balance read refused: ${read.status} ${JSON.stringify(read.body).slice(0, 300)}`);
   return toUnits(read.body.balances.USDT?.total ?? '0');
 }
+
+/** The owner's own API session, signed in with their authenticator's next code (the step is kept, so none is replayed). */
+async function ownerApi() {
+  const who = person('owner');
+  const next = await nextCode(totp, who.secret, who.step);
+  agents.run.write({ owner: keep({ ...who, step: next.step }) });
+  return api(who, { totpCode: next.code });
+}
+
+/** The business's TEST USDT at its payment method, as the partner reports it; the space says it is held at the partner. */
+async function businessAtPartner() {
+  const res = await (await ownerApi()).get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const primary = res.body.result.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(primary?.heldAt?.label, 'the business’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
+  return toUnits(primary.balance);
+}
+
+/** Founder A, signed in to the console once, in a context of its own. */
+async function founderConsole(browser) {
+  const context = await browser.newContext();
+  try {
+    const founder = await context.newPage();
+    await founderSignIn(founder);
+    return { founder, close: () => context.close() };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
+/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
+async function ledgerTrace({ founder }, businessKey) {
+  const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  return await res.json();
+}
+
+/** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
+const earnedKey = (chargeKey) => `charge:earned:agents:${chargeKey.replace(/^agent\.usage:/, '').replace(':', '.')}`;
+const collectedKey = (paymentRef) => `charge:collected:partner-reserve:test:USDT:${paymentRef}`;
 
 /** Confirms one bank action dialog (the money room's review, then its submit) and waits for the service's answer. */
 async function confirmDialog(page, submit) {
@@ -151,7 +200,7 @@ async function closeRun(page) {
   await expect(runs(page).getByRole('status')).toHaveText('The run is closed.');
 }
 
-test(`${J} starts: a business owner with team members`, async ({ page }) => {
+test(`${J} starts: a business owner with team members and a TEST payment method for the business`, async ({ page }) => {
   test.setTimeout(600_000);
   const made = {};
   for (const key of ['one', 'two', 'three']) {
@@ -187,6 +236,19 @@ test(`${J} starts: a business owner with team members`, async ({ page }) => {
     await expect(card.getByRole('textbox', { name: 'Who are you paying?' })).toHaveValue('');
   }
   agents.run.reset({ owner: keep(owner), one: keep(made.one), two: keep(made.two), three: keep(made.three) });
+  // The business's payment method: its administrator's money is held by the TEST partner bank, and paid in there once.
+  const session = await ownerApi();
+  const set = await session.post('/api/bank/trpc/testPartner.set', { custody: 'off' });
+  expect(set.status, JSON.stringify(set.body).slice(0, 300)).toBe(200);
+  const funded = await (
+    await ownerApi()
+  ).post('/api/bank/trpc/testPartner.fund', {
+    fundId: `${J}-${owner.email}`.slice(0, 64),
+    assetId: 'USDT',
+    amount: AT_PARTNER,
+  });
+  expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+  expect(await businessAtPartner()).toBe(toUnits(AT_PARTNER));
 });
 
 test(`${J} #1 opens Team and grants creator, runner, approver, log reader and spend reader roles: the roles listed per member; granting to a non-member is refused`, async ({
@@ -208,7 +270,7 @@ test(`${J} #1 opens Team and grants creator, runner, approver, log reader and sp
   await page.reload();
   await expect(members(page).getByRole('row').locator('td code')).toHaveCount(ids.length);
   await expect(members(page).getByRole('row').filter({ hasText: NOT_A_MEMBER })).toHaveCount(0);
-  expect((await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
+  await expect.poll(async () => (await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
   await expect(rowOf(members(page), 'one').getByTestId('effective-roles')).toHaveText(ROLES.join(', '));
 });
 
@@ -285,9 +347,25 @@ test(`${J} #5 a member spends past their allocation: the next run refuses and th
   await openTeam(page);
   await tick(page, rowOf(members(page), 'three').getByRole('checkbox', { name: 'Allow Runner' }));
   await forgetSession(page);
-  agents.run.write({ threeLedgerBefore: String(await ledgerTotal('three')) });
+  agents.run.write({ threeLedgerBefore: String(await ledgerTotal('three')), partnerBefore: String(await businessAtPartner()) });
   await openTeam(page, 'three');
   await openRun(page);
+  // After each run the page reads the team again, and its Limits by member table shows that read only when it lands.
+  // Every such read is held until the asking is over, so a read of the table that does not wait for the read after
+  // the refusal always finds the figure from before the run (the state the failing run 45093019477 read).
+  const memberUsed = () => rowOf(tableIn(main(page), 'Limits by member'), 'three').getByTestId('member-used');
+  const usedBefore = await unitsOf(memberUsed());
+  const isView = (url) => {
+    const at = new URL(url).pathname;
+    return at.startsWith('/api/agents/trpc/') && at.endsWith('/team.view');
+  };
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  await page.route(isView, async (route) => {
+    await released;
+    // A read the page dropped for a newer one is gone by now; only the reads it still waits for go on.
+    await route.continue().catch(() => {});
+  });
   const asked = [];
   for (let n = 1; n <= 6; n++) {
     const answer = await ask(page, `TEST question ${n}`);
@@ -297,8 +375,14 @@ test(`${J} #5 a member spends past their allocation: the next run refuses and th
   // At least one run was admitted and charged, and the run after the allocation was spent is refused by its code.
   expect(asked[0].cost, JSON.stringify(asked)).toMatch(/^\d+(\.\d+)? USDT$/);
   expect(asked.at(-1).refused, JSON.stringify(asked)).toBe('agents.team.allocation_exceeded');
-  const limits = tableIn(main(page), 'Limits by member');
-  const usedAtRefusal = await unitsOf(rowOf(limits, 'three').getByTestId('member-used'));
+  expect(await unitsOf(memberUsed()), 'the table still shows the figure from before the run').toBe(usedBefore);
+  // The service's own figure at the refusal, from the read that lands once released; the table must come to show it.
+  const viewed = page.waitForResponse((r) => isView(r.url()) && r.request().method() === 'GET' && r.ok());
+  release();
+  await page.unroute(isView);
+  const view = (await (await viewed).json()).result.data;
+  const usedAtRefusal = toUnits(view.members.find((m) => m.userId === person('three').userId).used);
+  await expect.poll(async () => await unitsOf(memberUsed())).toBe(usedAtRefusal);
   await closeRun(page);
   // Read from the service again: member three stayed within 0.011, the pool within 5, and the refusal took nothing.
   await page.reload();
@@ -345,28 +429,102 @@ test(`${J} #6 sets a limit for one business project: members of that project are
   await expect(rowOf(tableIn(main(page), 'Limits by member'), 'one').getByTestId('member-used')).toHaveText('0 USDT');
 });
 
-test(`${J} #7 opens usage analytics by member and task: only members of the business, totals matching sealed windows`, async ({ page }) => {
+test(`${J} #7 opens usage analytics by member and task: only members of the business, totals matching sealed windows`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  // The usage panel loads after the Members table. Its reply is held until the page stands with the panel still
+  // loading, so a read that does not wait for the panel's rows always finds none.
+  const isUsage = (url) => new URL(url).pathname.startsWith('/api/agents/trpc/') && new URL(url).pathname.includes('team.usage');
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  const asked = page.waitForRequest((req) => isUsage(req.url()));
+  await page.route(isUsage, async (route) => {
+    await released;
+    await route.continue();
+  });
   await openTeam(page);
   const usagePanel = main(page).getByRole('region', { name: 'Usage by member', exact: true });
   const usage = tableIn(usagePanel, 'Usage by member');
+  await asked;
+  expect(await usage.getByRole('rowheader').count(), 'the usage panel is still loading').toBe(0);
+  release();
   // Only the business's members, each once.
+  await expect(usage.getByRole('rowheader')).toHaveCount(KEYS.length);
   const heads = await usage.getByRole('rowheader').allInnerTexts();
   expect(heads.length).toBe(KEYS.length);
   for (const key of KEYS) expect(heads.filter((h) => h.includes(person(key).userId))).toHaveLength(1);
   const total = async (key) => unitsOf(rowOf(usage, key).getByTestId('usage-member-total'));
-  // Each member's sealed total is what their sealed windows charged their own account on the ledger.
-  const run = agents.run.read();
   const threeTotal = await total('three');
   const ownerTotal = await total('owner');
   expect(threeTotal > 0n).toBe(true);
   expect(ownerTotal > 0n).toBe(true);
-  expect(BigInt(run.threeLedgerBefore) - (await ledgerTotal('three'))).toBe(threeTotal);
-  expect(BigInt(run.ownerLedgerBefore) - (await ledgerTotal('owner'))).toBe(ownerTotal);
   expect(await total('one')).toBe(0n);
   expect(await total('two')).toBe(0n);
   // Usage is by task, and the team total is the sum of the members' sealed totals.
   await expect(rowOf(usage, 'three').getByRole('cell').nth(1)).not.toHaveText('No sealed run');
   expect(await unitsOf(usagePanel.getByTestId('usage-total'))).toBe(threeTotal + ownerTotal);
+
+  // Each member's total is the sum of their own sealed windows, each owed by the business and paid from its payment
+  // method, the TEST partner bank, on the partner's own payment.
+  const sealed = tableIn(usagePanel, 'Sealed windows');
+  const windows = [];
+  for (const key of KEYS) {
+    const rows = rowOf(sealed, key);
+    let sum = 0n;
+    for (let i = 0; i < (await rows.count()); i++) {
+      const row = rows.nth(i);
+      const cost = await unitsOf(row.getByTestId('window-cost'));
+      await expect(row.getByTestId('window-owed-by')).toHaveText('The business');
+      const paid = (await row.getByTestId('window-paid').innerText()).trim();
+      const ref = paid.match(new RegExp(`^${PARTNER_BANK}, payment (\\S+)$`))?.[1];
+      expect(ref, `the window names the partner's payment: ${paid}`).toBeTruthy();
+      const chargeKey = await row.getByTestId('window-charge-key').innerText();
+      expect(chargeKey).toMatch(/^agent\.usage:\S+$/);
+      windows.push({ key, cost, ref, chargeKey });
+      sum += cost;
+    }
+    expect(sum, `${key}'s sealed windows add up to their sealed total`).toBe(await total(key));
+  }
+  expect(windows.filter((w) => w.key === 'three').length).toBeGreaterThan(0);
+  expect(windows.filter((w) => w.key === 'owner').length).toBeGreaterThan(0);
+  expect(new Set(windows.map((w) => w.chargeKey)).size).toBe(windows.length);
+
+  // The business's payment method paid exactly the team's sealed total, once per window.
+  const run = agents.run.read();
+  expect(BigInt(run.partnerBefore) - (await businessAtPartner())).toBe(threeTotal + ownerTotal);
+  // No member's own balance moved: we keep no prepaid balance, and the business, not the member, pays.
+  expect(await ledgerTotal('three')).toBe(BigInt(run.threeLedgerBefore));
+  expect(await ledgerTotal('owner')).toBe(BigInt(run.ownerLedgerBefore));
+
+  // Our ledger: each window earned once as owed, for its cost, and collected once on the partner's payment, back to
+  // nothing owed. Every window, whichever member ran it, is owed on one receivable: the business's.
+  const desk = await founderConsole(browser);
+  try {
+    const owedAccounts = new Set();
+    for (const w of windows) {
+      const earned = await ledgerTrace(desk, earnedKey(w.chargeKey));
+      expect(earned.found, `the ledger holds ${earnedKey(w.chargeKey)}`).toBe(true);
+      expect(earned.transaction).toMatchObject({ businessKey: earnedKey(w.chargeKey), module: 'agents', reason: 'charge.earned' });
+      expect(earned.transaction.postings).toHaveLength(2);
+      for (const posting of earned.transaction.postings) {
+        expect(posting).toMatchObject({ assetId: 'USDT' });
+        expect(toUnits(posting.amount)).toBe(w.cost);
+      }
+      const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+      owedAccounts.add(owedAt.accountId);
+      const collected = await ledgerTrace(desk, collectedKey(w.ref));
+      expect(collected.found, `the ledger holds ${collectedKey(w.ref)}`).toBe(true);
+      expect(collected.transaction).toMatchObject({ businessKey: collectedKey(w.ref), module: 'agents', reason: 'charge.collected' });
+      expect(collected.transaction.postings).toHaveLength(2);
+      for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(w.cost);
+      expect(collected.transaction.postings.find((p) => p.side === 'destination').accountId).toBe(owedAt.accountId);
+    }
+    expect(owedAccounts.size, 'every team window is owed by the one business').toBe(1);
+  } finally {
+    await desk.close();
+  }
 });
 
 test(`${J} #8 removes a member: their allocation stops applying and their next request fails`, async ({ page, browser }) => {

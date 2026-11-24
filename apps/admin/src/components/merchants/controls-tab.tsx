@@ -14,7 +14,7 @@ import {
 } from '@/lib/merchants/control-model';
 import type { ControlsData } from '@/lib/merchants/loaders';
 import type { ChipSpec } from '@/lib/merchants/chips';
-import { formatAmount } from '@/lib/merchants/money';
+import { formatAmount } from '@/lib/money';
 import { formatUtc } from '@/lib/merchants/time';
 import { ConfirmChangePanel } from './confirm-change-panel';
 import { ControlChangeForm } from './control-change-form';

@@ -3,7 +3,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
-import { api, fromUnits, toUnits, tool } from './stack.mjs';
+import { api, fromUnits, stackUrl, tool, toUnits } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venue.mjs';
@@ -15,7 +15,7 @@ import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venu
 // tooling/scripts/local-test-venue.mjs), and a fresh TEST trader approves our builder fee and places orders through the
 // door, each signed by a TEST key derived from a public name. Every figure the TEST venue reports is TEST.
 const J = 'J-derivatives-17';
-const TEST_VENUE = 'http://127.0.0.1:14560';
+const TEST_VENUE = stackUrl('test-venue');
 const key = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${process.env.JOURNEY_RUN_ID ?? 'local'}`)));
 const owner = key.address.toLowerCase();
 const signer = { role: 'owner', address: owner };
@@ -281,8 +281,8 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
     await expect(row).toHaveAttribute('data-state', 'matched');
     const cells = row.locator('td');
     await expect(cells.nth(1)).toHaveText(fill.fillId);
-    expect(dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
-    expect(dec(await cells.nth(5).innerText())).toBe(dec(fill.builderFee));
+    await expect.poll(async () => dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
+    await expect.poll(async () => dec(await cells.nth(5).innerText())).toBe(dec(fill.builderFee));
     await expect(cells.nth(6)).toHaveText('Matched');
   }
   // The totals agree: the venue's sum of builder fees and the ledger's, per asset.
@@ -373,7 +373,7 @@ test(`${J} #2 a builder fee is in one record but not the other: the break with i
   const row = venue.getByTestId('builder-fee-lines').locator(`tr[data-fill-id="${fill.fillId}"]`);
   await expect(row).toHaveAttribute('data-state', 'not_in_ledger');
   const cells = row.locator('td');
-  expect(dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
+  await expect.poll(async () => dec(await cells.nth(4).innerText())).toBe(dec(fill.builderFee));
   await expect(cells.nth(5)).toHaveText('none');
   await expect(cells.nth(6)).toHaveText('Break: the venue reports this fee, the ledger has none');
   // The read is the console's: the service lists the same break, and nothing was posted to make the two agree.
@@ -411,7 +411,7 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
   for (const [asset, units] of before) {
     expect(units > 0n, `${asset} is owed, not paid ahead`).toBe(true);
     expect(own.get(asset)?.unclaimed, `the venue's own unclaimed ${asset} is what the ledger says it owes`).toBe(units);
-    expect(dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
+    await expect.poll(async () => dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
     const ownCells = await venue.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${asset}"] td`).allInnerTexts();
     expect(dec(ownCells[3])).toBe(dec(fromUnits(units)));
     expect(dec(ownCells[4])).toBe(dec(fromUnits(own.get(asset).unclaimed)));
@@ -437,7 +437,7 @@ test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed 
   // The venue's own unclaimed figure grew by the same fee, and the console shows the two equal.
   expect((await venueBuilderTotals(builderAddress)).get(fill.feeAsset)?.unclaimed).toBe(want);
   const unclaimedCell = page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"] td`).nth(4);
-  expect(dec(await unclaimedCell.innerText())).toBe(dec(fromUnits(want)));
+  await expect.poll(async () => dec(await unclaimedCell.innerText())).toBe(dec(fromUnits(want)));
   await expect(page.getByTestId('builder-fee-venue-totals').locator(`tr[data-asset="${fill.feeAsset}"]`)).toHaveAttribute(
     'data-state',
     'green',
@@ -521,7 +521,7 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   expect(dec(after[2].split(' ')[0])).toBe(dec(fromUnits(volume)));
 });
 
-test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser }) => {
+test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser, stepPicture }) => {
   test.setTimeout(300_000);
   const id = await venueId();
   const to = new Date(Date.now() + 10 * 60_000);
@@ -555,6 +555,13 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
     .getByRole('button', { name: /Export CSV/ })
     .click();
   const file = await download;
+  // The step's picture: the recon it exported, from the top. Clicking Export scrolled the window to the foot of the page,
+  // and the end picture of run 45177617233 drew the console's sticky bar over the venue's totals (read BROKEN).
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
   const text = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
   // The file says when it was made, how fresh its data is and what it covers, on `#` lines above the header.
   const lines = text.trim().split(/\r?\n/);

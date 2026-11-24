@@ -1,14 +1,15 @@
 import {
   PROTOCOL_VENUE_WALLET_REFUSALS,
-  protocolVenueWalletAuthorizedOutputSchema,
-  protocolVenueWalletChallengeOutputSchema,
-  protocolVenueWalletConnectionSchema,
-  protocolVenueWalletDisconnectedOutputSchema,
-  protocolVenueWalletStatusOutputSchema,
   type ProtocolVenueWalletConnection,
   type VenueWalletAction,
 } from '@intafaced/contracts/protocol-venue-wallet';
-import { z } from 'zod';
+import {
+  PROTOCOL_VENUE_WALLET_AUTHORIZE,
+  PROTOCOL_VENUE_WALLET_CHALLENGE,
+  PROTOCOL_VENUE_WALLET_DISCONNECT,
+  PROTOCOL_VENUE_WALLET_OPEN,
+  PROTOCOL_VENUE_WALLET_STATUS,
+} from '@intafaced/contracts/protocol-wallet-procedures';
 import type { ApiClient } from '../../../shared/api';
 
 export type VenueConnection = ProtocolVenueWalletConnection;
@@ -20,18 +21,14 @@ export type VenueConnection = ProtocolVenueWalletConnection;
 const keepSessionFor = PROTOCOL_VENUE_WALLET_REFUSALS;
 
 export function createVenueWalletApi(api: ApiClient) {
-  const call = <T>(procedure: string, input: unknown, schema: z.ZodType<T>) =>
-    api.mutate('protocol', procedure, input, schema, { keepSessionFor });
   return {
-    status: (signal?: AbortSignal) =>
-      api.query('protocol', 'venueWallet.status', undefined, protocolVenueWalletStatusOutputSchema, { keepSessionFor, signal }),
-    challenge: (input: { address: string; origin: string }) =>
-      call('venueWallet.challenge', input, protocolVenueWalletChallengeOutputSchema),
-    open: (input: { challenge: string; signature: string }) => call('venueWallet.open', input, protocolVenueWalletConnectionSchema),
-    disconnect: (address: string) => call('venueWallet.disconnect', { address }, protocolVenueWalletDisconnectedOutputSchema),
+    status: (signal?: AbortSignal) => api.call(PROTOCOL_VENUE_WALLET_STATUS, undefined, { keepSessionFor, signal }),
+    challenge: (input: { address: string; origin: string }) => api.call(PROTOCOL_VENUE_WALLET_CHALLENGE, input, { keepSessionFor }),
+    open: (input: { challenge: string; signature: string }) => api.call(PROTOCOL_VENUE_WALLET_OPEN, input, { keepSessionFor }),
+    disconnect: (address: string) => api.call(PROTOCOL_VENUE_WALLET_DISCONNECT, { address }, { keepSessionFor }),
     /** Checks the connection before a signed venue action: live with its expiry, or its refusal (expired, none). */
     authorize: (address: string, action: VenueWalletAction) =>
-      call('venueWallet.authorize', { address, action }, protocolVenueWalletAuthorizedOutputSchema),
+      api.call(PROTOCOL_VENUE_WALLET_AUTHORIZE, { address, action }, { keepSessionFor }),
   };
 }
 export type VenueWalletApi = ReturnType<typeof createVenueWalletApi>;

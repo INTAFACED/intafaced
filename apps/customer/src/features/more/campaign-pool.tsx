@@ -1,0 +1,195 @@
+import { useMemo } from 'react';
+import { type CampaignView, type PoolBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_POOL_BOARD } from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
+import { useResource } from '../../shared/resource';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
+import { campaignPoolCopy } from './campaign-pool-copy';
+
+/**
+ * A reward pool paying daily (CM-airdrop-campaigns-02, J-campaigns-13 #4 #5): its slice, the per-user cap and the minimum
+ * balance; today, with the caller's venue balance read from the venue with its as-of time ("nothing today" below the
+ * minimum); and for each settled day the caller's activity, share and payment. Everything shown is read from
+ * svc-campaigns. `version` changes after a join, so the board is read again.
+ */
+export function CampaignPool({ campaign, version }: { campaign: CampaignView; version: string }) {
+  const api = useApi();
+  const { t, renderedLocale } = campaignPoolCopy.useCopy();
+  const board = useResource(
+    (signal) => api.call(CAMPAIGNS_POOL_BOARD, { campaignId: campaign.id }, { signal }),
+    `pool-${campaign.id}-${version}`,
+  );
+  const when = useMemo(() => {
+    const format = new Intl.DateTimeFormat(renderedLocale, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short',
+    });
+    return (iso: string) => format.format(new Date(iso));
+  }, [renderedLocale]);
+  if (board.resource.status === 'loading') {
+    return (
+      <Section title={t('title')}>
+        <Waiting label={t('loading')} />
+      </Section>
+    );
+  }
+  if (board.resource.status === 'failed') {
+    return (
+      <Section title={t('title')}>
+        <FailureNote result={board.resource.failure} retry={board.reload} />
+      </Section>
+    );
+  }
+  const b: PoolBoard = board.resource.data;
+  const money = (amount: string) => t('amountValue', { amount, asset: b.asset });
+  return (
+    <div data-testid="pool" data-joined={String(b.joined)}>
+      <Section title={t('title')}>
+        <KeyValue
+          rows={[
+            {
+              label: t('pool'),
+              value: (
+                <span data-testid="pool-total" lang="zxx">
+                  {money(b.pool)}
+                </span>
+              ),
+            },
+            {
+              label: t('slice'),
+              value: (
+                <span data-testid="pool-slice" lang="zxx">
+                  {money(b.dailySlice)}
+                </span>
+              ),
+            },
+            {
+              label: t('cap'),
+              value: (
+                <span data-testid="pool-cap" lang="zxx">
+                  {money(b.perUserCap)}
+                </span>
+              ),
+            },
+            {
+              label: t('minBalance'),
+              value: (
+                <span data-testid="pool-min-balance" lang="zxx">
+                  {t('amountValue', { amount: b.minBalance, asset: b.activityAsset })}
+                </span>
+              ),
+            },
+            {
+              label: t('dayLength'),
+              value: <span data-testid="pool-day-length">{t('dayLengthValue', { minutes: Math.round(b.daySeconds / 60) })}</span>,
+            },
+          ]}
+        />
+        <h3>{t('howTitle')}</h3>
+        <p className="lt-hint">{t('how', { asset: b.activityAsset })}</p>
+      </Section>
+      <Section title={t('todayTitle')}>
+        {!b.joined ? (
+          <p className="lt-hint" data-testid="pool-today-none">
+            {t('todayNotJoined')}
+          </p>
+        ) : b.today === null ? null : b.today.unread || b.today.balance === null || b.today.balanceAsOf === null ? (
+          <p role="status" className="lt-hint" data-testid="pool-today" data-unread={b.today.unread ?? ''}>
+            {t('todayUnread', { code: b.today.unread ?? '' })}
+          </p>
+        ) : (
+          <p
+            role="status"
+            data-testid="pool-today"
+            data-day={b.today.day}
+            data-below-minimum={String(b.today.belowMinimum)}
+            data-balance={b.today.balance}
+            data-as-of={b.today.balanceAsOf}
+          >
+            {b.today.belowMinimum
+              ? t('todayBelow', {
+                  balance: b.today.balance,
+                  asset: b.activityAsset,
+                  asOf: when(b.today.balanceAsOf),
+                  min: b.minBalance,
+                })
+              : t('todayOk', {
+                  day: b.today.day,
+                  ends: when(b.today.endsAt),
+                  balance: b.today.balance,
+                  asset: b.activityAsset,
+                  asOf: when(b.today.balanceAsOf),
+                })}
+          </p>
+        )}
+      </Section>
+      <Section title={t('daysTitle')}>
+        {b.days.length === 0 ? (
+          <p className="lt-hint">{t('noDays')}</p>
+        ) : (
+          <ScrollTable label={t('daysLabel')} headers={[t('colDay'), t('colActivity'), t('colShare'), t('colPaid')]}>
+            {b.days.map((d) => {
+              const m = d.mine;
+              return (
+                <tr
+                  key={d.day}
+                  data-testid="pool-day"
+                  data-day={d.day}
+                  data-settled={String(d.settledAt !== null)}
+                  data-eligible={m ? String(m.eligible) : ''}
+                  data-share={m ? m.share : ''}
+                  data-capped={m ? String(m.capped) : ''}
+                  data-state={m?.state ?? ''}
+                  data-reward-key={m?.rewardKey ?? ''}
+                >
+                  <th scope="row">{t('dayValue', { day: d.day })}</th>
+                  <td lang="zxx" data-testid="pool-day-activity">
+                    {m ? t('amountValue', { amount: m.activity, asset: b.activityAsset }) : '—'}
+                  </td>
+                  <td data-testid="pool-day-share">
+                    {d.settledAt === null
+                      ? t('dayOpen')
+                      : !m
+                        ? t('noShare')
+                        : !m.eligible
+                          ? t('nothingToday', { balance: m.balance, asset: b.activityAsset, asOf: when(m.balanceAsOf) })
+                          : m.capped
+                            ? t('shareCapped', { amount: m.share, asset: b.asset })
+                            : money(m.share)}
+                    {d.settledAt !== null && d.sharesTotal !== null && d.remainder !== null ? (
+                      <>
+                        <br />
+                        <span className="lt-hint" data-testid="pool-day-remainder" data-remainder={d.remainder}>
+                          {t('remainder', { shares: d.sharesTotal, slice: d.slice, asset: b.asset, remainder: d.remainder })}
+                        </span>
+                      </>
+                    ) : null}
+                  </td>
+                  <td data-testid="pool-day-paid">
+                    {m?.chainTx ? (
+                      <>
+                        {t('paid')}{' '}
+                        <code lang="zxx" data-testid="pool-day-chain-tx" data-tx={m.chainTx}>
+                          {m.chainTx}
+                        </code>
+                      </>
+                    ) : m?.rewardKey ? (
+                      t('owed')
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </ScrollTable>
+        )}
+      </Section>
+    </div>
+  );
+}

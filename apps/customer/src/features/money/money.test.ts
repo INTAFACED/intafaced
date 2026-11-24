@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { createApiClient } from '../../shared/api';
 import { createMoneyClient } from './client';
 
@@ -12,13 +13,13 @@ describe('Money public network boundary', () => {
         wire([
           {
             id: 'available',
-            assetId: 'BTC',
+            assetId: asAssetId('BTC'),
             kind: 'primary',
             name: 'Primary',
             balance: 0,
             goalTarget: null,
             lockedUntil: null,
-            ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
+            ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('BTC'), kind: 'available' },
           },
         ]),
     });
@@ -30,37 +31,52 @@ describe('Money public network boundary', () => {
 it('shows one available projection without adding a primary alias or claiming held money is zero', async () => {
   const fetcher: typeof fetch = async (input) => {
     const url = new URL(String(input), 'http://localhost');
-    if (url.pathname.endsWith('/spaces.unnamed')) return wire([{ assetId: 'BTC', balance: '0.200000000000000001' }]);
+    if (url.pathname.endsWith('/spaces.unnamed')) return wire([{ assetId: asAssetId('BTC'), balance: '0.200000000000000001' }]);
     return wire([
       {
         id: 'label',
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         kind: 'primary',
         name: 'Primary',
         balance: '0.200000000000000001',
         goalTarget: null,
         lockedUntil: null,
-        ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
+        ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('BTC'), kind: 'available' },
       },
     ]);
   };
   const result = await createMoneyClient(createApiClient({ fetch: fetcher })).overview(owner, 50);
-  expect(result.holdings).toEqual([{ assetId: 'BTC', available: '0.200000000000000001', held: null, quantity: null }]);
+  expect(result.holdings).toEqual([{ assetId: asAssetId('BTC'), available: '0.200000000000000001', held: null, quantity: null }]);
   expect(result.coverage).toBe('partial');
 });
 
 it('reads a balance the partner bank holds, which no ledger account backs, and refuses one that says nothing about who holds it', async () => {
   const partnerSpace = {
     id: 'label',
-    assetId: 'USDT',
+    assetId: asAssetId('USDT'),
     kind: 'primary',
     name: 'Primary',
     balance: '12.5',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: null,
   };
-  const heldAt = { label: 'TEST partner', asOf: '2026-11-11T00:00:00.000Z', figure: 'known' };
+  const heldAt = {
+    label: 'TEST partner',
+    asOf: '2026-11-11T00:00:00.000Z',
+    figure: {
+      state: 'known',
+      source: 'TEST partner',
+      amount: '12.5',
+      asOf: '2026-11-11T00:00:00.000Z',
+      staleAfterMs: 60_000,
+      reason: null,
+    },
+  };
   const clientFor = (space: unknown) =>
     createMoneyClient(
       createApiClient({
@@ -73,7 +89,7 @@ it('reads a balance the partner bank holds, which no ledger account backs, and r
   const held = await clientFor({ ...partnerSpace, heldAt }).overview(owner, 50);
   expect(held.spaces.ok).toBe(true);
   expect(held.conflicts).toEqual([]);
-  expect(held.holdings).toEqual([{ assetId: 'USDT', available: '12.5', held: null, quantity: null }]);
+  expect(held.holdings).toEqual([{ assetId: asAssetId('USDT'), available: '12.5', held: null, quantity: null }]);
   await expect(clientFor(partnerSpace).spaces(50)).resolves.toMatchObject({ ok: false, reason: 'invalid_response' });
 });
 
@@ -87,13 +103,17 @@ it('sends a reviewed transfer as an exact amount and preserves its request ident
   });
   const from = {
     id: '7880f322-b31d-4de1-a3eb-ebdd38f11709',
-    assetId: 'BTC',
+    assetId: asAssetId('BTC'),
     kind: 'primary' as const,
     name: 'Primary',
     balance: '1',
     goalTarget: null,
     lockedUntil: null,
-    ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
+    ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('BTC'), kind: 'available' },
   };
   const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Goal' };
   const result = await createMoneyClient(api).transfer([from, to], {
@@ -127,19 +147,19 @@ it('uses the owner-scoped balance facade and never adds the same primary-space a
       return wire([
         {
           id: 'label',
-          assetId: 'BTC',
+          assetId: asAssetId('BTC'),
           kind: 'primary',
           name: 'Primary',
           balance: '0.2',
           goalTarget: null,
           lockedUntil: null,
-          ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
+          ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('BTC'), kind: 'available' },
         },
       ]);
     },
   });
   const view = await createMoneyClient(api).overview(owner, 50);
-  expect(view.holdings).toEqual([{ assetId: 'BTC', available: '0.2', held: '0.1', quantity: '0.3' }]);
+  expect(view.holdings).toEqual([{ assetId: asAssetId('BTC'), available: '0.2', held: '0.1', quantity: '0.3' }]);
   expect(paths).toContain('/api/v1/account/balance');
   expect(paths.some((path) => path.startsWith('/api/ledger'))).toBe(false);
 });
@@ -150,13 +170,13 @@ it('refuses a malformed source lock rather than treating it as unlocked', async 
       wire([
         {
           id: 'label',
-          assetId: 'BTC',
+          assetId: asAssetId('BTC'),
           kind: 'primary',
           name: 'Primary',
           balance: '1',
           goalTarget: null,
           lockedUntil: 'unknown-lock-date',
-          ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
+          ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('BTC'), kind: 'available' },
         },
       ]),
   });
@@ -166,13 +186,17 @@ it('refuses a malformed source lock rather than treating it as unlocked', async 
 describe('a note and a payment reference travel with a transfer', () => {
   const space = (id: string, kind: 'primary' | 'named') => ({
     id,
-    assetId: 'USDT',
+    assetId: asAssetId('USDT'),
     kind,
     name: kind === 'primary' ? 'Primary' : 'Goal',
     balance: '50',
     goalTarget: null,
     lockedUntil: null,
-    ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'USDT', kind: 'available' },
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
+    ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: asAssetId('USDT'), kind: 'available' },
   });
   const from = space('7880f322-b31d-4de1-a3eb-ebdd38f11709', 'primary');
   const to = space('422cdfae-55ad-43b8-a36c-ac93d6e34715', 'named');
@@ -292,12 +316,16 @@ describe('a note and a payment reference travel with a transfer', () => {
 describe('a move between spaces the partner bank holds (OWNER 226)', () => {
   const from = {
     id: '7880f322-b31d-4de1-a3eb-ebdd38f11709',
-    assetId: 'USDT',
+    assetId: asAssetId('USDT'),
     kind: 'primary' as const,
     name: 'Primary',
     balance: '100',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: null,
   };
   const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Trip TEST' };

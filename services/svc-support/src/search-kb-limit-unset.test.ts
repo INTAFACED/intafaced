@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { LIST_KB_LIMIT_UNSET, SupportError, SupportService, assertListKbLimit } from './support-service.js';
 import { PLATFORM_KB_SPINE, searchKb } from './kb-catalog.js';
 import { userCopy } from './user-copy.js';
@@ -74,7 +75,10 @@ describe('searchKb limit unset refuse', () => {
     const end = src.indexOf('getKb:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('limit: input?.limit');
-    expect(fn).toContain('support.list_kb_limit_unset');
+    // The record the door is mounted from names the refusal and leaves the page size optional, so a blank reaches it.
+    expect(fn).toContain('SUPPORT_SEARCH_KB');
+    expect(SUPPORT_SEARCH_KB.refusals['support.list_kb_limit_unset']).toBe('PRECONDITION_FAILED');
+    expect(SUPPORT_SEARCH_KB.input.safeParse({ q: '' }).success).toBe(true);
     expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
     expect(fn).not.toMatch(/\?\? 100/);
     expect(fn).not.toMatch(/all\.length/);

@@ -44,6 +44,7 @@ const en = {
   trendingNone: 'No token has a price over this window, so none is ranked.',
   listNone: 'No token is listed: the pool factory has no pools.',
   howTrending: 'How trending is worked out',
+  howTrendingTitle: 'The growth formula',
   howTrendingBody:
     'Growth = (price now − price at the start of the window) ÷ price at the start of the window. A price is the quote token per token from the reserves of the deepest pool that pairs it with the quote token, or through one other token that does; the same pool is used at both ends. Tokens with no such pool have no price and are not ranked. Trending lists the rest from the highest growth down.',
   noBrief: 'No brief today.',
@@ -205,6 +206,10 @@ const en = {
   scamMany: '{count} reports',
   scamNote: 'Open reports people filed about this address. A count only: who reported is seen only by our compliance team.',
   scamReading: 'Reading the reports…',
+  standingBlocked: 'Blocked',
+  standingBlockedNote: 'This token is on our blocklist, so it is not routed: no route, path or swap through us names it. Why: {reason}',
+  standingPermissioned: 'Permissioned',
+  standingPermissionedNote: 'Only addresses its checker {checker} allows may hold this token ({pool}).',
 } as const;
 
 export const tokensCopy = defineCopy('customer.protocol.tokens', en);

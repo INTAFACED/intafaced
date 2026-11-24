@@ -12,6 +12,7 @@
  * A data class write needs a second operator's approval (four-eyes); the scalars need none.
  * No ledger write recipe is imported here: these values are read by the customer app and never move money.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import {
@@ -35,6 +36,7 @@ export const CHART_SCALAR_KEYS = [
   'drawingCap',
   'brushPointCap',
   'delayedBoundarySeconds',
+  'staleAgeSeconds',
   'renderBudgetMs',
   'orderProtectionBps',
   'queueFillWindowSeconds',
@@ -48,6 +50,7 @@ export const CHART_SCALAR_BOUNDS: Readonly<Record<ChartScalarKey, number>> = {
   drawingCap: 10_000,
   brushPointCap: 100_000,
   delayedBoundarySeconds: 86_400,
+  staleAgeSeconds: 86_400,
   renderBudgetMs: 60_000,
   orderProtectionBps: 10_000,
   queueFillWindowSeconds: 86_400,
@@ -62,6 +65,7 @@ const COLUMN: Readonly<Record<ChartScalarKey, string>> = {
   drawingCap: 'drawing_cap',
   brushPointCap: 'brush_point_cap',
   delayedBoundarySeconds: 'delayed_boundary_seconds',
+  staleAgeSeconds: 'stale_age_seconds',
   renderBudgetMs: 'render_budget_ms',
   orderProtectionBps: 'order_protection_bps',
   queueFillWindowSeconds: 'queue_fill_window_seconds',
@@ -137,6 +141,7 @@ const EMPTY_VALUES: ChartValues = {
   drawingCap: null,
   brushPointCap: null,
   delayedBoundarySeconds: null,
+  staleAgeSeconds: null,
   renderBudgetMs: null,
   orderProtectionBps: null,
   queueFillWindowSeconds: null,
@@ -149,6 +154,7 @@ interface ScalarRow {
   drawing_cap: number | null;
   brush_point_cap: number | null;
   delayed_boundary_seconds: number | null;
+  stale_age_seconds: number | null;
   render_budget_ms: number | null;
   order_protection_bps: number | null;
   queue_fill_window_seconds: number | null;
@@ -158,10 +164,10 @@ interface ScalarRow {
 }
 
 /** The current scalar snapshot: the highest version, or nothing set. */
-export async function readChartScalars(sql: Sql): Promise<ChartScalarsView> {
+export async function readChartScalars(sql: Queryable): Promise<ChartScalarsView> {
   const [row] = await sql<ScalarRow[]>`
     SELECT version::text AS version, compare_cap, chart_count_limit, drawing_cap, brush_point_cap,
-           delayed_boundary_seconds, render_budget_ms, order_protection_bps, queue_fill_window_seconds, operator_id, reason, created_at
+           delayed_boundary_seconds, stale_age_seconds, render_budget_ms, order_protection_bps, queue_fill_window_seconds, operator_id, reason, created_at
       FROM trade.chart_owner_values ORDER BY chart_owner_values.version DESC LIMIT 1`;
   if (!row) return { version: null, values: EMPTY_VALUES, operatorId: null, reason: null, updatedAt: null };
   return {
@@ -172,6 +178,7 @@ export async function readChartScalars(sql: Sql): Promise<ChartScalarsView> {
       drawingCap: row.drawing_cap,
       brushPointCap: row.brush_point_cap,
       delayedBoundarySeconds: row.delayed_boundary_seconds,
+      staleAgeSeconds: row.stale_age_seconds,
       renderBudgetMs: row.render_budget_ms,
       orderProtectionBps: row.order_protection_bps,
       queueFillWindowSeconds: row.queue_fill_window_seconds,
@@ -190,7 +197,7 @@ export async function readChartDataClass(sql: Sql, symbol: string): Promise<{ ve
   return row ? { version: row.version, dataClass: row.data_class } : null;
 }
 
-async function readDataClasses(sql: Sql): Promise<ChartDataClassView[]> {
+async function readDataClasses(sql: Queryable): Promise<ChartDataClassView[]> {
   const rows = await sql<
     Array<{
       symbol: string;
@@ -222,12 +229,12 @@ async function readDataClasses(sql: Sql): Promise<ChartDataClassView[]> {
   }));
 }
 
-export async function readChartOwnerValuesAdmin(sql: Sql): Promise<ChartOwnerValuesReadView> {
+export async function readChartOwnerValuesAdmin(sql: Queryable): Promise<ChartOwnerValuesReadView> {
   return { scalars: await readChartScalars(sql), dataClasses: await readDataClasses(sql) };
 }
 
 /** The page view for a caller who may (or may not) write. A successful write is always from a writer. */
-async function viewFor(sql: Sql, canWrite: boolean): Promise<ChartOwnerValuesAdminView> {
+async function viewFor(sql: Queryable, canWrite: boolean): Promise<ChartOwnerValuesAdminView> {
   return { ...(await readChartOwnerValuesAdmin(sql)), canWrite };
 }
 
@@ -341,13 +348,13 @@ export class ChartOwnerValuesAdmin {
       await sql.begin(async (tx) => {
         await tx`INSERT INTO trade.chart_owner_values (
           version, compare_cap, chart_count_limit, drawing_cap, brush_point_cap, delayed_boundary_seconds,
-          render_budget_ms, order_protection_bps, queue_fill_window_seconds, operator_id, reason, created_at
+          stale_age_seconds, render_budget_ms, order_protection_bps, queue_fill_window_seconds, operator_id, reason, created_at
         ) VALUES (
           ${next}::bigint, ${values.compareCap}, ${values.chartCountLimit}, ${values.drawingCap}, ${values.brushPointCap},
-          ${values.delayedBoundarySeconds}, ${values.renderBudgetMs}, ${values.orderProtectionBps}, ${values.queueFillWindowSeconds}, ${principal.userId}, ${reason}, ${at.toISOString()}
+          ${values.delayedBoundarySeconds}, ${values.staleAgeSeconds}, ${values.renderBudgetMs}, ${values.orderProtectionBps}, ${values.queueFillWindowSeconds}, ${principal.userId}, ${reason}, ${at.toISOString()}
         )`;
         await writeOperatorAudit(
-          tx as unknown as Sql,
+          tx,
           {
             kind: 'chart_owner_values.set',
             operatorId: principal.userId,
@@ -359,8 +366,8 @@ export class ChartOwnerValuesAdmin {
           },
           at,
         );
-        const written = await viewFor(tx as unknown as Sql, true);
-        await storeRequest(tx as unknown as Sql, clientRequestId, 'chart_owner_value_set', fingerprint, written);
+        const written = await viewFor(tx, true);
+        await storeRequest(tx, clientRequestId, 'chart_owner_value_set', fingerprint, written);
       });
     } catch (error) {
       // A concurrent duplicate of this same request lost the version race (or the client-request key) after the
@@ -426,7 +433,7 @@ export class ChartOwnerValuesAdmin {
           ${symbol}, ${next}::bigint, ${dataClass}, ${principal.userId}, ${consumed.approverId}, ${approvalId}, ${reason}, ${at.toISOString()}
         )`;
         await writeOperatorAudit(
-          tx as unknown as Sql,
+          tx,
           {
             kind: 'chart_data_class.set',
             operatorId: principal.userId,
@@ -438,8 +445,8 @@ export class ChartOwnerValuesAdmin {
           },
           at,
         );
-        const written = await viewFor(tx as unknown as Sql, true);
-        await storeRequest(tx as unknown as Sql, clientRequestId, 'chart_data_class_set', fingerprint, written);
+        const written = await viewFor(tx, true);
+        await storeRequest(tx, clientRequestId, 'chart_data_class_set', fingerprint, written);
       });
     } catch (error) {
       notWritten(error, true);

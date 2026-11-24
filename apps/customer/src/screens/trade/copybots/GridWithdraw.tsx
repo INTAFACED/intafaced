@@ -54,7 +54,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
 
   return (
     <>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => setOpen(true)}>
           {t('Withdraw profit')}
         </Button>
@@ -77,7 +77,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
             </DialogDescription>
           </DialogHeader>
           {receipt ? (
-            <section aria-label={t('Withdrawal receipt')} data-testid="grid-withdraw-receipt" className="cb-form">
+            <section aria-label={t('Withdrawal receipt')} data-testid="grid-withdraw-receipt" className="lt-stack">
               <AccountBadge paper={false} />
               <p className="cb-note-body">
                 {t('Your bot’s reserve was lowered by {amount} {asset}. No money moved.', {
@@ -88,7 +88,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
               <KeyValue
                 items={[
                   { label: t('Withdrawal ID'), value: receipt.withdrawalId },
-                  { label: t('Bot ID'), value: receipt.botId },
+                  { label: t('Bot reference'), value: receipt.botId },
                   { label: t('Asset'), value: receipt.asset },
                   { label: t('Amount'), value: `${displayAmount(receipt.amount)} ${receipt.asset}` },
                   { label: t('Profit before'), value: `${displayAmount(receipt.profitBefore)} ${receipt.asset}` },
@@ -104,7 +104,7 @@ export function GridWithdraw({ bot, api, onDone }: { bot: GridBot; api: ReturnTy
               />
             </section>
           ) : (
-            <div className="cb-form">
+            <div className="lt-stack">
               <Field label={t('Amount, {asset}', { asset })}>
                 <Input
                   kind="decimal"

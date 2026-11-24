@@ -1,7 +1,8 @@
 // World: book, restart
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, dayStart, utcDay } from './clock.mjs';
 import { confirm, fundedTrader, openDesk, previewed, reviewSheet, signIn } from './desk.mjs';
 import { api, fromUnits, ORIGIN, tool, toUnits } from './stack.mjs';
 
@@ -11,7 +12,9 @@ import { api, fromUnits, ORIGIN, tool, toUnits } from './stack.mjs';
 // PF-statements-01 (svc-bank `bank.statements.export`, the room at /bank/statements); #4 and #5 are PF-statements-02
 // (`bank.statements.jobs`: background exports made by the bank's worker, listed in the room's document centre). #5 restarts
 // the bank twice: once with every render held (LOCAL_STACK_BANK_STATEMENT_HOLD=on, a TEST fault), so the worker dies with
-// the job mid-render, then on renders that finish.
+// the job mid-render, then on renders that finish. #2 and #3 read the bank's own reply to the page's Download request
+// beside the file the browser saved: #2 checks the reply's signature over the saved bytes, under the key the bank derives
+// for statement files from the stack's TEST service secret.
 const J = 'J-portfolio-11';
 
 test.describe.configure({ mode: 'serial' });
@@ -20,6 +23,8 @@ let who;
 
 const centre = (page) => page.getByTestId('statement-centre');
 const NOT_TAX_FORM = 'This is not a tax form. It lists what happened and works out no gain, loss or tax.';
+// The sentence a CSV carries in its last column, Notice, on every row (svc-bank statements/statement-file.ts).
+const FILE_NOT_TAX_FORM = 'This is not a tax form. It works out no gain, loss or tax.';
 
 /** The statement and export centre, signed in. */
 async function openCentre(page) {
@@ -28,19 +33,45 @@ async function openCentre(page) {
   await expect(centre(page)).toBeVisible();
 }
 
-/** A UTC day as the date fields hold it. */
-const utcDay = (at) => at.toISOString().slice(0, 10);
-
 /** The last month that is over, as "YYYY-MM" in UTC. */
 function lastFullMonth(now = new Date()) {
   const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   return at.toISOString().slice(0, 7);
 }
 
-/** Clicks Download and returns the saved file's name and bytes. */
+/** A "YYYY-MM" month's first and last millisecond in UTC: the range a month's statement is asked for. */
+function monthBounds(month) {
+  const [year, number] = month.split('-').map(Number);
+  return { from: new Date(Date.UTC(year, number - 1, 1)).toISOString(), to: new Date(Date.UTC(year, number, 1) - 1).toISOString() };
+}
+
+/**
+ * Clicks Download and returns the file the browser saved (its name and bytes) and `reply`: what the bank answered the
+ * page's own request for that file (`bank.statements.export`), read off the wire.
+ */
 async function downloaded(page) {
-  const [file] = await Promise.all([page.waitForEvent('download'), centre(page).getByRole('button', { name: 'Download' }).click()]);
-  return { name: file.suggestedFilename(), bytes: readFileSync(await file.path()) };
+  const [file, answer] = await Promise.all([
+    page.waitForEvent('download'),
+    page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/trpc/statements.export')),
+    centre(page).getByRole('button', { name: 'Download' }).click(),
+  ]);
+  expect(answer.status(), 'bank.statements.export, as the page asked it').toBe(200);
+  return { name: file.suggestedFilename(), bytes: readFileSync(await file.path()), reply: (await answer.json()).result.data };
+}
+
+let serviceSecret;
+
+/**
+ * The HMAC-SHA256 the bank signs a statement file with: over the file's bytes, under the key it derives for statement
+ * files from its service secret (svc-bank statements/statement-file.ts `signStatement`). The secret is the running TEST
+ * stack's own, read from its state folder.
+ */
+async function statementSignature(bytes) {
+  serviceSecret ??= import('../../../../tooling/scripts/local-test-gates.mjs')
+    .then((gates) => gates.makeContext({ log: () => {} }))
+    .then((ctx) => ctx.secrets.internal);
+  const key = Buffer.from(hkdfSync('sha256', await serviceSecret, Buffer.alloc(0), 'bank.statement.file.v1', 32));
+  return createHmac('sha256', key).update(bytes).digest('hex');
 }
 
 /** RFC 4180 rows of a CSV the bank wrote (a BOM first, CRLF lines, quoted cells where needed). */
@@ -118,7 +149,9 @@ test(`${J} #1 opens the statement and export centre: account statement, trades, 
   await expect(page).toHaveURL((url) => url.pathname === '/bank/statements');
   await expect(centre(page)).toBeVisible();
   const kinds = centre(page).getByRole('radiogroup', { name: 'What to export' });
-  expect(await kinds.locator('label strong').allInnerTexts()).toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
+  await expect
+    .poll(async () => await kinds.locator('label strong').allInnerTexts())
+    .toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
   await expect(kinds.getByRole('radio', { name: /Account statement/ })).toBeChecked();
   for (const name of [/Ledger/, /Trades/, /Balances/]) await expect(kinds.getByRole('radio', { name })).toBeEnabled();
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();
@@ -136,18 +169,33 @@ test(`${J} #2 downloads a signed statement for a finished month: a file with its
     'This month is still running, so it is not offered. Pick a month that is over.',
   );
   await expect(centre(page).getByRole('button', { name: 'Download' })).toBeDisabled();
-  // The last finished month, as a signed PDF.
-  await month.fill(lastFullMonth());
+  // The last finished month, as a PDF: the file the browser saved, and the bank's reply to the page's request for it.
+  const finished = lastFullMonth();
+  const { from, to } = monthBounds(finished);
+  await month.fill(finished);
   await centre(page).getByRole('combobox', { name: 'Format' }).selectOption('pdf');
-  const { name, bytes } = await downloaded(page);
-  expect(name).toBe(`intafaced-statement-${lastFullMonth()}.pdf`);
+  const { name, bytes, reply } = await downloaded(page);
+  expect(name).toBe(`intafaced-statement-${finished}.pdf`);
   expect(bytes.subarray(0, 8).toString('utf8')).toBe('%PDF-1.4');
-  expect(bytes.toString('utf8')).toContain('INTAFACED account statement');
-  // The fingerprint shown is the first 12 characters of the file's own SHA-256.
+  // The file is this person's account statement of that whole month, first millisecond to last, and counts the lines the
+  // activity list holds for the month.
+  const drawn = bytes.toString('utf8');
+  const lines = await activityLines(from, to);
+  expect(drawn).toContain('(INTAFACED account statement) Tj');
+  expect(drawn).toContain(`(Holder: ${(await api(who)).userId}) Tj`);
+  expect(drawn).toContain(`(Period: ${from} to ${to}) Tj`);
+  expect(drawn).toContain(`(Rows: ${lines.length}) Tj`);
+  expect(reply.proof).toMatchObject({ report: 'statement', from, to, rowCount: lines.length });
+  // Signed: the bank's reply carries the SHA-256 of the very bytes that were saved, and its signature is the HMAC-SHA256 of
+  // those bytes under the bank's statement key, worked out here from the saved file.
   const sha = createHash('sha256').update(bytes).digest('hex');
+  expect(reply.sha256).toBe(sha);
+  expect(reply.signature).toMatch(/^[0-9a-f]{64}$/);
+  expect(reply.signature).toBe(await statementSignature(bytes));
+  // The fingerprint shown is the first 12 characters of the file's own SHA-256.
   const fingerprint = sha.slice(0, 12).match(/.{4}/g).join(' ');
   await expect(page.getByTestId('statement-centre-status')).toHaveText(
-    new RegExp(`^Downloaded ${name}: \\d+ lines\\. Fingerprint ${fingerprint};`),
+    `Downloaded ${name}: ${lines.length} lines. Fingerprint ${fingerprint}; support can check it.`,
   );
 });
 
@@ -160,31 +208,68 @@ test(`${J} #3 exports 30 days of transactions as CSV: newest first in UTC, equal
     .check();
   // The last 30 UTC days, today included, are the dates offered.
   const now = new Date();
-  const fromDay = utcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29)));
+  const fromDay = utcDay(dayStart(now) - 29 * DAY);
   const toDay = utcDay(now);
   await expect(centre(page).getByLabel('From (UTC)', { exact: true })).toHaveValue(fromDay);
   await expect(centre(page).getByLabel('To (UTC)', { exact: true })).toHaveValue(toDay);
   await centre(page).getByRole('combobox', { name: 'Format' }).selectOption('csv');
-  const { name, bytes } = await downloaded(page);
+  const { name, bytes, reply } = await downloaded(page);
   expect(name).toMatch(/^intafaced-activity-\d{4}-\d{2}-\d{2}\.csv$/);
+  // The file the bank made is the ledger of exactly those 30 UTC days, first millisecond to last.
+  const from = `${fromDay}T00:00:00.000Z`;
+  const to = `${toDay}T23:59:59.999Z`;
+  expect((Date.parse(to) + 1 - Date.parse(from)) / DAY).toBe(30);
+  expect(reply.proof).toMatchObject({ report: 'ledger', from, to });
   const [header, ...rows] = csvRows(bytes.toString('utf8'));
+  // No balance column.
   expect(header.some((cell) => /balance/i.test(cell))).toBe(false);
-  // Equal to the activity list for the same range: the same records, in the same order.
-  const lines = await activityLines(`${fromDay}T00:00:00.000Z`, `${toDay}T23:59:59.999Z`);
+  // Equal to the activity list for the same range: the same records in the same order, each with the list's own time,
+  // kind, direction, asset, amount (money out carries a minus sign) and ledger reference. Every row also carries the
+  // file's not-a-tax-form sentence, whole, in its Notice column: a downloaded file travels without the page.
+  const lines = await activityLines(from, to);
   expect(lines.length).toBeGreaterThan(0);
-  const record = header.indexOf('Record');
-  const date = header.indexOf('Date (UTC)');
-  const type = header.indexOf('Type');
-  const amount = header.indexOf('Amount');
-  expect(rows.map((row) => row[record])).toEqual(lines.map((line) => line.id));
-  for (const [i, line] of lines.entries()) {
-    expect(rows[i][type]).toBe(line.kind);
-    expect(rows[i][amount]).toBe(line.direction === 'out' ? `-${line.amount}` : line.amount);
-  }
-  // In UTC, newest first.
+  const column = (title) => {
+    const at = header.indexOf(title);
+    expect(at, `the file's "${title}" column`).toBeGreaterThanOrEqual(0);
+    return at;
+  };
+  const record = column('Record');
+  const date = column('Date (UTC)');
+  const type = column('Type');
+  const direction = column('Direction');
+  const asset = column('Asset');
+  const amount = column('Amount');
+  const reference = column('Reference');
+  const notice = column('Notice');
+  expect(
+    rows.map((row) => ({
+      record: row[record],
+      at: row[date],
+      kind: row[type],
+      direction: row[direction],
+      asset: row[asset],
+      amount: row[amount],
+      reference: row[reference],
+      notice: row[notice],
+    })),
+  ).toEqual(
+    lines.map((line) => ({
+      record: line.id,
+      at: new Date(line.postedAt).toISOString(),
+      kind: line.kind,
+      direction: line.direction,
+      asset: line.asset,
+      amount: line.direction === 'out' ? `-${line.amount}` : line.amount,
+      reference: line.txId,
+      notice: FILE_NOT_TAX_FORM,
+    })),
+  );
+  // In UTC, newest first: every time is a UTC instant, none is later than the one above it, and the newest line (the buy)
+  // is above the oldest (the TEST funds that paid for it).
   const times = rows.map((row) => row[date]);
   for (const at of times) expect(at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   expect([...times].sort().reverse()).toEqual(times);
+  expect(Date.parse(times[0])).toBeGreaterThan(Date.parse(times.at(-1)));
   // The buy is in it, as the trade line the ledger posted.
   expect(
     rows.some((row) => row[type] === 'trade'),
@@ -197,14 +282,12 @@ test(`${J} #3 exports 30 days of transactions as CSV: newest first in UTC, equal
   const fee = fills[0].fee;
   expect(fee?.currency, 'the buy carries a fee').toBeTruthy();
   expect(toUnits(String(fee.cost))).toBeGreaterThan(0n);
-  const asset = header.indexOf('Asset');
   const feeRows = rows.filter((row) => row[type] === 'fee');
   expect(
     feeRows.map((row) => ({ asset: row[asset], amount: row[amount] })),
     "one fee row, the buy's fee",
   ).toEqual([{ asset: fee.currency, amount: `-${fromUnits(toUnits(String(fee.cost)))}` }]);
-  // The file itself states that it is not a tax form, as the page does: a downloaded file travels without the page.
-  expect(bytes.toString('utf8')).toContain('This is not a tax form.');
+  // The page says so too, beside the export.
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();
   await expect(page.getByTestId('statement-centre-status')).toHaveText(new RegExp(`^Downloaded ${name}: ${rows.length} lines\\.`));
 });

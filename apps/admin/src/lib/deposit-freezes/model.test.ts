@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDeskRequest } from '@/lib/desk/approval-packet';
+import { readDeskRequest } from '@/lib/desk';
 import { freezeDetail, readFreezeAnswer, readFreezeRequest, readUnfreezeAnswer, unfreezeDetail } from './model';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';

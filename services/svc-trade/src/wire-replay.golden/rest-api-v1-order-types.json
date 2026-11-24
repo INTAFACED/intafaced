@@ -1,0 +1,26 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"accepted\":[{\"id\":\"limit\",\"send\":{\"type\":[\"limit\"],\"fields\":[\"price\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-limit\",\"type\":\"limit\",\"price\":\"100\",\"timeInForce\":\"GTC\"}},\"timeInForce\":[\"GTC\",\"GTD\",\"PO\",\"IOC\",\"FOK\"]},{\"id\":\"stop_limit\",\"send\":{\"type\":[\"stop_limit\"],\"fields\":[\"price\",\"stopPrice\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-stop_limit\",\"type\":\"stop_limit\",\"price\":\"101\",\"stopPrice\":\"100\",\"timeInForce\":\"GTC\"}},\"timeInForce\":[\"GTC\"]},{\"id\":\"stop_market\",\"send\":{\"type\":[\"stop\"],\"fields\":[\"stopPrice\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-stop_market\",\"type\":\"stop\",\"stopPrice\":\"100\",\"timeInForce\":\"GTC\"}},\"timeInForce\":[\"GTC\"]},{\"id\":\"oco\",\"send\":{\"type\":[\"limit\"],\"fields\":[\"price\",\"oco\",\"takeProfit\",\"stopLoss\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-oco\",\"type\":\"limit\",\"price\":\"120\",\"timeInForce\":\"GTC\",\"oco\":true,\"takeProfit\":{\"stopPrice\":\"90\"},\"stopLoss\":{\"stopPrice\":\"110\",\"price\":\"120\"}}},\"timeInForce\":[\"GTC\"]},{\"id\":\"bracket\",\"send\":{\"type\":[\"market\",\"limit\"],\"fields\":[\"bracket\",\"takeProfit\",\"stopLoss\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-bracket\",\"type\":\"market\",\"timeInForce\":\"GTC\",\"bracket\":true,\"takeProfit\":{\"stopPrice\":\"110\"},\"stopLoss\":{\"stopPrice\":\"90\"}}},\"timeInForce\":[\"IOC\",\"FOK\",\"GTC\"]},{\"id\":\"oto\",\"send\":{\"type\":[\"limit\"],\"fields\":[\"price\",\"oto\",\"close\"],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-oto\",\"type\":\"limit\",\"price\":\"100\",\"timeInForce\":\"GTC\",\"oto\":true,\"close\":{\"price\":\"110\"}}},\"timeInForce\":[\"GTC\",\"IOC\",\"FOK\"]},{\"id\":\"market\",\"send\":{\"type\":[\"market\"],\"fields\":[],\"example\":{\"symbol\":\"BTC/USDT\",\"side\":\"buy\",\"amount\":\"0.001\",\"clientOrderId\":\"TEST-example-market\",\"type\":\"market\",\"timeInForce\":\"GTC\"}},\"timeInForce\":[\"GTC\",\"FOK\"]}],\"refused\":[{\"id\":\"trailing_stop\",\"code\":\"trade.order_type_unsupported\"}]}"
+  ],
+  "answers": {
+    "GET /api/v1/order-types": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent trader": [200, 0],
+      "absent all": [200, 0],
+      "absent all-US": [200, 0],
+      "absent svc-trade": [200, 0],
+      "absent svc-ops": [200, 0],
+      "absent svc-identity": [200, 0],
+      "absent svc-campaigns": [200, 0],
+      "absent svc-bank": [200, 0],
+      "absent svc-token": [200, 0],
+      "absent svc-support": [200, 0],
+      "absent svc-market": [200, 0],
+      "absent svc-fix": [200, 0],
+      "absent svc-agents": [200, 0],
+      "absent svc-tax": [200, 0]
+    }
+  }
+}

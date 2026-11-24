@@ -534,6 +534,7 @@ describe('router v2 and SovereignPermit onchain', () => {
       permitLifetimeCapSeconds: () => cap,
       slippageCeilingBps: () => 300,
       pairs: pairsAt,
+      routable: async () => {},
       toTrpcError: (err) => err as never,
     });
 

@@ -1,40 +1,29 @@
+// volt-room: /pay/network
+// volt-room: portal:network
 import { useState } from 'react';
-import { EmptyState, Field } from '../../../ui-kit';
+import { Field } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { PaySection } from '../../../components';
 import { useMerchantAccess } from '../../access/MerchantAccess';
-import { Chip } from '../../components';
 import type { PortalApi } from '../../api';
 import { DateTime } from '../../ui/DateTime';
-import { EntityList } from '../../ui/EntityList';
-import { PortalReview } from '../../ui/PortalReview';
+import { Chip, Empty, EntityList, ReadGate, Section } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
+import { Review as PortalReview } from '../../volt/Review';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';
 import { bpsPercent, isPlatformAccount, nodeName, parsePercentToBps } from '../account/model';
 import type { SubMerchant } from '../account/schemas';
-import { ReadGate } from '../account/ui';
+import { NotPlatform } from './NotPlatform';
 
-/** Platform accounts only. Anyone else who opens the address is told what this page is, not shown a refusal. */
-export function NotPlatform() {
-  const { t } = accountCopy.useCopy();
-  return (
-    <EmptyState
-      title={t('netNotPlatformTitle')}
-      action={
-        <a className="text-link" href="/pay/merchant">
-          {t('backOverview')}
-        </a>
-      }
-    >
-      {t('netNotPlatformBody')}
-    </EmptyState>
-  );
+/** `/pay/network` on the record-list template, for the account the access resolved. */
+export function NetworkRoom({ portal, mode }: { portal: PortalApi; mode: string | null }) {
+  return <RecordListRoom>{({ merchantId }) => ({ list: <Network portal={portal} merchantId={merchantId} mode={mode} /> })}</RecordListRoom>;
 }
 
 /** `/pay/network`: the businesses under this platform account, and a way to add one. */
-export function Network({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
+function Network({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
   const { canOwnerWrite } = useMerchantAccess();
   const subs = useResource((s) => portal.subList(merchantId, s), `portal:subs:${merchantId}`);
   if (!isPlatformAccount(mode)) return <NotPlatform />;
@@ -57,8 +46,8 @@ export function NetworkView({
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   return (
-    <div className="stack">
-      <PaySection title={t('netListTitle')} description={t('netListBody')}>
+    <div className="lt-stack">
+      <Section title={t('netListTitle')} description={t('netListBody')}>
         <ReadGate
           resource={subs}
           retry={reload}
@@ -66,7 +55,7 @@ export function NetworkView({
         >
           {(rows) =>
             rows.length === 0 ? (
-              <EmptyState title={t('netEmptyTitle')}>{t('netEmptyBody')}</EmptyState>
+              <Empty title={t('netEmptyTitle')}>{t('netEmptyBody')}</Empty>
             ) : (
               <EntityList
                 label={t('netListTitle')}
@@ -80,17 +69,11 @@ export function NetworkView({
                   { header: t('colFee'), cell: (r) => (r.feeBps === null ? t('notSet') : bpsPercent(r.feeBps)) },
                   { header: t('colAdded'), cell: (r) => <DateTime value={r.createdAt} /> },
                 ]}
-                card={(r) => ({
-                  title: nodeName(r, t('subWord')),
-                  time: <DateTime value={r.createdAt} />,
-                  amount: r.feeBps === null ? t('notSet') : bpsPercent(r.feeBps),
-                  status: <Chip kind="merchant" value={r.status} />,
-                })}
               />
             )
           }
         </ReadGate>
-      </PaySection>
+      </Section>
       <CreateSub portal={portal} merchantId={merchantId} allowed={mayCreate} done={reload} />
     </div>
   );
@@ -105,8 +88,8 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
   useUnsavedForm(Boolean(userId || fee), t('acUnsaved'));
   const why = !allowed ? t('netOwnerOnly') : userId.trim() === '' ? t('netNeedUser') : bps === null ? t('netNeedFee') : undefined;
   return (
-    <PaySection title={t('netCreateTitle')} description={t('netCreateBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+    <Section title={t('netCreateTitle')} description={t('netCreateBody')}>
+      <div data-testid="form-stack" className="lt-stack">
         <Field
           label={`${t('netUserLabel')} *`}
           value={userId}
@@ -131,7 +114,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
           variant="primary"
           description={t('netCreateReview')}
           review={
-            <dl data-testid="pp-facts" className="pp-facts">
+            <dl data-testid="pp-facts" className="lt-kv">
               <div>
                 <dt>{t('netUserLabel')}</dt>
                 <dd>{userId.trim()}</dd>
@@ -151,8 +134,8 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
           disabled={why !== undefined}
           disabledReason={why}
         />
-        {why && <p className="muted pp-note">{why}</p>}
+        {why && <p className="lt-hint">{why}</p>}
       </div>
-    </PaySection>
+    </Section>
   );
 }

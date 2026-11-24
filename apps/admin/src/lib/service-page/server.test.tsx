@@ -36,6 +36,39 @@ const record = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/** One alert rule as svc-ops answers it (the record's whole answer, which the call now checks). */
+const alertRule = (name: string, id = '11111111-1111-4111-8111-111111111112') => ({
+  id,
+  name,
+  folder: 'core',
+  group: 'ledger',
+  signal: 'ledger.posting_lag_seconds',
+  condition: { operator: 'gt', threshold: '30' },
+  intervalSeconds: 60,
+  pendingSeconds: 0,
+  labels: { module: 'ledger' },
+  annotations: {},
+  noData: 'alerting',
+  execError: 'alerting',
+  paused: false,
+  version: 1,
+  createdAt: '2026-10-24T08:00:00.000Z',
+  updatedAt: '2026-10-24T08:00:00.000Z',
+  retiredAt: null,
+});
+const alertState = (state: 'normal' | 'pending' | 'firing') => ({
+  instance: 'ledger',
+  state,
+  health: 'ok',
+  epoch: 1,
+  pendingSince: null,
+  firingSince: state === 'firing' ? '2026-10-24T09:55:00.000Z' : null,
+  lastEvaluatedAt: '2026-10-24T09:59:00.000Z',
+  lastValue: '45',
+  lastCode: null,
+  kept: false,
+});
+
 function route(answers: Record<string, () => Response | Promise<Response>>) {
   const fn = vi.fn(async (url: string) => {
     const procedure = new URL(url).pathname.split('/trpc/')[1] ?? '';
@@ -56,8 +89,8 @@ describe('service page', () => {
       'alertRules.states': () =>
         ok({
           items: [
-            { rule: { id: 'r1', name: 'Ledger posting lag', folder: 'core', group: 'ledger' }, status: { state: 'firing', health: 'ok' } },
-            { rule: { id: 'r2', name: 'Ledger reconcile', folder: 'core', group: 'ledger' }, status: null },
+            { rule: alertRule('Ledger posting lag'), status: alertState('firing') },
+            { rule: alertRule('Ledger reconcile', '22222222-2222-4222-8222-222222222222'), status: null },
           ],
           nextCursor: null,
         }),

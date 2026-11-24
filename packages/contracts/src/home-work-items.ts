@@ -79,7 +79,7 @@ const roomLink = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path')
+  .regex(/^\/(?:[^\\\s/][^\\\s]*)?$/, 'customer room path')
   .refine((link) => {
     const path = link.split(/[?#]/)[0] ?? '';
     return !path.includes('%') && !path.split('/').some((segment) => segment === '.' || segment === '..');
@@ -156,3 +156,14 @@ export const homeConfigOutputSchema = z.object({
   revision: z.number().int().nonnegative(),
 });
 export type HomeConfig = z.infer<typeof homeConfigOutputSchema>;
+
+/**
+ * `home.config` as its record sends it (`OPS_HOME_CONFIG`): the same fields, with "each kind once" moved from the schema
+ * to the record's `accept`, where every caller runs it. svc-ops checks the order at boot with `homeConfigOutputSchema`.
+ */
+export const homeConfigReplySchema = homeConfigOutputSchema.extend({ workListOrder: z.array(workItemKindSchema).min(1).nullable() });
+/** True when no kind appears twice in the owners' order (blank passes). */
+export const eachWorkKindOnce = (reply: unknown): boolean => {
+  const order = homeConfigReplySchema.safeParse(reply).data?.workListOrder;
+  return order !== undefined && (order === null || new Set(order).size === order.length);
+};

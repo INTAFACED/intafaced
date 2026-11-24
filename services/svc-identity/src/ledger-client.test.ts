@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  formatAmount,
   InsufficientFundsError,
   LedgerError,
   MemoryLedger,

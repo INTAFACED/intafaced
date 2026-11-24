@@ -7,9 +7,9 @@
  * It imports no value from `payment-service.ts`, so loading any area file first cannot hit a half-loaded class file.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { MerchantStoredFeeError, normalizeStoredFeeBps } from '../starter-fee.js';
 import { randomUUID } from 'node:crypto';
-import type { Sql } from 'postgres';
 import { formatAmount, InsufficientFundsError, LedgerError, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { railBlockingReason, railReasonCode, type PaymentIntent, type RailAdapter, type RailResult } from '../rails/rail-adapter.js';
 import { type SettlementLedgerPlan } from '../settlement-ledger.js';
@@ -205,7 +205,7 @@ export function paymentCreationPayload(input: Parameters<PayService['createPayme
 }
 
 export async function insertPayment(
-  tx: Sql,
+  tx: Queryable,
   input: {
     id?: string;
     merchantId: string;
@@ -278,7 +278,7 @@ export async function insertPayment(
  * both are booked. `payment_links.uses` then reads 2 and the next open is
  * refused. The service says so rather than implying a hard cap it cannot keep.
  */
-export async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void> {
+export async function completeCheckoutSession(tx: Queryable, paymentId: string): Promise<void> {
   const closed = await tx<Array<{ link_id: string }>>`
     UPDATE pay.checkout_sessions
        SET status = 'completed', updated_at = now()
@@ -290,7 +290,7 @@ export async function completeCheckoutSession(tx: Sql, paymentId: string): Promi
   }
 }
 
-export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function readPayment(tx: Queryable, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId}
@@ -300,7 +300,7 @@ export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRo
   return row;
 }
 
-export async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function lockPayment(tx: Queryable, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId} FOR UPDATE
@@ -320,6 +320,25 @@ export function assertTransition(row: PaymentRow, next: PaymentStatus): void {
 }
 
 /**
+ * The one way a payment's status is written once the payment is locked: the move must be in TRANSITIONS, and the
+ * `UPDATE` only lands on the status the caller read under that lock. Zero rows means someone moved it anyway: a bug,
+ * refused with the same typed error, never a silent overwrite.
+ */
+export async function movePayment(tx: Queryable, row: PaymentRow, next: PaymentStatus): Promise<PaymentRow> {
+  assertTransition(row, next);
+  const moved = await tx`
+    UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id} AND status = ${row.status}
+  `;
+  if (moved.count !== 1) {
+    throw new PayError(`Payment ${row.id} is no longer ${row.status}; it cannot go to ${next}`, 'pay.invalid_transition', {
+      from: row.status,
+      to: next,
+    });
+  }
+  return { ...row, status: next };
+}
+
+/**
  * Captured and refunded totals, summed from the append-only log.
  *
  * Deliberately not columns. A running total on the payment row would be a
@@ -335,7 +354,7 @@ export function readIncludedAmount(raw: string | null): { amount: Amount | null;
   }
 }
 
-export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
+export async function totalsFor(sql: Queryable, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
   const rows = await sql<Array<{ captured: string; refunded: string }>>`
     SELECT
       COALESCE(SUM(CASE WHEN event = 'captured' THEN (payload->>'amount')::numeric END), 0) AS captured,
@@ -346,7 +365,7 @@ export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured
   return { captured: parseAmount(row?.captured ?? '0'), refunded: parseAmount(row?.refunded ?? '0') };
 }
 
-export async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
+export async function countEvents(sql: Queryable, paymentId: string, event: string): Promise<number> {
   const rows = await sql<Array<{ n: string }>>`
     SELECT COUNT(*)::text AS n FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = ${event}
   `;
@@ -373,7 +392,7 @@ export function openingTxIdFromDetail(detail: Record<string, unknown> | undefine
  * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`
  * retired. A void applies to the plans before it; a plan made after a void is live.
  */
-export async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
+export async function readLivePlan(sql: Queryable, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
   const rows = await sql<Array<{ seq: string; event: string; payload: Omit<ChargebackPlan, 'seq'> }>>`
     SELECT seq, event, payload FROM pay.payment_events
      WHERE payment_id = ${paymentId}
@@ -388,7 +407,7 @@ export async function readLivePlan(sql: Sql, paymentId: string, disputeId: strin
   return live;
 }
 
-export async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
+export async function appendEvent(sql: Queryable, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
   await sql`
     INSERT INTO pay.payment_events (payment_id, event, payload)
     VALUES (${paymentId}, ${event}, ${sql.json(payload as never)})
@@ -396,7 +415,7 @@ export async function appendEvent(sql: Sql, paymentId: string, event: string, pa
 }
 
 /** The instrument the payment was created with, read back off the `created` event. */
-export async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent['instrument']> {
+export async function instrumentFor(sql: Queryable, paymentId: string): Promise<PaymentIntent['instrument']> {
   const rows = await sql<Array<{ payload: Record<string, unknown> }>>`
     SELECT payload FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'created' LIMIT 1
   `;
@@ -456,7 +475,7 @@ export function railPayload(result: RailResult): Record<string, unknown> {
 
 /** One `merchant_kyb_events` row, written inside the transaction that moved `kyb_status`. */
 export async function recordKybEvent(
-  tx: Sql,
+  tx: Queryable,
   e: {
     merchantId: string;
     from: MerchantRecord['kybStatus'];

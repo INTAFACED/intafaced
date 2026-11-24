@@ -279,7 +279,7 @@ describe('guest verification door (isolated PostgreSQL, ADR 2026-10-22 §3.5)', 
           url: '/trpc/guestVerification.get',
           body,
           headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-support', supportSecret, body), ...extra },
-        }) as unknown as Parameters<typeof context>[0];
+        }) as Parameters<typeof context>[0];
       expect(context(request({})).service).toBe('svc-support');
       expect(context(request({ [S2S_KID_HEADER]: 'svc-support:1' })).service).toBeNull();
       expect(context(request({ [S2S_NONCE_HEADER]: 'n' })).service).toBeNull();

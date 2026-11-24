@@ -1,13 +1,15 @@
 // World: stack
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
-import { responseAfterNavigation } from './navigation.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
 // J-merchant-01 step 6 in the running app: notification preferences saved per person with their change history, and
-// Support from the portal. A preference change is a write, which needs a verified business, so the founder pair approves this one. A
-// Viewer team member of that business holds notifications.read but not notifications.manage (svc-pay
-// merchant-ops/roles.ts), so every preference is greyed for them with the reason.
+// Support from the portal. The journey's own state: the owner's business has verification not done, and the owner saves
+// their own preference in it (svc-pay ownPreferenceWrite: a personal choice takes no KYB gate). Inviting a teammate is a
+// team write that needs a verified business, so only then does the founder pair approve it, for the second half: a
+// Viewer team member holds notifications.read but not notifications.manage (svc-pay merchant-ops/roles.ts), so every
+// preference is greyed for them with the reason, and the owner's choice is not theirs.
 const J = 'J-merchant-01';
 
 test(`${J} #6 the owner changes a notification preference, saved for them alone, sees who changed it and when, and reaches Support from the portal; a Viewer reads their own preferences greyed with the reason`, async ({
@@ -18,12 +20,23 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   await forgetSession(page);
   const owner = await businessReadyPerson(page, 'mset', '/pay/onboarding');
   const merchantId = await openBusiness(page, owner, 'TEST Alerts Ltd');
-  await verifiedBusiness(page, owner, merchantId);
   await forgetSession(page);
-  await signInWithCode(page, owner, '/pay/settings/notifications');
+  // The Starts state: the owner of a business whose verification is not done.
+  await signInWithCode(page, owner, '/pay/merchant');
+  const accessRead = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchant.myAccess') && r.status() === 200,
+    () => page.reload(),
+  );
+  const access = await accessRead.json();
+  const memberships = (Array.isArray(access) ? access[0] : access).result.data.memberships;
+  expect(memberships).toEqual([expect.objectContaining({ role: 'owner', kybStatus: 'none', verified: false })]);
+  await expect(page.getByText('Not verified').first()).toBeVisible();
+  await page.goto('/pay/settings/notifications');
   const refused = refusedPayCalls(page);
 
-  const historyOf = (p) => p.locator('section').filter({ has: p.getByRole('heading', { name: 'Change history', level: 2 }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const historyOf = (p) => p.getByRole('heading', { name: 'Change history', level: 2 }).locator('xpath=ancestor::section[1]');
   const history = historyOf(page);
   await expect(history).toContainText('No changes yet');
   const row = page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' });
@@ -55,8 +68,20 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   await expect(entry.locator('time')).toHaveAttribute('datetime', changedAt);
   await expect(entry.locator('time')).toHaveText(new RegExp(`${new Date(changedAt).getUTCFullYear()}.*\\d{1,2}:\\d{2}`));
 
-  // The change is the service's record, not the page's memory.
-  await page.reload();
+  // The change is the service's record, not the page's memory: after a reload the service holds the owner's own choice,
+  // Export ready off and saved by the owner, and every other kind still on and saved by no one.
+  const ownerPrefs = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchantOps.notifications.preferences.list') && r.request().method() === 'GET',
+    () => page.reload(),
+  );
+  expect(ownerPrefs.status(), 'the owner reads their own preferences').toBe(200);
+  expect(owner.userId).toMatch(/^[0-9a-f-]{36}$/);
+  const ownerKinds = (await ownerPrefs.json()).result.data;
+  expect(ownerKinds.find((p) => p.kind === 'export_ready')).toMatchObject({ inApp: false, updatedBy: owner.userId });
+  const othersOf = (kinds) => kinds.filter((p) => p.kind !== 'export_ready');
+  expect(othersOf(ownerKinds).length, 'the other kinds the owner reads').toBeGreaterThan(0);
+  expect(othersOf(ownerKinds).every((p) => p.inApp === true && p.updatedBy === null)).toBe(true);
   await expect(historyOf(page)).toContainText('Export ready turned off');
   await expect(historyOf(page).getByRole('listitem').filter({ hasText: 'Export ready turned off' }).locator('time')).toHaveAttribute(
     'datetime',
@@ -67,8 +92,20 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
 
   await page.getByRole('link', { name: 'Help and support' }).click();
   await expect(page).toHaveURL(/\/support$/);
+  // Support itself: its help search and the way to ask a person, not just its address.
   await expect(page.getByLabel('Search help')).toBeVisible();
+  const desk = page.getByRole('group', { name: 'Support sections' });
+  for (const name of ['Help articles', 'Your requests', 'New request']) await expect(desk.getByRole('button', { name })).toBeVisible();
   expect(refused).toEqual([]);
+
+  // The team half needs a second person, and only the owner of a verified business can add one (svc-pay
+  // team-member-write.ts: inviting takes the owner's `pay:write`, which a business whose verification is not done never
+  // holds). So everything above ran in the Starts state; the founder pair approves this business only now, for the clause
+  // about a person who lacks a permission (the owner holds every one), and the owner's own choice, saved before it, stays.
+  await verifiedBusiness(page, owner, merchantId);
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/settings/notifications');
+  await expect(page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' }).getByRole('checkbox')).not.toBeChecked();
 
   // A person without the permission: the owner adds a Viewer by account ID (email invitations are off on this stack).
   await page.goto('/pay/team');
@@ -97,10 +134,10 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
 
   // The Viewer reads the same preferences, each greyed: its switch and Save cannot be used, and the row says why, naming
   // the permission they lack.
-  const { res: viewerPrefs } = await responseAfterNavigation(
+  const viewerPrefs = await answerAfterNavigation(
     page,
     (r) => r.url().includes('merchantOps.notifications.preferences.list') && r.request().method() === 'GET',
-    { navigate: () => page.goto('/pay/settings/notifications') },
+    () => page.goto('/pay/settings/notifications'),
   );
   const viewerRows = page.locator('li[data-testid="pp-pref"]');
   await expect(viewerRows.first()).toBeVisible();
@@ -114,8 +151,8 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   }
   // Saved per person: the owner turned Export ready off for themself, not for the Viewer. The Viewer reads their own
   // choices from the service, every kind on by default, none saved by anyone, and an empty history of their own.
-  expect(viewerPrefs.status, 'the Viewer reads their own preferences').toBe(200);
-  const viewerKinds = viewerPrefs.body.result.data;
+  expect(viewerPrefs.status(), 'the Viewer reads their own preferences').toBe(200);
+  const viewerKinds = (await viewerPrefs.json()).result.data;
   expect(viewerKinds.find((p) => p.kind === 'export_ready')).toMatchObject({ inApp: true, updatedBy: null });
   expect(viewerKinds.every((p) => p.inApp === true && p.updatedBy === null)).toBe(true);
   await expect(viewerRows.filter({ hasText: 'Export ready' }).getByRole('checkbox')).toBeChecked();

@@ -1,0 +1,542 @@
+{
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book no-limit founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "blank GET /spreads/NOPE-SPREAD/book?limit=10 unlisted founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=10 limit-10 founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"instrument\":{\"spreadId\":\"BTC-CAL-MAR-JUN\",\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\"},\"bids\":[],\"asks\":[[\"-5\",\"2\"],[\"150\",\"2\"]],\"sequence\":2,\"bestBid\":null,\"bestAsk\":\"-5\",\"lastPrice\":null,\"venueHalted\":false,\"halted\":false,\"prelaunch\":false,\"expired\":false,\"delisted\":false,\"reduceOnly\":false,\"postOnly\":false}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book no-limit founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=0 limit-0 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=501 limit-501 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/BTC-CAL-MAR-JUN/book?limit=ten limit-word founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  },
+  "set GET /spreads/NOPE-SPREAD/book?limit=10 unlisted founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"spread_unlisted\",\"message\":\"matching.spread_unlisted\"}"
+  }
+}

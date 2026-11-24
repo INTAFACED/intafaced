@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
 import { SUPPORT_SIGNATURE_MAX, supportMacroUnfilled, type SupportMacro } from '@intafaced/contracts/support-macros';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { fetchMacroApply, fetchMacros, postSupportAction, type ActionReply, type MacroApplyReply } from '@/lib/support/browser';
 import type { SupportMacrosView } from '@/lib/support/types';
 import {

@@ -1,6 +1,6 @@
 import { decodeFreezeState } from '@/lib/ledger-freeze-contract';
 import type { ToggleResult } from '@/lib/control-plane-contract';
-import { codeInText, explainRefusal, isKnownCode, type RefusalView } from './refusal-copy';
+import { codeInText, explainRefusal, isKnownCode, type RefusalView } from '../refusal-copy';
 
 /**
  * What a service's answer to an approved command means. Pure, so each case is a test.

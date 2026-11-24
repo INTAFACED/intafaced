@@ -1,9 +1,6 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import {
-  crmAssignmentInputSchema,
   crmListInputSchema,
-  crmNextActionInputSchema,
-  crmNoteInputSchema,
   crmStageChangeInputSchema,
   crmOpportunityPageSchema,
   crmOpportunitySchema,
@@ -13,20 +10,57 @@ import {
   crmActivitySchema,
   crmTaskSchema,
   crmContactProvenanceSchema,
+  type CrmNextActionInput,
 } from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import {
+  adminSessionErrorResponse,
+  AdminSessionError,
+  authorizeAdminRequest,
+  founderEdgeCall,
+  founderEdgeRecordCall,
+  type AdminSessionConfig,
+} from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import {
+  OPS_OUTREACH_ADD_NOTE,
+  OPS_OUTREACH_ASSIGN,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_UPDATE_NEXT_ACTION,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-function writeSchema(action: unknown) {
-  if (action === 'assign') return crmAssignmentInputSchema;
-  if (action === 'changeStage') return crmStageChangeInputSchema;
-  if (action === 'updateNextAction') return crmNextActionInputSchema;
-  if (action === 'addNote') return crmNoteInputSchema;
+type Write = { input: { opportunityId: string }; nextAction?: CrmNextActionInput; send: () => Promise<unknown> };
+/**
+ * One write, its input checked as the service checks it, and sent through its record. `changeStage` keeps its call by
+ * name until its record can carry the stage rules its input checks.
+ */
+function writeOf(action: unknown, raw: unknown, config: AdminSessionConfig, accessToken: string): Write | null {
+  const via = <I extends { opportunityId: string }>(
+    schema: { safeParse(value: unknown): { success: true; data: I } | { success: false } },
+    send: (input: I) => Promise<unknown>,
+  ): Write | null => {
+    const parsed = schema.safeParse(raw);
+    return parsed.success ? { input: parsed.data, send: () => send(parsed.data) } : null;
+  };
+  if (action === 'assign')
+    return via(OPS_OUTREACH_ASSIGN.input, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_ASSIGN, input, accessToken));
+  if (action === 'updateNextAction') {
+    const parsed = OPS_OUTREACH_UPDATE_NEXT_ACTION.input.safeParse(raw);
+    if (!parsed.success) return null;
+    return {
+      input: parsed.data,
+      nextAction: parsed.data,
+      send: () => founderEdgeRecordCall(config, OPS_OUTREACH_UPDATE_NEXT_ACTION, parsed.data, accessToken),
+    };
+  }
+  if (action === 'addNote')
+    return via(OPS_OUTREACH_ADD_NOTE.input, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_ADD_NOTE, input, accessToken));
+  if (action === 'changeStage')
+    return via(crmStageChangeInputSchema, (input) => founderEdgeCall(config, 'ops', 'outreach.changeStage', 'POST', input, accessToken));
   return null;
 }
 function detailResponse(data: unknown, id: string) {
@@ -84,7 +118,7 @@ export async function GET(request: Request) {
     const { session, config } = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
     if (params.get('view') === 'owners' && [...params.keys()].every((key) => key === 'view')) {
-      const data = await founderEdgeCall(config, 'ops', 'outreach.owners', 'GET', {}, session.accessToken);
+      const data = await founderEdgeRecordCall(config, OPS_OUTREACH_OWNERS, undefined, session.accessToken);
       if (
         !record(data) ||
         !Array.isArray(data.ownerUserIds) ||
@@ -165,17 +199,17 @@ export async function POST(request: Request) {
     const { session, config } = await authorizeAdminRequest(request);
     const body = await readAdminJson(request);
     if (Object.keys(body).some((key) => !['action', 'input'].includes(key))) throw new AdminSessionError('admin.crm_input', 400);
-    const schema = writeSchema(body.action);
-    const parsed = schema?.safeParse(body.input);
-    if (!parsed?.success) throw new AdminSessionError('admin.crm_input', 400);
-    const data = await founderEdgeCall(config, 'ops', `outreach.${String(body.action)}`, 'POST', parsed.data, session.accessToken);
+    const write = writeOf(body.action, body.input, config, session.accessToken);
+    if (!write) throw new AdminSessionError('admin.crm_input', 400);
+    const data = await write.send();
     const result = body.action === 'addNote' ? crmActivitySchema.safeParse(data) : crmOpportunitySchema.safeParse(data);
     if (!result.success) throw new AdminSessionError('admin.upstream_invalid', 502);
     const row = result.data;
     if (body.action === 'updateNextAction') {
       // The receipt must be the edit that was asked for: same enquiry, one revision on, the new text and time, stage untouched.
-      const asked = parsed.data as { expectedRevision: number; description: string; dueAt: string };
+      const asked = write.nextAction;
       if (
+        !asked ||
         !('nextAction' in row) ||
         row.revision !== asked.expectedRevision + 1 ||
         row.nextAction?.description !== asked.description ||
@@ -184,7 +218,7 @@ export async function POST(request: Request) {
         throw new AdminSessionError('admin.upstream_invalid', 502);
     }
     if (
-      ('opportunityId' in row ? row.opportunityId : row.id) !== parsed.data.opportunityId.toLowerCase() ||
+      ('opportunityId' in row ? row.opportunityId : row.id) !== write.input.opportunityId.toLowerCase() ||
       ('actor' in row && (row.actor.kind !== 'operator' || row.actor.userId !== session.userId.toLowerCase()))
     )
       throw new AdminSessionError('admin.upstream_invalid', 502);

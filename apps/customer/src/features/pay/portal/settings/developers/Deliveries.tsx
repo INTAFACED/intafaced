@@ -1,20 +1,21 @@
+// volt-room: /pay/developer/deliveries
+// volt-room: portal:developer-deliveries
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { Facts, ListShell, MoreFooter, SelectField } from '../../components';
-import { EntityList } from '../../ui/EntityList';
+import { Button, Field } from '@intafaced/ui/lit';
 import { DateTime } from '../../ui/DateTime';
 import { dateRange, type DatePreset } from '../../ui/FilterRow';
-import { PortalReview } from '../../ui/PortalReview';
-import { ToneChip, type StatusTone } from '../../ui/StatusChip';
-import { Timeline } from '../../ui/Timeline';
+import type { StatusTone } from '../../ui/StatusChip';
+import { EntityList, Facts, ListShell, MoreFooter, Section, SelectField, Timeline, ToneChip } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
+import { Review as PortalReview } from '../../volt/Review';
 import { useUrlParam } from '../../hooks';
 import { newRequestId } from '../../model';
 import { useServerList } from '../../ui/useServerList';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import type { SettingsBApi } from '../b-client';
+import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
+import { DeveloperNav } from './DeveloperNav';
+import { canManageWebhooks } from './model';
 import { canRetry, shownEndpointUrl } from './model';
 import { deliveryStatuses, type Delivery, type Endpoint, type Policy } from './schemas';
 import type { ApiResult } from '../../../../../shared/api';
@@ -39,6 +40,26 @@ export function localInstant(local: string): string | null {
 export function DeliveryChip({ status }: { status: Delivery['status'] }) {
   const { t } = c.useCopy();
   return <ToneChip tone={tone[status]} label={t(`delivery_${status}`)} tip={t(`deliveryTip_${status}`)} />;
+}
+
+/** `/pay/developer/deliveries` on the record-list template: the developer pages' row, then every endpoint's deliveries. */
+export function DeliveriesRoom() {
+  return (
+    <RecordListRoom>
+      {({ role }) => ({
+        list: (
+          <div className="lt-stack">
+            <DeveloperNav room="developer-deliveries" />
+            <LiveDeliveries canManage={canManageWebhooks(role)} />
+          </div>
+        ),
+      })}
+    </RecordListRoom>
+  );
+}
+
+function LiveDeliveries({ canManage }: { canManage: boolean }) {
+  return <DeliveryList api={useSettingsBApi()} canManage={canManage} />;
 }
 
 /** Deliveries for every endpoint, or for one (`endpointId`). Filters are the service's own and live in the address. */
@@ -83,10 +104,10 @@ export function DeliveryList({
   const filtered = Boolean(status || date || (!endpointId && endpoint));
   const policy = useResource((signal) => api.webhookPolicy(signal), 'dev:policy');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {!endpointId && <PolicyNotice resource={policy.resource} />}
-      <div className="pp-filterbar" role="search" aria-label={t('deliveriesTitle')}>
-        <div className="pp-filter-row">
+      <div className="lt-stack" role="search" aria-label={t('deliveriesTitle')}>
+        <div className="lt-toolbar">
           <SelectField
             label={t('colStatus')}
             value={status}
@@ -115,12 +136,12 @@ export function DeliveryList({
           )}
         </div>
         {date === 'custom' && (
-          <div className="pp-filter-row">
+          <div className="lt-toolbar">
             <Field label={t('from')} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             <Field label={t('to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         )}
-        <p className="muted pp-count" role="status">
+        <p className="lt-muted" role="status">
           {list.state.status === 'ready'
             ? list.state.hasMore
               ? t('newestMore', { n: shown.length })
@@ -129,9 +150,8 @@ export function DeliveryList({
           {filtered && (
             <>
               {' '}
-              <button
-                type="button"
-                className="text-link"
+              <Button
+                tone="quiet"
                 onClick={() => {
                   setStatus('');
                   setDate('');
@@ -141,13 +161,13 @@ export function DeliveryList({
                 }}
               >
                 {t('clearFilters')}
-              </button>
+              </Button>
             </>
           )}
         </p>
       </div>
       {queued && (
-        <p className="pay-confirmed" role="status" data-testid="delivery-notice">
+        <p className="lt-hint" role="status" data-testid="delivery-notice">
           {queued}
         </p>
       )}
@@ -172,8 +192,8 @@ export function DeliveryList({
                     <>
                       <strong>{d.eventType}</strong>
                       {!endpointId && (
-                        <small className="pay-cell-note">
-                          <a className="text-link" href={`/pay/developer/webhooks/${encodeURIComponent(d.endpointId)}`}>
+                        <small className="lt-hint">
+                          <a className="lt-link" href={`/pay/developer/webhooks/${encodeURIComponent(d.endpointId)}`}>
                             {t('viewEndpoint')}
                           </a>
                         </small>
@@ -185,14 +205,14 @@ export function DeliveryList({
                 { header: t('colAttempts'), cell: (d) => d.attempts },
                 {
                   header: t('colReply'),
-                  cell: (d) => (d.lastStatusCode === null ? <span className="muted">{t('noReply')}</span> : d.lastStatusCode),
+                  cell: (d) => (d.lastStatusCode === null ? <span className="lt-muted">{t('noReply')}</span> : d.lastStatusCode),
                 },
                 { header: t('colWhen'), cell: (d) => <DateTime value={d.createdAt} /> },
                 {
-                  header: <span className="pp-sr">{t('colActions')}</span>,
+                  header: <span className="lt-sr">{t('colActions')}</span>,
                   cell: (d) => (
-                    <div className="pp-actions">
-                      <Button variant="ghost" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
+                    <div className="lt-actions">
+                      <Button tone="quiet" onClick={() => setOpen(d.id)} aria-label={t('openDelivery', { event: d.eventType })}>
                         {t('details')}
                       </Button>
                       <RetryButton
@@ -208,27 +228,22 @@ export function DeliveryList({
                   ),
                 },
               ]}
-              card={(d) => ({
-                title: d.eventType,
-                time: <DateTime value={d.createdAt} />,
-                status: <DeliveryChip status={d.status} />,
-              })}
             />
             {list.state.status === 'ready' && <MoreFooter state={list.state} onMore={list.loadMore} />}
           </>
         )}
       </ListShell>
       {open && (
-        <PaySection
+        <Section
           title={t('deliveryFacts')}
           action={
-            <Button variant="ghost" onClick={() => setOpen('')}>
+            <Button tone="quiet" onClick={() => setOpen('')}>
               {t('close')}
             </Button>
           }
         >
-          {detail ? <DeliveryDetail delivery={detail} api={api} /> : <p className="muted">{t('deliveryNotInList')}</p>}
-        </PaySection>
+          {detail ? <DeliveryDetail delivery={detail} api={api} /> : <p className="lt-muted">{t('deliveryNotInList')}</p>}
+        </Section>
       )}
       {!endpointId && endpoints.resource.status === 'ready' && (
         <RecoverMissed
@@ -251,24 +266,24 @@ export function PolicyNotice({ resource }: { resource: Resource<Policy> }) {
   if (resource.status === 'loading') return null;
   if (resource.status === 'failed')
     return (
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {t('policyUnavailable')}
       </p>
     );
   const p = resource.data;
   const window = p.resendWindowSeconds;
   return (
-    <PaySection title={t('policyTitle')}>
+    <Section title={t('policyTitle')}>
       <div data-testid="webhook-policy">
         {p.retryScheduleSeconds ? (
           <p>{t('policyRetries', { waits: p.retryScheduleSeconds.join(', ') })}</p>
         ) : (
-          <p className="pp-callout pp-callout--warn" role="status" data-testid="webhook-policy-unset">
+          <p className="lt-held" role="status" data-testid="webhook-policy-unset">
             {t('policyUnset')}
           </p>
         )}
         {window === null ? (
-          <p className="pp-callout" role="status">
+          <p className="lt-held" role="status">
             {t('policyWindowUnset')}
           </p>
         ) : window % 86_400 === 0 ? (
@@ -277,7 +292,7 @@ export function PolicyNotice({ resource }: { resource: Resource<Policy> }) {
           <p>{t('policyWindowSeconds', { n: window })}</p>
         )}
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -300,8 +315,8 @@ export function RecoverMissed({
   const at = localInstant(since);
   const chosen = endpoints.find((e) => e.id === endpointId);
   return (
-    <PaySection title={t('recoverTitle')} description={t('recoverBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+    <Section title={t('recoverTitle')} description={t('recoverBody')}>
+      <div data-testid="form-stack" className="lt-stack">
         <SelectField
           label={t('recoverEndpoint')}
           value={endpointId}
@@ -315,10 +330,10 @@ export function RecoverMissed({
           disabled={!canManage || !chosen || !at}
           disabledReason={!canManage ? t('readOnlyRole') : !chosen ? t('recoverPickEndpoint') : t('recoverPickSince')}
           review={
-            <dl className="pay-details">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('recoverEndpoint')}</dt>
-                <dd className="pp-wrap">{chosen ? shownEndpointUrl(chosen.url) : ''}</dd>
+                <dd className="lt-wrap">{chosen ? shownEndpointUrl(chosen.url) : ''}</dd>
               </div>
               <div>
                 <dt>{t('recoverSince')}</dt>
@@ -339,7 +354,7 @@ export function RecoverMissed({
           }}
         />
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -366,7 +381,7 @@ export function DeliveryDetail({ delivery, api }: { delivery: Delivery; api?: Pi
         ]}
       />
       {api && <AttemptList api={api} delivery={delivery} />}
-      <p className="muted">{t('bodiesNotShown')}</p>
+      <p className="lt-muted">{t('bodiesNotShown')}</p>
     </>
   );
 }
@@ -384,15 +399,15 @@ export function AttemptList({ api, delivery }: { api: Pick<SettingsBApi, 'delive
     <section aria-label={t('attemptsTitle')} data-testid="delivery-attempts">
       <h4>{t('attemptsTitle')}</h4>
       {r.status === 'loading' ? (
-        <p className="muted">{t('attemptsLoading')}</p>
+        <p className="lt-muted">{t('attemptsLoading')}</p>
       ) : r.status === 'failed' ? (
-        <p className="muted" role="status">
+        <p className="lt-muted" role="status">
           {t('attemptsUnavailable')}
         </p>
       ) : r.data.attempts.length === 0 ? (
-        <p className="muted">{t('attemptsEmpty')}</p>
+        <p className="lt-muted">{t('attemptsEmpty')}</p>
       ) : (
-        <table className="pp-table">
+        <table className="lt-table">
           <thead>
             <tr>
               <th scope="col">{t('colAttemptNo')}</th>
@@ -446,7 +461,7 @@ export function RetryButton({
       disabled={!canManage}
       disabledReason={t('readOnlyRole')}
       review={
-        <dl className="pay-details">
+        <dl className="lt-kv">
           <div>
             <dt>{t('colEvent')}</dt>
             <dd>{delivery.eventType}</dd>

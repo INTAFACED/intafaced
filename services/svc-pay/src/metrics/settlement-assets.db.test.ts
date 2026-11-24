@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Principal } from '@intafaced/auth';
@@ -42,7 +42,7 @@ const DAY_MS = 86_400_000;
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_settle_assets_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -123,7 +123,7 @@ describe('merchantMetrics.settlementAssets', { timeout: 30_000 }, () => {
       settlementAssets === undefined ? {} : { settlementAssets },
     );
     const founderAuthority = createFounderAuthority({ identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) });
-    return createPayNamespaces({ founderAuthority, metrics }).createCaller(ctxOf(principal(userId))) as unknown as Caller;
+    return createPayNamespaces({ founderAuthority, metrics }).createCaller(ctxOf(principal(userId))) as Caller;
   }
   const failure = async (p: Promise<unknown>) => {
     try {

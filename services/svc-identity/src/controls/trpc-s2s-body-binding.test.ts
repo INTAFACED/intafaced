@@ -60,7 +60,7 @@ async function mount(bodyBindMode?: ServiceBodyBindMode) {
       awards.push(input);
       return { snapshot: { rank: 1, xp: 5n }, applied: true, rankChanged: false };
     },
-  } as unknown as RankService;
+  } as RankService;
   const identity = createIdentityRouter({} as AuthService, rank, { registrationOpen: true });
   // A query twin: the GET path with the input in the URL and an empty body.
   const peek = router({ peek: serviceProcedure.input(z.object({ n: z.number() })).query(({ input }) => ({ n: input.n })) });

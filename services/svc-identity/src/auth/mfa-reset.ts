@@ -23,7 +23,7 @@
  * HMAC under the flow key; the plain code lives in the outbox row until the relay claims it, as every mailed code does.
  */
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { PasswordResetMail } from './password-reset.js';
 import { maskEmail } from '../ops/account-directory.js';
@@ -139,7 +139,7 @@ type UserRow = {
   status: string;
 };
 
-async function lockUser(tx: Sql, userId: string): Promise<UserRow | undefined> {
+async function lockUser(tx: Queryable, userId: string): Promise<UserRow | undefined> {
   const [user] = await tx<UserRow[]>`
     SELECT email, email_verified_at, phone, phone_verified_at, totp_secret, status FROM users WHERE id = ${userId} FOR UPDATE`;
   return user;
@@ -147,7 +147,7 @@ async function lockUser(tx: Sql, userId: string): Promise<UserRow | undefined> {
 
 /** One outbox row on the caller's transaction; the dedupe key makes a repeat a no-op. */
 export async function queueMail(
-  tx: Sql,
+  tx: Queryable,
   input: { userId: string; key: string; purpose: string; recipient: string; code: string | null; expiresAt: Date; now: Date },
 ): Promise<void> {
   await tx`
@@ -172,7 +172,7 @@ type ResetRow = {
 /** The person's other contacts on file: every address and phone they proved they hold on Receive, oldest proof first. */
 type OtherContacts = { emails: Array<{ id: string; target: string }>; phone: boolean };
 
-async function otherContacts(tx: Sql, userId: string, own: string | null): Promise<OtherContacts> {
+async function otherContacts(tx: Queryable, userId: string, own: string | null): Promise<OtherContacts> {
   const rows = await tx<Array<{ id: string; channel: string; target: string }>>`
     SELECT id, channel, target::text AS target FROM receive_contacts
     WHERE user_id = ${userId} AND verified_at IS NOT NULL

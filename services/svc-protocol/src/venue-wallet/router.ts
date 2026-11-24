@@ -1,15 +1,12 @@
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
-  protocolVenueWalletAddressInputSchema,
-  protocolVenueWalletAuthorizeInputSchema,
-  protocolVenueWalletAuthorizedOutputSchema,
-  protocolVenueWalletChallengeInputSchema,
-  protocolVenueWalletChallengeOutputSchema,
-  protocolVenueWalletConnectionSchema,
-  protocolVenueWalletDisconnectedOutputSchema,
-  protocolVenueWalletOpenInputSchema,
-  protocolVenueWalletStatusOutputSchema,
-} from '@intafaced/contracts/protocol-venue-wallet';
+  PROTOCOL_VENUE_WALLET_AUTHORIZE,
+  PROTOCOL_VENUE_WALLET_CHALLENGE,
+  PROTOCOL_VENUE_WALLET_DISCONNECT,
+  PROTOCOL_VENUE_WALLET_OPEN,
+  PROTOCOL_VENUE_WALLET_STATUS,
+} from '@intafaced/contracts/protocol-wallet-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import { getAddress as toChecksum, type Address } from 'viem';
 import { WALLET_SESSION_UNSET, WALLET_SIGNATURE_NOT_OWNER } from '../address-book/session.js';
 import {
@@ -40,8 +37,6 @@ import {
 export interface VenueWalletRouterDeps extends VenueConnectionDeps {
   now?: () => Date;
 }
-
-const guard = { module: 'protocol', plane: 'protocol', person: true } as const;
 
 /** How each refusal reaches the wire. Unlisted codes (an invalid challenge, an unlisted origin) are BAD_REQUEST. */
 const HTTP_CODE: Partial<Record<VenueConnectionRefusalCode, TRPCError['code']>> = {
@@ -84,48 +79,36 @@ export function createVenueWalletRouter(deps: VenueWalletRouterDeps) {
     }
   };
   return router({
-    challenge: scopedProcedure('protocol:read', guard)
-      .input(protocolVenueWalletChallengeInputSchema)
-      .output(protocolVenueWalletChallengeOutputSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(() => {
-          const issued = issueVenueChallenge(deps, { userId: ctx.principal.userId, ...input }, now());
-          return { message: issued.message, challenge: issued.challenge, expiresAt: issued.expiresAt.toISOString() };
-        }),
-      ),
-    open: scopedProcedure('protocol:read', guard)
-      .input(protocolVenueWalletOpenInputSchema)
-      .output(protocolVenueWalletConnectionSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(async () => {
-          const at = now();
-          return out(await openVenueConnection(deps, { userId: ctx.principal.userId, ...input }, at), at, deps.sanctions());
-        }),
-      ),
-    status: scopedProcedure('protocol:read', guard)
-      .output(protocolVenueWalletStatusOutputSchema)
-      .query(({ ctx }) =>
-        guarded(async () => {
-          const at = now();
-          const rows = await deps.store.list(ctx.principal.userId, deps.chainId());
-          return { connections: rows.map((row) => out(row, at, deps.sanctions())) };
-        }),
-      ),
-    disconnect: scopedProcedure('protocol:read', guard)
-      .input(protocolVenueWalletAddressInputSchema)
-      .output(protocolVenueWalletDisconnectedOutputSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(async () => {
-          const address = toChecksum(input.address.toLowerCase() as Address);
-          // Disconnecting a wallet that is not connected answers the same: the end state is the one asked for.
-          await deps.store.revoke(ctx.principal.userId, deps.chainId(), address, now());
-          return { address, disconnected: true as const };
-        }),
-      ),
-    authorize: scopedProcedure('protocol:read', guard)
-      .input(protocolVenueWalletAuthorizeInputSchema)
-      .output(protocolVenueWalletAuthorizedOutputSchema)
-      .mutation(({ ctx, input }) => guarded(() => authorizeVenueAction(deps, { userId: ctx.principal.userId, ...input }, now()))),
+    challenge: mountProtocolRecord(PROTOCOL_VENUE_WALLET_CHALLENGE, ({ ctx, input }) =>
+      guarded(() => {
+        const issued = issueVenueChallenge(deps, { userId: ctx.principal.userId, ...input }, now());
+        return { message: issued.message, challenge: issued.challenge, expiresAt: issued.expiresAt.toISOString() };
+      }),
+    ),
+    open: mountProtocolRecord(PROTOCOL_VENUE_WALLET_OPEN, ({ ctx, input }) =>
+      guarded(async () => {
+        const at = now();
+        return out(await openVenueConnection(deps, { userId: ctx.principal.userId, ...input }, at), at, deps.sanctions());
+      }),
+    ),
+    status: mountProtocolRecord(PROTOCOL_VENUE_WALLET_STATUS, ({ ctx }) =>
+      guarded(async () => {
+        const at = now();
+        const rows = await deps.store.list(ctx.principal.userId, deps.chainId());
+        return { connections: rows.map((row) => out(row, at, deps.sanctions())) };
+      }),
+    ),
+    disconnect: mountProtocolRecord(PROTOCOL_VENUE_WALLET_DISCONNECT, ({ ctx, input }) =>
+      guarded(async () => {
+        const address = toChecksum(input.address.toLowerCase() as Address);
+        // Disconnecting a wallet that is not connected answers the same: the end state is the one asked for.
+        await deps.store.revoke(ctx.principal.userId, deps.chainId(), address, now());
+        return { address, disconnected: true as const };
+      }),
+    ),
+    authorize: mountProtocolRecord(PROTOCOL_VENUE_WALLET_AUTHORIZE, ({ ctx, input }) =>
+      guarded(() => authorizeVenueAction(deps, { userId: ctx.principal.userId, ...input }, now())),
+    ),
   });
 }
 

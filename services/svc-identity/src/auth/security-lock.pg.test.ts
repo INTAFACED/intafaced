@@ -181,14 +181,14 @@ if (!(await postgresAvailable(TEST_URL))) {
         expect(Object.keys(fields)).toEqual(['clientRequestId']);
         spent.push(approvalId);
       },
-    } as unknown as SecurityStepUp;
+    } as SecurityStepUp;
     const callerFor = (userId: string, lock: SecurityLock, extra: Record<string, unknown> = {}) =>
       createSecurityLockRouter(lock, stepUp).createCaller({
         principal: { userId, sid: 'sid-1', scopes: ['identity:read', 'identity:write'], mfa: false, ...extra },
         service: null,
         region: 'DE',
         requestId: 'req-lock',
-      } as unknown as Context);
+      } as Context);
     const codeOf = async (p: Promise<unknown>) =>
       ((await p.then(
         () => null,

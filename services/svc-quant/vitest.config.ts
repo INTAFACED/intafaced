@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 // Unit and business fixtures opt out of the empty sanctions-list refusal.
 // router.mount.test.ts separately verifies the real signed route stays strict.
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     env: {
       APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',

@@ -66,7 +66,7 @@ describe('S-L6 venue key permissions — refuse at registration', () => {
 
   it('refuses a string or other non-array scopes value before the character walk', () => {
     const assertRefused = (scopes: unknown) => {
-      const permissions = { scopes } as unknown as Parameters<typeof assertTradeOnly>[0];
+      const permissions = { scopes } as Parameters<typeof assertTradeOnly>[0];
       expect(() => assertTradeOnly(permissions)).toThrow(WithdrawalPermissionRefusedError);
       expect(() => withdrawalPermissionHits(permissions)).toThrow(WithdrawalPermissionRefusedError);
       try {

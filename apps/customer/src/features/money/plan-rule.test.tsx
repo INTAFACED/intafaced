@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -41,17 +42,18 @@ describe('the plan rule for paying more than you hold', () => {
     expect(html).toContain('allows a negative balance at an overdraft fee of 0 USDT');
     expect(html).toContain('the overdraft is switched off in this build');
     expect(html).toContain('refused and nothing moves');
-    expect(html).toContain('Reference: bank.overdraft_switched_off');
+    expect(html).toContain('data-code="bank.overdraft_switched_off"');
+    expect(html).not.toContain('Reference: bank.overdraft_switched_off');
     expect(html).not.toContain('shows the negative balance');
   });
 
-  it('the review of a payment above the balance names the shortfall, then the plan rule with its reference', () => {
+  it('the review of a payment above the balance names the shortfall, then the plan rule in plain words', () => {
     const overdraft = ready(terms({ tier: 'TEST plan', overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' }));
-    const from = { balance: '50', assetId: 'USDT' };
+    const from = { balance: '50', assetId: asAssetId('USDT') };
     expect(overBalanceProblem(overdraft, from, '60')).toBe(
       `This is 10 USDT more than this space holds (50 USDT). ${planRuleLine(overdraft)}`,
     );
-    expect(planRuleLine(overdraft)).toContain('Reference: bank.overdraft_switched_off');
+    expect(planRuleLine(overdraft)).not.toContain('bank.overdraft_switched_off');
     // Exact to the last unit: 50.000001 is 0.000001 over.
     expect(overBalanceProblem(overdraft, from, '50.000001')).toContain('This is 0.000001 USDT more');
     // Within the balance, or not a readable amount, is not this check's to answer.
@@ -83,13 +85,17 @@ describe('the plan rule for paying more than you hold', () => {
 describe('the transfer review uses the plan rule only for an amount above the balance', () => {
   const space = (patch: Partial<Space> = {}): Space => ({
     id: '11111111-1111-4111-8111-111111111111',
-    assetId: 'USDT',
+    assetId: asAssetId('USDT'),
     kind: 'primary',
     name: 'Main',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     balance: '50',
-    ledgerAccount: { ownerType: 'user', ownerId: 'u', assetId: 'USDT', kind: 'available' },
+    ledgerAccount: { ownerType: 'user', ownerId: 'u', assetId: asAssetId('USDT'), kind: 'available' },
     ...patch,
   });
   const draft = (from: Space, amount: string) => ({ transferId: 'review-reference', fromSpaceId: from.id, toUserId: 'someone', amount });

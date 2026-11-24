@@ -1,3 +1,4 @@
+import { QUANT_SANDBOX_SOURCE_ENVELOPE } from '@intafaced/contracts/quant-sandbox-procedures';
 import { QUANT_SANDBOX_MAX_OPS_UNSET, QUANT_SANDBOX_MAX_SOURCE_UNSET, QuantError } from '../errors.js';
 
 /**
@@ -10,7 +11,8 @@ import { QUANT_SANDBOX_MAX_OPS_UNSET, QUANT_SANDBOX_MAX_SOURCE_UNSET, QuantError
 export const SANDBOX_MAX_OPS_MIN = 100;
 export const SANDBOX_MAX_OPS_MAX = 1_000_000;
 export const SANDBOX_MAX_SOURCE_MIN = 32;
-export const SANDBOX_MAX_SOURCE_ENVELOPE = 64_000;
+/** The record's own ceiling on a source (`sandbox.run`), the most `SANDBOX_MAX_SOURCE` may be. */
+export const SANDBOX_MAX_SOURCE_ENVELOPE = QUANT_SANDBOX_SOURCE_ENVELOPE;
 
 export function assertPublishedSandboxMaxOps(max: number | undefined): number {
   if (max === undefined || typeof max !== 'number' || !Number.isInteger(max) || max < SANDBOX_MAX_OPS_MIN || max > SANDBOX_MAX_OPS_MAX) {
@@ -32,7 +34,7 @@ export function assertPublishedSandboxMaxSource(max: number | undefined): number
   return max;
 }
 
-/** Input-body max: owner pin when published, env envelope when unpublished (isolate still refuses unset). */
+/** The longest source `sandbox.run` takes here: owner pin when published, the envelope when not (isolate still refuses unset). */
 export function sandboxSourceInputMax(maxSource: number | undefined): number {
   if (
     typeof maxSource === 'number' &&

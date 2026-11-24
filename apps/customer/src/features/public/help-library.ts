@@ -1,10 +1,6 @@
 import { z } from 'zod';
-import { supportKbLibrarySchema } from '@intafaced/contracts/support-kb-library';
 import { contractProcedure } from '../../shared/contract-call';
 import { helpArticle } from './help-guards';
-
-/** The help library (SP-kb-01): the categories and sections support staff made, read signed out. */
-export const helpLibraryRead = contractProcedure('support', 'kbLibrary', { output: supportKbLibrarySchema });
 
 /** One section's published answers the reader may see. */
 export const helpSectionRead = contractProcedure('support', 'kbSection', {

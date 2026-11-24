@@ -9,7 +9,7 @@ import {
 import { InAppChannel, UnconfiguredChannel } from './gateway.js';
 import { EmailChannel, PushChannel, SmsChannel } from './adapters.js';
 import { TestMerchantEmlChannel } from '../merchant-email/merchant-email.js';
-import { TestOutboxEmailChannel, testEmailOutbox } from './test-outbox.js';
+import { TestOutboxEmailChannel, TestOutboxPushChannel, testEmailOutbox, testPushOutbox } from './test-outbox.js';
 import { socketIdForChannel, type NotifyChannelSocketId } from './mountain-vs-sockets.js';
 
 /**
@@ -70,6 +70,8 @@ export interface ChannelEnv {
   readonly NOTIFY_MERCHANT_EMAIL_TEST_DIR?: string | undefined;
   /** The TEST email stand-in's file (test-outbox.ts). Used only when the email gateway URL and token are both blank. */
   readonly NOTIFY_EMAIL_TEST_OUTBOX?: string | undefined;
+  /** The TEST push stand-in's file (test-outbox.ts): dev or test only, used while no push gateway is set. */
+  readonly NOTIFY_PUSH_TEST_OUTBOX?: string | undefined;
   readonly APP_ENV?: string | undefined;
 }
 
@@ -229,7 +231,8 @@ export class ChannelRegistry {
   private doorReason(channel: NotificationChannel): RefusalCode | null {
     const blocked = this.blockedReason(channel);
     if (blocked !== null) return blocked;
-    if (channel.channel !== 'inapp' && !(channel instanceof TestOutboxEmailChannel)) return 'channel.unprobed';
+    if (channel.channel !== 'inapp' && !(channel instanceof TestOutboxEmailChannel) && !(channel instanceof TestOutboxPushChannel))
+      return 'channel.unprobed';
     return null;
   }
 
@@ -286,6 +289,14 @@ export function channelsFromEnv(env: ChannelEnv, fetchImpl: typeof fetch = fetch
       const outbox = testEmailOutbox(env.NOTIFY_EMAIL_TEST_OUTBOX, env.APP_ENV);
       if (outbox) {
         channels.push(new TestOutboxEmailChannel(outbox));
+        continue;
+      }
+    }
+
+    if (id === 'push' && !url && !token) {
+      const outbox = testPushOutbox(env.NOTIFY_PUSH_TEST_OUTBOX, env.APP_ENV);
+      if (outbox) {
+        channels.push(new TestOutboxPushChannel(outbox));
         continue;
       }
     }

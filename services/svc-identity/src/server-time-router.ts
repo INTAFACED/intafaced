@@ -1,4 +1,7 @@
-import { publicProcedure, router, serverTimeSchema } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
+import { IDENTITY_SERVER_TIME } from '@intafaced/contracts/identity-server-time-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * `serverTime` (I-signin-sessions-13): this service's clock, for the customer's "my codes do not work" check. Public and
@@ -6,6 +9,6 @@ import { publicProcedure, router, serverTimeSchema } from '@intafaced/contracts'
  */
 export function createServerTimeRouter(now: () => Date = () => new Date()) {
   return router({
-    serverTime: publicProcedure.output(serverTimeSchema).query(() => ({ now: now().toISOString() })),
+    serverTime: mountRecord(IDENTITY_SERVER_TIME, () => ({ now: now().toISOString() }), codedRefusal),
   });
 }
