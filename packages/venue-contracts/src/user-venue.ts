@@ -2068,9 +2068,15 @@ export interface UserVenue {
 
   /**
    * The newest `limit` candles of `symbol`'s own prints on `interval`, oldest first, no account (J-cex-spot-01 #5: the
-   * desk's chart). Refuses `unknown_market` for a symbol it does not list. Optional, as `trades`.
+   * desk's chart; J-charts-desk-01: the chart workbench). When `since` is given, only candles whose bucket starts at or
+   * after `since` are returned (at most the newest `limit` of those). Refuses `unknown_market` for a symbol it does not
+   * list. Optional, as `trades`.
    */
-  candles?(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>>;
+  candles?(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**

@@ -1,16 +1,30 @@
-// World: none
+// World: book, gates, restart, stack
+import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { EDGE } from './stack.mjs';
+import { EDGE, journeyState, toUnits } from './stack.mjs';
+import { closedMinute, MINUTE, minuteStart } from './clock.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile } from './venue.mjs';
 
-// J-charts-desk-01, in the running app (docs/roadmap/journeys.json): a person opens the chart workbench signed out,
-// switches interval and style, reads history and the numbers the chart plots. One test per step, titled
-// "J-charts-desk-01 #<n>". The bars are the stack's own TEST trades (pnpm local:market), read through Edge.
+// J-charts-desk-01, in the running app against the stack's TEST venue simulator (docs/roadmap/journeys.json): a person
+// opens the chart workbench on a listed venue market (signed out), switches interval and chart style, scrolls back
+// through venue candle history, jumps to a date, changes colours and price source, reads the venue's plotted numbers
+// and tick-size axis formatting, and sees an unoffered interval refused. Every candle is read from the TEST venue
+// (packages/venue-sim) through svc-trade's public venue chart routes, never from our own engine's book or `/ohlcv`.
 const J = 'J-charts-desk-01';
-const CHART = '/charts/BTC-USDT';
+const SYMBOL = 'BTC-USDC';
+const CHART = `/charts/${SYMBOL}`;
+const DESK = `/trade/spot/${SYMBOL}`;
+const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
 
 const title = (page) => page.getByTestId('chart-title').first();
-const canvas = (page) => page.getByRole('img', { name: 'Price chart of BTC/USDT' }).first();
-const pressedInterval = (page) => page.getByRole('group', { name: 'Chart intervals' }).first().locator('button[aria-pressed="true"]');
+const canvas = (page, symbol = SYMBOL) => page.getByRole('img', { name: `Price chart of ${symbol}`, exact: true }).first();
+const pressedInterval = (page) =>
+  page.getByRole('group', { name: 'Chart intervals', exact: true }).first().locator('button[aria-pressed="true"]');
 
 /**
  * The bars in view, as the chart writes them: logical bar indexes of its left and right edges, read together in one
@@ -41,29 +55,24 @@ async function settledView(page) {
   return settled;
 }
 
-async function openChart(page, path = CHART) {
+async function openChart(page, path = CHART, symbol = SYMBOL) {
   await page.goto(path);
-  await expect(canvas(page)).toBeVisible();
-  // Bars arrived from the service (the chart writes how many it holds).
-  await expect.poll(async () => Number(await canvas(page).getAttribute('data-bars'))).toBeGreaterThan(0);
+  await expect(canvas(page, symbol)).toBeVisible();
+  await expect.poll(async () => Number(await canvas(page, symbol).getAttribute('data-bars'))).toBeGreaterThan(0);
 }
 
-/**
- * A price as whole cents of the 0.01 tick, rounded half up the way the chart writes it, or null when it is not a price.
- * Edge writes the shortest decimal ("65000.5"); the legend pads and groups it ("65,000.50"). Both read as 6500050n.
- */
-const cents = (text) => {
-  const m = /^(\d+)(?:\.(\d*))?$/.exec(String(text ?? '').replace(/[,\s]/g, ''));
-  if (!m) return null;
-  const frac = (m[2] ?? '').padEnd(3, '0');
-  return BigInt(m[1]) * 100n + BigInt(frac.slice(0, 2)) + (Number(frac[2]) >= 5 ? 1n : 0n);
-};
+/** Parse a formatted price text ("60,010", "1.2345") as exact scaled bigint units. */
+function shownUnits(text) {
+  const clean = String(text ?? '').replace(/[,\s]/g, '');
+  if (!/^\d+(?:\.\d+)?$/.test(clean)) return null;
+  return toUnits(clean);
+}
 
 const STEP_MS = { '1m': 60_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000 };
 
 /** What the drawing library holds, as the chart writes it back (see `writeDrawn` in WorkbenchChart.tsx). */
-async function drawn(page) {
-  return canvas(page).evaluate((el) => ({
+async function drawn(page, symbol = SYMBOL) {
+  return canvas(page, symbol).evaluate((el) => ({
     type: el.getAttribute('data-drawn'),
     bars: Number(el.getAttribute('data-drawn-bars')),
     first: Number(el.getAttribute('data-drawn-first')),
@@ -79,79 +88,194 @@ async function drawn(page) {
   }));
 }
 
+/** Read candles straight from the TEST venue simulator (loopback), never through our door. */
+async function venueCandles(symbol, interval, limit, since) {
+  const { status, body } = await testVenue('/candles', {
+    symbol,
+    interval,
+    limit,
+    ...(since ? { since: new Date(since).toISOString() } : {}),
+  });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
+}
+
 /**
- * The bars the chart should open with at an interval: the last 240 buckets up to the current one, from Edge's own
- * candles, starting at the first bucket that traded when the market is younger than that.
+ * The bars the chart should open with at an interval: the last 240 buckets up to the venue's current bucket, starting
+ * at the first bucket that traded when history is younger than 240 buckets.
  */
-async function expectedWindow(interval) {
+async function expectedWindow(interval, symbol = SYMBOL) {
   const step = STEP_MS[interval];
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${interval}&limit=240`);
-  expect(res.status).toBe(200);
-  const rows = (await res.json()).sort((a, b) => a[0] - b[0]);
-  expect(rows.length, `Edge serves BTC/USDT ${interval} candles`).toBeGreaterThan(0);
-  const now = Math.floor(Date.now() / step) * step;
-  const first = Math.max(Math.floor(rows[0][0] / step) * step, now - 239 * step);
+  const body = await venueCandles(symbol, interval, 240);
+  const rows = body.value;
+  expect(rows.length, `TEST venue serves ${symbol} ${interval} candles`).toBeGreaterThan(0);
+  const now = Math.floor(Date.parse(body.asOf) / step) * step;
+  const first = Math.max(Math.floor(Date.parse(rows[0].openAt) / step) * step, now - 239 * step);
   return { first, last: now, bars: (now - first) / step + 1 };
 }
 
-/** A market as Edge publishes it (its tick size is `precision.price`). */
-async function marketOf(symbol) {
-  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  const list = Array.isArray(body) ? body : Object.values(body).find(Array.isArray);
-  const market = list.find((m) => m.symbol === symbol);
-  expect(market, `${symbol} is published`).toBeTruthy();
+/** A market as the TEST venue publishes it (its tick size is `tickSize`). */
+async function venueMarketOf(symbol) {
+  const { status, body } = await testVenue('/markets', {});
+  expect(status).toBe(200);
+  const market = body.value.find((m) => m.symbol === symbol);
+  expect(market, `${symbol} is published on the TEST venue`).toBeTruthy();
   return market;
 }
 
-/** The newest TEST candle Edge serves for BTC/USDT at an interval. */
-async function lastCandle(interval) {
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${interval}&limit=1`);
-  expect(res.status).toBe(200);
-  const rows = await res.json();
-  expect(rows.length).toBeGreaterThan(0);
-  return rows[rows.length - 1];
+/** The newest candle the TEST venue serves for `symbol` at `interval`. */
+async function lastVenueCandle(interval, symbol = SYMBOL) {
+  const body = await venueCandles(symbol, interval, 1);
+  expect(body.value.length).toBeGreaterThan(0);
+  return body.value[body.value.length - 1];
 }
 
-test(`${J} #1 opens /charts/BTC-USDT and sees the last bars at the saved interval with a header naming both`, async ({ page }) => {
+/** Execute one real signed TEST trade on the TEST venue against a resting maker ask so a live print lands now. */
+async function executeLiveVenueTrade(symbol, price, amount, tag) {
+  const sellerName = `charts01-seller-${tag}`;
+  const buyerName = `charts01-buyer-${tag}`;
+  const seller = otherTraderKey(sellerName).address.toLowerCase();
+  const buyer = otherTraderKey(buyerName).address.toLowerCase();
+  const base = symbol.split('-')[0];
+  expect(await testDeposit(seller, base, '100', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  expect(await testDeposit(buyer, 'USDC', '100000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  const suffix = randomBytes(4).toString('hex');
+  const sell = await otherTraderRun(sellerName, {
+    kind: 'place_order',
+    symbol,
+    side: 'sell',
+    type: 'limit',
+    amount,
+    price,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:jcd01:sell:${tag}:${suffix}`,
+    builderFee: null,
+  });
+  expect(sell.accepted, JSON.stringify(sell)).toBe(true);
+  const buy = await otherTraderRun(buyerName, {
+    kind: 'place_order',
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    amount,
+    price,
+    timeInForce: 'IOC',
+    reduceOnly: false,
+    clientOrderKey: `order:jcd01:buy:${tag}:${suffix}`,
+    builderFee: null,
+  });
+  expect(buy.accepted, JSON.stringify(buy)).toBe(true);
+}
+
+/**
+ * TEST setup (not a step): seed past TEST prints on the TEST venue's BTC-USDC spanning 90 hours (for 15m history > 240
+ * bars and an earlier empty region inside the 7.5-day 720-bar 15m window) plus 320 consecutive 1m prints (for 1m
+ * scroll-back > 240 bars), plus one verified account for #1's spot-desk chart check, and one 4-decimal own TEST venue
+ * spot market for #7's tick-size check.
+ */
+test.beforeAll(async ({ browser }) => {
+  if (process.env.JOURNEY_RUN_ID && run.read().seeded && run.read().account && run.read().smallMarket) return;
+  test.setTimeout(300_000);
+  const nowMin = minuteStart(Date.now());
+  const entries = [];
+  // 100 prints spaced every 30 min from 90 h ago to 40.5 h ago (inside 7.5 d 15m depth, older than 240 15m bars = 60 h).
+  for (let i = 0; i < 100; i += 1) {
+    const t = nowMin - (90 * 60 - i * 30) * MINUTE;
+    const price = 59500 + ((i * 19) % 420);
+    entries.push({ tradedAt: new Date(t).toISOString(), price: String(price), amount: '0.02', takerSide: i % 2 === 0 ? 'buy' : 'sell' });
+  }
+  // 320 prints spaced every 1 min from 325 min ago to 6 min ago (older than 240 1m bars, inside 720 1m depth), with two
+  // prints in several buckets so open/high/low/close vary and Heikin Ashi differs from plain candles.
+  for (let i = 0; i < 320; i += 1) {
+    const t = nowMin - (325 - i) * MINUTE;
+    const base = 59800 + ((i * 23) % 350);
+    entries.push({ tradedAt: new Date(t + 5_000).toISOString(), price: String(base), amount: '0.01', takerSide: 'buy' });
+    if (i % 3 === 0) {
+      entries.push({ tradedAt: new Date(t + 25_000).toISOString(), price: String(base + 37), amount: '0.01', takerSide: 'sell' });
+    }
+  }
+  const seeded = await testVenue('/test/seed-prints', { symbol: SYMBOL, entries });
+  expect(seeded.status, JSON.stringify(seeded.body)).toBe(200);
+  // One live signed TEST buy crossing the seeded BTC-USDC ask (60010) so the current 1m/15m bucket has a live print.
+  const takerName = 'charts01-live-btc';
+  const taker = otherTraderKey(takerName).address.toLowerCase();
+  expect(await testDeposit(taker, 'USDC', '10000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  const initBuy = await otherTraderRun(takerName, {
+    kind: 'place_order',
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    amount: '0.001',
+    price: '60100',
+    timeInForce: 'IOC',
+    reduceOnly: false,
+    clientOrderKey: `order:jcd01:init:${randomBytes(4).toString('hex')}`,
+    builderFee: null,
+  });
+  expect(initBuy.accepted, JSON.stringify(initBuy)).toBe(true);
+
+  // A second TEST venue spot market with a 4-decimal tick size (0.0001) and one real signed trade for #7.
+  const small = await ownSpotMarket(J, 'JCD', 'A', { tickSize: '0.0001', lotSize: '1' });
+  await executeLiveVenueTrade(small.symbol, '1.2345', '10', 'small');
+
+  // One verified TEST account for #1's spot-desk verification.
+  const page = await browser.newPage();
+  try {
+    const account = await signUp(page, 'jcd1');
+    await verify(page, account);
+    run.reset({ seeded: true, account, smallMarket: small.symbol });
+  } finally {
+    await page.close();
+  }
+});
+
+test(`${J} #1 opens /charts/BTC-USDC and sees the last bars at the saved interval with a header naming both`, async ({
+  page,
+  stepPicture,
+}) => {
+  // Signed out on /charts/BTC-USDC: draws the TEST venue's own bars (never our engine's).
   await openChart(page);
-  await expect(title(page)).toHaveText('BTC/USDT · 15m');
+  await expect(title(page)).toHaveText(`${SYMBOL} · 15m`);
   await expect(pressedInterval(page)).toHaveText('15m');
-  // The last bars: the 240 buckets up to the current one (or from the first that traded), as the library draws them.
+  await expect(page.getByTestId('chart-test').first()).toBeVisible();
   await expect
     .poll(
       async () => {
         const [want, got] = [await expectedWindow('15m'), await drawn(page)];
         return [got.heldFirst === want.first, got.heldLast === want.last, got.held === want.bars, got.bars === got.held];
-        // A bucket that rolls over mid-check shows on the chart's next 10 s poll.
       },
       { timeout: 30_000 },
     )
     .toEqual([true, true, true, true]);
-  // The chart draws on a real canvas, not a placeholder.
   await expect(canvas(page).locator('canvas').first()).toBeVisible();
-  // The saved interval: a person who picks 1h opens the chart at 1h next time, header and bars both.
-  await page.getByRole('group', { name: 'Chart intervals' }).first().getByRole('button', { name: '1h', exact: true }).click();
-  await expect(title(page)).toHaveText('BTC/USDT · 1h');
+
+  // The saved interval: picking 1h persists across reloads, header and bars both.
+  await page.getByRole('group', { name: 'Chart intervals', exact: true }).first().getByRole('button', { name: '1h', exact: true }).click();
+  await expect(title(page)).toHaveText(`${SYMBOL} · 1h`);
   await page.goto(CHART);
-  await expect(title(page)).toHaveText('BTC/USDT · 1h');
+  await expect(title(page)).toHaveText(`${SYMBOL} · 1h`);
   await expect(pressedInterval(page)).toHaveText('1h');
   await expect.poll(async () => (await drawn(page)).heldLast, { timeout: 30_000 }).toBe((await expectedWindow('1h')).last);
-  // The spot desk shows the same market's chart: at 1m its newest close is the newest 1m close Edge serves.
-  await page.goto('/trade/spot/BTC-USDT');
-  const desk = page.getByRole('img', { name: 'Price chart of BTC/USDT', exact: true }).first();
-  await expect(desk).toBeVisible();
-  const deskIntervals = page.getByTestId('dk-chart').getByRole('group', { name: 'Chart intervals' });
+  await stepPicture();
+
+  // The spot desk shows the same venue market's chart: at 1m its newest close equals the TEST venue's newest 1m close.
+  const { account } = run.read();
+  await signIn(page, account);
+  await page.goto(DESK);
+  const venueChart = page.getByTestId('venue-chart').first();
+  const desk = venueChart.getByRole('img', { name: `Price chart of ${SYMBOL}`, exact: true }).first();
+  await expect(desk).toBeVisible({ timeout: 30_000 });
+  const deskIntervals = venueChart.getByRole('group', { name: 'Chart intervals', exact: true });
   await deskIntervals.getByRole('button', { name: '1m', exact: true }).click();
   await expect(deskIntervals.getByRole('button', { name: '1m', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect
     .poll(
       async () => {
-        const [, , , , close] = await lastCandle('1m');
-        return cents(await desk.getByTestId('pc-legend').locator('b').nth(3).textContent()) === cents(close);
+        const latest = await lastVenueCandle('1m');
+        return shownUnits(await desk.getByTestId('pc-legend').locator('b').nth(3).textContent()) === toUnits(latest.closePrice);
       },
-      { timeout: 60_000 },
+      { timeout: 30_000 },
     )
     .toBe(true);
 });
@@ -166,24 +290,24 @@ async function keepsRightEdge(page, interval) {
   expect(v.from).toBeLessThan(got.bars - 1);
 }
 
-test(`${J} #2 picks 1h, then another interval from More, and the pressed one is marked`, async ({ page }) => {
+test(`${J} #2 picks 1h, then another interval from More, and the pressed one is marked`, async ({ page, stepPicture }) => {
   await openChart(page);
-  await page.getByRole('group', { name: 'Chart intervals' }).first().getByRole('button', { name: '1h', exact: true }).click();
-  await expect(title(page)).toHaveText('BTC/USDT · 1h');
+  await page.getByRole('group', { name: 'Chart intervals', exact: true }).first().getByRole('button', { name: '1h', exact: true }).click();
+  await expect(title(page)).toHaveText(`${SYMBOL} · 1h`);
   await expect(pressedInterval(page)).toHaveText('1h');
   await keepsRightEdge(page, '1h');
   await page.getByRole('button', { name: /More/ }).first().click();
   await page.getByRole('menuitem', { name: '30m', exact: true }).click();
-  await expect(title(page)).toHaveText('BTC/USDT · 30m');
+  await expect(title(page)).toHaveText(`${SYMBOL} · 30m`);
   await expect(page.locator('[data-testid="cw-more"][data-active]').first()).toContainText('30m');
   await expect(pressedInterval(page)).toHaveCount(0);
   await keepsRightEdge(page, '30m');
+  await stepPicture();
 });
 
 /**
  * The points the drawing library itself holds for the chart's main series, oldest first, read from the library's own
- * series object (`series.data()`), found through the chart component's refs on the page. No figure here is the app's
- * own copy of the bars: it is what the library draws.
+ * series object (`series.data()`), found through the chart component's refs on the page.
  */
 async function libraryPoints(page) {
   return canvas(page).evaluate((el) => {
@@ -195,7 +319,6 @@ async function libraryPoints(page) {
           const points = series
             .data()
             .map((p) => ({ time: p.time, open: p.open, high: p.high, low: p.low, close: p.close, value: p.value }));
-          // The series found is the one the chart says it drew (its own data-drawn and data-drawn-bars), not another.
           const own = series.seriesType() === el.getAttribute('data-drawn') && String(points.length) === el.getAttribute('data-drawn-bars');
           return { type: series.seriesType(), points, own };
         }
@@ -220,13 +343,6 @@ function heikinAshiOf(bars) {
 
 const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 
-/**
- * Whether the library's points are the glyph of `id` over these plain bars: point by point at the same times, each value
- * the style draws (OHLC for candles and bars, the averaged OHLC for Heikin Ashi, the close for line, area and columns).
- * The window may have moved on since the bars were read (a new bucket, the oldest dropped): the points are matched from
- * the bar their first point names, Heikin Ashi seeded there as the chart seeds it, and a bucket newer than the bars is
- * checked only for its time. The newest of the bars was still trading when read, so its values are not compared.
- */
 function drawsAs(id, points, bars) {
   const start = bars.findIndex((b) => b.time === points[0]?.time);
   if (start < 0) return `the first point (${points[0]?.time}) is not one of the bars`;
@@ -248,17 +364,19 @@ function drawsAs(id, points, bars) {
   return 'ok';
 }
 
-test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({ page }) => {
+test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page);
-  const styles = page.getByRole('group', { name: 'Chart style' }).first();
+  const styles = page.getByRole('group', { name: 'Chart style', exact: true }).first();
   const pick = async (label, id) => {
     await styles.getByRole('button', { name: label, exact: true }).click();
     await expect(canvas(page)).toHaveAttribute('data-style', id);
     await expect(styles.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
   };
 
-  // The plain bars: what the library draws as candles, and those are Edge's own candles, open, high, low and close,
-  // at every time Edge serves within them (an empty bucket between trades is the chart's, not Edge's).
+  // The plain bars match the TEST venue's own 15m candles, open, high, low and close.
   await pick('Candles', 'candles');
   let bars = [];
   await expect
@@ -269,23 +387,25 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
       return [got.type, got.own, got.points.length === held.held, got.points[0]?.time * 1000 === held.heldFirst];
     })
     .toEqual(['Candlestick', true, true, true]);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
-  expect(res.status).toBe(200);
-  const edge = new Map((await res.json()).map((row) => [row[0] / 1000, row]));
-  const shared = bars.slice(0, -1).filter((b) => edge.has(b.time));
-  expect(shared.length, 'Edge serves candles among the bars the chart draws').toBeGreaterThan(0);
+  const venueRows = (await venueCandles(SYMBOL, '15m', 240)).value;
+  const byTime = new Map(venueRows.map((row) => [Math.floor(Date.parse(row.openAt) / 1000), row]));
+  const shared = bars.slice(0, -1).filter((b) => byTime.has(b.time));
+  expect(shared.length, 'TEST venue serves candles among the bars the chart draws').toBeGreaterThan(0);
   for (const b of shared) {
-    const [, o, h, l, c] = edge.get(b.time).map(Number);
-    expect([b.open, b.high, b.low, b.close], `the candle at ${b.time}`).toEqual([o, h, l, c]);
+    const row = byTime.get(b.time);
+    expect([b.open, b.high, b.low, b.close], `the venue candle at ${b.time}`).toEqual([
+      Number(row.openPrice),
+      Number(row.highPrice),
+      Number(row.lowPrice),
+      Number(row.closePrice),
+    ]);
   }
-  // Heikin Ashi is not plain candles redrawn: its averaged values differ from the bars somewhere in the window.
   expect(
     heikinAshiOf(bars)
       .slice(0, -1)
       .some((ha, i) => !near(ha.close, bars[i].close) || !near(ha.open, bars[i].open)),
   ).toBe(true);
 
-  // Each style is drawn by the library's own series of that kind, over the same bars, with that style's values.
   for (const [label, id, kind] of [
     ['Bars', 'bars', 'Bar'],
     ['Line', 'line', 'Line'],
@@ -297,7 +417,6 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     await pick(label, id);
     await expect
       .poll(async () => {
-        // The drawn series is exactly the bars the chart holds right now: the same count, first and last bar time.
         const held = await drawn(page);
         const got = await libraryPoints(page);
         return [
@@ -313,7 +432,7 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
       .toEqual([kind, true, true, true, kind, true, 'ok']);
   }
 
-  // The choice is kept on this device: after a reload Heikin Ashi is pressed and drawn, averaged, over the same bars.
+  // Choice persists across a reload on this device.
   await pick('Heikin Ashi', 'heikin-ashi');
   await page.reload();
   await expect(canvas(page)).toHaveAttribute('data-style', 'heikin-ashi');
@@ -333,20 +452,21 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
       ];
     })
     .toEqual(['Candlestick', true, true, true, 'Candlestick', true, 'ok']);
+  await stepPicture();
 });
 
-test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {
+test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page, `${CHART}?interval=1m`);
   const before = Number(await canvas(page).getAttribute('data-bars'));
-  // Opening the chart reads only the recent bars; the older block waits until the person scrolls back.
   await expect(page.getByTestId('chart-depth').first()).toContainText(`${before} bars loaded. Scroll back for more.`);
   const firstBefore = Number(await canvas(page).getAttribute('data-first'));
-  // Zoom and pan by keyboard, read back as the bars in view (logical bar indexes the chart writes on itself).
   await canvas(page).focus();
   const v0 = await settledView(page);
   await page.keyboard.press('+');
   await page.keyboard.press('+');
-  // Zooming in keeps the newest edge and shows fewer bars.
   await expect
     .poll(async () => {
       const v = await view(page);
@@ -355,13 +475,11 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
     .toBeLessThan(v0.to - v0.from);
   const v1 = await settledView(page);
   expect(Math.abs(v1.to - v0.to)).toBeLessThan(1);
-  // One arrow key pans ten bars back: both edges move by the same ten bars.
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => (await view(page)).to).toBeCloseTo(v1.to - 10, 0);
   const panned = await settledView(page);
   expect(panned.from).toBeCloseTo(v1.from - 10, 0);
   expect(panned.to).toBeCloseTo(v1.to - 10, 0);
-  // Mouse wheel over the plot zooms too: fewer bars in view.
   const plotBox = await canvas(page).boundingBox();
   await page.mouse.move(plotBox.x + plotBox.width / 2, plotBox.y + plotBox.height / 2);
   await page.mouse.wheel(0, -400);
@@ -372,17 +490,15 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
     })
     .toBeLessThan(panned.to - panned.from - 1);
   await settledView(page);
-  // Zoom right out and pan to the oldest bar: the chart asks the service for the older block once. The stack's TEST
-  // history reaches back further than the 240 bars the chart opens with, so the older block adds bars in front.
+
   for (let i = 0; i < 12; i += 1) await page.keyboard.press('-');
   for (let i = 0; i < 40; i += 1) await page.keyboard.press('ArrowLeft');
   await expect(page.getByTestId('chart-depth').first()).toContainText(/bars loaded, from .+\. This interval keeps the last 720 bars/);
   const after = Number(await canvas(page).getAttribute('data-bars'));
   expect(after).toBeGreaterThan(before);
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-first'))).toBeLessThan(firstBefore);
-  // The stated depth is the count the chart holds.
   await expect(page.getByTestId('chart-depth').first()).toContainText(`${after} bars loaded, from `);
-  // Mouse: dragging the plot to the right brings older bars into view.
+
   const box = await canvas(page).boundingBox();
   await page.keyboard.press('Home');
   await page.keyboard.press('+');
@@ -395,30 +511,31 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   await expect.poll(async () => (await view(page)).from).toBeLessThan(v2.from - 1);
   const v3 = await settledView(page);
   expect(v3.to - v3.from).toBeCloseTo(v2.to - v2.from, 0);
+  await stepPicture();
 });
 
-test(`${J} #5 jumps to a date and sees it, or is told there is no data that far back`, async ({ page }) => {
+test(`${J} #5 jumps to a date and sees it, or is told there is no data that far back`, async ({ page, stepPicture }) => {
   await openChart(page, `${CHART}?interval=15m`);
-  const date = page.getByLabel('Go to date').first();
+  const date = page.getByLabel('Go to date', { exact: true }).first();
   const go = async (ms) => {
     const at = new Date(ms);
     await date.fill(new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
     await page.getByRole('button', { name: 'Go', exact: true }).first().click();
   };
   const note = page.getByTestId('chart-date-note');
-  // Two years back: older than the 720 bars a 15m chart keeps (7.5 days). Said in those words; nothing invented.
+  // Two years back: older than the 720 bars a 15m chart keeps (7.5 days).
   await go(Date.now() - 730 * 86_400_000);
   await expect(note).toContainText('older than the 720 bars this interval keeps');
-  // Inside those 720 bars but two hours before the first one that traded (read from Edge's deepest 15m window): no data.
+  // Inside those 720 bars but two hours before the earliest trade on the TEST venue: no data.
   const step = STEP_MS['15m'];
   const since = (Math.floor(Date.now() / step) - 719) * step;
-  const deep = await (await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&since=${since}&limit=720`)).json();
-  const earliest = Math.min(...deep.map((row) => row[0]));
-  expect(earliest - 2 * 3_600_000, 'the TEST history starts inside the 7.5 days a 15m chart keeps').toBeGreaterThan(since);
+  await closedMinute(page, since);
+  const deep = (await venueCandles(SYMBOL, '15m', 720, since)).value;
+  const earliest = Math.min(...deep.map((row) => Date.parse(row.openAt)));
+  expect(earliest - 2 * 3_600_000, 'TEST venue history starts inside the 7.5-day 15m window').toBeGreaterThan(since);
   await go(earliest - 2 * 3_600_000);
   await expect(note).toContainText('There’s no data that far back: this market has no trades from that date until');
-  // A time that has bars, 100 bars before the newest: the chart moves that bar to the middle of the view and the note goes.
-  // Zoomed in first, so the view is narrower than the bars and a move shows.
+  // A time that has bars, 100 bars before the newest: centres that bar and clears the note.
   await canvas(page).focus();
   for (let i = 0; i < 6; i += 1) await page.keyboard.press('+');
   const before = await drawn(page);
@@ -432,80 +549,100 @@ test(`${J} #5 jumps to a date and sees it, or is told there is no data that far 
       return Math.abs((v.from + v.to) / 2 - index) <= 1 && v.to < got.bars - 1;
     })
     .toBe(true);
+  await stepPicture();
 });
 
-test(`${J} #6 changes the colour scheme and the price source; a source the market does not serve is refused`, async ({ page }) => {
+test(`${J} #6 changes the colour scheme and the price source; a source the market does not serve is refused`, async ({
+  page,
+  stepPicture,
+}) => {
   await openChart(page);
-  // The chart follows the app theme: the library draws on the theme's own background token.
   const themeBg = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--if-bg').trim());
   expect(themeBg).not.toBe('');
   await expect.poll(async () => (await drawn(page)).bg).toBe(themeBg);
   const standard = await drawn(page);
   expect(standard.up).not.toBe(standard.down);
-  await page.getByLabel('Colours').first().selectOption({ label: 'Red up, green down' });
+  const colours = page.getByRole('combobox', { name: 'Colours', exact: true }).first();
+  await colours.selectOption({ label: 'Red up, green down' });
   await expect(canvas(page)).toHaveAttribute('data-scheme', 'inverted');
-  // The candles the library draws swap colours: up is drawn in the standard down colour, and down in the standard up.
   await expect.poll(async () => [(await drawn(page)).up, (await drawn(page)).down]).toEqual([standard.down, standard.up]);
   await page.reload();
   await expect(canvas(page)).toHaveAttribute('data-scheme', 'inverted');
   await expect.poll(async () => [(await drawn(page)).up, (await drawn(page)).down]).toEqual([standard.down, standard.up]);
-  await page.getByLabel('Price source').first().selectOption({ label: 'Best bid' });
+  const source = page.getByRole('combobox', { name: 'Price source', exact: true }).first();
+  await source.selectOption({ label: 'Best bid' });
   const refusal = page.locator('[data-code="trade.chart.basis_unpublished"]').first();
   await expect(refusal).toContainText('can’t draw Best bid');
   await expect(refusal).toContainText('last trade prices');
-  await expect(page.getByLabel('Price source').first()).toHaveValue('last');
-  await page.getByLabel('Price source').first().selectOption({ label: 'Mark price' });
+  await expect(source).toHaveValue('last');
+  await source.selectOption({ label: 'Mark price' });
   await expect(refusal).toContainText('can’t draw Mark price');
+  await stepPicture();
 });
 
-test(`${J} #7 reads the numbers the chart plots: the service's bars, the axis format from the tick size`, async ({ page }) => {
+test(`${J} #7 reads the numbers the chart plots: the venue's bars in seconds, the axis format from the tick size`, async ({
+  page,
+  stepPicture,
+}) => {
+  // Place a fresh live signed trade on BTC-USDC at a distinct price so the newest 1m bar updates from the venue.
+  await executeLiveVenueTrade(SYMBOL, '60005', '0.002', 'step7');
   await openChart(page, `${CHART}?interval=1m`);
   const legend = page.getByTestId('chart-legend').first();
-  // The legend shows the newest bar; it equals the newest candle Edge serves (re-read while the market maker trades).
-  // Edge writes the shortest decimal (65000.5) and the legend pads to the tick (65,000.50): compare cents, not text.
   await expect
     .poll(
       async () => {
-        const [, , , , close] = await lastCandle('1m');
-        const shown = cents(await legend.locator('b').nth(3).textContent());
-        return shown !== null && shown === cents(close);
-      },
-      // The stack's market maker crosses about every 30 s: one more trade's worth of time if the legend lags a frame.
-      { timeout: 60_000 },
-    )
-    .toBe(true);
-  // Bar times: the library's bars (epoch seconds there, written back in ms) are the chart's own minute buckets, its
-  // newest is the current minute, and Edge's newest 1m candle sits on one of them (a quiet minute repeats the last close).
-  await expect
-    .poll(
-      async () => {
-        const [got, edge] = [await drawn(page), Number((await lastCandle('1m'))[0])];
-        return [got.last === got.heldLast, got.first === got.heldFirst, got.last % 60_000, (got.last - edge) % 60_000, edge <= got.last];
+        const latest = await lastVenueCandle('1m');
+        const shown = shownUnits(await legend.locator('b').nth(3).textContent());
+        return shown !== null && shown === toUnits(latest.closePrice);
       },
       { timeout: 30_000 },
     )
-    .toEqual([true, true, 0, 0, true]);
-  // The price axis formats from the market's tick size, read from Edge: BTC/USDT 0.01 gives two decimals, and a
-  // market with a 0.0001 tick (IFC/USDT) gives four, on the axis and in the legend alike.
-  for (const [path, pair, digits] of [
-    [CHART, 'BTC/USDT', 2],
-    ['/charts/IFC-USDT', 'IFC/USDT', 4],
+    .toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const [got, latest] = [await drawn(page), Date.parse((await lastVenueCandle('1m')).openAt)];
+        return [
+          got.last === got.heldLast,
+          got.first === got.heldFirst,
+          minuteStart(got.last) === got.last,
+          minuteStart(latest) === latest,
+          latest <= got.last,
+        ];
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual([true, true, true, true, true]);
+
+  // Axis format comes from each venue market's published tick size: BTC-USDC (1 -> 0 decimals) and our 0.0001 market (4 decimals).
+  const { smallMarket } = run.read();
+  for (const [symbol, expectedTick, expectedFormat, pattern] of [
+    [SYMBOL, '1', '0', /^[\d,]+$/],
+    [smallMarket, '0.0001', '0.0000', /^[\d,]+\.\d{4}$/],
   ]) {
-    const tick = (await marketOf(pair)).precision.price;
-    expect(tick).toBe(digits === 2 ? '0.01' : '0.0001');
-    if (path !== CHART) await page.goto(`${path}?interval=1m`);
-    const chart = page.getByRole('img', { name: `Price chart of ${pair}` }).first();
-    await expect(chart).toHaveAttribute('data-drawn-format', `0.${'0'.repeat(digits)}`);
+    const tick = (await venueMarketOf(symbol)).tickSize;
+    expect(tick).toBe(expectedTick);
+    if (symbol !== SYMBOL) await openChart(page, `/charts/${symbol}?interval=1m`, symbol);
+    const chart = canvas(page, symbol);
+    await expect(chart).toHaveAttribute('data-drawn-format', expectedFormat);
     await expect(chart).toHaveAttribute('data-drawn-min-move', String(Number(tick)));
     const shown = page.getByTestId('chart-legend').first().locator('b');
-    for (let i = 0; i < 4; i += 1) await expect(shown.nth(i)).toHaveText(new RegExp(`^[\\d,]+\\.\\d{${digits}}$`));
+    for (let i = 0; i < 4; i += 1) await expect(shown.nth(i)).toHaveText(pattern);
   }
+  await stepPicture();
 });
 
-test(`${J} #8 opens a symbol at an interval the feed does not offer and is told so by name`, async ({ page }) => {
+test(`${J} #8 opens a symbol at an interval the feed does not offer and is told so by name`, async ({ page, stepPicture }) => {
   await openChart(page, `${CHART}?interval=3d`);
   const note = page.locator('[data-code="trade.datafeed.interval_unsupported"]');
   await expect(note).toContainText('doesn’t offer the 3d interval');
-  await expect(title(page)).toHaveText('BTC/USDT · 15m');
-  await expect(page.getByRole('group', { name: 'Chart intervals' }).first().getByRole('button', { name: '3d' })).toHaveCount(0);
+  await expect(title(page)).toHaveText(`${SYMBOL} · 15m`);
+  await expect(
+    page.getByRole('group', { name: 'Chart intervals', exact: true }).first().getByRole('button', { name: '3d', exact: true }),
+  ).toHaveCount(0);
+  // The public venue candles route itself refuses the unoffered interval with a typed code.
+  const refused = await fetch(`${EDGE}/api/v1/venue/chart-candles?symbol=${encodeURIComponent(SYMBOL)}&interval=3d`);
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).intafacedCode).toBe('trade.venue_request_invalid');
+  await stepPicture();
 });
