@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount, ZERO } from '@intafaced/ledger-client/money';
 import type { UserVenueOrder, UserVenueOrderRecord } from '@intafaced/venue-contracts';
 import type { StoredVenueAction } from './prepared-action-store.js';
-import { amendTrail, historyPage, parseHistoryQuery, VenueHistoryQueryError } from './venue-order-history.js';
+import { amendTrail, historyPage, orderOriginOf, parseHistoryQuery, VenueHistoryQueryError } from './venue-order-history.js';
 
 const NOW = Date.parse('2026-11-16T08:00:00.000Z');
 const cloid = (n: number) => `0x${String(n).padStart(32, '0')}`;
@@ -70,7 +70,44 @@ describe('venue order history (J-cex-spot-06 #1)', () => {
     expect(refusal(() => parseHistoryQuery({ from: '2026-11-16T00:00:00Z', to: '2026-11-15T00:00:00Z' })).code).toBe(
       'trade.invalid_filter',
     );
+    expect(refusal(() => parseHistoryQuery({ origin: 'robot' })).code).toBe('trade.invalid_filter');
+    expect(refusal(() => parseHistoryQuery({ label: 'two words' }))).toEqual({
+      code: 'trade.order_label_invalid',
+      words: 'A label is up to 36 letters, digits and . _ : - with no spaces.',
+    });
     expect(refusal(() => historyPage(read, parseHistoryQuery({ before: cloid(99) }))).code).toBe('trade.invalid_cursor');
+  });
+
+  it('filters by origin (including trigger fallback) and label, and carries venueId and venueName (J-derivatives-04 #1 #2)', () => {
+    const tagged: UserVenueOrderRecord[] = [
+      { order: { ...order(1, 'buy', 'open'), origin: 'user', label: 'grid-7' }, placedAt: new Date(NOW) },
+      {
+        order: {
+          ...order(2, 'sell', 'filled'),
+          trigger: {
+            price: parseAmount('39000'),
+            source: 'mark',
+            role: 'stop_loss',
+            state: 'triggered',
+            triggeredAt: new Date(NOW),
+            failure: null,
+          },
+        },
+        placedAt: new Date(NOW - 1000),
+      },
+      {
+        order: { ...order(3, 'sell', 'filled'), origin: 'liquidation', originRef: 'liq-1-1', label: null },
+        placedAt: new Date(NOW - 2000),
+      },
+    ];
+    const source = { venueId: 'test-venue', value: tagged, asOf: new Date(NOW) };
+    expect(orderOriginOf(tagged[1]!.order)).toBe('stop');
+    const byStop = historyPage(source, parseHistoryQuery({ origin: 'stop' }), 'TEST venue');
+    expect(byStop.venueId).toBe('test-venue');
+    expect(byStop.venueName).toBe('TEST venue');
+    expect(byStop.orders.map((r) => r.order.venueOrderId)).toEqual(['2']);
+    expect(historyPage(source, parseHistoryQuery({ origin: 'liquidation' })).orders.map((r) => r.order.venueOrderId)).toEqual(['3']);
+    expect(historyPage(source, parseHistoryQuery({ label: 'grid-7' })).orders.map((r) => r.order.venueOrderId)).toEqual(['1']);
   });
 });
 

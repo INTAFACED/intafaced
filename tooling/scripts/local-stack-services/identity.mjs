@@ -385,8 +385,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_DEPTH === 'off'
       ? {}
       : { IDENTITY_PARTNER_PROGRAMME_DEPTH: testValue('IDENTITY_PARTNER_PROGRAMME_DEPTH') }),
-    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
-    IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
+    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset):
+    // `LOCAL_STACK_IDENTITY_WAVE_SIZE=off` on a restart leaves it blank, so #3 can see that; a plain restart puts it back.
+    ...(process.env.LOCAL_STACK_IDENTITY_WAVE_SIZE === 'off'
+      ? {}
+      : { IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE') }),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
     // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
     ...identityFounderEnv(),

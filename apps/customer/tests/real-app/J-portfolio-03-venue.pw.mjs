@@ -490,7 +490,7 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
       return acc;
     }, {});
   const amountsOf = (source) =>
-    list.locator(`[data-testid="money-act"][data-source="${source}"] td.money-num [data-direction]`).allInnerTexts();
+    list.locator(`[data-testid="money-act"][data-source="${source}"] [data-testid="money-act__amount"] [data-direction]`).allInnerTexts();
   const venueSum = sum(await amountsOf('venue'));
   expect(venueSum.USDC).toBe(deposits.reduce((acc, d) => acc + units(d.amount), 0n));
   expect(venueSum.BTC).toBe(fills.reduce((acc, f) => acc + (f.side === 'buy' ? 1n : -1n) * units(f.amount), 0n));

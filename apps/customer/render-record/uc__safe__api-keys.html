@@ -157,7 +157,7 @@
 </div>
 <section data-testid="api-version" aria-labelledby="api-version-title">
 <h2 id="api-version-title">API version</h2>
-<p class="lt-hint">A program names the API version it was written for in the intafaced-version header. A key call without the header uses this account default. With neither, the call is refused, never answered as the newest version.</p>
+<p class="lt-hint">Choose the API version your keys use when a program does not request a specific version. If neither is set, API calls are refused instead of switching automatically to a newer version.</p>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -167,7 +167,7 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<h3>Published versions</h3>
+<h3>Available versions</h3>
 <ul data-testid="api-version__versions">
 <li>
 <code>2026-11-20</code> · newest</li>
@@ -185,7 +185,7 @@
 <li>
 <code>POST /api/v1/orders stopPx</code> · Use instead: <code>stopPrice</code> · Deprecated in 2026-11-20 · Removal date: removal date not set</li>
 </ul>
-<p class="lt-hint">A reply to a request that sends a deprecated field carries the Deprecation header and an intafaced-advisories entry.</p>
+<p class="lt-hint">API responses flag deprecated fields automatically so you know when to update your integration.</p>
 </section>
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
