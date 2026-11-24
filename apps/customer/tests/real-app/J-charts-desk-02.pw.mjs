@@ -417,6 +417,24 @@ test(`${J} #5 opens a TEST market: a TEST label on the chart title row and on th
   const header = page.getByTestId('dk-ticker');
   await expect(header.getByTestId('dk-last')).toBeVisible({ timeout: 30_000 });
   await expect(header.getByText('TEST', { exact: true })).toBeVisible();
+  // The picture shows the desk drawn: its chart's candles (the legend comes with the first bar, the canvas once sized)
+  // and both sides of the book.
+  const deskChart = page.getByTestId('dk-chart');
+  await expect(deskChart.getByTestId('pc-legend')).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(
+      () =>
+        deskChart
+          .getByTestId('pc-host')
+          .locator('canvas')
+          .first()
+          .evaluate((c) => c.width * c.height),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  for (const side of ['bid', 'ask'])
+    await expect(page.locator(`[data-testid="dk-bk-row"][data-side="${side}"]`).first()).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   await stepPicture();
 });
 
