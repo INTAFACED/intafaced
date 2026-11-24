@@ -11,8 +11,7 @@ import { continueInWallet, venueForThisFile, venueRecord } from './venue.mjs';
 // J-derivatives-06's venue steps, "I watch and top up the margin on an isolated position", on the person's own venue
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
 // app against the stack's TEST venue simulator (packages/venue-sim). One test per step, titled "J-derivatives-06 #<n>",
-// run in order on one TEST account; #5 is proven on our own futures engine in J-derivatives-06.pw.mjs, which also holds
-// the custodial branch.
+// run in order on one TEST account; J-derivatives-06.pw.mjs holds the custodial branch, checked on our own futures engine.
 //
 // The Starts line, made at the start of #1 straight on the TEST venue with the person's own key: a TEST isolated long of
 // 0.02 BTC-PERP at 10x, taken from the TEST makers' ladder. Every figure the page shows is checked against the TEST
@@ -376,6 +375,149 @@ test(`${J} #4 turns on auto top-up, setting the margin level that starts it, the
     await ledgerUntouched(s);
   } finally {
     await venueAt('/test/set-mark', { symbol: BTC, price: markBefore });
+  }
+});
+
+// ── #5: a pre-liquidation stop ──
+
+const STOP_LEVEL = '50';
+const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** The venue's own listing of BTC-PERP: its tick, and the prices it judges trigger orders on. */
+const btcMarket = async (owner) => (await record(null, owner, '/markets')).find((m) => m.symbol === BTC);
+/** The venue's open trigger orders on BTC-PERP for the account, as the venue lists them. */
+const triggersOn = async (owner) => (await record(null, owner, '/open-orders')).filter((o) => o.symbol === BTC && o.trigger);
+/** The position's margin with its unrealised result were the mark at `price`: margin + size × (price − entry) for a long. */
+const equityAt = (p, price) => toUnits(p.margin) + (toUnits(p.size) * (toUnits(price) - toUnits(p.entryPrice))) / 10n ** 18n;
+
+test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const venue = await venueNow();
+  // TEST control: the venue judges trigger orders on BTC-PERP's mark (its TEST listing declares none until a step needs
+  // them), put back after the step.
+  await venueAt('/test/market-triggers', { symbol: BTC, sources: ['mark', 'last'] });
+  const key = privateKeyToAccount(s.walletKey);
+  let stopId = null;
+  try {
+    const market = await btcMarket(s.owner);
+    expect(market.triggerSources).toContain('mark');
+    const p = await positionOn(venue, s.owner);
+    expect(p.maintenanceMargin.known).toBe(true);
+    expect(p.liquidationPrice.known).toBe(true);
+    expect(await triggersOn(s.owner)).toEqual([]);
+    const maintenance = toUnits(p.maintenanceMargin.value);
+
+    const wallet = await openVenueRoom(page, s, ROOM);
+    const door = doorCalls(page);
+    const row = page.getByTestId('positions-all').locator(`tr[data-venue="${venue.id}"][data-symbol="${BTC}"]`);
+    await row.getByRole('button', { name: 'Pre-liquidation stop', exact: true }).click();
+    const panel = page.getByTestId('pre-liquidation-stop-panel');
+    await expect(panel).toContainText(`Pre-liquidation stop on ${BTC}`);
+    // The figures the level is turned into a price from are the venue's own.
+    await expect(panel.locator('[data-line="maintenance"]')).toHaveText(p.maintenanceMargin.value);
+    await expect(panel.locator('[data-line="liquidation"]')).toHaveText(p.liquidationPrice.value);
+    await expect(panel.locator('[data-line="mark"]')).toHaveText(p.markPrice);
+    const current = panel.getByRole('region', { name: 'On this position now', exact: true });
+    await expect(current).toContainText('No pre-liquidation stop set.');
+    const box = panel.getByRole('textbox', { name: 'Close at margin ratio (%)', exact: true });
+    const set = panel.getByRole('button', { name: 'Set stop', exact: true });
+    const why = panel.getByTestId('pre-liquidation-stop-why');
+
+    // At 100% the venue liquidates: refused in words before anything is sent.
+    await box.fill('100');
+    await expect(why).toHaveText('Enter a percent above 0 and below 100, to two places at most.');
+    await expect(set).toBeDisabled();
+    // Below the ratio now (maintenance over the margin with its result, a few percent here), a stop would close at once.
+    expect(maintenance * 100n * 10n ** 18n).toBeGreaterThan(toUnits('1') * toUnits(withResult(p)));
+    await box.fill('1');
+    await expect(why).toHaveText(
+      'The margin ratio already stands at that level: a stop there would close the position at once. Set a higher level.',
+    );
+    await expect(set).toBeDisabled();
+    expect(door.of('protections')).toEqual([]);
+    expect(door.of('submit')).toEqual([]);
+
+    // At the maintenance level the person sets: the mark, on the venue's tick, at which the venue's maintenance requirement
+    // over the margin with its result reaches it, or the tick just before it, never after.
+    await box.fill(STOP_LEVEL);
+    const would = panel.getByTestId('pre-liquidation-stop-would');
+    await expect(would).toHaveText(new RegExp(`^Closes ${esc(SIZE)} ${BTC} when ${esc(venue.name)}’s mark reaches \\d+\\.$`));
+    const trigger = /reaches (\d+)\.$/.exec(await would.innerText())[1];
+    const tick = toUnits(market.tickSize);
+    expect(toUnits(trigger) % tick).toBe(0n);
+    // Ratio at or under the level at the trigger (the margin with its result at least maintenance ÷ level) ...
+    const atOrUnder = (price) => equityAt(p, price) * toUnits(STOP_LEVEL) >= maintenance * 100n * 10n ** 18n;
+    expect(atOrUnder(trigger), `the ratio at ${trigger} has passed ${STOP_LEVEL}%`).toBe(true);
+    // ... and past it one tick further down: no later tick would still be in time.
+    expect(atOrUnder(fromUnits(toUnits(trigger) - tick)), `one tick below ${trigger} the ratio is still ${STOP_LEVEL}% or under`).toBe(
+      false,
+    );
+    // A long's stop lies between the venue's liquidation price and its mark now.
+    expect(toUnits(trigger)).toBeGreaterThan(toUnits(p.liquidationPrice.value));
+    expect(toUnits(trigger)).toBeLessThan(toUnits(p.markPrice));
+
+    const asked = signatures(wallet);
+    await set.click();
+    await continueInWallet(page);
+    await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(
+      `Set: ${venue.name} holds the close order at mark ${trigger}.`,
+      {
+        timeout: 20_000,
+      },
+    );
+    // One close order, signed once by the person's wallet and sent once.
+    expect(signatures(wallet)).toBe(asked + 1);
+    const created = door.of('protections');
+    expect(created).toHaveLength(1);
+    expect(created[0].body).toMatchObject({
+      owner: s.owner,
+      symbol: BTC,
+      kind: 'stop_loss',
+      side: 'sell',
+      quantity: SIZE,
+      triggerPrice: trigger,
+      triggerSource: 'mark',
+    });
+    stopId = created[0].body.clientOrderId;
+    expect(stopId).toMatch(/^pls-5000-/);
+    expect(door.of('submit')).toHaveLength(1);
+    // On the venue: one reduce-only sell of the whole position, waiting on the mark at that price.
+    const resting = await triggersOn(s.owner);
+    expect(resting).toHaveLength(1);
+    expect(resting[0]).toMatchObject({ side: 'sell', reduceOnly: true, trigger: { role: 'stop_loss', source: 'mark', state: 'waiting' } });
+    expect(same(resting[0].trigger.price, trigger)).toBe(true);
+    expect(same(resting[0].amount, (await positionOn(venue, s.owner)).size)).toBe(true);
+
+    // Shown on the position: its row, and the panel read back from the venue's own order.
+    await expect(row.getByTestId('pre-liquidation-stop')).toHaveText(`Stop ${STOP_LEVEL}% · close at ${trigger}`, { timeout: 20_000 });
+    await expect(current).toContainText(
+      `Closes at margin ratio ${STOP_LEVEL}%: close order at mark ${trigger} for ${SIZE}, resting on ${venue.name}.`,
+    );
+    // The position is still open: the stop waits.
+    expect(same((await positionOn(venue, s.owner)).size, SIZE)).toBe(true);
+    await stepPicture();
+
+    // A second stop is refused while one rests; the person removes this one, signed once, and the venue holds none.
+    await expect(panel).toContainText('A pre-liquidation stop already rests on this position. Remove it first, then set the new level.');
+    await expect(box).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Remove stop', exact: true }).click();
+    await continueInWallet(page);
+    await expect(panel.getByTestId('pre-liquidation-stop-said')).toHaveText(`Removed: ${venue.name} cancelled the close order.`, {
+      timeout: 20_000,
+    });
+    expect(signatures(wallet)).toBe(asked + 2);
+    expect(await triggersOn(s.owner)).toEqual([]);
+    await expect(row.getByTestId('pre-liquidation-stop')).toHaveCount(0, { timeout: 20_000 });
+    await expect(current).toContainText('No pre-liquidation stop set.');
+    await ledgerUntouched(s);
+  } finally {
+    // A stop left resting would close the position when #6 moves the mark: cancelled straight on the venue.
+    if (stopId && (await triggersOn(s.owner)).length > 0)
+      await signedOnVenue(venue, key, { kind: 'cancel_order', symbol: BTC, clientOrderKey: `protection:${s.owner}:stop_loss:${stopId}` });
+    await venueAt('/test/market-triggers', { symbol: BTC, sources: [] });
   }
 });
 

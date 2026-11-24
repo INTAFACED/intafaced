@@ -5,13 +5,12 @@ import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position.
-// At launch #1 to #4 run on the person's own venue account (J-derivatives-06-venue.pw.mjs); the first two tests here are
-// the custodial branch, which waits for later, on our own futures engine, kept and titled as no step's, and #5 is its step.
+// At launch every step runs on the person's own venue account (J-derivatives-06-venue.pw.mjs); the tests here are the
+// custodial branch, which waits for later, on our own futures engine, kept and titled as no step's.
 // Run in order on one TEST account funded with TEST USDT. The contract
 // is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
 // mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
-// with the service's own answer read at the same moment. #1 to #4, #6 and #7 are proven on the person's own venue
-// account in J-derivatives-06-venue.pw.mjs.
+// with the service's own answer read at the same moment.
 const J = 'J-derivatives-06';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -264,7 +263,9 @@ test(`${J}, the custodial Later branch, checked on our own book: adding margin t
   expect(toUnits((await me.balances()).USDT.free)).toBe(freeBefore - toUnits(ADD));
 });
 
-test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({ page }) => {
+test(`${J}, the custodial Later branch, checked on our own book: a pre-liquidation stop is a close order at the maintenance level, shown on the position`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();
