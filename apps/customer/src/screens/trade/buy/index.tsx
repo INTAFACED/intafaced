@@ -53,8 +53,8 @@ export default function TradeBuyScreen({ search }: ScreenProps) {
             <BuyCard initialAsset={asset} initialSide={initialSide} onAssetChange={undefined} onSideChange={setSide} />
           </div>
         }
-        summary={<YourOrders />}
       />
+      <YourOrders />
     </div>
   );
 }

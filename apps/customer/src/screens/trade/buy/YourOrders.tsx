@@ -19,7 +19,7 @@ const ORDERS_STALE_AFTER_MS = 30_000;
 
 type Notice = { text: string; tone: 'ok' | 'warn'; recheck?: { order: Order; pendingId: string } };
 
-/** "Your orders" beside the card (spec R2 item 3): the same /orders reads the desk uses. Signed out: nothing. */
+/** "Your orders" below the card (spec R2 item 3): the same /orders reads the desk uses. Signed out: nothing. */
 export function YourOrders() {
   const { session } = useSession();
   return session ? <OrdersPanel /> : null;
@@ -228,97 +228,99 @@ function OrdersPanel() {
     );
 
   return (
-    <section className="lt-panel lt-stack" aria-label={t('Your orders')} data-testid="your-orders">
-      <header className="lt-row lt-row-between">
-        <div className="lt-stack lt-stack-tight">
-          <h2>{t('Your orders')}</h2>
-          <p className="lt-hint">{t('Your orders hint')}</p>
-        </div>
-        <div className="lt-row">
-          <span data-testid="orders-freshness">
-            <FreshnessTag
-              asOf={asOf}
-              staleAfterMs={ORDERS_STALE_AFTER_MS}
-              refused={refused !== undefined}
-              words={{
-                live: t('Price live'),
-                stale: t('Price stale'),
-                unknown: t('Price unknown'),
-                refused: t('Price refused word'),
-              }}
-              asOfLabel=""
-            />
-          </span>
-          <LinkButton href={ORDERS_HREF}>{t('Open in Activity')}</LinkButton>
-        </div>
-      </header>
-      {lostCancel && !notice?.recheck ? (
-        <div className="lt-row lt-row-between" role="status" data-tone="warn" data-testid="orders-lost-cancel">
-          <span>{lostText ?? t('Cancel not confirmed')}</span>
-          <Button tone="secondary" size="sm" busy={busy} onClick={() => void checkLostCancel(lostCancel)}>
-            {t('Check again')}
-          </Button>
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="lt-row lt-row-between" role="status" data-tone={notice.tone} data-testid="orders-notice">
-          <span>{notice.text}</span>
-          {notice.recheck ? (
-            <Button tone="secondary" size="sm" busy={busy} onClick={() => void checkAgain(notice.recheck!)}>
+    <div className="lt-room">
+      <section className="lt-panel lt-stack" aria-label={t('Your orders')} data-testid="your-orders">
+        <header className="lt-row lt-row-between">
+          <div className="lt-stack lt-stack-tight">
+            <h2>{t('Your orders')}</h2>
+            <p className="lt-hint">{t('Your orders hint')}</p>
+          </div>
+          <div className="lt-row">
+            <span data-testid="orders-freshness">
+              <FreshnessTag
+                asOf={asOf}
+                staleAfterMs={ORDERS_STALE_AFTER_MS}
+                refused={refused !== undefined}
+                words={{
+                  live: t('Price live'),
+                  stale: t('Price stale'),
+                  unknown: t('Price unknown'),
+                  refused: t('Price refused word'),
+                }}
+                asOfLabel=""
+              />
+            </span>
+            <LinkButton href={ORDERS_HREF}>{t('Open in Activity')}</LinkButton>
+          </div>
+        </header>
+        {lostCancel && !notice?.recheck ? (
+          <div className="lt-row lt-row-between" role="status" data-tone="warn" data-testid="orders-lost-cancel">
+            <span>{lostText ?? t('Cancel not confirmed')}</span>
+            <Button tone="secondary" size="sm" busy={busy} onClick={() => void checkLostCancel(lostCancel)}>
               {t('Check again')}
             </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {status === 'loading' ? (
-        <StateBlock kind="loading" rows={4} label={t('Your orders')} />
-      ) : status === 'error' ? (
-        errorState
-      ) : rows.length === 0 ? (
-        <StateBlock kind="empty" title={t('Orders empty title')} body={t('Orders empty body')} />
-      ) : (
-        <Table
-          caption={t('Your orders')}
-          dense
-          scroll
-          columns={columns}
-          rows={rows}
-          rowKey={(order) => order.id}
-          rowHref={() => ORDERS_HREF}
-        />
-      )}
-      {checking.length > 0 ? (
-        <ul className="lt-stack lt-stack-tight">
-          {checking.map((order) => (
-            <li key={order.id} className="lt-hint">
-              {order.symbol}: {order.recoveryReason}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {confirming ? (
-        <KitDialog
-          alert
-          title={t('Cancel this order title')}
-          description={t('Cancel this order body', {
-            side: sideWord(confirming),
-            amount: fmtAmount(confirming.remaining, { places: 8 }),
-            coin: baseOf(confirming.symbol),
-          })}
-          onClose={() => {
-            if (!busy) setConfirming(null);
-          }}
-        >
-          <div className="lt-actions">
-            <Button tone="secondary" disabled={busy} onClick={() => setConfirming(null)}>
-              {t('Keep order')}
-            </Button>
-            <Button tone="down" busy={busy} onClick={() => void confirmCancel(confirming)}>
-              {busy ? t('Cancelling') : t('Cancel order')}
-            </Button>
           </div>
-        </KitDialog>
-      ) : null}
-    </section>
+        ) : null}
+        {notice ? (
+          <div className="lt-row lt-row-between" role="status" data-tone={notice.tone} data-testid="orders-notice">
+            <span>{notice.text}</span>
+            {notice.recheck ? (
+              <Button tone="secondary" size="sm" busy={busy} onClick={() => void checkAgain(notice.recheck!)}>
+                {t('Check again')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {status === 'loading' ? (
+          <StateBlock kind="loading" rows={4} label={t('Your orders')} />
+        ) : status === 'error' ? (
+          errorState
+        ) : rows.length === 0 ? (
+          <StateBlock kind="empty" title={t('Orders empty title')} body={t('Orders empty body')} />
+        ) : (
+          <Table
+            caption={t('Your orders')}
+            dense
+            scroll
+            columns={columns}
+            rows={rows}
+            rowKey={(order) => order.id}
+            rowHref={() => ORDERS_HREF}
+          />
+        )}
+        {checking.length > 0 ? (
+          <ul className="lt-stack lt-stack-tight">
+            {checking.map((order) => (
+              <li key={order.id} className="lt-hint">
+                {order.symbol}: {order.recoveryReason}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {confirming ? (
+          <KitDialog
+            alert
+            title={t('Cancel this order title')}
+            description={t('Cancel this order body', {
+              side: sideWord(confirming),
+              amount: fmtAmount(confirming.remaining, { places: 8 }),
+              coin: baseOf(confirming.symbol),
+            })}
+            onClose={() => {
+              if (!busy) setConfirming(null);
+            }}
+          >
+            <div className="lt-actions">
+              <Button tone="secondary" disabled={busy} onClick={() => setConfirming(null)}>
+                {t('Keep order')}
+              </Button>
+              <Button tone="down" busy={busy} onClick={() => void confirmCancel(confirming)}>
+                {busy ? t('Cancelling') : t('Cancel order')}
+              </Button>
+            </div>
+          </KitDialog>
+        ) : null}
+      </section>
+    </div>
   );
 }
