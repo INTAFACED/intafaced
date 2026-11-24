@@ -2779,6 +2779,194 @@
         }
       ]
     },
+    "bank.bills.billers.search": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bills.billers.search",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "country": {
+            "type": "string"
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "country": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "name", "country", "category"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "query": "water"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "query": ""
+          }
+        }
+      ]
+    },
+    "bank.bills.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bills.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": ["submitted", "accepted", "paid", "failed", "returned"]
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "billerId": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "fromSpaceId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["submitted", "accepted", "paid", "failed", "returned"]
+                },
+                "failureCode": {
+                  "type": ["string", "null"]
+                },
+                "failureBlocker": {
+                  "type": ["string", "null"]
+                },
+                "providerRef": {
+                  "type": ["string", "null"]
+                },
+                "ledgerTxId": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "billerId",
+                "reference",
+                "amount",
+                "assetId",
+                "fromSpaceId",
+                "status",
+                "failureCode",
+                "failureBlocker",
+                "providerRef",
+                "ledgerTxId",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.bills.ops.failed": {
       "service": "svc-bank",
       "module": "bank",
@@ -2994,6 +3182,240 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.bills.recurring.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bills.recurring.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "billerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fromSpaceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": ["weekly", "monthly"]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "stepUpApprovalId": {
+            "type": "string"
+          }
+        },
+        "required": ["idempotencyKey", "billerId", "reference", "amount", "fromSpaceId", "cadence", "startsAt"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "billerId": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "fromSpaceId": {
+            "type": "string"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": ["weekly", "monthly"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "cancelled", "completed"]
+          },
+          "startsAt": {
+            "type": "string"
+          },
+          "endsAt": {
+            "type": ["string", "null"]
+          },
+          "nextRunAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "billerId",
+          "reference",
+          "amount",
+          "assetId",
+          "fromSpaceId",
+          "cadence",
+          "status",
+          "startsAt",
+          "endsAt",
+          "nextRunAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "idempotencyKey": "bill-recurring:0001",
+            "billerId": "test-biller-water",
+            "reference": "ACC-1",
+            "amount": "3",
+            "fromSpaceId": "11111111-1111-4111-8111-111111111111",
+            "cadence": "monthly",
+            "startsAt": "2026-12-01T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "idempotencyKey": "short"
+          }
+        }
+      ]
+    },
+    "bank.bills.recurring.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bills.recurring.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "billerId": {
+              "type": "string"
+            },
+            "reference": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "assetId": {
+              "type": "string"
+            },
+            "fromSpaceId": {
+              "type": "string"
+            },
+            "cadence": {
+              "type": "string",
+              "enum": ["weekly", "monthly"]
+            },
+            "status": {
+              "type": "string",
+              "enum": ["active", "paused", "cancelled", "completed"]
+            },
+            "startsAt": {
+              "type": "string"
+            },
+            "endsAt": {
+              "type": ["string", "null"]
+            },
+            "nextRunAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "billerId",
+            "reference",
+            "amount",
+            "assetId",
+            "fromSpaceId",
+            "cadence",
+            "status",
+            "startsAt",
+            "endsAt",
+            "nextRunAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },

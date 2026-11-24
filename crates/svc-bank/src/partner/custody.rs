@@ -219,6 +219,15 @@ impl Held<'_> {
         self.partner.lock().move_raw(req, now)
     }
 
+    /// The billers the partner pays for this person (`State::billers`); reads no money, so asks no guard.
+    pub fn billers(
+        &self,
+        user_id: &str,
+        query: &str,
+    ) -> Result<Vec<(&'static str, &'static str, &'static str, &'static str)>, Refusal> {
+        self.partner.lock().billers(user_id, query)
+    }
+
     /// The guarded `payments.pay`.
     pub fn pay(&self, req: &PaymentRequest, now: Instant) -> Result<Payment, Refusal> {
         assert_stop_open(self.custody.store, PARTNER_ID, "bank_move")?;
