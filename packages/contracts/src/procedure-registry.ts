@@ -2104,6 +2104,13 @@ import { QUANT_TEMPLATE_LIST, QUANT_TEMPLATE_GET } from './quant-template-proced
 import { QUANT_TIER_LIST } from './quant-tier-procedures.js';
 
 import {
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE,
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE_RECORDS,
+  SUPPORT_REQUEST_ACCOUNT_FREEZE,
+  SUPPORT_ACCOUNT_FREEZE_RECORDS,
+} from './support-account-freeze.js';
+
+import {
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
   SUPPORT_LIST_MINE,
@@ -4602,6 +4609,13 @@ const part_quant_template_procedures: readonly ProcedureRecord[] = [QUANT_TEMPLA
 
 const part_quant_tier_procedures: readonly ProcedureRecord[] = [QUANT_TIER_LIST];
 
+const part_support_account_freeze: readonly ProcedureRecord[] = [
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE,
+  IDENTITY_SUPPORT_ACCOUNT_FREEZE_RECORDS,
+  SUPPORT_REQUEST_ACCOUNT_FREEZE,
+  SUPPORT_ACCOUNT_FREEZE_RECORDS,
+];
+
 const part_support_customer_procedures: readonly ProcedureRecord[] = [
   SUPPORT_CATEGORIES,
   SUPPORT_CREATE,
@@ -5202,6 +5216,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_quant_team_procedures,
   ...part_quant_template_procedures,
   ...part_quant_tier_procedures,
+  ...part_support_account_freeze,
   ...part_support_customer_procedures,
   ...part_support_desk_procedures,
   ...part_support_desk_settings_procedures,

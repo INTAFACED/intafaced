@@ -85,6 +85,10 @@ fn a_wrong_subject_or_version_is_caught() {
 fn each_durable_is_the_one_the_stream_already_holds() {
     let held = [
         ("selfFreezeApplied", "agents-identity-self-freeze-frozen"),
+        (
+            "supportAccountFrozen",
+            "agents-identity-support-account-freeze-frozen",
+        ),
         ("fillSettled", "agents-own-trigger-fill-settled"),
     ];
     assert_eq!(
