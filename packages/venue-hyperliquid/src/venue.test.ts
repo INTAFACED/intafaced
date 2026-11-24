@@ -972,6 +972,10 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     // The builder-fee cap is the venue's protocol-wide one by kind: 0.1% on perps, 1% on spot.
     expect(eth.builderFeeCapBps).toEqual({ known: true, value: a('10') });
     expect(anon.find((m) => m.symbol === 'PURR-USDC')!.builderFeeCapBps).toEqual({ known: true, value: a('100') });
+    // Smallest order value ($10 / 10 quote) and default open-order cap (1000) are published; price band stays null.
+    for (const m of anon) {
+      expect([m.minOrderNotional, m.priceBandBps, m.maxOpenOrders]).toEqual([a('10'), null, 1000]);
+    }
     expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
   });
 });

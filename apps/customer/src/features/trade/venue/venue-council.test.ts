@@ -3,7 +3,7 @@ import { preparedStep, type KeptSignature, type PreparedAnswer } from '../venue-
 import { keepsDraft, type ActionResult } from './VenueKit';
 import { builderApprovalLine, carriesBuilderFee } from './VenueReview';
 import { venueCopy } from './venue-copy';
-import { spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
+import { pickVenueSpotMarket, spotGateChoice } from '../../../screens/trade/desk/VenueSpotGate';
 import { futuresVenueCopy } from '../../../screens/trade/futures/venue-copy';
 
 // The council's round on the venue desks: an answer that is not definite is read back and never re-sent; a definite
@@ -83,6 +83,21 @@ describe('the spot page in venue mode', () => {
     expect(spotGateChoice(true, { status: 'failed', code: 'denied.kyc_required' })).toBe('verify');
     expect(spotGateChoice(false, { status: 'failed', code: 'denied.kyc_required' })).toBe('down');
     expect(spotGateChoice(false, { status: 'loading' })).toBe('down');
+  });
+
+  it('resolves the generic menu pair (BTC-USDT) to the venue’s own BTC spot market or first listed spot market, leaving explicit unlisted pairs alone (#10701)', () => {
+    const markets = [
+      { kind: 'perpetual', symbol: 'BTC-PERP', baseAsset: 'BTC' },
+      { kind: 'spot', symbol: 'ETH-USDC', baseAsset: 'ETH' },
+      { kind: 'spot', symbol: 'BTC-USDC', baseAsset: 'BTC' },
+    ] as const;
+    expect(pickVenueSpotMarket(markets, 'BTC-USDC')?.symbol).toBe('BTC-USDC');
+    // Generic Trade › Spot menu link (/trade/spot/BTC-USDT) opens the venue's BTC spot market instead of falling back to the custodial desk.
+    expect(pickVenueSpotMarket(markets, 'BTC-USDT')?.symbol).toBe('BTC-USDC');
+    // When the venue lists no BTC spot pair (e.g. testnet PURR/HYPE), the generic menu link opens the first listed venue spot pair.
+    expect(pickVenueSpotMarket([{ kind: 'spot', symbol: 'PURR-USDC', baseAsset: 'PURR' }], 'BTC-USDT')?.symbol).toBe('PURR-USDC');
+    // An explicit non-default pair the venue does not list stays undefined so today's desk can handle it.
+    expect(pickVenueSpotMarket(markets, 'DOGE-USDT')).toBeUndefined();
   });
 });
 

@@ -301,21 +301,19 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
   });
 });
 
-describe('the door takes a spot order only against rules the venue publishes (J-cex-spot-04 #6)', () => {
-  it('a spot market with no published smallest order value or band refuses trade.venue_rule_unpublished on preview and prepare, naming each; the venue is never asked', async () => {
+describe('unpublished venue rules are left to the venue, while blank owner values still refuse (J-cex-spot-04 #6, project-state decision PR #4036)', () => {
+  it('a spot market whose venue publishes no smallest order value or price band still forwards preview and prepare to the venue', async () => {
     const { d, asked } = door(50);
     const limit = order({ symbol: 'BAR-USDC', type: 'limit', timeInForce: 'GTC', price: a('59000') });
-    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('trade.venue_rule_unpublished');
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('trade.venue_rule_unpublished');
-    // The alert's own worst price skips the owner's protection, never the venue's rules.
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }, { ownWorstPrice: true }))).toBe(
-      'trade.venue_rule_unpublished',
-    );
-    const words = await d.preview(principal, owner, limit).catch((e: Error) => e.message);
-    expect(words).toBe(
-      "stub TEST venue publishes no smallest order value, no price band for BAR-USDC, so this order can't be checked against it; nothing was prepared",
-    );
-    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('passed');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('passed');
+    // The alert's own worst price also passes through on a bare spot market.
+    expect(
+      await refusal(() =>
+        d.prepare(principal, { owner, signer, intent: { ...limit, clientOrderKey: 'order:u:2' } }, { ownWorstPrice: true }),
+      ),
+    ).toBe('passed');
+    expect(asked).toEqual({ previews: 1, prepares: 2 });
   });
 
   it('the same order on a spot market that publishes all three passes, and a perpetual is not held to the spot rules', async () => {

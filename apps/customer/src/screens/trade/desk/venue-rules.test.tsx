@@ -73,12 +73,14 @@ describe('the market’s rules as the venue publishes them (J-cex-spot-04 #2)', 
   });
 });
 
-describe('a spot ticket takes no order against a rule the venue does not publish (J-cex-spot-04 #6)', () => {
-  it('refuses rule_unpublished whatever is typed, and builds no intent, so nothing is asked or signed', () => {
+describe('a spot ticket leaves unpublished venue rules to the venue (J-cex-spot-04 #6, project-state decision PR #4036)', () => {
+  it('allows building a limit intent even when the venue publishes no smallest order value or price band, while a blank owner cap still blocks market orders', () => {
     expect(unpublishedRules(BARE)).toEqual(['min', 'band']);
-    expect(ticketProblem(buy, BARE, null)).toBe('rule_unpublished');
-    expect(ticketProblem({ ...buy, amount: '' }, BARE, null)).toBe('rule_unpublished');
-    expect(intentOf(buy, BARE, null, 'order:0xowner:rul-usdc:a', true)).toBeNull();
+    expect(ticketProblem(buy, BARE, null)).toBeNull();
+    expect(ticketProblem({ ...buy, amount: '' }, BARE, null)).toBe('amount');
+    expect(intentOf(buy, BARE, null, 'order:0xowner:rul-usdc:a', true)).toMatchObject({ kind: 'place_order', price: '20', amount: '1' });
+    // Blank owner protection still blocks a market order.
+    expect(ticketProblem({ side: 'buy', type: 'market', price: '', amount: '1' }, BARE, '21', false)).toBe('no_cap');
   });
 
   it('with every rule published the same order is an intent; a perpetual is not held to the spot rules', () => {
