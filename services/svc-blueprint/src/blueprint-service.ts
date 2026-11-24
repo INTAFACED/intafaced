@@ -188,7 +188,8 @@ export interface BlueprintServiceOptions {
  */
 const StoredProfile = blueprintProfileSchema.extend({ guardrails: guardrailsSchema.loose() }).loose();
 
-const BlueprintRow = z.object({
+/** Exported for the Rust port's recorder (`crates/svc-blueprint/scripts/record-door.mjs`), which checks rows the same way. */
+export const BlueprintRow = z.object({
   id: z.string(),
   user_id: z.string(),
   engine_version: z.string(),
@@ -251,7 +252,8 @@ const CrewRow = z.object({
   capacity: z.number(),
 });
 
-const MentorMatchRow = z.object({ student_id: z.string(), mentor_id: z.string(), fit_score: z.number(), status: z.string() });
+/** Exported for the Rust port's recorder, as `BlueprintRow` is. */
+export const MentorMatchRow = z.object({ student_id: z.string(), mentor_id: z.string(), fit_score: z.number(), status: z.string() });
 type MentorMatchRow = z.infer<typeof MentorMatchRow>;
 
 export class BlueprintService implements BlueprintContract {

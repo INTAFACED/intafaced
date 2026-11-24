@@ -2,6 +2,9 @@
 //! as `services/svc-blueprint/src/router.ts` mounts them, recorded as a tree in `schemas.json` (by
 //! `scripts/record-door.mjs`) and run by the kit's zod engine (`service_kit::schema`) with the Blueprint's refines
 //! (`crate::refines`). `tests/input_parity.rs` holds every schema to zod's own verdicts.
+//!
+//! The same tree holds each call's output schema (what tRPC parses a handler's answer with) and the row schemas the
+//! handlers check each row with as they read it (`BlueprintRow`, `MentorMatchRow` in `blueprint-service.ts`).
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -17,25 +20,36 @@ pub const SCHEMAS_JSON: &str = include_str!("schemas.json");
 struct Inputs {
     schema: Schema,
     roots: BTreeMap<String, usize>,
+    outputs: BTreeMap<String, usize>,
+    rows: BTreeMap<String, usize>,
+}
+
+/// One of the tree's name-to-part tables (`inputs`, `outputs`, `rows`).
+fn table(doc: &Json, key: &str) -> Result<BTreeMap<String, usize>, String> {
+    let Some(Json::Object(entries)) = doc.get(key) else {
+        return Err(format!("schemas.json: no {key}"));
+    };
+    let mut out = BTreeMap::new();
+    for (name, id) in entries {
+        let Json::Number(n) = id else {
+            return Err(format!("schemas.json: {key}.{name} names no part"));
+        };
+        let id = format!("{n}")
+            .parse::<usize>()
+            .map_err(|e| format!("schemas.json: {key}.{name}: {e}"))?;
+        out.insert(name.clone(), id);
+    }
+    Ok(out)
 }
 
 fn load() -> Result<Inputs, String> {
     let doc = json::parse(SCHEMAS_JSON).map_err(|e| e.message)?;
-    let schema = Schema::from_json(&doc)?;
-    let Some(Json::Object(inputs)) = doc.get("inputs") else {
-        return Err("schemas.json: no inputs".to_owned());
-    };
-    let mut roots = BTreeMap::new();
-    for (path, id) in inputs {
-        let Json::Number(n) = id else {
-            return Err(format!("schemas.json: {path} names no part"));
-        };
-        let id = format!("{n}")
-            .parse::<usize>()
-            .map_err(|e| format!("schemas.json: {path}: {e}"))?;
-        roots.insert(path.clone(), id);
-    }
-    Ok(Inputs { schema, roots })
+    Ok(Inputs {
+        schema: Schema::from_json(&doc)?,
+        roots: table(&doc, "inputs")?,
+        outputs: table(&doc, "outputs")?,
+        rows: table(&doc, "rows")?,
+    })
 }
 
 fn inputs() -> Result<&'static Inputs, String> {
@@ -96,4 +110,18 @@ pub fn parse_part(part: usize, value: Value) -> Result<Result<Value, Refused>, S
             Err(t) => Err(Refused::Thrown(t.0)),
         },
     )
+}
+
+/// The call's output schema, when its record names one.
+pub fn output_part(path: &str) -> Result<Option<usize>, String> {
+    Ok(inputs()?.outputs.get(path).copied())
+}
+
+/// A row schema by its TypeScript name (`BlueprintRow`), recorded as `<Row>.array()`.
+pub fn rows_part(name: &str) -> Result<usize, String> {
+    inputs()?
+        .rows
+        .get(name)
+        .copied()
+        .ok_or_else(|| format!("schemas.json: no row schema {name}"))
 }
