@@ -64,6 +64,7 @@ import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
 import { useApi } from '../../../features/session';
 import { readRateCosts } from '../../../features/developers';
 import { useResource } from '../../../shared/resource';
+import { useReveal } from '../../../shared/reveal';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
@@ -1095,6 +1096,8 @@ type Attached =
 /** What became of the take profit and stop loss attached to an entry order. */
 function AttachedLine({ attached }: { attached: Attached }) {
   const { t } = venueProtectCopy.useCopy();
+  // What became of them is the last line of a tall review sheet: brought into view as each state arrives.
+  const reveal = useReveal<HTMLElement>(attached.state, { onMount: true });
   const setWords = (set: Array<'take_profit' | 'stop_loss'>, filled: string) =>
     set.length === 2
       ? t('Attached both', { filled })
@@ -1105,7 +1108,7 @@ function AttachedLine({ attached }: { attached: Attached }) {
           : '';
   if (attached.state === 'failed') {
     return (
-      <div role="alert" className="lt-callout lt-callout-bad" data-testid="venue-attached-failed">
+      <div ref={reveal} role="alert" className="lt-callout lt-callout-bad" data-testid="venue-attached-failed">
         {attached.set.length > 0 ? <p>{setWords(attached.set, attached.filled)}</p> : null}
         <p>{t('Attach failed', { kind: t(`kind_${attached.kind}`).toLowerCase(), detail: attached.refusal.message })}</p>
         {attached.refusal.code ? <p className="lt-quiet">{t('Code', { code: attached.refusal.code })}</p> : null}
@@ -1113,7 +1116,7 @@ function AttachedLine({ attached }: { attached: Attached }) {
     );
   }
   return (
-    <p role="status" data-testid="venue-attached">
+    <p ref={reveal} role="status" data-testid="venue-attached">
       {attached.state === 'working'
         ? t('Attaching')
         : attached.state === 'nothing'

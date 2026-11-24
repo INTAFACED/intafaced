@@ -487,7 +487,14 @@ import {
   BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
-import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
+import {
+  BANK_BILLS_OPS_SUMMARY,
+  BANK_BILLS_OPS_FAILED,
+  BANK_BILLS_BILLERS_SEARCH,
+  BANK_BILLS_RECURRING_CREATE,
+  BANK_BILLS_LIST,
+  BANK_BILLS_RECURRING_LIST,
+} from './bank-bills-procedures.js';
 
 import { BANK_BUSINESS_PROPOSE_TRANSFER, BANK_BUSINESS_CREATE, BANK_BUSINESS_RUN_PAYROLL } from './bank-business-2-procedures.js';
 
@@ -2857,7 +2864,14 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_POLICY,
 ];
 
-const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];
+const part_bank_bills_procedures: readonly ProcedureRecord[] = [
+  BANK_BILLS_OPS_SUMMARY,
+  BANK_BILLS_OPS_FAILED,
+  BANK_BILLS_BILLERS_SEARCH,
+  BANK_BILLS_RECURRING_CREATE,
+  BANK_BILLS_LIST,
+  BANK_BILLS_RECURRING_LIST,
+];
 
 const part_bank_business_2_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_PROPOSE_TRANSFER,

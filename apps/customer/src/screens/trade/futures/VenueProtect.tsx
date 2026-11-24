@@ -3,6 +3,7 @@ import { Button } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { parseAmount } from '../../../shared/money';
+import { useReveal } from '../../../shared/reveal';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
@@ -278,6 +279,8 @@ function ProtectionItem({
   const venue = useVenueApi();
   const [cancelled, setCancelled] = useState<string | null>(null);
   const live = p.status === 'armed' || p.status === 'triggered';
+  // A change of what became of it (armed, then failed or filled) is news: brought into view in the dialog's scroll box.
+  const reveal = useReveal<HTMLLIElement>(p.status);
   const covers = live && position ? coverage(p.quantity, position.size) : null;
   const sourceText = sourceWords(t, p.triggerSource);
 
@@ -294,6 +297,7 @@ function ProtectionItem({
 
   return (
     <li
+      ref={reveal}
       data-client-order-id={p.clientOrderId}
       data-kind={p.kind}
       data-rests-on={p.restsOn}

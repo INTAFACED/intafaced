@@ -226,10 +226,6 @@
 </div>
 <div data-testid="bills-panel" id="pay-panel-bills" role="tabpanel" aria-label="Bills">
 <div class="lt-stack" data-testid="bills-card">
-<div class="lit-note" data-tone="neutral" role="status" data-testid="pay-reason">
-<p data-part="title">Bill pay isn’t connected</p>
-<div data-part="body">No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps bill pay needs, and none of them can start.</div>
-</div>
 <ol class="lt-steps" data-testid="pay-steps">
 <li class="lt-step">
 <span class="lt-step-dot" aria-hidden="true">
@@ -258,29 +254,48 @@
 </li>
 </ol>
 <form class="lt-stack" novalidate="">
-<fieldset class="lt-stack" disabled="">
 <div class="lit-field-control">
 <label for="bill-biller">Biller</label>
-<input placeholder="Search billers" id="bill-biller" type="search">
+<input placeholder="Search billers" id="bill-biller" type="search" value="">
+</div>
+<button disabled="" data-testid="bills-search" type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Search</button>
+</form>
+<form class="lt-stack" novalidate="">
+<fieldset class="lt-stack" disabled="">
+<div class="lt-field">
+<label for="bill-pick">Choose a biller</label>
+<select id="bill-pick">
+<option value="">Choose a biller</option>
+</select>
 </div>
 <div class="lit-field-control">
 <label for="bill-reference">Bill reference or account number</label>
-<input placeholder="As shown on the bill" id="bill-reference" type="text">
+<input placeholder="As shown on the bill" id="bill-reference" type="text" value="">
 </div>
-<div class="lit-amount" data-slot="amount-field" data-size="md" data-disabled="">
+<div class="lit-amount" data-slot="amount-field" data-size="md">
 <label for="_r_9_">Amount</label>
 <div data-part="box">
-<input id="_r_9_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="0" disabled="" type="text" value="">
+<input id="_r_9_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="0" type="text" value="">
 </div>
 </div>
 <div class="lt-field">
 <label for="bill-from">Pay from</label>
 <select id="bill-from">
-<option value="">No balance to pay from</option>
+<option value="s0">USDT · 3,800</option>
+<option value="s1">USDT · Rent · 300</option>
+<option value="s2">BTC · Long term · 0.04</option>
 </select>
 </div>
+<div class="lit-field-control">
+<label for="bill-starts">First payment on</label>
+<span class="lit-date" data-empty="">
+<input id="bill-starts" type="date" value="">
+<span data-part="shown" aria-hidden="true" data-shown="mo day, yr" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
+</span>
+</span>
+</div>
 </fieldset>
-<button disabled="" data-testid="bills-review" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">Bill pay isn’t connected</button>
+<button disabled="" data-testid="bills-review" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="lg" data-block="true">Set up monthly bill</button>
 </form>
 <div class="lt-stack">
 <h3>Status</h3>
