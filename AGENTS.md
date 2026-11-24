@@ -1,6 +1,6 @@
 # Rules for agents
 
-INTAFACED is an exchange, a bank and a payments platform. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins. Agreed acceptance criteria win; report conflicts.
+INTAFACED is an exchange, a bank and a payments platform. You own an outcome: build it, prove it in the running app, and merge it. Where another file disagrees with this page, this page wins. Agreed acceptance criteria win; report conflicts.
 
 ## The floor
 
@@ -39,7 +39,6 @@ For the Codex review bot: flag only P0 and P1, a bug that breaks a journey step'
 6. **Open the PR as a draft at your first push** from your own account (a `tests:` rewrite opens ready); once its CI is green, `gh pr ready <n>`, then `gh pr merge <n> --auto --squash`; a PR that builds or rewrites a journey arms only once the `proof v2 read` status on its exact head is in: a failed read is fixed and pushed first, and a finding the PR can't clear is named in its body. A **design change**, new screens or a change to the look customers see (not every UI element a journey needs), is labelled `design` and carries its look baselines in their own commit; it merges like any PR, on its checks and the independent review of those pictures. The body follows the PR template; a step the title names that is not green on the PR's exact head is named at the start of a line, outside code: `Left-or-replaced: <journey> #<n> #<n>`. A changed journey test whose steps the title doesn't name is judged on all of them; no line needed. One PR per concern, merged in pieces that are safe to undo.
 7. **The required checks decide the merge** on the exact head (floor 5); nothing run by hand overrides a red.
 8. **A red:** read it with `node tooling/ci/why-red.mjs <PR>`; its `REVIEW` verdict only means the seal waits for the CI review, which is nothing to fix. A plain error or failed assertion in your change: fix it. If it looks intermittent, re-run the failed jobs once: a test that then passes is flaky and gets an issue with an owner, opened with `node tooling/ci/open-flaky.mjs`, which sets its label; a test that fails again is real: fix it. A red in a package your PR doesn't touch, and that depends on nothing your PR touches, isn't yours: say so once in a PR comment and re-run once.
-9. **Done is on `main`,** as [`GLOSSARY.md`](GLOSSARY.md) defines it, with built, proven and finished.
 
 ## Where a mistake costs more
 
@@ -64,8 +63,6 @@ Where each kind of thing lives across the factory, this repo included, is one ma
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the generated `docs/SERVICES.md`: apps, services, packages, ports, env, the money flow and how to run.
 - [`docs/agents/shape.md`](docs/agents/shape.md): the one way to add a call, a feature, a piece of state, a UI part, a service's wiring or a list. Read it before adding any of them.
 - [`docs/agents/build-slice.md`](docs/agents/build-slice.md): how to build a journey and prove it. [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, worktrees, commits and the CI check names.
-- [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): older front-end references; the owner's are project-state `design/new-look`.
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
 - Rust lives in `crates/` (one Cargo workspace, toolchain pinned in `rust-toolchain.toml`): `pnpm rust:check` runs what CI's Rust job runs (format, clippy with warnings as errors, tests); `pnpm rust:fmt` formats.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
-- Issues and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/domain.md`. Active work and owners: open GitHub PRs and issues.

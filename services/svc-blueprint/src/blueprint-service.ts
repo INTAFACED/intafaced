@@ -22,7 +22,6 @@ import type {
 import {
   blueprintProfileSchema,
   CARD_DIMENSIONS,
-  cardSizeSchema,
   crewRoleSchema,
   decisionStyleSchema,
   energyRhythmSchema,
@@ -33,7 +32,7 @@ import {
 import { composeCard } from './card/compose.js';
 import { assertZeroPiiSurface } from './attestations/zero-pii.js';
 import { mayViewCard } from './visibility.js';
-import { BlueprintRow, MentorMatchRow, StoredProfile } from './rows.js';
+import { BlueprintRow, MentorMatchRow, ShareRow, StoredProfile } from './rows.js';
 import type { CardRenderer } from './card/card-renderer.js';
 import { EngineProtocolError, EngineUnavailableError, type BlueprintRequest, type NeuralEngineClient } from './engine/neural-engine.js';
 import { deterministicUuid } from './deterministic.js';
@@ -182,13 +181,6 @@ export interface BlueprintServiceOptions {
 
 type BlueprintRow = z.infer<typeof BlueprintRow>;
 
-const ShareRow = z.object({
-  id: z.string(),
-  owner_user_id: z.string(),
-  size: cardSizeSchema,
-  created_at: z.date(),
-  revoked_at: z.date().nullable(),
-});
 type ShareRow = z.infer<typeof ShareRow>;
 
 const OpenerRow = z.object({

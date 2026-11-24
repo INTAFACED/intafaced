@@ -472,14 +472,21 @@ export function liveSessions(secrets, userIds) {
 }
 
 /**
- * A short-lived TEST access token on a person's own live session (`liveSessions`), no scopes, so a TEST tool can make a
- * person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the session is live.
+ * The scopes of a person's TEST partner token: the bank's own, which svc-bank's `testPartner.*` calls require
+ * (`testPartner.set` and `testPartner.fund` refuse a token without `bank:write`, #10632). Nothing else.
+ */
+export const PERSON_TEST_PARTNER_SCOPES = Object.freeze(['bank:read', 'bank:write']);
+
+/**
+ * A short-lived TEST access token on a person's own live session (`liveSessions`), with only the bank scopes, so a TEST
+ * tool can make a person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the
+ * session is live.
  */
 export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120) {
   if (!UUID_RE.test(userId) || !UUID_RE.test(sessionId)) throw new Error('personToken needs a user id and a live session id');
   return (
     await ctx.tokens.issueAccessToken(
-      { userId, sessionId, scopes: [], tier: 'none', mfa: false },
+      { userId, sessionId, scopes: [...PERSON_TEST_PARTNER_SCOPES], tier: 'none', mfa: false },
       { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
     )
   ).token;

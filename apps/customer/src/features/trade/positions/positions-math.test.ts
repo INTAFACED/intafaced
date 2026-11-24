@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { VenueFill, VenuePosition } from '../venue-api';
-import { breakEven, leverageBpsOfTimes, marginRatio, openingFees, pnlFormula, totalsOf, percentOf } from './positions-math';
+import {
+  breakEven,
+  leverageBpsOfTimes,
+  marginRatio,
+  openingFees,
+  pnlFormula,
+  preLiquidationStop,
+  totalsOf,
+  percentOf,
+} from './positions-math';
 
 // J-derivatives-05 #1 #2: the room's figures from the venue's own position and fills. Every figure is TEST.
 
@@ -84,5 +93,30 @@ describe('positions room figures', () => {
     expect(percentOf('0.050000000000000001')).toBe('5.0000000000000001');
     expect(percentOf('0.0123')).toBe('1.23');
     expect(percentOf('0')).toBe('0');
+  });
+});
+
+// J-derivatives-06 #5: the mark at which the margin ratio (maintenance 9 over margin 180 and its result) reaches a level.
+describe('preLiquidationStop', () => {
+  it('a long: margin + size × (mark − entry) = maintenance ÷ level, rounded up to the tick', () => {
+    // 9 ÷ 0.5 = 18; 60000 + (18 − 180) ÷ 0.03 = 54600.
+    expect(preLiquidationStop(position(), '50', '0.1')).toEqual({ ok: true, trigger: '54600' });
+    // 9 ÷ 0.33 = 27.2727…; 60000 − 5090.9090… = 54909.0909…, up to 54910: it fires at the level or just before it.
+    expect(preLiquidationStop(position(), '33', '1')).toEqual({ ok: true, trigger: '54910' });
+    // At 100% it is the venue's own liquidation price.
+    expect(preLiquidationStop(position(), '99.99', '0.01')).toMatchObject({ ok: true });
+  });
+  it('a short: the mark rises by the same move, rounded down to the tick', () => {
+    const short = position({ side: 'short', markPrice: '59990', unrealisedPnl: '0.3' });
+    expect(preLiquidationStop(short, '50', '0.1')).toEqual({ ok: true, trigger: '65400' });
+    expect(preLiquidationStop(short, '33', '1')).toEqual({ ok: true, trigger: '65090' });
+  });
+  it('refuses a level outside (0, 100), an unpublished maintenance, and a ratio already past the level', () => {
+    for (const level of ['0', '100', '120', '-5', 'abc', ''])
+      expect(preLiquidationStop(position(), level, '1')).toEqual({ ok: false, why: 'level' });
+    expect(preLiquidationStop(position({ maintenanceMargin: { known: false } }), '50', '1')).toEqual({ ok: false, why: 'unpublished' });
+    expect(preLiquidationStop(position({ maintenanceMargin: undefined }), '50', '1')).toEqual({ ok: false, why: 'unpublished' });
+    // 9 ÷ 0.01 = 900: the mark would have to be 84000, above the mark now, so it would fire at once.
+    expect(preLiquidationStop(position(), '1', '1')).toEqual({ ok: false, why: 'crossed' });
   });
 });
