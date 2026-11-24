@@ -119,6 +119,30 @@ describe("the beta's menus", () => {
     expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
+  it('shows Notices (/notice, /notice/:id, /announcement, /announcement/:id) on the beta while keeping Lab, App and Partner blocked (J-cex-spot-10 #10)', () => {
+    const betaList = betaRoomList(count.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    for (const [route, sample] of [
+      ['/notice', '/notice'],
+      ['/notice/:id', '/notice/33333333-3333-4333-8333-333333333333'],
+      ['/announcement/:id', '/announcement/33333333-3333-4333-8333-333333333333'],
+    ] as const) {
+      expect(state.get(route), route).toBe('volt');
+      expect(betaHides(sample, betaList), sample).toBe(false);
+      expect(betaOffFeatureFor(sample), sample).toBeUndefined();
+      expect(isHiddenPath(sample), sample).toBe(false);
+    }
+    expect(betaHides('/announcement', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/announcement')).toBeUndefined();
+    expect(isHiddenPath('/announcement')).toBe(false);
+    expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/notice');
+    expect(searchRooms('notices', 'Personal').map((room) => room.path)).toContain('/notice');
+    for (const blockedPath of ['/lab', '/app', '/partner']) {
+      expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('public-extras');
+      expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
+    }
+  });
+
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
     expect(betaRooms()).toBeUndefined();
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);
