@@ -85,7 +85,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
+import { COMPOSE_RUNTIME, localStackState, assertActiveLocalStack, composeSqlRead, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
@@ -397,6 +397,10 @@ function sandboxFunds(ctx, on) {
 }
 
 function psqlRead(secrets, role, sql) {
+  // A tester compose stack (its marker in the state folder) has its own Postgres on the marker's port and no psql in its
+  // image: the same read goes through composeSqlRead.
+  const marker = readJson(gatePaths().marker, null);
+  if (marker?.runtime === COMPOSE_RUNTIME) return composeSqlRead(marker, role, sql);
   const r = spawnSync(
     PSQL,
     [
