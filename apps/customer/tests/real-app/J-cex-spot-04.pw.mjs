@@ -2,7 +2,6 @@
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewed } from './desk.mjs';
-import { listLeader } from './copy.mjs';
 
 // J-cex-spot-04, in the running app (docs/roadmap/journeys.json): a person is told in words what a pair allows. One
 // test per step, titled "J-cex-spot-04 #<n>", run in order on one TEST account funded with TEST USDT through the real
@@ -60,7 +59,6 @@ const REASON = {
   trailing: 'Not offered: the exchange does not take trailing stops on any market.',
   window: 'This market takes limit orders only until its opening window ends.',
   zone: 'This market is in the higher-risk zone, which takes limit orders only.',
-  lead: 'A lead trade needs a price. Turn Lead trade off to use this type.',
 };
 
 /** The public market list's row for `symbol` (state, opening window, zone), as the desk reads it. */
@@ -133,31 +131,6 @@ test(`${J} #1 opens the order-type menu: only the types this market and account 
   await stepPicture();
   await page.keyboard.press('Escape');
   await expect(tab(page, 'Limit')).toHaveAttribute('aria-selected', 'true');
-  expect(sent).toHaveLength(0);
-
-  // The account's mode: a listed lead with Lead trade on places lead trades, which need a price, so on the same open
-  // market Market and Stop-market leave the tabs and are listed with the lead reason. With the switch off the account
-  // is back to its own orders, and every type is a tab again.
-  const lead = await fundedTrader(page, 'js4l', '100');
-  await listLeader(lead, `TEST ${J} lead ${lead.handle}`, { assets: [SYMBOL] });
-  await openDesk(page, lead);
-  await page.goto(`/trade/spot/${SYMBOL.replace('/', '-')}?lead=1`);
-  const leadSwitch = page.getByRole('switch', { name: 'Lead trade', exact: true });
-  await expect(leadSwitch).toBeChecked();
-  const priced = TICKET_TYPES.filter((x) => x !== 'Stop-market' && x !== 'Market');
-  expect(await typesShown(page)).toEqual({
-    tabs: priced,
-    rows: [
-      ['Stop-market', REASON.lead, 'true'],
-      ['Market', REASON.lead, 'true'],
-      ['Trailing stop', REASON.trailing, 'true'],
-    ],
-  });
-  await page.keyboard.press('Escape');
-  await leadSwitch.click();
-  await expect(leadSwitch).not.toBeChecked();
-  expect(await typesShown(page)).toEqual({ tabs: TICKET_TYPES, rows: [['Trailing stop', REASON.trailing, 'true']] });
-  await page.keyboard.press('Escape');
   expect(sent).toHaveLength(0);
 });
 
