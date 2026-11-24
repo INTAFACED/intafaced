@@ -1432,17 +1432,24 @@ test('mapBuild: the newest verified build from main, created no later than the j
   assert.equal(mapBuild(runs, { before: Date.parse('2026-11-09T14:00:00Z'), repo: REPO }), null);
   assert.equal(mapBuild(null), null);
   // Main trust's dispatch (its workflow token) counts, newest first; a person's or an agent's dispatch never does.
-  const bot = { event: 'workflow_dispatch', triggering_actor: { login: 'github-actions[bot]' } };
+  const bot = { event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
   const started = [
     ...runs,
     mapRun(9, '2026-11-09T23:40:00Z', bot),
     mapRun(11, '2026-11-09T23:45:00Z', { ...bot, conclusion: 'failure' }),
     mapRun(12, '2026-11-09T23:50:00Z', { ...bot, head_branch: 'u4/x' }),
-    mapRun(13, '2026-11-09T23:55:00Z', { event: 'workflow_dispatch', triggering_actor: { login: 'ZenYoda3' } }),
+    mapRun(13, '2026-11-09T23:55:00Z', { event: 'workflow_dispatch', actor: { login: 'ZenYoda3' } }),
+    // Re-runs change triggering_actor, never actor: a person's re-run of the bot's build still counts, the bot's re-run of a person's never.
+    mapRun(14, '2026-11-09T23:35:00Z', { ...bot, triggering_actor: { login: 'ZenYoda3' } }),
+    mapRun(15, '2026-11-09T23:58:00Z', {
+      event: 'workflow_dispatch',
+      actor: { login: 'ZenYoda3' },
+      triggering_actor: { login: 'github-actions[bot]' },
+    }),
   ];
   assert.deepEqual(
     mapBuilds(started, { repo: REPO }).map((r) => r.id),
-    [9, 3, 2, 1],
+    [9, 14, 3, 2, 1],
   );
 });
 
@@ -1452,7 +1459,7 @@ test('builtMap: a dispatched build counts only when its commit is in main histor
     writeFileSync(join(dir, 'journey-reach-map.json'), mapText(MAP));
     execFileSync('zip', ['-q', 'a.zip', 'journey-reach-map.json'], { cwd: dir });
     const zip = readFileSync(join(dir, 'a.zip'));
-    const bot = { event: 'workflow_dispatch', triggering_actor: { login: 'github-actions[bot]' } };
+    const bot = { event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
     const OURS = 'a'.repeat(40);
     const TAG = 'b'.repeat(40);
     const runs = [
@@ -1465,7 +1472,7 @@ test('builtMap: a dispatched build counts only when its commit is in main histor
     const get = async (path) => {
       asked.push(path);
       if (path.includes('/workflows/journey-reach-map.yml/runs')) return { workflow_runs: runs };
-      const cmp = /\/compare\/([0-9a-f]{40})\.\.\.main$/.exec(path);
+      const cmp = /\/compare\/([0-9a-f]{40})\.\.\.refs\/heads\/main\?per_page=1$/.exec(path);
       if (cmp) return { status: status[cmp[1]] };
       const art = /\/runs\/(\d+)\/artifacts\?name=journey-reach-map$/.exec(path);
       if (art) return { artifacts: [{ id: 70 + Number(art[1]), name: 'journey-reach-map', expired: false }] };
@@ -1474,7 +1481,10 @@ test('builtMap: a dispatched build counts only when its commit is in main histor
     const zips = (want) => async (path) => (path.endsWith(`/artifacts/${want}/zip`) ? zip : null);
     // Run 5's commit is not main's (a tag called main): run 4, whose commit is, speaks.
     assert.deepEqual(await builtMap({ get, raw: zips(74), repo: REPO }), MAP);
-    assert.ok(asked.some((p) => p.endsWith(`/compare/${TAG}...main`)) && asked.some((p) => p.endsWith(`/compare/${OURS}...main`)));
+    assert.ok(
+      asked.some((p) => p.endsWith(`/compare/${TAG}...refs/heads/main?per_page=1`)) &&
+        asked.some((p) => p.endsWith(`/compare/${OURS}...refs/heads/main?per_page=1`)),
+    );
     assert.ok(!asked.some((p) => p.includes('/runs/5/artifacts')), "the tag's build is never read");
     // Planted: were the tag's commit main's, its build would speak.
     status[TAG] = 'identical';
@@ -1492,6 +1502,11 @@ test('the map is built by a dispatch Main trust starts after a green journeys ru
   const on = map.slice(map.indexOf('\non:\n'), map.indexOf('\npermissions:'));
   assert.match(on, /^\non:\n {2}workflow_dispatch:\n$/, 'a dispatch alone');
   assert.doesNotMatch(map.slice(map.indexOf('\njobs:')), /\n {4}if:/, 'its job never skips');
+  assert.match(
+    map,
+    /group: journey-reach-map-\$\{\{ github\.ref \}\}-\$\{\{ github\.actor == 'github-actions\[bot\]' && 'main-trust' \|\| github\.run_id \}\}/,
+    "a person's dispatch never cancels Main trust's build",
+  );
   const trust = readFileSync(join(ROOT_DIR, '.github/workflows/main-trust.yml'), 'utf8');
   const job = trust.slice(trust.indexOf('\n  map:\n'));
   assert.ok(trust.indexOf('\n  map:\n') > 0, 'a map job');

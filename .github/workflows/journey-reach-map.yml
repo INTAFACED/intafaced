@@ -26,9 +26,10 @@ on:
 
 permissions: {}
 
-# A newer build replaces an older one still running.
+# A newer build replaces an older one still running. Main trust's dispatches (github-actions[bot]) share one group, so
+# a person's dispatch, which counts for nothing, never cancels one of them.
 concurrency:
-  group: journey-reach-map-${{ github.ref }}
+  group: journey-reach-map-${{ github.ref }}-${{ github.actor == 'github-actions[bot]' && 'main-trust' || github.run_id }}
   cancel-in-progress: true
 
 jobs:

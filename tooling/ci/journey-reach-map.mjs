@@ -891,7 +891,8 @@ export function runsBehind(map, runs, repo = REPO) {
 /** The workflow that builds the map after every green full run on main, and the artifact it uploads. */
 export const MAP_WORKFLOW = 'journey-reach-map.yml';
 export const MAP_ARTIFACT = 'journey-reach-map';
-/** Who starts a counted dispatch: the workflow token of Main trust's `map` job. A person's or an agent's dispatch never counts. */
+/** Who starts a counted dispatch: the workflow token of Main trust's `map` job. A person's or an agent's dispatch never
+ *  counts. Read from the run's `actor`, its first dispatcher, never `triggering_actor`, which a re-run changes. */
 export const MAP_STARTER = 'github-actions[bot]';
 
 /**
@@ -913,7 +914,7 @@ export function mapBuilds(runs, { before = Infinity, repo = REPO } = {}) {
         r?.conclusion === 'success' &&
         r?.head_branch === 'main' &&
         r?.head_repository?.full_name === repo &&
-        (r?.event === 'workflow_run' || (r?.event === 'workflow_dispatch' && r?.triggering_actor?.login === MAP_STARTER)) &&
+        (r?.event === 'workflow_run' || (r?.event === 'workflow_dispatch' && r?.actor?.login === MAP_STARTER)) &&
         String(r?.path ?? '').endsWith(`/${MAP_WORKFLOW}`) &&
         Date.parse(r?.created_at) <= before,
     )
@@ -923,10 +924,11 @@ export function mapBuilds(runs, { before = Infinity, repo = REPO } = {}) {
 /** The newest of mapBuilds, or null. Pure. */
 export const mapBuild = (runs, opts) => mapBuilds(runs, opts)[0] ?? null;
 
-/** Whether commit `sha` is in main's history: main is identical to it or ahead of it (`get` returns the API's JSON). */
+/** Whether commit `sha` is in main's history: branch main (refs/heads/main, never a tag of that name) is identical to it
+ *  or ahead of it (`get` returns the API's JSON; a read that fails throws, and builtMap then reads null). */
 export async function onMain(sha, { get, repo = REPO }) {
   if (!/^[0-9a-f]{40}$/i.test(String(sha ?? ''))) return false;
-  const status = (await get(`/repos/${repo}/compare/${sha}...main`))?.status;
+  const status = (await get(`/repos/${repo}/compare/${sha}...refs/heads/main?per_page=1`))?.status;
   return status === 'identical' || status === 'ahead';
 }
 
