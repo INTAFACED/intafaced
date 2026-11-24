@@ -4,7 +4,7 @@ import { EDGE, ORIGIN, api, bestPrices, fund, journeyState, toUnits } from './st
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
 import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 import { testVenue, tradePayloadHash, venueForThisFile, venueInfo } from './venue.mjs';
-import { minuteStart } from './clock.mjs';
+import { utcMinuteOf } from './clock.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
 // closing, new or risky before trading it, and never sends an order into a state that refuses it without being told
@@ -287,7 +287,6 @@ test.describe('on the outside TEST venue', () => {
     stepPicture,
   }) => {
     const mine = await venueMarkets();
-    const opened = Date.now();
     await page.goto('/status');
     await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
 
@@ -345,13 +344,22 @@ test.describe('on the outside TEST venue', () => {
       await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute('data-state', modeOf(m));
     await expect(page.locator('[data-testid^="status-mode-"][data-state]')).toHaveCount(states.value.markets.length);
 
-    // The as-of time is the venue read's own time, in UTC, to the minute: the page's read was made once the page was
-    // opened, and no later than now, so it is never older than the page nor a time of the page's own.
+    // The as-of time is the venue read's own time, in UTC, to the minute. The venue read is read before and after the
+    // page's line, so the line is one of the two answers, never a time of the page's own.
     const line = page.getByTestId('status-modes-asof');
     await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
-    const shown = Date.parse(`${(await line.textContent()).trim().slice('As of '.length, -' UTC'.length).replace(' ', 'T')}:00Z`);
-    expect(shown, 'the as-of minute is not before the page was opened').toBeGreaterThanOrEqual(minuteStart(opened));
-    expect(shown, 'the as-of minute is not after now').toBeLessThanOrEqual(Date.parse(states.asOf));
+    const asOfLine = (read) => `As of ${utcMinuteOf(Date.parse(read.asOf)).replace('T', ' ')} UTC`;
+    await expect
+      .poll(
+        async () => {
+          const before = asOfLine(await marketStates());
+          const shown = (await line.textContent())?.trim();
+          const after = asOfLine(await marketStates());
+          return shown === before || shown === after;
+        },
+        { timeout: 75_000, message: "the as-of line is the venue market-states read's own asOf" },
+      )
+      .toBe(true);
     await stepPicture();
   });
 });
