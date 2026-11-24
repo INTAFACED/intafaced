@@ -95,16 +95,22 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="cw-page" data-market="BTC-USDT" data-workbench="main" data-featureset="styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on">
-<header class="cw-head">
+<div data-testid="cw-page" data-market="BTC-USDT" data-workbench="main" data-featureset="styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
 <div>
-<h1>Charts</h1>
-<p>One market and one interval, read by every chart on this page.</p>
+<h1 class="lt-title">Charts</h1>
+<p class="lt-description">One market and one interval, read by every chart on this page.</p>
 </div>
-<div class="cw-head-actions">
-<label class="cw-select">
-<span>Market</span>
-<select data-testid="cw-market">
+</header>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="instrument" aria-label="Price">
+<div class="lt-stack">
+<div data-testid="cw-head" class="lt-toolbar">
+<label class="lt-field">
+<span id="_r_3_-label">Market</span>
+<select aria-labelledby="_r_3_-label" data-testid="cw-market">
 <option value="BTC-USDT">BTC-USDT</option>
 <option value="ETH-USDT">ETH-USDT</option>
 <option value="IFC-USDT">IFC-USDT</option>
@@ -114,50 +120,66 @@
 <option value="DOGE-USDT">DOGE-USDT</option>
 </select>
 </label>
-<span class="cw-link-refused">
-<button type="button" data-testid="cw-link" class="cw-link" disabled="" aria-describedby="cw-trade-refusal" data-code="trade.chart.order_entry_refused">Trade this market</button>
-<span id="cw-trade-refusal" role="status">Order entry is refused: the market state can’t be read.</span>
+<span class="lt-stack-tight">
+<button data-testid="cw-link" disabled="" aria-describedby="cw-trade-refusal" data-code="trade.chart.order_entry_refused" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Trade this market</button>
+<span id="cw-trade-refusal" role="status" class="lt-note lt-note-warn">Order entry is refused: the market state can’t be read.</span>
 </span>
-<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="cw-templates-btn">Templates</button>
-<button type="button" aria-expanded="false" aria-controls="_r_4_">News</button>
+<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-button lt-button-secondary">Templates</button>
+<button aria-expanded="false" aria-controls="_r_5_" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">News</button>
+</div>
+</div>
+</section>
+<section class="lt-region" data-region="pairs" aria-label="Markets">
+<section class="lt-stack" aria-label="Watchlists" data-status="error" data-workbench="main">
+<header class="lt-stack">
+<h2 class="lt-heading">Watchlists</h2>
+<div class="lt-toolbar">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">New list</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Export CSV</button>
+<label class="lt-button lt-button-secondary">Import CSV<input accept=".csv,text/csv" aria-label="Import CSV file" class="lt-sr" disabled="" type="file">
+</label>
 </div>
 </header>
-<div class="cw-split">
-<div data-testid="cw-split-chart" class="cw-split-chart">
-<div class="cg">
-<div class="cg-bar" role="toolbar" aria-label="Chart layout">
-<label class="cw-select cw-select--inline">
-<span>Layout</span>
-<select>
+<p role="alert" class="lt-note lt-note-bad">Could not read your lists. Nothing can be changed until they load. <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Try again</button>
+</p>
+</section>
+</section>
+<section class="lt-region" data-region="chart" aria-label="Chart">
+<div data-testid="cw-split-chart">
+<div data-testid="cg" class="lt-stack">
+<div class="lt-toolbar" role="toolbar" aria-label="Chart layout">
+<label class="lt-field">
+<span id="_r_6_-label">Layout</span>
+<select aria-labelledby="_r_6_-label">
 <option value="single">One chart</option>
 <option value="two-across">Two charts side by side</option>
 <option value="two-down">Two charts, one above the other</option>
 <option value="grid">Four charts (2 × 2)</option>
 </select>
 </label>
-<button type="button" class="cw-option">Keyboard shortcuts</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Keyboard shortcuts</button>
 </div>
-<div data-testid="cg-area" class="cg-area" style="grid-template-columns: 1fr; grid-template-rows: 1fr;" data-layout="single" data-maximised="">
-<div class="cg-cell" data-cell="0" data-symbol="BTC-USDT" data-interval="15m" data-group="blue" style="grid-column: 1; grid-row: 1;" aria-label="Chart 1" role="region">
-<section data-testid="cw" class="cw" aria-label="Price chart of BTC-USDT" data-feed="poll">
-<div class="cw-titlerow">
-<h2 class="cw-title" data-testid="chart-title">BTC-USDT · 15m</h2>
-<span class="cw-status" data-testid="chart-status" data-status="lifecycle_unavailable" data-feed="connected" aria-label="Data status: Market state unavailable">
-<span class="cw-status-dot" aria-hidden="true">
+<div data-testid="cg-area" data-layout="single" data-maximised="" class="lt-split" style="grid-template-columns: 1fr; grid-template-rows: 1fr;">
+<div data-cell="0" data-symbol="BTC-USDT" data-interval="15m" data-group="blue" aria-label="Chart 1" role="region" class="lt-split-cell" style="grid-column: 1; grid-row: 1;">
+<section data-testid="cw" class="lt-panel" aria-label="Price chart of BTC-USDT" data-feed="poll">
+<div class="lt-row">
+<h2 class="lt-panel-title" data-testid="chart-title">BTC-USDT · 15m</h2>
+<span class="lt-chip" data-testid="chart-status" data-freshness="refused" data-status="lifecycle_unavailable" data-feed="connected" aria-label="Data status: Market state unavailable">
+<span class="lt-chip-mark" aria-hidden="true">
 </span>Market state unavailable</span>
 </div>
-<div class="cw-bar">
-<div class="cw-chips" role="group" aria-label="Chart intervals">
+<div class="lt-row lt-row-between">
+<div class="lt-chips" role="group" aria-label="Chart intervals">
 <button type="button" aria-pressed="false">1m</button>
 <button type="button" aria-pressed="false">5m</button>
 <button type="button" aria-pressed="true">15m</button>
 <button type="button" aria-pressed="false">1h</button>
 <button type="button" aria-pressed="false">4h</button>
 <button type="button" aria-pressed="false">1D</button>
-<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_5_" data-slot="menu-trigger" data-testid="cw-more" class="cw-more">More<span aria-hidden="true"> ▾</span>
+<button data-testid="cw-more" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_7_" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">More<span aria-hidden="true"> ▾</span>
 </button>
 </div>
-<div class="cw-chips" role="group" aria-label="Chart style">
+<div class="lt-chips" role="group" aria-label="Chart style">
 <button type="button" aria-pressed="true">Candles</button>
 <button type="button" aria-pressed="false">Bars</button>
 <button type="button" aria-pressed="false">Line</button>
@@ -166,11 +188,10 @@
 <button type="button" aria-pressed="false">Heikin Ashi</button>
 </div>
 </div>
-<details class="cw-tools" open="">
-<summary class="cw-tools-summary">Chart tools<span aria-hidden="true"> ▾</span>
-</summary>
-<div class="cw-bar cw-bar--options">
-<label class="cw-select cw-select--inline">
+<details class="lt-stack" open="">
+<summary class="lt-link">Chart tools</summary>
+<div class="lt-toolbar">
+<label class="lt-field">
 <span>Colours</span>
 <select>
 <option value="standard">Green up, red down</option>
@@ -178,7 +199,7 @@
 <option value="mono">Monochrome</option>
 </select>
 </label>
-<label class="cw-select cw-select--inline">
+<label class="lt-field">
 <span>Price source</span>
 <select>
 <option value="last">Last trade</option>
@@ -186,11 +207,11 @@
 <option value="mark">Mark price</option>
 </select>
 </label>
-<button type="button" class="cw-option" aria-pressed="false">Bar replay</button>
-<button type="button" class="cw-option" aria-haspopup="dialog">Chart settings</button>
-<button type="button" class="cw-option" aria-pressed="false">Price line</button>
-<form class="cw-date">
-<label class="cw-select cw-select--inline">
+<button type="button" class="lt-button lt-button-secondary" aria-pressed="false">Bar replay</button>
+<button type="button" class="lt-button lt-button-secondary" aria-haspopup="dialog">Chart settings</button>
+<button type="button" class="lt-button lt-button-secondary" aria-pressed="false">Price line</button>
+<form class="lt-row">
+<label class="lt-field">
 <span>Go to date</span>
 <span class="lit-date" data-empty="">
 <input required="" type="datetime-local" name="date">
@@ -198,11 +219,11 @@
 </span>
 </span>
 </label>
-<button type="submit">Go</button>
+<button type="submit" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Go</button>
 </form>
 </div>
-<div class="cw-bar cw-bar--options cw-compare" role="group" aria-label="Compare and share">
-<label class="cw-select cw-select--inline">
+<div class="lt-toolbar" role="group" aria-label="Compare and share">
+<label class="lt-field">
 <span>Compare with</span>
 <select>
 <option value="ETH-USDT">ETH-USDT</option>
@@ -213,28 +234,28 @@
 <option value="DOGE-USDT">DOGE-USDT</option>
 </select>
 </label>
-<button type="button" class="cw-option">Add</button>
-<label class="cw-check">
+<button type="button" class="lt-button lt-button-secondary">Add</button>
+<label class="lt-field">
 <input type="checkbox">
 <span>Percent scale</span>
 </label>
-<span class="cw-compare-actions">
-<button type="button" class="cw-option" disabled="">Snapshot (PNG)</button>
-<button type="button" class="cw-option">Copy link</button>
-<button type="button" class="cw-option">Print</button>
-<button type="button" class="cw-option">Export bars (CSV)</button>
-<button type="button" class="cw-option">Public page</button>
+<span class="lt-actions">
+<button type="button" class="lt-button lt-button-secondary" disabled="">Snapshot (PNG)</button>
+<button type="button" class="lt-button lt-button-secondary">Copy link</button>
+<button type="button" class="lt-button lt-button-secondary">Print</button>
+<button type="button" class="lt-button lt-button-secondary">Export bars (CSV)</button>
+<button type="button" class="lt-button lt-button-secondary">Public page</button>
 </span>
 </div>
 </details>
-<p class="cw-banner" role="status" data-testid="chart-banner" data-kind="lifecycle">Market state unavailable. Order entry is refused until the market state can be read.</p>
-<div class="cw-canvas">
-<div class="wc-root">
-<div class="wc-stage">
-<div data-testid="wc-host" class="wc-host" role="img" tabindex="0" aria-label="Price chart of BTC-USDT" aria-description="Arrow keys move the chart, plus and minus zoom, Home shows the newest bars." data-style="candles" data-scheme="standard" data-scale="price" data-base="" data-first-percent="" data-bars="121" data-price-lines="" data-log="off" data-grid="on" data-first="1792476000000" data-last="1792584000000">
+<p class="lt-note lt-note-bad" role="status" data-testid="chart-banner" data-kind="lifecycle">Market state unavailable. Order entry is refused until the market state can be read.</p>
+<div class="lt-canvas">
+<div class="lt-chart-stack">
+<div class="lt-chart-stage">
+<div data-testid="wc-host" class="lt-chart-host" role="img" tabindex="0" aria-label="Price chart of BTC-USDT" aria-description="Arrow keys move the chart, plus and minus zoom, Home shows the newest bars." data-style="candles" data-scheme="standard" data-scale="price" data-base="" data-first-percent="" data-bars="121" data-price-lines="" data-log="off" data-grid="on" data-first="1792476000000" data-last="1792584000000">
 </div>
-<div class="wc-legend" data-testid="chart-legend">
-<span data-testid="wc-time" class="wc-time">21 Oct 2026, 12:00</span>
+<div class="lt-chart-legend lt-num" data-testid="chart-legend">
+<span data-testid="wc-time">21 Oct 2026, 12:00</span>
 <span>O <b>66,000.00</b>
 </span>
 <span>H <b>67,812.40</b>
@@ -243,70 +264,71 @@
 </span>
 <span>C <b>67,812.40</b>
 </span>
-<span class="wc-change" data-direction="up">Change +1,812.40 (+2.75%)</span>
+<span class="lt-signed" data-direction="up">Change +1,812.40 (+2.75%)</span>
 </div>
 </div>
-<div class="dw-layer">
-<div class="dw-toolbar" role="toolbar" aria-label="Drawing tools" aria-orientation="vertical">
-<div class="dw-group" role="group" aria-label="Cursors">
-<button type="button" class="dw-tool" aria-pressed="true" aria-label="Select">Select</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Dot cursor">Dot cursor</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Arrow cursor">Arrow cursor</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Eraser">Eraser</button>
+<a data-testid="wc-attribution" class="lt-link lt-chart-attribution" href="https://www.tradingview.com/?utm_medium=lwc-link&amp;utm_campaign=lwc-chart&amp;utm_source=localhost/charts" target="_blank" rel="noopener noreferrer">Charting by TradingView</a>
+<div class="lt-cols-2 lt-scroll-short">
+<div class="lt-stack" role="toolbar" aria-label="Drawing tools" aria-orientation="vertical">
+<div class="lt-chips" role="group" aria-label="Cursors">
+<button type="button" aria-pressed="true" aria-label="Select">Select</button>
+<button type="button" aria-pressed="false" aria-label="Dot cursor">Dot cursor</button>
+<button type="button" aria-pressed="false" aria-label="Arrow cursor">Arrow cursor</button>
+<button type="button" aria-pressed="false" aria-label="Eraser">Eraser</button>
 </div>
-<div class="dw-group" role="group" aria-label="Lines">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Horizontal line">Horizontal line</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Ray">Ray</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Vertical line">Vertical line</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Cross line">Cross line</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Trend line">Trend line</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Info line">Info line</button>
+<div class="lt-chips" role="group" aria-label="Lines">
+<button type="button" aria-pressed="false" aria-label="Horizontal line">Horizontal line</button>
+<button type="button" aria-pressed="false" aria-label="Ray">Ray</button>
+<button type="button" aria-pressed="false" aria-label="Vertical line">Vertical line</button>
+<button type="button" aria-pressed="false" aria-label="Cross line">Cross line</button>
+<button type="button" aria-pressed="false" aria-label="Trend line">Trend line</button>
+<button type="button" aria-pressed="false" aria-label="Info line">Info line</button>
 </div>
-<div class="dw-group" role="group" aria-label="Channels and Fibonacci">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Parallel channel">Parallel channel</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Pitchfork">Pitchfork</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Fib retracement">Fib retracement</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Fib extension">Fib extension</button>
+<div class="lt-chips" role="group" aria-label="Channels and Fibonacci">
+<button type="button" aria-pressed="false" aria-label="Parallel channel">Parallel channel</button>
+<button type="button" aria-pressed="false" aria-label="Pitchfork">Pitchfork</button>
+<button type="button" aria-pressed="false" aria-label="Fib retracement">Fib retracement</button>
+<button type="button" aria-pressed="false" aria-label="Fib extension">Fib extension</button>
 </div>
-<div class="dw-group" role="group" aria-label="Gann">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Gann fan">Gann fan</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Gann box">Gann box</button>
+<div class="lt-chips" role="group" aria-label="Gann">
+<button type="button" aria-pressed="false" aria-label="Gann fan">Gann fan</button>
+<button type="button" aria-pressed="false" aria-label="Gann box">Gann box</button>
 </div>
-<div class="dw-group" role="group" aria-label="Patterns">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Pattern ABCD">Pattern ABCD</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Pattern XABCD">Pattern XABCD</button>
+<div class="lt-chips" role="group" aria-label="Patterns">
+<button type="button" aria-pressed="false" aria-label="Pattern ABCD">Pattern ABCD</button>
+<button type="button" aria-pressed="false" aria-label="Pattern XABCD">Pattern XABCD</button>
 </div>
-<div class="dw-group" role="group" aria-label="Positions">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Long position">Long position</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Short position">Short position</button>
+<div class="lt-chips" role="group" aria-label="Positions">
+<button type="button" aria-pressed="false" aria-label="Long position">Long position</button>
+<button type="button" aria-pressed="false" aria-label="Short position">Short position</button>
 </div>
-<div class="dw-group" role="group" aria-label="Measure">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Measure">Measure</button>
+<div class="lt-chips" role="group" aria-label="Measure">
+<button type="button" aria-pressed="false" aria-label="Measure">Measure</button>
 </div>
-<div class="dw-group" role="group" aria-label="Shapes">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Rectangle">Rectangle</button>
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Ellipse">Ellipse</button>
+<div class="lt-chips" role="group" aria-label="Shapes">
+<button type="button" aria-pressed="false" aria-label="Rectangle">Rectangle</button>
+<button type="button" aria-pressed="false" aria-label="Ellipse">Ellipse</button>
 </div>
-<div class="dw-group" role="group" aria-label="Brush">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Brush">Brush</button>
+<div class="lt-chips" role="group" aria-label="Brush">
+<button type="button" aria-pressed="false" aria-label="Brush">Brush</button>
 </div>
-<div class="dw-group" role="group" aria-label="Annotation">
-<button type="button" class="dw-tool" aria-pressed="false" aria-label="Text">Text</button>
+<div class="lt-chips" role="group" aria-label="Annotation">
+<button type="button" aria-pressed="false" aria-label="Text">Text</button>
 </div>
-<div class="dw-group dw-actions" role="group" aria-label="Drawing actions">
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Undo</button>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Redo</button>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Delete</button>
-<button type="button" class="dw-toggle" aria-pressed="false">Magnet off</button>
-<button type="button" class="dw-toggle" aria-pressed="false" disabled="">Lock</button>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Hide all</button>
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Clear all</button>
+<div class="lt-chips" role="group" aria-label="Drawing actions">
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Undo</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Redo</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Delete</button>
+<button type="button" aria-pressed="false">Magnet off</button>
+<button type="button" aria-pressed="false" disabled="">Lock</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Hide all</button>
+<button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Clear all</button>
 </div>
-<label class="dw-text-field">
+<label class="lt-field">
 <span>Text to place or edit</span>
 <input maxlength="120" value="Text">
 </label>
-<label class="dw-text-field">
+<label class="lt-field">
 <span>Text size</span>
 <select>
 <option value="12">12 px</option>
@@ -315,7 +337,7 @@
 <option value="24">24 px</option>
 </select>
 </label>
-<label class="dw-text-field">
+<label class="lt-field">
 <span>Text colour</span>
 <select>
 <option value="accent">Accent</option>
@@ -324,86 +346,141 @@
 <option value="text">Neutral</option>
 </select>
 </label>
-<p class="dw-hint" role="status">Click a drawing to select it. Delete removes it. Ctrl+Z undoes.</p>
+<p class="lt-hint" role="status">Click a drawing to select it. Delete removes it. Ctrl+Z undoes.</p>
 </div>
-<section class="dw-tree" aria-label="Objects" data-testid="object-tree">
-<h2 class="dw-tree-title">Objects</h2>
-<p class="dw-note">Every drawing on this chart, with its bar times and prices. Indicators are listed here too.</p>
-<div class="dw-tree-slot">
-<div class="st-tree" data-testid="tree-indicators">
-<h3 class="dw-tree-title" id="st-tree-main">Indicators on this chart</h3>
-<ul class="dw-rows" aria-labelledby="st-tree-main">
-<li class="dw-row" data-study-id="volume-1" data-study-kind="volume" data-shown-here="true">
-<span class="dw-row-name">Volume</span>
-<div class="dw-row-actions">
-<button type="button" class="dw-link">Hide on 15m</button>
-<button type="button" class="dw-link">Edit Volume</button>
-<button type="button" class="dw-link">Remove Volume</button>
+<section class="lt-stack-tight" aria-label="Objects" data-testid="object-tree">
+<h2 class="lt-panel-title">Objects</h2>
+<p class="lt-note">Every drawing on this chart, with its bar times and prices. Indicators are listed here too.</p>
+<div class="lt-stack-tight">
+<div class="lt-stack-tight" data-testid="tree-indicators">
+<h3 class="lt-heading" id="st-tree-main">Indicators on this chart</h3>
+<ul class="lt-list lt-list-rule" aria-labelledby="st-tree-main">
+<li class="lt-row lt-row-between" data-study-id="volume-1" data-study-kind="volume" data-shown-here="true">
+<span>Volume</span>
+<div class="lt-actions">
+<button type="button" class="lt-link">Hide on 15m</button>
+<button type="button" class="lt-link">Edit Volume</button>
+<button type="button" class="lt-link">Remove Volume</button>
 </div>
 </li>
 </ul>
 </div>
 </div>
-<p class="dw-note">No drawings on this chart.</p>
-<ul class="dw-rows" aria-label="Objects">
+<p class="lt-note">No drawings on this chart.</p>
+<ul class="lt-list lt-list-rule" aria-label="Objects">
 </ul>
 </section>
 </div>
-<section class="st" aria-label="Studies on this chart" data-testid="studies">
-<div class="st-bar">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Indicators</button>
-<div class="lt-actions" role="group" aria-label="Studies on this chart">
-<button type="button" class="st-chip" aria-label="Settings for Volume">Volume</button>
+<section class="lt-stack" aria-label="Studies on this chart" data-testid="studies">
+<div class="lt-toolbar">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Indicators</button>
+<div class="lt-chips" role="group" aria-label="Studies on this chart">
+<button type="button" data-testid="st-chip" aria-label="Settings for Volume">Volume</button>
 </div>
-<label class="st-check">
-<input type="checkbox">
+<label class="lt-field">
+<input data-testid="st-legend-always" type="checkbox">
 <span>Legend always shown</span>
 </label>
-<button type="button" class="st-toggle" aria-pressed="false">Data window</button>
+<button data-testid="st-toggle" aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Data window</button>
 </div>
-<div class="st-legend" data-testid="study-legend">
-<div class="st-row" data-study="volume-1" data-pane="sub">
-<span class="st-row-name">Volume</span> <span class="st-row-formula">Volume</span>
-<span class="st-pane" role="group" aria-label="Volume pane" data-pane-state="open">
-<button type="button" class="st-pane-button" aria-label="Move Volume pane up" title="Move Volume pane up" disabled="">Move Volume pane up</button>
-<button type="button" class="st-pane-button" aria-label="Move Volume pane down" title="Move Volume pane down" disabled="">Move Volume pane down</button>
-<button type="button" class="st-pane-button" aria-label="Collapse Volume pane" title="Collapse Volume pane">Collapse Volume pane</button>
-<button type="button" class="st-pane-button" aria-label="Make Volume pane taller" title="Make Volume pane taller">Make Volume pane taller</button>
-<button type="button" class="st-pane-button" aria-label="Make Volume pane shorter" title="Make Volume pane shorter">Make Volume pane shorter</button>
-<button type="button" class="st-pane-button" aria-label="Maximise Volume pane" title="Maximise Volume pane">Maximise Volume pane</button>
-<button type="button" class="st-pane-button" aria-label="Move Volume to the main pane" title="Move Volume to the main pane">Move Volume to the main pane</button>
+<div class="lt-stack-tight" data-testid="study-legend">
+<div class="lt-row lt-small" data-testid="st-row" data-study="volume-1" data-pane="sub">
+<span class="lt-strong">Volume</span> <span class="lt-quiet" data-testid="st-row-formula">Volume</span>
+<span class="lt-row lt-tight" role="group" aria-label="Volume pane" data-pane-state="open">
+<button aria-label="Move Volume pane up" title="Move Volume pane up" disabled="" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Move Volume pane up</button>
+<button aria-label="Move Volume pane down" title="Move Volume pane down" disabled="" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Move Volume pane down</button>
+<button aria-label="Collapse Volume pane" title="Collapse Volume pane" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Collapse Volume pane</button>
+<button aria-label="Make Volume pane taller" title="Make Volume pane taller" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Make Volume pane taller</button>
+<button aria-label="Make Volume pane shorter" title="Make Volume pane shorter" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Make Volume pane shorter</button>
+<button aria-label="Maximise Volume pane" title="Maximise Volume pane" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Maximise Volume pane</button>
+<button aria-label="Move Volume to the main pane" title="Move Volume to the main pane" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="sm">Move Volume to the main pane</button>
 </span>
-<span class="st-fact">Bars with no volume: 90</span>
+<span class="lt-note" data-testid="st-fact">Bars with no volume: 90</span>
 </div>
 </div>
 </section>
-<div class="lt-toolbar" data-testid="chart-trading" data-locked="true">
-<p class="cw-note" role="status" data-testid="chart-trading-refusal" data-code="trade.chart.order_entry_refused">Order entry is refused: the market state can’t be read.</p>
-<button type="button" aria-expanded="false" disabled="">Order on chart</button>
+<div class="lt-stack-tight lt-tight" data-testid="chart-trading" data-locked="true">
+<p class="lt-note" role="status" data-testid="chart-trading-refusal" data-code="trade.chart.order_entry_refused">Order entry is refused: the market state can’t be read.</p>
+<button aria-expanded="false" disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Order on chart</button>
 </div>
 </div>
 </div>
-<p class="cw-source" data-testid="chart-source">Based on executed trades on this venue. Quiet periods show flat bars at the previous close.</p>
-<p class="cw-feed" data-testid="chart-feed">Feed connected · Refreshes every 10 seconds. Last read 0 s ago</p>
-<p class="cw-feed" data-testid="chart-depth">121 bars loaded. Scroll back for more.</p>
+<p class="lt-note" data-testid="chart-source">Based on executed trades on this venue. Quiet periods show flat bars at the previous close.</p>
+<p class="lt-note" data-testid="chart-feed">Feed connected · Refreshes every 10 seconds. Last read 0 s ago</p>
+<p class="lt-note" data-testid="chart-depth">121 bars loaded. Scroll back for more.</p>
 </section>
 </div>
 </div>
-</div>
-</div>
-<section class="wl" aria-label="Watchlists" data-status="error" data-workbench="main">
-<header class="wl-head">
-<h2>Watchlists</h2>
-<div class="wl-head-actions">
-<button type="button" class="wl-btn" disabled="">New list</button>
-<button type="button" class="wl-btn" disabled="">Export CSV</button>
-<label class="wl-btn">Import CSV<input accept=".csv,text/csv" aria-label="Import CSV file" class="wl-file" disabled="" type="file">
-</label>
-</div>
+<dialog class="lt-sheet" aria-label="Keyboard shortcuts">
+<header class="lt-sheet-head">
+<h2 class="lt-sheet-title">Keyboard shortcuts</h2>
+<button type="button" class="lt-button lt-button-secondary">Close</button>
 </header>
-<p role="alert" class="lt-hint">Could not read your lists. Nothing can be changed until they load. <button type="button" class="wl-btn">Try again</button>
-</p>
+<div class="lt-sheet-body">
+<dl class="lt-kv" data-testid="shortcut-list">
+<div>
+<dt>
+<kbd>Alt+Enter</kbd>
+</dt>
+<dd>Maximise the chart in focus, or bring the others back</dd>
+</div>
+<div>
+<dt>
+<kbd>Alt+1 … Alt+6</kbd>
+</dt>
+<dd>Chart style: candles, bars, line, area, columns, Heikin Ashi</dd>
+</div>
+<div>
+<dt>
+<kbd>Alt+R</kbd>
+</dt>
+<dd>Open or close bar replay</dd>
+</div>
+<div>
+<dt>
+<kbd>Alt+G</kbd>
+</dt>
+<dd>Next layout</dd>
+</div>
+<div>
+<dt>
+<kbd>Alt+T</kbd>
+</dt>
+<dd>Open the trading desk for this chart’s market (nothing is sent)</dd>
+</div>
+<div>
+<dt>
+<kbd>← →</kbd>
+</dt>
+<dd>Move the chart</dd>
+</div>
+<div>
+<dt>
+<kbd>+ −</kbd>
+</dt>
+<dd>Zoom in or out</dd>
+</div>
+<div>
+<dt>
+<kbd>Home</kbd>
+</dt>
+<dd>Show the newest bars</dd>
+</div>
+<div>
+<dt>
+<kbd>?</kbd>
+</dt>
+<dd>Show this list</dd>
+</div>
+</dl>
+<p class="lt-note">Keys don’t work while you type in a field. Where the browser uses a key itself, the browser wins.</p>
+</div>
+</dialog>
+</div>
+</div>
 </section>
+</div>
+</div>
 </div>
 </div>
 </main>
