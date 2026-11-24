@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button as KitButton } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { type VenueOrder } from '../../../features/trade/venue-api';
@@ -52,8 +52,8 @@ export function PendingCheck({
       {read.data && !order ? (
         <>
           <p>{t('Pending missing', { id: entry.clientOrderId })}</p>
-          <KitButton
-            variant="secondary"
+          <Button
+            tone="secondary"
             disabled={sending}
             onClick={() => {
               setSending(true);
@@ -61,7 +61,7 @@ export function PendingCheck({
             }}
           >
             {t('Send same again')}
-          </KitButton>
+          </Button>
         </>
       ) : null}
     </div>

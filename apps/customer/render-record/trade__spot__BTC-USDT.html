@@ -95,11 +95,22 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-desk" class="if-desk" data-market="BTC-USDT" data-preset="classic">
-<header data-testid="dk-ticker" class="dk-ticker" aria-label="Spot desk">
-<div class="dk-ticker-pair">
-<span data-slot="coin-icon" data-asset="BTC" style="width: 24px; height: 24px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<div data-testid="if-desk" data-market="BTC-USDT" data-preset="classic">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">BTC/USDT</h1>
+</div>
+</header>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="instrument" aria-label="Price">
+<div class="lt-stack">
+<header data-testid="dk-ticker" class="lt-stack" aria-label="Spot desk">
+<div class="lt-row lt-row-between">
+<div class="lt-row">
+<span data-slot="coin-icon" data-asset="BTC" data-size="md" class="lt-coin">
+<span aria-hidden="true">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -108,67 +119,80 @@
 </svg>
 </span>
 </span>
-<h1 data-testid="dk-pair" class="dk-pair">BTC/USDT</h1>
-<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" aria-label="Choose a market" class="dk-icon-btn dk-picker">
+<p data-testid="dk-pair" class="lt-panel-title">BTC/USDT</p>
+<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_3_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" aria-label="Choose a market" class="lt-icon-button">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
 <path d="m6 9 6 6 6-6">
 </path>
 </svg>
 </button>
-<button type="button" class="dk-icon-btn" aria-pressed="false" aria-label="Add BTC/USDT to favorites">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add BTC/USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
 </div>
-<div class="dk-ticker-last">
-<span data-testid="dk-last" class="dk-last if-num" aria-label="Last price">—</span>
-<span data-slot="change-text" data-direction="flat" class="inline-flex items-baseline gap-1.5 dk-change">
-<span dir="ltr" data-ltr="" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-fg-2">—</span>
+<div class="lt-row lt-row-baseline">
+<span data-testid="dk-last" class="lt-num lt-signed lt-strong" aria-label="Last price">—</span>
+<span data-slot="change-text" data-direction="flat" class="lt-change-text">
+<span dir="ltr" data-ltr="" class="lt-num lt-signed" data-direction="flat">—</span>
 </span>
 </div>
-<div data-testid="dk-stats" class="dk-stats">
-<div class="dk-stat">
-<span class="lt-hint">Trading mode</span>
-<span class="dk-stat-value if-num">Cash spot · Open</span>
-</div>
-<div class="dk-stat">
-<span class="lt-hint">24h low</span>
-<span class="dk-stat-value if-num">—</span>
-</div>
-<div class="dk-stat">
-<span class="lt-hint">24h high</span>
-<span class="dk-stat-value if-num">—</span>
-</div>
-<div class="dk-stat">
-<span class="lt-hint">24h volume (BTC)</span>
-<span class="dk-stat-value if-num">—</span>
-</div>
-<div class="dk-stat">
-<span class="lt-hint">24h turnover (USDT)</span>
-<span class="dk-stat-value if-num">—</span>
-</div>
-<div class="dk-stat">
-<span class="lt-hint">Retail price improvement</span>
-<span class="dk-stat-value if-num">Not available: priority class not specified</span>
-</div>
-</div>
-<div class="dk-ticker-status">
-<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" data-state="problem" aria-label="Data status: Data problem" class="dk-feed">
-<span class="dk-feed-dot" aria-hidden="true">
+<div class="lt-row">
+<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_4_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" data-state="problem" aria-label="Data status: Data problem" class="lt-chip">
+<span class="lt-chip-mark" aria-hidden="true">
 </span>Data problem</button>
-<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_5_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-layouts-btn">Layouts</button>
+<button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_5_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="lt-button lt-button-secondary">Layouts</button>
 </div>
+</div>
+<dl data-testid="dk-stats" class="lt-stats">
+<div>
+<dt>Trading mode</dt>
+<dd>
+<span class="lt-num">Cash spot · Open</span>
+</dd>
+</div>
+<div>
+<dt>24h low</dt>
+<dd>
+<span class="lt-num">—</span>
+</dd>
+</div>
+<div>
+<dt>24h high</dt>
+<dd>
+<span class="lt-num">—</span>
+</dd>
+</div>
+<div>
+<dt>24h volume (BTC)</dt>
+<dd>
+<span class="lt-num">—</span>
+</dd>
+</div>
+<div>
+<dt>24h turnover (USDT)</dt>
+<dd>
+<span class="lt-num">—</span>
+</dd>
+</div>
+<div>
+<dt>Retail price improvement</dt>
+<dd>Not available: priority class not specified</dd>
+</div>
+</dl>
 </header>
-<div class="dk-grid">
-<aside data-testid="dk-left" class="dk-panel dk-left" aria-label="Markets" data-widget="markets">
-<div class="dk-fill">
-<div class="dk-tab-title">
-<span>Markets</span>
 </div>
-<div class="dk-mk">
-<div class="dk-mk-search">
+</section>
+<section class="lt-region" data-region="pairs" aria-label="Markets">
+<aside data-testid="dk-left" aria-label="Markets" data-widget="markets">
+<div class="lt-panel">
+<div class="lt-panel-head">
+<span class="lt-panel-title">Markets</span>
+</div>
+<div class="lt-stack">
+<div class="lt-field lt-row lt-row-nowrap">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true">
 <path d="m21 21-4.34-4.34">
 </path>
@@ -177,134 +201,134 @@
 </svg>
 <input placeholder="Search markets" aria-label="Search markets" type="text" value="">
 </div>
-<div class="dk-mk-chips" role="group" aria-label="Markets">
+<div class="lt-chips" role="group" aria-label="Markets">
 <button type="button" aria-pressed="false">Favorites</button>
 <button type="button" aria-pressed="true">All</button>
 <button type="button" aria-pressed="false">USDT</button>
 <button type="button" aria-pressed="false">USDC</button>
 </div>
-<div class="dk-mk-head">
+<div class="lt-row lt-row-between lt-note">
 <button type="button" aria-label="Sort by 24h volume">Name / 24h volume</button>
 <button type="button" aria-label="Sort by 24h change">Last price / 24h change</button>
 </div>
-<div class="dk-mk-body">
-<ul data-testid="dk-mk-list" class="dk-mk-list">
-<li data-testid="dk-mk-row" class="dk-mk-row" data-selected="true">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add BTC-USDT to favorites">
+<div class="lt-scroll-tall">
+<ul data-testid="dk-mk-list" class="lt-list lt-tight lt-list-rule">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap" data-selected="true">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add BTC-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/BTC-USDT" aria-current="true">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">BTC-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/BTC-USDT" aria-current="true">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">BTC-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">67,812.40</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">+2.75%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">67,812.40</span>
+<span data-slot="pct" data-direction="up" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">+2.75%</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add ETH-USDT to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add ETH-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/ETH-USDT">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">ETH-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/ETH-USDT">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">ETH-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">3,200.10</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">+1.59%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">3,200.10</span>
+<span data-slot="pct" data-direction="up" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">+1.59%</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add IFC-USDT to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add IFC-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/IFC-USDT">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">IFC-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/IFC-USDT">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">IFC-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">0.4120</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">−2.14%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">0.4120</span>
+<span data-slot="pct" data-direction="down" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">−2.14%</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add SOL-USDT to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add SOL-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/SOL-USDT">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">SOL-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/SOL-USDT">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">SOL-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">142.55</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">+1.75%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">142.55</span>
+<span data-slot="pct" data-direction="up" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">+1.75%</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add BTC-USDC to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add BTC-USDC to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/BTC-USDC">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">BTC-USDC</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/BTC-USDC">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">BTC-USDC</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">—</span>
-<span data-slot="pct" data-direction="flat" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-fg-2 dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">—</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">—</span>
+<span data-slot="pct" data-direction="flat" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">—</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add XRP-USDT to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add XRP-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/XRP-USDT">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">XRP-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/XRP-USDT">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">XRP-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">0.5230</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">+2.15%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">0.5230</span>
+<span data-slot="pct" data-direction="up" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">+2.15%</span>
 </span>
 </a>
 </li>
-<li data-testid="dk-mk-row" class="dk-mk-row">
-<button type="button" class="dk-icon-btn dk-mk-star" aria-pressed="false" aria-label="Add DOGE-USDT to favorites">
+<li data-testid="dk-mk-row" class="lt-row lt-row-nowrap">
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Add DOGE-USDT to favorites">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<a class="dk-mk-link" href="/trade/spot/DOGE-USDT">
-<span data-testid="dk-mk-name" class="dk-mk-name">
-<span data-testid="dk-mk-pair" class="dk-mk-pair">DOGE-USDT</span>
+<a class="lt-row-link lt-row lt-row-between lt-row-nowrap lt-grow" href="/trade/spot/DOGE-USDT">
+<span data-testid="dk-mk-name" class="lt-stack-tight lt-tight">
+<span data-testid="dk-mk-pair" class="lt-strong">DOGE-USDT</span>
 </span>
-<span data-testid="dk-mk-figures" class="dk-mk-figures">
-<span data-testid="dk-mk-price" class="dk-mk-price if-num">0.12345</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text dk-mk-change" data-testid="dk-mk-change" dir="ltr" data-ltr="">−4.94%</span>
+<span data-testid="dk-mk-figures" class="lt-stack-tight lt-tight lt-end">
+<span data-testid="dk-mk-price" class="lt-num">0.12345</span>
+<span data-slot="pct" data-direction="down" class="lt-num lt-signed lt-small" data-testid="dk-mk-change" dir="ltr" data-ltr="">−4.94%</span>
 </span>
 </a>
 </li>
@@ -313,33 +337,34 @@
 </div>
 </div>
 </aside>
-<div data-testid="dk-centre" class="dk-centre" data-widget="chart">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" data-testid="dk-chart" data-featureset="styles=candles,line studies=off drawings=off templates=off" class="flex flex-col dk-panel dk-chart">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none] border-b border-line dk-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_6_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_7_">Chart</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_8_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Info</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+</section>
+<section class="lt-region" data-region="chart" aria-label="Chart">
+<div data-testid="dk-centre" class="lt-stack" data-widget="chart">
+<div data-testid="dk-chart" data-featureset="styles=candles,line studies=off drawings=off templates=off" class="lt-panel">
+<div class="lt-tabs" role="tablist">
+<button type="button" role="tab" id="dk-chart-tab-chart" aria-controls="dk-chart-panel-chart" aria-selected="true" tabindex="0" class="lt-tab">Chart</button>
+<button type="button" role="tab" id="dk-chart-tab-info" aria-controls="dk-chart-panel-info" aria-selected="false" tabindex="-1" class="lt-tab">Info</button>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_7_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-chart-body" aria-labelledby="base-ui-_r_6_">
-<div class="dk-chart-bar">
-<div class="dk-chips" role="group" aria-label="Chart intervals">
+<div class="lt-tab-panel" role="tabpanel" id="dk-chart-panel-chart" aria-labelledby="dk-chart-tab-chart">
+<div class="lt-stack">
+<div class="lt-row lt-row-between">
+<div class="lt-chips" role="group" aria-label="Chart intervals">
 <button type="button" aria-pressed="false">1m</button>
 <button type="button" aria-pressed="false">5m</button>
 <button type="button" aria-pressed="true">15m</button>
 <button type="button" aria-pressed="false">1h</button>
 <button type="button" aria-pressed="false">4h</button>
 <button type="button" aria-pressed="false">1D</button>
-<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_9_" data-slot="menu-trigger" class="dk-more">More<span aria-hidden="true"> ▾</span>
+<button data-testid="dk-more" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_6_" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">More<span aria-hidden="true"> ▾</span>
 </button>
 </div>
-<div class="dk-chips dk-chips--right">
+<div class="lt-row">
 <button type="button" aria-pressed="false" data-testid="dk-open-dom">Open DOM</button>
-<div role="group" class="dk-chips" aria-label="Chart style">
+<div role="group" class="lt-chips" aria-label="Chart style">
 <button type="button" aria-pressed="true">Candles</button>
 <button type="button" aria-pressed="false">Line</button>
 </div>
-<button type="button" class="dk-icon-btn" aria-label="Full screen">
+<button type="button" class="lt-icon-button" aria-label="Full screen">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-maximize-2" aria-hidden="true">
 <path d="M15 3h6v6">
 </path>
@@ -353,33 +378,38 @@
 </button>
 </div>
 </div>
-<div class="dk-chart-canvas">
-<div class="pc-root" role="img" aria-label="Price chart of BTC-USDT">
-<div data-testid="pc-host" class="pc-host">
+<div class="lt-canvas">
+<div class="lt-stack-tight lt-tight">
+<div role="img" aria-label="Price chart of BTC-USDT">
+<div data-testid="pc-legend" class="lt-row lt-note lt-num" aria-hidden="true">
+<span>21 Oct, 12:00</span>
+<span data-testid="pc-ohlc">O <b>66,000.00</b>
+</span>
+<span data-testid="pc-ohlc">H <b>67,812.40</b>
+</span>
+<span data-testid="pc-ohlc">L <b>66,000.00</b>
+</span>
+<span data-testid="pc-ohlc">C <b>67,812.40</b>
+</span>
+<span class="lt-signed" data-direction="up">Change +1,812.40 (+2.75%)</span>
+<span class="lt-line-key">
+<span data-line="1">MA(5)</span>
+<span data-line="2">MA(10)</span>
+<span data-line="3">MA(20)</span>
+</span>
 </div>
-<div data-testid="pc-legend" class="pc-legend" aria-hidden="true">
-<span class="pc-time">21 Oct, 12:00</span>
-<span class="pc-ohlc">O <b>66,000.00</b>
-</span>
-<span class="pc-ohlc">H <b>67,812.40</b>
-</span>
-<span class="pc-ohlc">L <b>66,000.00</b>
-</span>
-<span class="pc-ohlc">C <b>67,812.40</b>
-</span>
-<span class="pc-change" data-direction="up">Change +1,812.40 (+2.75%)</span>
-<span class="pc-ma">
-<span class="pc-ma-1">MA(5)</span>
-<span class="pc-ma-2">MA(10)</span>
-<span class="pc-ma-3">MA(20)</span>
-</span>
+</div>
+<div class="lt-canvas">
+<div data-testid="pc-host" class="lt-chart-host">
 </div>
 </div>
-<div class="of-trade" role="group" aria-label="Trade from the chart" data-testid="of-chart-trade">
-<button type="button" class="of-sell" data-testid="of-chart-sell" data-price="" aria-describedby="_r_10_-spread" disabled="">Sell —</button>
-<span id="_r_10_-spread" class="of-spread" data-testid="of-chart-spread" data-spread="">Spread —</span>
-<button type="button" class="of-buy" data-testid="of-chart-buy" data-price="" aria-describedby="_r_10_-spread" disabled="">Buy —</button>
-<label class="of-field">
+</div>
+</div>
+<div class="lt-row" role="group" aria-label="Trade from the chart" data-testid="of-chart-trade">
+<button data-testid="of-chart-sell" data-price="" aria-describedby="_r_7_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="down" data-tone="down" data-size="sm">Sell —</button>
+<span id="_r_7_-spread" class="lt-num lt-note" data-testid="of-chart-spread" data-spread="">Spread —</span>
+<button data-testid="of-chart-buy" data-price="" aria-describedby="_r_7_-spread" disabled="" type="button" class="lit-button" data-slot="button" data-variant="up" data-tone="up" data-size="sm">Buy —</button>
+<label class="lt-field">
 <span>Order kind</span>
 <select>
 <option value="market">Market</option>
@@ -387,7 +417,7 @@
 <option value="trailingStop">Trailing stop</option>
 </select>
 </label>
-<label class="of-field">
+<label class="lt-field">
 <span>Click size (BTC)</span>
 <input inputmode="decimal" autocomplete="off" type="text" value="">
 </label>
@@ -395,329 +425,313 @@
 </div>
 </div>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" data-testid="dk-order" class="flex flex-col dk-panel dk-order">
-<div class="dk-order-head">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Order type" class="relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none] dk-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_11_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_12_">Limit</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_13_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Stop-limit</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_14_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Stop-market</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_15_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">OCO</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_16_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Bracket</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_17_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">OTO</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_18_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Market</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
 </div>
-<button type="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_19_" data-slot="menu-trigger" aria-label="Other order types (not available)" class="dk-type-more">More<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
+</section>
+<section class="lt-region" data-region="book" aria-label="Order book">
+<div data-testid="dk-book" class="lt-stack" data-widget="book">
+<div class="lt-tabs" role="tablist">
+<button type="button" role="tab" id="dk-book-tab-book" aria-controls="dk-book-panel-book" aria-selected="true" tabindex="0" class="lt-tab">Order book</button>
+<button type="button" role="tab" id="dk-book-tab-trades" aria-controls="dk-book-panel-trades" aria-selected="false" tabindex="-1" class="lt-tab">Last trades</button>
+</div>
+<div class="lt-tab-panel" role="tabpanel" id="dk-book-panel-book" aria-labelledby="dk-book-tab-book">
+<div data-testid="dk-bk" class="lt-stack">
+<div class="lt-row lt-row-between">
+<div class="lt-row" role="group" aria-label="Order book">
+<button type="button" class="lt-icon-button" aria-pressed="true" aria-label="Show bids and asks">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--lit-down-text)">
+</rect>
+<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--lit-up-text)">
+</rect>
+<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+</svg>
+</button>
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Show bids only">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--lit-up-text)">
+</rect>
+<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--lit-up-text)">
+</rect>
+<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--lit-up-text)" opacity="0.55">
+</rect>
+</svg>
+</button>
+<button type="button" class="lt-icon-button" aria-pressed="false" aria-label="Show asks only">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--lit-down-text)">
+</rect>
+<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--lit-down-text)">
+</rect>
+<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--lit-down-text)" opacity="0.55">
+</rect>
+</svg>
+</button>
+</div>
+<div class="lt-select">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-label="Group prices by" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_8_-list">
+<span>0.01</span>
+<span class="lt-select-mark" aria-hidden="true">
+</span>
+</button>
+</div>
+</div>
+<div data-slot="state-block" data-kind="error" role="alert" class="lt-state">
+<p class="lt-state-title">Couldn’t load the order book.</p>
+<button type="button" class="lit-button" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="lt-region" data-region="ticket" aria-label="Order">
+<div data-testid="dk-order" class="lt-panel">
+<div class="lt-row">
+<div class="lt-tabs" role="tablist" aria-label="Order type">
+<button type="button" role="tab" id="dk-type-tab-limit" aria-controls="dk-type-panel-limit" aria-selected="true" tabindex="0" class="lt-tab">Limit</button>
+<button type="button" role="tab" id="dk-type-tab-stop_limit" aria-controls="dk-type-panel-stop_limit" aria-selected="false" tabindex="-1" class="lt-tab">Stop-limit</button>
+<button type="button" role="tab" id="dk-type-tab-stop_market" aria-controls="dk-type-panel-stop_market" aria-selected="false" tabindex="-1" class="lt-tab">Stop-market</button>
+<button type="button" role="tab" id="dk-type-tab-oco" aria-controls="dk-type-panel-oco" aria-selected="false" tabindex="-1" class="lt-tab">OCO</button>
+<button type="button" role="tab" id="dk-type-tab-bracket" aria-controls="dk-type-panel-bracket" aria-selected="false" tabindex="-1" class="lt-tab">Bracket</button>
+<button type="button" role="tab" id="dk-type-tab-oto" aria-controls="dk-type-panel-oto" aria-selected="false" tabindex="-1" class="lt-tab">OTO</button>
+<button type="button" role="tab" id="dk-type-tab-market" aria-controls="dk-type-panel-market" aria-selected="false" tabindex="-1" class="lt-tab">Market</button>
+</div>
+<button aria-label="Other order types (not available)" tabindex="0" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_9_" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">More<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
 <path d="m6 9 6 6 6-6">
 </path>
 </svg>
 </button>
-<div class="dk-tif">
-<span class="lt-hint lt-nowrap" id="dk-tif-label">Time in force</span>
-<button type="button" tabindex="0" id="base-ui-_r_20_" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="dk-tif-label" data-slot="select-trigger" title="Stays on the book until it fills or you cancel it." class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-tif-trigger">
-<span data-slot="select-value" class="truncate">Good till cancelled</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
+<div class="lt-field">
+<span class="lt-label" id="lt-label">Time in force</span>
+<div class="lt-select lt-grow">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-labelledby="lt-label" title="Stays on the book until it fills or you cancel it." aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_10_-list">
+<span>Good till cancelled</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_20_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="GTC">
 </div>
 </div>
-<div class="dk-order-opts">
-<div class="dk-tif dk-opt">
-<span class="lt-hint lt-nowrap" id="dk-stp-label">If it meets my own order</span>
-<button type="button" tabindex="0" id="base-ui-_r_21_" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="dk-stp-label" data-slot="select-trigger" aria-describedby="dk-stp-note" title="Your resting order is cancelled and this order carries on against everyone else." class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-tif-trigger">
-<span data-slot="select-value" class="truncate">Cancel my resting order</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
+</div>
+<div class="lt-row">
+<div class="lt-field">
+<span class="lt-label" id="dk-stp-label">If it meets my own order</span>
+<div class="lt-select lt-grow">
+<button type="button" role="combobox" class="lt-select-button" data-size="sm" aria-labelledby="dk-stp-label" aria-describedby="dk-stp-note" title="Your resting order is cancelled and this order carries on against everyone else." aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_11_-list">
+<span>Cancel my resting order</span>
+<span class="lt-select-mark" aria-hidden="true">
 </span>
 </button>
-<input id="base-ui-_r_21_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="cancel_maker">
-<span class="dk-opt-note" id="dk-stp-note">Only this choice is offered here: your resting order is the one cancelled.</span>
 </div>
-<label class="dk-tif dk-opt" title="Your own label. It shows on the order and in your history.">
-<span class="lt-hint lt-nowrap">Tag</span>
-<input class="dk-expiry-input dk-tag-input" maxlength="16" placeholder="Optional, up to 16 characters" aria-label="Tag" type="text" value="">
+<span class="lt-note" id="dk-stp-note">Only this choice is offered here: your resting order is the one cancelled.</span>
+</div>
+<label class="lt-field" title="Your own label. It shows on the order and in your history.">
+<span class="lt-label">Tag</span>
+<input class="lt-grow" maxlength="16" placeholder="Optional, up to 16 characters" aria-label="Tag" type="text" value="">
 </label>
 </div>
-<details data-testid="dk-rules" class="dk-rules">
-<summary class="dk-rules-summary">BTC-USDT rules</summary>
-<dl aria-label="Market rules">
+<details data-testid="dk-rules" class="lt-stack-tight lt-tight">
+<summary class="lt-note">BTC-USDT rules</summary>
+<dl class="lt-kv" aria-label="Market rules">
 <div>
 <dt>Price step</dt>
-<dd class="if-num">0.01 USDT</dd>
+<dd>0.01 USDT</dd>
 </div>
 <div>
 <dt>Amount step</dt>
-<dd class="if-num">0.0001 BTC</dd>
+<dd>0.0001 BTC</dd>
 </div>
 <div>
 <dt>Smallest amount</dt>
-<dd class="if-num">Not published</dd>
+<dd>Not published</dd>
 </div>
 <div>
 <dt>Smallest order value</dt>
-<dd class="if-num">Not published</dd>
+<dd>Not published</dd>
 </div>
 <div>
 <dt>Price band</dt>
-<dd class="if-num">Not published</dd>
+<dd>Not published</dd>
 </div>
 <div>
 <dt>Open orders</dt>
-<dd class="if-num">Not published</dd>
+<dd>Not published</dd>
 </div>
 </dl>
 <a class="lt-link" href="/rulebook">Read the trading rulebook</a>
 </details>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_12_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-order-body" aria-labelledby="base-ui-_r_11_">
-<div class="dk-forms">
-<form data-testid="dk-form" class="dk-form" data-side="buy" aria-label="Buy BTC">
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_22_" for="base-ui-_r_23_" class="shrink-0 text-sm text-fg-2">Price</label>
-<input id="base-ui-_r_23_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Price" placeholder="0.00" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_22_">
-<span class="shrink-0 text-fg-2 text-base font-medium">USDT</span>
-<span class="flex shrink-0 flex-col">
-<button type="button" tabindex="-1" aria-label="Raise the price one step" class="flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up" aria-hidden="true">
-<path d="m18 15-6-6-6 6">
+<div class="lt-tab-panel lt-stack" role="tabpanel" id="dk-type-panel-limit" aria-labelledby="dk-type-tab-limit">
+<div class="lt-cols-2">
+<form data-testid="dk-form" class="lt-stack" data-side="buy" aria-label="Buy BTC">
+<div class="lt-field" data-unit="">
+<label for="_r_12_">Price</label>
+<div class="lt-field-row">
+<input placeholder="0.00" aria-label="Price" id="_r_12_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
+<span class="lt-field-steps">
+<button type="button" tabindex="-1" aria-label="Raise the price one step">
+<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+<path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 </path>
 </svg>
 </button>
-<button type="button" tabindex="-1" aria-label="Lower the price one step" class="flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
+<button type="button" tabindex="-1" aria-label="Lower the price one step">
+<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 </path>
 </svg>
 </button>
 </span>
 </div>
 </div>
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_24_" for="base-ui-_r_25_" class="shrink-0 text-sm text-fg-2">Amount</label>
-<input id="base-ui-_r_25_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Amount" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_24_">
-<span class="shrink-0 text-fg-2 text-base font-medium">BTC</span>
+<div class="lt-field" data-unit="">
+<label for="_r_13_">Amount</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Amount" id="_r_13_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">BTC</span>
 </div>
 </div>
-<div class="dk-percents" role="group" aria-label="Amount">
+<div class="lt-chips" role="group" aria-label="Amount">
 <button type="button" aria-label="25% of max">25%</button>
 <button type="button" aria-label="50% of max">50%</button>
 <button type="button" aria-label="75% of max">75%</button>
 <button type="button" aria-label="100% of max">100%</button>
 </div>
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_26_" for="base-ui-_r_27_" class="shrink-0 text-sm text-fg-2">Total</label>
-<input id="base-ui-_r_27_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Total" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_26_">
-<span class="shrink-0 text-fg-2 text-base font-medium">USDT</span>
+<div class="lt-field" data-unit="">
+<label for="_r_14_">Total</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Total" id="_r_14_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
 </div>
 </div>
-<dl data-testid="dk-avail" class="dk-avail">
+<dl data-testid="dk-avail" class="lt-kv">
 <div>
 <dt>Available</dt>
-<dd class="if-num">
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums" dir="ltr" data-ltr="">4,100 USDT</span>
+<dd class="lt-num">
+<span data-slot="amount" class="lt-num" dir="ltr" data-ltr="">4,100 USDT</span>
 </dd>
 </div>
 <div>
 <dt>Max buy</dt>
-<dd class="if-num">—</dd>
+<dd class="lt-num">—</dd>
 </div>
 </dl>
-<p data-testid="dk-fees" class="dk-fees if-num">
+<p data-testid="dk-fees" class="lt-row lt-row-between lt-small lt-num">
 <span>Fee —</span>
 </p>
-<div class="dk-fee-asset" data-fee-currency="BTC" data-fee-token="no_terms">
+<div class="lt-row lt-small" data-fee-currency="BTC" data-fee-token="no_terms">
 <span>Fees in BTC</span>
-<button type="button" class="dk-fee-asset-choice" aria-disabled="true" aria-describedby="dk-fee-asset-why-buy">Pay fees in another asset</button>
-<span id="dk-fee-asset-why-buy" class="dk-fee-asset-why">Not offered now: no fee token terms are published. The fee comes out of the BTC this order receives.</span>
+<button type="button" class="lt-link" aria-disabled="true" aria-describedby="dk-fee-asset-why-buy">Pay fees in another asset</button>
+<span id="dk-fee-asset-why-buy" class="lt-note">Not offered now: no fee token terms are published. The fee comes out of the BTC this order receives.</span>
 </div>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="buy" aria-describedby="dk-reason-buy" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-up text-on-up hover:bg-up-hover active:brightness-95 h-10 px-5 text-base rounded-sm w-full">Buy BTC</button>
-<div class="dk-reason" id="dk-reason-buy" aria-live="polite">
+<button disabled="" aria-describedby="dk-reason-buy" type="submit" class="lit-button" data-slot="button" data-variant="up" data-tone="up" data-size="md" data-block="true">Buy BTC</button>
+<div class="lt-stack-tight lt-tight" id="dk-reason-buy" aria-live="polite">
 </div>
 </form>
-<form data-testid="dk-form" class="dk-form" data-side="sell" aria-label="Sell BTC">
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_28_" for="base-ui-_r_29_" class="shrink-0 text-sm text-fg-2">Price</label>
-<input id="base-ui-_r_29_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Price" placeholder="0.00" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_28_">
-<span class="shrink-0 text-fg-2 text-base font-medium">USDT</span>
-<span class="flex shrink-0 flex-col">
-<button type="button" tabindex="-1" aria-label="Raise the price one step" class="flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up" aria-hidden="true">
-<path d="m18 15-6-6-6 6">
+<form data-testid="dk-form" class="lt-stack" data-side="sell" aria-label="Sell BTC">
+<div class="lt-field" data-unit="">
+<label for="_r_15_">Price</label>
+<div class="lt-field-row">
+<input placeholder="0.00" aria-label="Price" id="_r_15_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
+<span class="lt-field-steps">
+<button type="button" tabindex="-1" aria-label="Raise the price one step">
+<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+<path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 </path>
 </svg>
 </button>
-<button type="button" tabindex="-1" aria-label="Lower the price one step" class="flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
+<button type="button" tabindex="-1" aria-label="Lower the price one step">
+<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 </path>
 </svg>
 </button>
 </span>
 </div>
 </div>
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_30_" for="base-ui-_r_31_" class="shrink-0 text-sm text-fg-2">Amount</label>
-<input id="base-ui-_r_31_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Amount" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_30_">
-<span class="shrink-0 text-fg-2 text-base font-medium">BTC</span>
-<button type="button" class="inline-flex h-6 shrink-0 select-none items-center justify-center rounded-pill bg-raised px-2.5 text-xs font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Max</button>
+<div class="lt-field" data-unit="">
+<label for="_r_16_">Amount</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Amount" id="_r_16_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">BTC</span>
+<button type="button" class="lt-field-key">Max</button>
 </div>
 </div>
-<div class="dk-percents" role="group" aria-label="Amount">
+<div class="lt-chips" role="group" aria-label="Amount">
 <button type="button" aria-label="25% of max">25%</button>
 <button type="button" aria-label="50% of max">50%</button>
 <button type="button" aria-label="75% of max">75%</button>
 <button type="button" aria-label="100% of max">100%</button>
 </div>
-<div data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
-<div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus">
-<label id="base-ui-_r_32_" for="base-ui-_r_33_" class="shrink-0 text-sm text-fg-2">Total</label>
-<input id="base-ui-_r_33_" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Total" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="" aria-labelledby="base-ui-_r_32_">
-<span class="shrink-0 text-fg-2 text-base font-medium">USDT</span>
+<div class="lt-field" data-unit="">
+<label for="_r_17_">Total</label>
+<div class="lt-field-row">
+<input placeholder="0" aria-label="Total" id="_r_17_" dir="ltr" inputmode="decimal" autocomplete="off" spellcheck="false" type="text" value="">
+<span class="lt-field-unit">USDT</span>
 </div>
 </div>
-<dl data-testid="dk-avail" class="dk-avail">
+<dl data-testid="dk-avail" class="lt-kv">
 <div>
 <dt>Available</dt>
-<dd class="if-num">
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums" dir="ltr" data-ltr="">0.1 BTC</span>
+<dd class="lt-num">
+<span data-slot="amount" class="lt-num" dir="ltr" data-ltr="">0.1 BTC</span>
 </dd>
 </div>
 <div>
 <dt>Max sell</dt>
-<dd class="if-num">0.1 BTC</dd>
+<dd class="lt-num">0.1 BTC</dd>
 </div>
 </dl>
-<p data-testid="dk-fees" class="dk-fees if-num">
+<p data-testid="dk-fees" class="lt-row lt-row-between lt-small lt-num">
 <span>Fee —</span>
 </p>
-<div class="dk-fee-asset" data-fee-currency="USDT" data-fee-token="no_terms">
+<div class="lt-row lt-small" data-fee-currency="USDT" data-fee-token="no_terms">
 <span>Fees in USDT</span>
-<button type="button" class="dk-fee-asset-choice" aria-disabled="true" aria-describedby="dk-fee-asset-why-sell">Pay fees in another asset</button>
-<span id="dk-fee-asset-why-sell" class="dk-fee-asset-why">Not offered now: no fee token terms are published. The fee comes out of the USDT this order receives.</span>
+<button type="button" class="lt-link" aria-disabled="true" aria-describedby="dk-fee-asset-why-sell">Pay fees in another asset</button>
+<span id="dk-fee-asset-why-sell" class="lt-note">Not offered now: no fee token terms are published. The fee comes out of the USDT this order receives.</span>
 </div>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="sell" aria-describedby="dk-reason-sell" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-down text-on-down hover:bg-down-hover active:brightness-95 h-10 px-5 text-base rounded-sm w-full">Sell BTC</button>
-<div class="dk-reason" id="dk-reason-sell" aria-live="polite">
+<button disabled="" aria-describedby="dk-reason-sell" type="submit" class="lit-button" data-slot="button" data-variant="down" data-tone="down" data-size="md" data-block="true">Sell BTC</button>
+<div class="lt-stack-tight lt-tight" id="dk-reason-sell" aria-live="polite">
 </div>
 </form>
 </div>
 </div>
 </div>
+</section>
+<section class="lt-region" data-region="orders" aria-label="Orders and positions">
+<div class="lt-panel">
+<div data-testid="dk-bottom-head" class="lt-panel-head">
+<div class="lt-tabs" role="tablist" aria-label="Orders and trades">
+<button type="button" role="tab" id="dk-bottom-tab-open" aria-controls="dk-bottom-panel-open" aria-selected="true" tabindex="0" class="lt-tab">Open orders</button>
+<button type="button" role="tab" id="dk-bottom-tab-history" aria-controls="dk-bottom-panel-history" aria-selected="false" tabindex="-1" class="lt-tab">Order history</button>
+<button type="button" role="tab" id="dk-bottom-tab-trades" aria-controls="dk-bottom-panel-trades" aria-selected="false" tabindex="-1" class="lt-tab">Trade history</button>
+<button type="button" role="tab" id="dk-bottom-tab-assets" aria-controls="dk-bottom-panel-assets" aria-selected="false" tabindex="-1" class="lt-tab">Assets</button>
+<button type="button" role="tab" id="dk-bottom-tab-ledger" aria-controls="dk-bottom-panel-ledger" aria-selected="false" tabindex="-1" class="lt-tab">Ledger</button>
+<button type="button" role="tab" id="dk-bottom-tab-positions" aria-controls="dk-bottom-panel-positions" aria-selected="false" tabindex="-1" class="lt-tab">Positions</button>
 </div>
-<div data-testid="dk-book" class="dk-panel dk-book" data-widget="book">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col dk-fill">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none] border-b border-line dk-tabs">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_34_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_35_">Order book</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_36_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Last trades</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Cancel orders…</button>
+<button aria-haspopup="dialog" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="sm">Auto-cancel: couldn’t check</button>
+<a class="lt-link" href="/money/activity?tab=orders">View all</a>
 </div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_35_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-panel-body" aria-labelledby="base-ui-_r_34_">
-<div data-testid="dk-bk" class="dk-bk">
-<div class="dk-bk-tools">
-<div class="dk-bk-views" role="group" aria-label="Order book">
-<button type="button" aria-pressed="true" aria-label="Show bids and asks">
-<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--if-down-text)">
-</rect>
-<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--if-up-text)">
-</rect>
-<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-</svg>
-</button>
-<button type="button" aria-pressed="false" aria-label="Show bids only">
-<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--if-up-text)">
-</rect>
-<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--if-up-text)">
-</rect>
-<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--if-up-text)" opacity="0.55">
-</rect>
-</svg>
-</button>
-<button type="button" aria-pressed="false" aria-label="Show asks only">
-<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-<rect x="1" y="2" width="6" height="5" rx="1" fill="var(--if-down-text)">
-</rect>
-<rect x="1" y="9" width="6" height="5" rx="1" fill="var(--if-down-text)">
-</rect>
-<rect x="9" y="3" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-<rect x="9" y="6" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-<rect x="9" y="9" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-<rect x="9" y="12" width="6" height="2" rx="1" fill="var(--if-down-text)" opacity="0.55">
-</rect>
-</svg>
-</button>
-</div>
-<button type="button" tabindex="0" id="base-ui-_r_37_" role="combobox" aria-expanded="false" aria-haspopup="listbox" data-slot="select-trigger" aria-label="Group prices by" class="inline-flex w-fit min-w-0 select-none items-center justify-between gap-2 whitespace-nowrap rounded-sm bg-field px-3 text-fg transition-colors duration-(--if-t-fast) ease-if hover:bg-raised data-popup-open:bg-raised data-disabled:cursor-not-allowed data-disabled:opacity-40 h-8 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-bk-group">
-<span data-slot="select-value" class="truncate">0.01</span>
-<span aria-hidden="true" class="shrink-0 text-fg-2 transition-transform duration-(--if-t-fast) ease-if data-popup-open:rotate-180">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true">
-<path d="m6 9 6 6 6-6">
-</path>
-</svg>
-</span>
-</button>
-<input id="base-ui-_r_37_-hidden-input" style="clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0px; padding: 0px; width: 1px; height: 1px; margin: 0px; position: fixed; top: 0px; left: 0px;" tabindex="-1" aria-hidden="true" value="0">
-</div>
-<div class="dk-bk-grid" role="grid" aria-label="Order book">
-<div data-slot="state-block" data-kind="error" role="alert" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
-<p class="text-md font-medium text-fg">Couldn’t load the order book.</p>
-<div class="mt-3">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Try again</button>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col dk-panel dk-bottom">
-<div data-testid="dk-bottom-head" class="dk-bottom-head">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" aria-label="Orders and trades" class="relative flex items-stretch gap-6 overflow-x-auto [scrollbar-width:none] border-b border-line dk-tabs dk-tabs--grow">
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_38_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-controls="base-ui-_r_39_">Open orders</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_40_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Order history</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_41_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Trade history</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_42_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Assets</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_43_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Ledger</button>
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_44_" data-slot="tabs-tab" class="relative inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Positions</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
-</div>
-<button type="button" class="dk-cancel-all">Cancel orders…</button>
-<button type="button" class="dk-cancel-all" aria-haspopup="dialog">Auto-cancel: couldn’t check</button>
-<a class="dk-viewall" href="/money/activity?tab=orders">View all</a>
-</div>
-<div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_39_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" data-testid="dk-bottom-body" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-bottom-body" aria-labelledby="base-ui-_r_38_">
+<div class="lt-tab-panel" data-testid="dk-bottom-body" role="tabpanel" id="dk-bottom-panel-open" aria-labelledby="dk-bottom-tab-open">
 <table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
@@ -782,6 +796,10 @@
 </tr>
 </tbody>
 </table>
+</div>
+</div>
+</section>
+</div>
 </div>
 </div>
 </div>

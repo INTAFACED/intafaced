@@ -14,7 +14,7 @@
  *            its job ends and, on a step that passed in the run before and failed outright in that shard, starts the same
  *            revert jobs at once, before the other shards and the whole run end (plant 1, project-state #2065: its failing
  *            shard ended 7 minutes before its run). `trigger` at the run's end starts nothing a run already started.
- *   confirm  After a revert this opened merges (journeys-back.yml, on the push): starts main-bisect.yml's `confirm` job,
+ *   confirm  After a revert this opened merges (main-trust.yml `back`, after PR checks on the push): starts main-bisect.yml's `confirm` job,
  *            which runs the failing journeys alone on main's head in their own group, so the break shows as back in one
  *            journey's time instead of behind main's queue and a full run. Main's full run still runs to its end. A
  *            main journeys run still going on a commit that holds the culprit and not the revert is cancelled, so the

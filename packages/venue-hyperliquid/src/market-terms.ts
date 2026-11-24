@@ -1,3 +1,4 @@
+import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { UserVenueMarket } from '@intafaced/venue-contracts';
 
 /**
@@ -15,9 +16,21 @@ export type ReadMarketTerm =
   | 'tickSize'
   | 'lotSize'
   | 'makerFeeBps'
-  | 'takerFeeBps';
+  | 'takerFeeBps'
+  | 'builderFeeCapBps';
 
 export type ReadMarketTerms = Pick<UserVenueMarket, ReadMarketTerm>;
+
+/**
+ * The venue's own builder-fee cap, protocol-wide by market kind, not per market: "the builder fee is capped at 0.1% on
+ * perps and 1% on spot" (Hyperliquid's builder-codes page, https://hyperliquid.gitbook.io/hyperliquid-docs/trading/builder-codes,
+ * read 24 Nov 2026). The venue itself refuses an approval or an order above it. What binds one order
+ * below it is the trader's own approval (`maxBuilderFee`), which `prepare` checks per order.
+ */
+export const BUILDER_FEE_CAP_BPS: Readonly<Record<UserVenueMarket['kind'], Amount>> = {
+  perpetual: parseAmount('10'),
+  spot: parseAmount('100'),
+};
 
 /**
  * Every other term of `UserVenueMarket`, fresh for each market: this adapter does not read it, so it is not known (or null), never guessed.
@@ -26,9 +39,6 @@ export type ReadMarketTerms = Pick<UserVenueMarket, ReadMarketTerm>;
  */
 export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
   return {
-    // The info API publishes no per-market builder-fee cap, so it is not known: the door then writes no builder-fee
-    // version for this venue and a fee'd order refuses, rather than trusting a number we typed in.
-    builderFeeCapBps: { known: false },
     // The listing drops delisted markets and reports no halt or cancel-only state, nor a largest order: none is guessed.
     status: null,
     maxOrderQty: null,

@@ -1,8 +1,7 @@
 // Every app call that names its service and call by strings: the shapes `garden/no-call-by-name` counts
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
 import { fanOut, valuesOf } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
@@ -154,8 +153,9 @@ function bankReadSchema(p, useBankRead, path) {
  * the keys the record now gives are dropped.
  */
 const SPREADS = [
-  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from where `ReadSpec` comes from.
-  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec' },
+  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from its one home, a file outside the ops
+  // desk's server-only entry, so a spec a client component also reads (admin's account search) never pulls server code in.
+  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec', home: '@/lib/desk-read' },
   { helper: 'toolOf', moduleKey: 'edgeModule', kindKey: 'kind' },
 ];
 function deskRead(p, n) {
@@ -163,26 +163,19 @@ function deskRead(p, n) {
   const obj = p.parents.get(n);
   if (obj?.type !== 'ObjectExpression') return undefined;
   const prop = (k) => obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === k && literal(pr.value));
-  for (const { helper, moduleKey, kindKey, typeName } of SPREADS) {
+  for (const { helper, moduleKey, kindKey, typeName, home } of SPREADS) {
     const moduleProp = prop(moduleKey);
     const kindProp = kindKey ? prop(kindKey) : undefined;
     if (!moduleProp || (kindKey && !kindProp)) continue;
     // `bindingOf` names an unbound name `global`.
     const bound = bindingOf(p, n, helper).kind !== 'global';
     const type = typeName ? bindingOf(p, n, typeName) : undefined;
-    const helperFrom = !bound && type?.kind === 'import' ? type.from : undefined;
+    const helperFrom = !bound && type?.kind === 'import' ? (home ?? type.from) : undefined;
     if (!bound && !helperFrom) continue;
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;
     const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
-    // A file that takes only types from a server-only entry may be read by a client component: a value import of the
-    // helper would pull the server code into the browser bundle (admin's account search, read by `'use client'`).
-    const problem =
-      helperFrom && type.typeOnly && serverOnly(p.file, helperFrom)
-        ? `${helper} comes from ${helperFrom}, which is server-only, and this file takes only its types: a client file may read it`
-        : undefined;
     return {
-      ...(problem ? { problem } : {}),
       module: literal(moduleProp.value),
       path: literal(n.value),
       kind,
@@ -194,17 +187,6 @@ function deskRead(p, n) {
     };
   }
   return undefined;
-}
-
-/** Whether an import names a module that starts `import 'server-only'`: a relative file, or `@/` under its app's src. */
-function serverOnly(file, from) {
-  const app = /^(.*\/apps\/[^/]+)\//.exec(file)?.[1];
-  const base =
-    from.startsWith('@/') && app ? join(app, 'src', from.slice(2)) : from.startsWith('.') ? join(dirname(file), from) : undefined;
-  if (!base) return false;
-  for (const f of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')])
-    if (existsSync(f)) return /^\s*import ['"]server-only['"]/m.test(readFileSync(f, 'utf8').split('\n').slice(0, 5).join('\n'));
-  return false;
 }
 
 /** The keys every bank write spec has beside its call (`ActionSpec`, apps/customer/src/features/money/components.tsx). */

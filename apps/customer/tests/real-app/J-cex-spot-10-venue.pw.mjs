@@ -21,11 +21,11 @@ import {
   venueWrites,
 } from './venue.mjs';
 
-// J-cex-spot-10 #1 #2 #3 #4 #6 #9 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on their
+// J-cex-spot-10 #1 #2 #3 #4 #6 #9 #11 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on their
 // own venue account, the venue's maker or taker fee and our builder fee named apart, what tier the venue placed them
 // in, and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account.
-// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme, VIP benefits, the notice board, the fee
-// API) and the custodial desk's checks of these six, titled "part of", which count for no step.
+// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme, VIP benefits, the notice board) and the
+// custodial desk's checks of these seven, titled "part of", which count for no step.
 //
 // INTAFACED holds none of this person's money: with svc-trade's user-venue door on for this file (venueForThisFile),
 // every rate, fee, fill, tier and volume is read from the stack's TEST venue simulator (packages/venue-sim) itself,
@@ -161,6 +161,22 @@ async function fillsOf(s, venueClientOrderId) {
     )
     .toBeGreaterThan(0);
   return fills;
+}
+
+/**
+ * My tier with the person's wallet connected (the page was signed in with the TEST wallet installed): the venue's
+ * section of it, once its tier is read. The first visit connects the wallet; a reload finds it connected already.
+ */
+async function openMyTier(page, s) {
+  await page.goto('/fees/my-tier');
+  const section = page.locator('[data-tier-page="venue"]');
+  await expect(section).toBeVisible({ timeout: 30_000 });
+  const connect = section.getByRole('button', { name: 'Connect TEST Wallet', exact: true });
+  await expect(connect.or(section.getByTestId('venue-wallet-address'))).toBeVisible({ timeout: 20_000 });
+  if (await connect.isVisible()) await connect.click();
+  await expect(section.getByTestId('venue-wallet-address')).toHaveText(s.owner);
+  await expect(section.getByTestId('venue-tier')).toBeVisible({ timeout: 20_000 });
+  return section.getByTestId('venue-tier');
 }
 
 /** The person's ledger balances: the ledger posts nothing for them on the venue (INTAFACED holds none of it). */
@@ -550,18 +566,7 @@ test(`${J} #6 crosses a venue tier: the venue's tier read from the venue at its 
   // My tier, with the person's wallet connected: the venue's tier, what it counted, and the next threshold.
   await installTestWallet(page, { chainId, privateKey: s.walletKey });
   await signIn(page, s.account);
-  const open = async () => {
-    await page.goto('/fees/my-tier');
-    const section = page.locator('[data-tier-page="venue"]');
-    await expect(section).toBeVisible({ timeout: 30_000 });
-    // The first visit connects the wallet; a reload finds it connected already.
-    const connect = section.getByRole('button', { name: 'Connect TEST Wallet', exact: true });
-    await expect(connect.or(section.getByTestId('venue-wallet-address'))).toBeVisible({ timeout: 20_000 });
-    if (await connect.isVisible()) await connect.click();
-    await expect(section.getByTestId('venue-wallet-address')).toHaveText(s.owner);
-    await expect(section.getByTestId('venue-tier')).toBeVisible({ timeout: 20_000 });
-    return section.getByTestId('venue-tier');
-  };
+  const open = () => openMyTier(page, s);
   let tier = await open();
   await expect(tier.locator('[data-cell="tier"]')).toHaveText(base.name);
   await expect(tier.locator('[data-cell="next"]')).toHaveText(`${tier1.name} from ${tier1.fromVolume} ${before.schedule.volumeAsset}`);
@@ -649,4 +654,45 @@ test(`${J} #9 chooses to pay trading fees in IFC: at launch the row is disabled 
   expect(requests.filter((r) => !r.endsWith('/api/v1/venue/preview'))).toEqual([]);
   expect(wallet.requests.length).toBe(asked);
   expect(await openOn(s.owner, market.symbol)).toEqual([]);
+});
+
+test(`${J} #11 reads the fee and volume API: the same rates and volume as the screen`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const s = state();
+  const { chainId } = await venueInfo();
+  // What the venue itself reports for this account now: #6 placed it in a tier by the volume it counted.
+  const venue = (await venueRecord(s.owner, '/fee-status')).value.account;
+  expect(venue, "the venue reports this account's fees").toBeTruthy();
+  expect(venue.volume.known).toBe(true);
+  expect(toUnits(venue.volume.value)).toBeGreaterThan(0n);
+
+  // The fee and volume API, read with the person's own session: the venue's tier, volume and rates, nothing of ours.
+  const session = await api(s.account);
+  const read = await session.get(`/api/v1/venue/fee-tier?owner=${s.owner}`);
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  const fees = read.body.value.account;
+  expect(read.body.test).toBe(true);
+  expect(fees.tierName).toBe(venue.tierName);
+  expect(fees.volume.known).toBe(true);
+  expect(sameDecimal(fees.volume.value, venue.volume.value)).toBe(true);
+  for (const role of ['makerFeeBps', 'takerFeeBps']) {
+    expect(fees.spot[role].known).toBe(true);
+    expect(sameDecimal(fees.spot[role].value, venue.spot[role].value)).toBe(true);
+    expect(fees.perpetual[role].known).toBe(venue.perpetual[role].known);
+    if (venue.perpetual[role].known) expect(sameDecimal(fees.perpetual[role].value, venue.perpetual[role].value)).toBe(true);
+  }
+  expect(new Date(fees.tierUpdatedAt).toISOString()).toBe(new Date(venue.tierUpdatedAt).toISOString());
+
+  // My tier shows the same tier, volume and spot rates the API answered.
+  await installTestWallet(page, { chainId, privateKey: s.walletKey });
+  await signIn(page, s.account);
+  const tier = await openMyTier(page, s);
+  await expect(tier.locator('[data-cell="tier"]')).toHaveText(fees.tierName);
+  await expect
+    .poll(async () => sameDecimal((await tier.locator('[data-cell="volume"]').innerText()).replace(/\s*USDC$/, ''), fees.volume.value))
+    .toBe(true);
+  await expect(tier.locator('[data-cell="spot-rates"]')).toHaveText(
+    `maker ${pct(fees.spot.makerFeeBps.value)}, taker ${pct(fees.spot.takerFeeBps.value)}`,
+  );
+  await expect(tier.locator('[data-cell="updated"] time')).toHaveAttribute('datetime', fees.tierUpdatedAt);
 });

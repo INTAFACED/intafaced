@@ -5,7 +5,18 @@ import path from 'node:path';
 import test from 'node:test';
 import { viewerToken } from './beta-front.mjs';
 import { betaPaths, invitedPassDue } from './beta-host.mjs';
-import { GRANT, MAX_FUNDED_PER_PERSON, TOKEN_RE, grantRef, invitedOwner, planPass, readInvited, recordInvited } from './beta-invited.mjs';
+import {
+  GRANT,
+  MAX_FUNDED_PER_PERSON,
+  PARTNER_FUND_ID,
+  TOKEN_RE,
+  grantRef,
+  invitedOwner,
+  planPartner,
+  planPass,
+  readInvited,
+  recordInvited,
+} from './beta-invited.mjs';
 
 const alice = viewerToken('alice@gmail.com');
 const bob = viewerToken('bob@gmail.com');
@@ -65,6 +76,30 @@ test('TEST funds are capped: once per account, at most MAX_FUNDED_PER_PERSON acc
   assert.deepEqual(GRANT, { asset: 'USDT', amount: '1000' });
   assert.equal(grantRef('2f1c7a3e-0000-4000-8000-000000000000'), 'beta-invite-2f1c7a3e-0000-4000-8000-000000000000');
   assert.match(grantRef('2f1c7a3e-0000-4000-8000-000000000000'), /^[A-Za-z0-9-]{4,64}$/); // local:fund's --ref rule
+});
+
+test("a granted account's TEST funds are kept at the TEST partner on every pass, as that person, while signed in (#10632)", () => {
+  const granted = {
+    u1: { token: alice, amount: GRANT.amount },
+    u2: { token: alice, amount: GRANT.amount, partnerAt: '2026-11-24T00:00:00.000Z' },
+    u3: { token: bob, amount: GRANT.amount },
+    u4: { token: alice, amount: GRANT.amount },
+  };
+  const sessions = new Map([
+    ['u1', 's1'],
+    ['u2', 's2'],
+    ['u3', 's3'],
+  ]);
+  // u1 first time (a line), u2 again (kept silently, so a restarted partner is funded again), u3's token is no longer
+  // recorded, u4 is not signed in and waits.
+  assert.deepEqual(planPartner({ granted, tokens, sessions }), [
+    { userId: 'u1', sessionId: 's1', first: true },
+    { userId: 'u2', sessionId: 's2', first: false },
+  ]);
+  assert.deepEqual(planPartner({ granted: {}, tokens, sessions }), []);
+  assert.deepEqual(planPartner({ granted, tokens, sessions: new Map() }), []);
+  // One fixed fund id: the partner pays it in once per person, so a repeat pass credits nothing.
+  assert.equal(PARTNER_FUND_ID, 'beta-invite:v1');
 });
 
 test('the mailbox records each Access viewer once, privately, and never a malformed one', () => {

@@ -340,6 +340,24 @@ export interface DeskProps extends RoomProps {
   ticket: Slot;
   orders?: Slot;
   pairs?: Slot;
+  /**
+   * Pro, on a computer: the person's own arrangement of the side-by-side panels, left to right, each with its width
+   * (a CSS track: "13.5rem", "minmax(0, 1fr)"). The instrument runs across the top, the ticket takes the last column,
+   * the orders run across the bottom. Absent, the desk's own arrangement.
+   */
+  arrangement?: { columns: readonly { region: 'pairs' | 'chart' | 'book' | 'tape'; width: string }[] };
+}
+
+const TICKET_TRACK = '18.75rem';
+
+function arrangedStyle(arrangement: NonNullable<DeskProps['arrangement']>): React.CSSProperties {
+  const names = [...arrangement.columns.map((c) => c.region), 'ticket'];
+  const row = (fill: (name: string) => string) => `'${names.map(fill).join(' ')}'`;
+  const style: React.CSSProperties & Record<`--${string}`, string> = {
+    '--lt-desk-columns': [...arrangement.columns.map((c) => c.width), TICKET_TRACK].join(' '),
+    '--lt-desk-areas': [row(() => 'instrument'), row((n) => n), row(() => 'orders')].join(' '),
+  };
+  return style;
 }
 
 /**
@@ -360,7 +378,12 @@ export function DeskTemplate(p: DeskProps) {
   }
   return (
     <RoomFrame {...p} template="desk">
-      <div className="lt-desk" data-desk={pro ? 'pro' : 'simple'}>
+      <div
+        className="lt-desk"
+        data-desk={pro ? 'pro' : 'simple'}
+        data-arranged={pro && p.arrangement ? '' : undefined}
+        style={pro && p.arrangement ? arrangedStyle(p.arrangement) : undefined}
+      >
         <Region name="instrument" data ghost="figure" label="Price">
           {p.instrument}
         </Region>

@@ -85,7 +85,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
+import { COMPOSE_RUNTIME, localStackState, assertActiveLocalStack, composeSqlRead, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
@@ -397,6 +397,10 @@ function sandboxFunds(ctx, on) {
 }
 
 function psqlRead(secrets, role, sql) {
+  // A tester compose stack (its marker in the state folder) has its own Postgres on the marker's port and no psql in its
+  // image: the same read goes through composeSqlRead.
+  const marker = readJson(gatePaths().marker, null);
+  if (marker?.runtime === COMPOSE_RUNTIME) return composeSqlRead(marker, role, sql);
   const r = spawnSync(
     PSQL,
     [
@@ -453,6 +457,43 @@ export function listAccountsAndTiers(secrets) {
     `SELECT id::text, user_id::text, tier::text FROM identity.kyc_records WHERE status = 'pending' ORDER BY created_at`,
   ).map(([id, userId, tier]) => ({ id, userId, tier }));
   return { users, approved, pending };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Read-only: each named account's newest live session (not revoked, not expired), as a Map userId -> sessionId. */
+export function liveSessions(secrets, userIds) {
+  const ids = userIds.filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return new Map();
+  const rows = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT DISTINCT ON (user_id) user_id::text, id::text FROM identity.sessions
+       WHERE user_id IN (${ids.map((id) => `'${id}'`).join(', ')}) AND revoked = false AND expires_at > now()
+       ORDER BY user_id, created_at DESC, id`,
+  );
+  return new Map(rows.map(([userId, sessionId]) => [userId, sessionId]));
+}
+
+/**
+ * The scopes of a person's TEST partner token: the bank's own, which svc-bank's `testPartner.*` calls require
+ * (`testPartner.set` and `testPartner.fund` refuse a token without `bank:write`, #10632). Nothing else.
+ */
+export const PERSON_TEST_PARTNER_SCOPES = Object.freeze(['bank:read', 'bank:write']);
+
+/**
+ * A short-lived TEST access token on a person's own live session (`liveSessions`), with only the bank scopes, so a TEST
+ * tool can make a person's own TEST partner call (`testPartner.*`) on this stack as that person. Edge still checks the
+ * session is live.
+ */
+export async function personToken(ctx, { userId, sessionId }, ttlSeconds = 120) {
+  if (!UUID_RE.test(userId) || !UUID_RE.test(sessionId)) throw new Error('personToken needs a user id and a live session id');
+  return (
+    await ctx.tokens.issueAccessToken(
+      { userId, sessionId, scopes: [...PERSON_TEST_PARTNER_SCOPES], tier: 'none', mfa: false },
+      { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
+    )
+  ).token;
 }
 
 /**

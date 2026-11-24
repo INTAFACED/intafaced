@@ -1287,11 +1287,24 @@ jobs:
         run: node --test tooling/ci/journey-verdict.test.mjs
       # It also writes the set-aside list (set-aside.json) and, on main, the stored pass history (pass-history.json) the
       # next verdicts read instead of every run since the baseline; both are kept with the report below.
+      # The hosted beta's rule (tooling/ci/beta-hides.mjs) reads the route table, which imports these two packages' builds.
+      # Unbuilt, the verdict can't read the rule and counts no step of this run as proven (set-aside.json betaUnread).
+      - name: Build what the beta's rule reads
+        if: always() && env.NOTHING != 'true'
+        continue-on-error: true
+        run: pnpm turbo run build --filter=@intafaced/contracts --filter=@intafaced/i18n
       - name: Verdict against the list of steps not built yet
         if: always() && env.NOTHING != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json" --history-out "$RUNNER_TEMP/journeys/pass-history.json"
+      # The steps whose screens no link path reaches from the front page or Home on the hosted beta's build
+      # (tooling/ci/menu-reach.mjs, from the crawl menu-reach.pw.mjs records), kept beside the report for the count. It
+      # judges nothing: an unreadable input writes `unread`, and the count then takes no step of this run as proven.
+      - name: Which steps the menus reach
+        if: always() && env.NOTHING != 'true'
+        continue-on-error: true
+        run: node --test tooling/ci/menu-reach.test.mjs && node tooling/ci/menu-reach.mjs --report "$RUNNER_TEMP/journeys/report.json" --out "$RUNNER_TEMP/journeys/menu-reach.json"
 
       # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
       - name: Keep the report
@@ -1302,6 +1315,7 @@ jobs:
           path: |
             ${{ runner.temp }}/journeys/report.json
             ${{ runner.temp }}/journeys/set-aside.json
+            ${{ runner.temp }}/journeys/menu-reach.json
           if-no-files-found: warn
       # The stored pass history on its own (about 2 MB, 40 KB zipped, beside a report of about 25 MB), so a verdict reading it
       # downloads only it. Written on main only; nothing to keep elsewhere.

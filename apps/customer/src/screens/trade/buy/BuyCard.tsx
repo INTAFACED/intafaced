@@ -204,8 +204,9 @@ function ReceiptView({ receipt, coin, onDone }: { receipt: Receipt; coin: CoinOp
             {receipt.fee ? (
               <div>
                 <dt>{t('Fee')}</dt>
-                <dd>
+                <dd data-testid="receipt-fee">
                   {fmtAmount(receipt.fee.cost, { places: 8 })} {receipt.fee.currency}
+                  {receipt.fee.usd !== null ? ` ${t('Fee in dollars', { value: fmtUsd(receipt.fee.usd) })}` : null}
                 </dd>
               </div>
             ) : null}
@@ -293,6 +294,8 @@ function BuyForm({
     return (buying ? ticker.data.ask : ticker.data.bid) ?? ticker.data.last;
   }, [ticker, buying]);
   const lastPrice = ticker.status === 'ready' ? ticker.data.last : null;
+  const bid = ticker.status === 'ready' ? ticker.data.bid : null;
+  const ask = ticker.status === 'ready' ? ticker.data.ask : null;
   const limitRow = limits.status === 'ready' ? limits.data[market.symbol] : undefined;
   const lotPlaces = fractionDigits(market.lotSize) ?? 8;
   const precision = unit === 'quote' ? 2 : lotPlaces;
@@ -400,7 +403,7 @@ function BuyForm({
     setBusy(null);
     if (outcome.kind === 'ok') {
       setReviewMessage(null);
-      setReview({ draft, preview: outcome.preview, price, changed: false });
+      setReview({ draft, preview: outcome.preview, price, bid, ask, changed: false });
     } else if (outcome.kind === 'refused')
       setProblem({ title: outcome.copy.title, body: outcome.copy.body, action: outcome.copy.action, code: outcome.code });
     else setProblem({ title: t('Couldn’t check this order') });
@@ -436,7 +439,7 @@ function BuyForm({
         return;
       }
       case 'changed':
-        setReview({ ...review, preview: outcome.preview, price, changed: true });
+        setReview({ ...review, preview: outcome.preview, price, bid, ask, changed: true });
         return;
       case 'refused':
         setReview(null);

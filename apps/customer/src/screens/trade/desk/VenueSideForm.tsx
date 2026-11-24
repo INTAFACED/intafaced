@@ -23,16 +23,8 @@ import { useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AmountInput,
-  Button,
-} from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { placesOf } from './text';
 import { spotVenueCopy } from './venue-copy';
 import { UnitFlag } from './VenueOrderOptions';
@@ -430,13 +422,14 @@ export function VenueSideForm({
   return (
     <form
       data-testid="dk-form"
-      className="dk-form"
+      className="lt-stack"
       data-side={side}
       aria-label={side === 'buy' ? d('Buy form', { asset: market.baseAsset }) : d('Sell form', { asset: market.baseAsset })}
       onSubmit={(event) => void startReview(event)}
     >
       {type === 'limit' ? (
-        <AmountInput
+        <DecimalInput
+          placeholder="0"
           label={d('Price')}
           value={price}
           onValueChange={(next) => edit(() => setPrice(next))}
@@ -448,7 +441,7 @@ export function VenueSideForm({
           aria-label={d('Price')}
         />
       ) : (
-        <AmountInput
+        <DecimalInput
           label={d('Price')}
           value=""
           onValueChange={() => undefined}
@@ -472,7 +465,7 @@ export function VenueSideForm({
           })
         }
       />
-      <AmountInput
+      <DecimalInput
         label={d('Amount')}
         value={sizedAmount}
         onValueChange={(next) => edit(() => setAmount(next))}
@@ -482,7 +475,7 @@ export function VenueSideForm({
         readOnly={unit === 'quote'}
         aria-label={d('Amount')}
       />
-      <AmountInput
+      <DecimalInput
         label={valueLabel}
         value={unit === 'quote' ? value : (valueOf(amount, sizedAt) ?? '')}
         onValueChange={(next) => edit(() => setValue(next))}
@@ -492,47 +485,45 @@ export function VenueSideForm({
         readOnly={unit === 'base'}
         aria-label={valueLabel}
       />
-      <label className="dk-tif dk-opt">
-        <span className="lt-hint lt-nowrap">{t('Tag label')}</span>
+      <label className="lt-field">
+        <span className="lt-label">{t('Tag label')}</span>
         <input
           type="text"
-          className="dk-expiry-input dk-tag-input"
           value={tag}
           maxLength={32}
           onChange={(event) => edit(() => setTag(event.target.value))}
           aria-label={t('Tag label')}
           aria-describedby={`dk-tag-note-${side}`}
         />
-        <span className="dk-opt-note" id={`dk-tag-note-${side}`}>
+        <span className="lt-note" id={`dk-tag-note-${side}`}>
           {t('Tag note')}
         </span>
       </label>
       {shownWorst ? (
-        <p className="dk-note-small if-num" data-testid="venue-worst-price">
+        <p className="lt-note lt-num" data-testid="venue-worst-price">
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
         </p>
       ) : null}
       <Button
+        busy={busy}
         type="submit"
-        variant={side}
-        shape="rounded"
-        size={40}
-        fullWidth
-        loading={busy}
+        tone={side === 'buy' ? 'up' : 'down'}
+        size="md"
+        block
         disabled={!canSend}
         aria-describedby={`dk-reason-${side}`}
       >
         {verb}
       </Button>
-      <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
+      <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
         {access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
-          <p className="lt-hint">{t('Checking verification')}</p>
+          <p className="lt-note">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
-          <p className="lt-hint">{t('Verification unread')}</p>
+          <p className="lt-note">{t('Verification unread')}</p>
         ) : issue === 'rule_unpublished' ? (
-          <p className="dk-note dk-note--bad" role="alert" data-code="trade.venue_rule_unpublished">
+          <p className="lt-note lt-note-bad" role="alert" data-code="trade.venue_rule_unpublished">
             {t('Rule unpublished', {
               venue: status.venue.displayName,
               symbol: market.symbol,
@@ -542,29 +533,29 @@ export function VenueSideForm({
             })}
           </p>
         ) : !owner ? (
-          <p className="lt-hint">{t('Connect to trade')}</p>
+          <p className="lt-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
-          <p className="lt-hint" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
+          <p className="lt-note" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
             {t('No price protection')}
           </p>
         ) : tagBad ? (
-          <p className="dk-note dk-note--bad" role="alert">
+          <p className="lt-note lt-note-bad" role="alert">
             {t('Tag bad')}
           </p>
         ) : issue === 'no_book' ? (
-          <p className="lt-hint">{t('No book side')}</p>
+          <p className="lt-note">{t('No book side')}</p>
         ) : issue === 'amount_step' && amount ? (
-          <p className="lt-hint">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
+          <p className="lt-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
-          <p className="lt-hint">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+          <p className="lt-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
         ) : live?.state === 'checking' ? (
-          <p className="lt-hint">{t('Checking venue')}</p>
+          <p className="lt-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
-          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
+          <p className="lt-note lt-note-bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
             {live.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: live.message })}
           </p>
         ) : short && !spotOffer ? (
-          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
+          <p className="lt-note lt-note-bad" role="alert" data-testid="venue-ticket-short">
             {t('Not enough free', { asset: short.asset, lock: displayAmount(short.lock), free: displayAmount(short.free) })}
           </p>
         ) : null}
@@ -577,14 +568,14 @@ export function VenueSideForm({
             onLanded={accountMode.reload}
           />
         ) : null}
-        {busy ? <p className="lt-hint">{t('Waiting wallet')}</p> : null}
+        {busy ? <p className="lt-note">{t('Waiting wallet')}</p> : null}
         {problem ? (
-          <p className="dk-note dk-note--bad" role="alert">
+          <p className="lt-note lt-note-bad" role="alert">
             {problem}
           </p>
         ) : null}
         {result?.kind === 'unknown' ? (
-          <p className="lt-hint" role="status">
+          <p className="lt-note" role="status">
             {outcomeText(v, result)}
           </p>
         ) : result ? (
@@ -592,67 +583,65 @@ export function VenueSideForm({
         ) : null}
         {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} expireAt={gtd ? expireAt : null} /> : null}
       </div>
-      <AlertDialog
-        open={review !== null}
-        onOpenChange={(open) => {
-          if (!open && !sending.current) setReview(null);
-        }}
-      >
-        {review ? (
-          <AlertDialogContent className="dk-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{side === 'buy' ? d('Review buy') : d('Review sell')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            {moved ? (
-              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-moved">
-                {t('Numbers changed')}
-              </p>
-            ) : null}
-            {reviewProblem ? (
-              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-refused">
-                {reviewProblem}
-              </p>
-            ) : null}
-            <VenueReviewRows
-              intent={review.intent}
-              preview={review.preview}
-              status={status}
-              approved={builderApproved(account, status)}
-              protectionBps={protectionBps}
-              selfTrade={venueSelfTrade(market)}
-              tag={tag.trim()}
-              expireAt={gtd ? expireAt : null}
-            />
-            {gtd && owner ? (
-              <>
-                <p className="lt-hint">{t('Gtd permission')}</p>
-                <AgentPermission owner={owner} />
-              </>
-            ) : null}
-            {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
-              <Button variant="secondary" size={40} onClick={() => void approve()}>
-                {v('Approve in wallet')}
-              </Button>
-            ) : null}
-            <OutcomeLine result={approving} owner={owner} />
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} onClick={() => setReview(null)}>
+      {review !== null ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={side === 'buy' ? d('Review buy') : d('Review sell')}
+          description={t('Review intro')}
+          onClose={() => {
+            if (!sending.current) setReview(null);
+          }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" onClick={() => setReview(null)}>
                 {t('Cancel')}
               </Button>
               <Button
-                variant={side}
-                shape="pill"
-                size={40}
+                tone={side === 'buy' ? 'up' : 'down'}
+                size="md"
                 disabled={carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) !== true}
                 onClick={() => void confirm()}
               >
                 {side === 'buy' ? t('Confirm buy') : t('Confirm sell')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          {moved ? (
+            <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-moved">
+              {t('Numbers changed')}
+            </p>
+          ) : null}
+          {reviewProblem ? (
+            <p className="lt-note lt-note-bad" role="alert" data-testid="venue-review-refused">
+              {reviewProblem}
+            </p>
+          ) : null}
+          <VenueReviewRows
+            intent={review.intent}
+            preview={review.preview}
+            status={status}
+            approved={builderApproved(account, status)}
+            protectionBps={protectionBps}
+            selfTrade={venueSelfTrade(market)}
+            tag={tag.trim()}
+            expireAt={gtd ? expireAt : null}
+          />
+          {gtd && owner ? (
+            <>
+              <p className="lt-note">{t('Gtd permission')}</p>
+              <AgentPermission owner={owner} />
+            </>
+          ) : null}
+          {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
+            <Button tone="secondary" size="md" onClick={() => void approve()}>
+              {v('Approve in wallet')}
+            </Button>
+          ) : null}
+          <OutcomeLine result={approving} owner={owner} />
+        </Sheet>
+      ) : null}
     </form>
   );
 }
@@ -677,14 +666,14 @@ function TicketOutcome({
   const o = result.outcome;
   if (o.accepted && expireAt && sent.clientOrderKey.startsWith('spot-cond:')) {
     return (
-      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
+      <p className="lt-note" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
         {t('Gtd placed', { at: new Date(expireAt).toLocaleString() })}
       </p>
     );
   }
   if (!o.accepted) {
     return sent.timeInForce === 'ALO' ? (
-      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
+      <p className="lt-note" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
         {t('Post only refused')}
       </p>
     ) : null;
@@ -697,7 +686,7 @@ function TicketOutcome({
     return null;
   }
   return (
-    <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
+    <p className="lt-note" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
       {filled === 0n ? t('Nothing traded') : t('Partly traded', { filled: displayAmount(o.order.filled), asset: base })}
     </p>
   );

@@ -494,6 +494,8 @@ function SendForm({
     bankPending = true;
   }
   const waiting = Boolean(unresolved) || bankPending;
+  // The send this device is still confirming: its status page asks the bank whether it went through (J-pay-01 #6).
+  const unsettled = unresolved ? pay.unsettledSend() : null;
 
   async function retryRecovery() {
     if (!mounted.current || !api.canWrite() || recovering.current) return;
@@ -879,6 +881,7 @@ function SendForm({
             busy={recoveryBusy}
             onRetry={() => void retryRecovery()}
             showActivity={!(recoveryProblem && !knownCleanup)}
+            statusHref={unsettled ? heldSendHref(unsettled) : null}
           />
         ) : null}
 
@@ -1303,6 +1306,7 @@ function WaitingNotice({
   busy,
   onRetry,
   showActivity,
+  statusHref,
 }: {
   recoveryProblem: boolean;
   knownCleanup: boolean;
@@ -1310,6 +1314,7 @@ function WaitingNotice({
   busy: boolean;
   onRetry: () => void;
   showActivity: boolean;
+  statusHref: string | null;
 }) {
   const title = knownCleanup
     ? knownConfirmed
@@ -1336,6 +1341,11 @@ function WaitingNotice({
             <Button disabled={busy} onClick={onRetry}>
               {busy ? payCopy.t('Working') : knownCleanup ? payCopy.t('Finish up') : payCopy.t('Try again')}
             </Button>
+          ) : null}
+          {statusHref && !knownCleanup && !recoveryProblem ? (
+            <a className="lt-button lt-button-secondary" href={statusHref} data-testid="pay-waiting-status">
+              {payCopy.t('See its status')}
+            </a>
           ) : null}
           {showActivity ? (
             <a className="lt-button lt-button-secondary" href={ACTIVITY_HREF}>

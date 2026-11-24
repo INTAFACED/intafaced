@@ -36,16 +36,17 @@ export function VenueMarketRules({ market, venueName }: { market: VenueMarket; v
     ['largest', t('Rule largest'), largest],
   ];
   return (
-    <details data-testid="venue-rules" className="dk-rules dk-panel" open>
-      <summary className="dk-rules-summary">{t('Rules title')}</summary>
-      <p className="dk-note-small" data-testid="venue-rules-source">
+    <details data-testid="venue-rules" className="lt-panel" open>
+      <summary className="lt-panel-title">{t('Rules title')}</summary>
+      <p className="lt-note" data-testid="venue-rules-source">
         {t('Rules source', { venue: venueName })}
       </p>
-      <dl aria-label={t('Rules title')}>
+      <dl className="lt-kv" aria-label={t('Rules title')}>
         {rows.map(([rule, name, value]) => (
           <div key={rule} data-rule={rule}>
             <dt>{name}</dt>
-            <dd className="if-num">{value}</dd>
+            {/* A rule's value is often a sentence ("Limit prices within 95% of …"): it wraps in the narrow ticket column. */}
+            <dd>{value}</dd>
           </div>
         ))}
       </dl>
