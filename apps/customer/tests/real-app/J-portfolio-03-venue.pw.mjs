@@ -1,4 +1,4 @@
-// World: book, restart
+// World: book, gates, restart
 import { randomBytes } from 'node:crypto';
 import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -8,19 +8,22 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
-// J-portfolio-03 #1 and #4 on the launch model (OWNER 226; docs/roadmap/journeys.json; project-state
+// J-portfolio-03 #1, #3, #4 and #5 on the launch model (OWNER 226; docs/roadmap/journeys.json; project-state
 // operation-zero/modules/portfolio/acceptance/journeys.md). #1: "Opens /money/activity" / "Every movement from the wallet,
 // venues and partner in one list (trade, deposit, withdrawal, convert, transfer, other), each labelled with its source, in
-// plain words with signed amounts and local time". #4: "Opens an entry" / "Both legs of a venue fill, and any hold and
-// release, as one linked group by the venue's reference; from a purchase, a link to /coin/:asset". Earn in #1's list is
-// Later (the custodial branch, row d119). INTAFACED holds none of this person's money: with svc-trade's user-venue door on for
-// this file (venueForThisFile), the list is what each place holding it reports, and every expected line is read from that
-// place's own record, never from the page: the TEST chain's indexer for the wallet, the stack's TEST venue simulator for
-// the venue account, and the TEST partner bank's record (svc-bank `activity.list`, the lines carrying the partner's name).
-// The other steps, and #1 and #4 on our own ledger's feed (the custodial branch, "Later" in the journey's Money line), are
-// J-portfolio-03.pw.mjs's.
+// plain words with signed amounts and local time". #3: "Reads a traded order" / "The lines of one order share one row; a
+// cancelled order is one row; a resting order shows as 'Set aside'". #4: "Opens an entry" / "Both legs of a venue fill,
+// and any hold and release, as one linked group by the venue's reference; from a purchase, a link to /coin/:asset". #5:
+// "Opens Trades" / "One row per trade with price, total and fee; partial fills grouped by order and order type shown".
+// Earn in #1's list is Later (the custodial branch, row d119). INTAFACED holds none of this person's money: with
+// svc-trade's user-venue door on for this file (venueForThisFile), the list is what each place holding it reports, and
+// every expected line is read from that place's own record, never from the page: the TEST chain's indexer for the wallet,
+// the stack's TEST venue simulator for the venue account, and the TEST partner bank's record (svc-bank `activity.list`,
+// the lines carrying the partner's name). The other steps (#2, #6, #7, #8), and #1, #3, #4, #5 on our own ledger's feed
+// (the custodial branch, "Later" in the journey's Money line), are J-portfolio-03.pw.mjs's.
 //
 // TEST setup (beforeAll, not a step), so every source has moved money:
 // - wallet: TEST USD minted into the TEST wallet on the TEST chain (`fund <address> venue`), then a TEST USD transfer
@@ -329,7 +332,7 @@ test.beforeAll(async ({ browser }) => {
     });
     expect(charged.status, JSON.stringify(charged.body)).toBe(200);
     expect(charged.body.result.data).toMatchObject({ label: PARTNER_BANK, amount: PARTNER_FEE });
-    run.write({ ledgerStart, txHash: txHash.toLowerCase(), convertOrder, buyKey, buyOrder });
+    run.write({ ledgerStart, txHash: txHash.toLowerCase(), convertOrder, buyKey, buyOrder, seller });
   } finally {
     await page.close();
   }
@@ -487,7 +490,7 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
       return acc;
     }, {});
   const amountsOf = (source) =>
-    list.locator(`[data-testid="money-act"][data-source="${source}"] td.money-num [data-direction]`).allInnerTexts();
+    list.locator(`[data-testid="money-act"][data-source="${source}"] [data-testid="money-act__amount"] [data-direction]`).allInnerTexts();
   const venueSum = sum(await amountsOf('venue'));
   expect(venueSum.USDC).toBe(deposits.reduce((acc, d) => acc + units(d.amount), 0n));
   expect(venueSum.BTC).toBe(fills.reduce((acc, f) => acc + (f.side === 'buy' ? 1n : -1n) * units(f.amount), 0n));
@@ -584,6 +587,279 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
   await stepPicture();
   await coin.click();
   await expect(page).toHaveURL(new RegExp(`/coin/${base}($|[/?#])`));
+});
+
+/** Exact `a * b` rounded half-up to 18 decimal places, matching VenueKit's `fillTotal`. */
+const mulHalfUp = (a, b) => (units(a) * units(b) + SCALE / 2n) / SCALE;
+/** Exact `a / b` rounded half-up to 18 decimal places, matching `groupVenueFillsByOrder`. */
+const divHalfUp = (a, b) => (a * SCALE + b / 2n) / b;
+/** Exact text `VenueFeeCell` renders for one venue fee decimal string. */
+function venueFeeText(value) {
+  const v = units(value);
+  if (v === 0n) return 'Zero fee';
+  if (v < 0n) return `Venue rebate ${decimal(-v)}`;
+  return value;
+}
+const ORDER_TYPE_WORD = {
+  limit: 'Limit',
+  market: 'Market',
+  stop: 'Stop',
+  stop_limit: 'Stop limit',
+  take_profit: 'Take profit',
+  trailing_stop: 'Trailing stop',
+};
+
+test(`${J} #3 reads a traded order on the launch model: its lines share one row, a cancelled order is one row, a resting order shows as Set aside`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const { account: who, walletKey, owner, ledgerStart, seller: savedSeller } = state();
+  const seller = savedSeller ?? `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}`;
+  const { displayName: venueName } = await venueInfo();
+  const venueLabel = `Your venue account on ${venueName} TEST`;
+
+  // A fresh TEST spot market of this step's own (empty book, so no other journey's resting orders can collide with ours).
+  const market = await ownSpotMarket(J, 'PF', 'A');
+  const seededBase = await testVenue('/test/deposit', {
+    account: await venueAccount(otherTraderKey(seller).address),
+    asset: market.base,
+    amount: '10',
+    depositRef: `seed:${seller}:${market.base}`,
+  });
+  expect(seededBase.status, JSON.stringify(seededBase.body)).toBe(200);
+  const multiPrice = '10';
+  const restPrice = '8';
+  const cancelPrice = '7';
+
+  // 1) A GTC limit buy of 2 base at 10 USDC filled in TWO separate IOC sells of 1 base each by the other TEST trader.
+  const multiKey = `order:${owner}:${market.symbol.toLowerCase()}:pf3m${randomBytes(4).toString('hex')}`;
+  const multiPlaced = await signOnVenue(walletKey, {
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '2',
+    price: multiPrice,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: multiKey,
+    builderFee: null,
+  });
+  expect(multiPlaced.definite && multiPlaced.accepted, JSON.stringify(multiPlaced)).toBe(true);
+  const multiOrder = multiPlaced.order.venueClientOrderId;
+  expect(multiOrder, 'multi-fill order has a venue client order id').toBeTruthy();
+
+  for (const part of [1, 2]) {
+    const hit = await otherTraderRun(seller, {
+      kind: 'place_order',
+      symbol: market.symbol,
+      side: 'sell',
+      type: 'limit',
+      amount: '1',
+      price: multiPrice,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${seller}:pf3m-hit-${part}-${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(hit.definite && hit.accepted, JSON.stringify(hit)).toBe(true);
+  }
+  const multiFillsRead = async () =>
+    (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter((f) => f.venueClientOrderId === multiOrder);
+  await expect.poll(async () => (await multiFillsRead()).length, { timeout: 30_000 }).toBe(2);
+  const multiFills = await multiFillsRead();
+  const multiRecord = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: multiOrder })).value;
+  expect(multiRecord.status).toBe('filled');
+
+  // 2) A resting GTC limit buy on our own market with nothing selling into it: stays open with USDC set aside.
+  const restKey = `order:${owner}:${market.symbol.toLowerCase()}:pf3r${randomBytes(4).toString('hex')}`;
+  const restPlaced = await signOnVenue(walletKey, {
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: restPrice,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: restKey,
+    builderFee: null,
+  });
+  expect(restPlaced.definite && restPlaced.accepted, JSON.stringify(restPlaced)).toBe(true);
+  const restingOrder = restPlaced.order.venueClientOrderId;
+  const restingRecord = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: restingOrder })).value;
+  expect(restingRecord.status).toBe('open');
+  expect(units(restingRecord.filled)).toBe(0n);
+  expect(units(restingRecord.locked)).toBeGreaterThan(0n);
+
+  // 3) A GTC limit buy placed and cancelled with nothing filled.
+  const cancelKey = `order:${owner}:${market.symbol.toLowerCase()}:pf3c${randomBytes(4).toString('hex')}`;
+  const cancelPlaced = await signOnVenue(walletKey, {
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: cancelPrice,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: cancelKey,
+    builderFee: null,
+  });
+  expect(cancelPlaced.definite && cancelPlaced.accepted, JSON.stringify(cancelPlaced)).toBe(true);
+  const cancelledOrder = cancelPlaced.order.venueClientOrderId;
+  const cancelSent = await signOnVenue(walletKey, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: cancelKey });
+  expect(cancelSent.definite && cancelSent.accepted, JSON.stringify(cancelSent)).toBe(true);
+  await expect
+    .poll(async () => (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: cancelledOrder })).value.status, {
+      timeout: 30_000,
+    })
+    .toBe('canceled');
+  const cancelledRecord = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: cancelledOrder })).value;
+  expect(units(cancelledRecord.filled)).toBe(0n);
+  expect(units(cancelledRecord.locked)).toBe(0n);
+
+  run.write({ multiOrder, restingOrder, cancelledOrder });
+
+  // Open Activity (All tab) with the wallet connected.
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  await signIn(page, who);
+  await page.goto('/money/activity');
+  const list = page.getByTestId('activity-by-source');
+  await expect(list).toBeVisible({ timeout: 30_000 });
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+
+  // Traded order: all 2 fills share ONE row, with summed base, summed quote paid and fee, and both fills inside its parts.
+  const multiRow = list.locator(`[data-testid="money-act"][data-source="venue"][data-order="${multiOrder}"]`);
+  await expect(multiRow).toHaveCount(1, { timeout: 30_000 });
+  const totalBase = decimal(multiFills.reduce((sum, f) => sum + units(f.amount), 0n));
+  const totalPaid = decimal(multiFills.reduce((sum, f) => sum + (units(f.price) * units(f.amount) + SCALE - 1n) / SCALE, 0n));
+  const totalFee = multiFills.reduce((sum, f) => sum + units(f.venueFee) + units(f.builderFee), 0n);
+  const feeSuffix =
+    totalFee === 0n
+      ? ''
+      : ` · ${totalFee < 0n ? 'Rebate' : 'Fee'} ${shown(decimal(totalFee < 0n ? -totalFee : totalFee))} ${multiFills[0].feeAsset}`;
+  await expect(multiRow.getByTestId('money-act__title')).toHaveText(`Bought ${market.base}`);
+  await expect(multiRow.locator('[data-direction]').first()).toHaveText(`+${shown(totalBase)} ${market.base}`);
+  await expect(multiRow.getByTestId('money-act__sub').first()).toHaveText(
+    `${multiFills.length} fills · Paid ${shown(totalPaid)} USDC${feeSuffix}`,
+  );
+  await expect(multiRow.getByTestId('money-act__source')).toHaveText(venueLabel);
+  await expect(multiRow.getByTestId('money-act__ref')).toHaveText(`Reference ${multiOrder}`);
+  await expect(multiRow.getByTestId('money-act__status')).toHaveText('Completed');
+
+  // Opening the grouped traded order reveals both individual fills under the shared order reference.
+  await multiRow.getByRole('button', { name: `Bought ${market.base}`, exact: true }).click();
+  const multiParts = list.getByRole('region', { name: 'Parts of this order', exact: true });
+  await expect(multiParts.locator('[data-label="order-reference"]')).toHaveText(`Order reference ${multiOrder}`);
+  for (const f of multiFills) {
+    await expect(multiParts.getByTestId('money-act__part').filter({ hasText: f.fillId })).not.toHaveCount(0);
+  }
+  await multiRow.getByRole('button', { name: `Bought ${market.base}`, exact: true }).click();
+
+  // Cancelled order: one row ("Order cancelled · nothing spent") with the held amount returned and the venue's order ref.
+  const cancelledRow = list.locator(`[data-testid="money-act"][data-source="venue"][data-order="${cancelledOrder}"]`);
+  await expect(cancelledRow).toHaveCount(1, { timeout: 30_000 });
+  const cancelledHeld = decimal((units(cancelledRecord.price) * units(cancelledRecord.amount) + SCALE - 1n) / SCALE);
+  await expect(cancelledRow.getByTestId('money-act__title')).toHaveText('Order cancelled · nothing spent');
+  await expect(cancelledRow.locator('[data-direction]').first()).toHaveText(`${shown(cancelledHeld)} USDC`);
+  await expect(cancelledRow.getByTestId('money-act__source')).toHaveText(venueLabel);
+  await expect(cancelledRow.getByTestId('money-act__ref')).toHaveText(`Reference ${cancelledOrder}`);
+  await expect(cancelledRow.getByTestId('money-act__status')).toHaveText('Cancelled');
+
+  // Resting order: one row showing as "Set aside" with the exact amount the venue holds.
+  const restingRow = list.locator(`[data-testid="money-act"][data-source="venue"][data-order="${restingOrder}"]`);
+  await expect(restingRow).toHaveCount(1, { timeout: 30_000 });
+  await expect(restingRow.getByTestId('money-act__title')).toHaveText('Set aside for an order');
+  await expect(restingRow.locator('[data-direction]').first()).toHaveText(`−${shown(restingRecord.locked)} ${restingRecord.lockedAsset}`);
+  await expect(restingRow.getByTestId('money-act__source')).toHaveText(venueLabel);
+  await expect(restingRow.getByTestId('money-act__ref')).toHaveText(`Reference ${restingOrder}`);
+  await expect(restingRow.getByTestId('money-act__status')).toHaveText('Set aside');
+
+  expect(await (await api(who)).balances()).toEqual(ledgerStart);
+  await stepPicture();
+});
+
+test(`${J} #5 opens Trades on the launch model: one row per trade with price, total and fee, partial fills grouped by order and order type shown`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const { account: who, walletKey, owner, multiOrder } = state();
+  expect(multiOrder, '#3 recorded the multi-fill order').toBeTruthy();
+
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
+  const orderHistory = (await venueRecord(owner, '/order-history')).value;
+  const orderById = new Map(orderHistory.map((entry) => [entry.order.venueClientOrderId.toLowerCase(), entry.order]));
+  const ofMulti = fills.filter((f) => f.venueClientOrderId === multiOrder);
+  expect(ofMulti.length, 'the multi-fill order has two fills').toBeGreaterThanOrEqual(2);
+  for (const f of fills) {
+    expect(orderById.get(f.venueClientOrderId.toLowerCase()), `order record for fill ${f.fillId}`).toBeTruthy();
+  }
+
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  await signIn(page, who);
+  await page.goto('/money/activity?tab=trades');
+  const section = page.getByTestId('money-venue-trades');
+  await expect(section).toBeVisible({ timeout: 30_000 });
+  await connectWhenAsked(page, section.getByTestId('venue-wallet-address'));
+
+  const table = section.getByTestId('venue-fills').locator('table');
+  await expect(table.locator('tbody tr[data-fill]')).toHaveCount(fills.length, { timeout: 30_000 });
+
+  // Every fill has its own row with exact price, amount, total, venue fee, builder fee and order type from the venue.
+  for (const f of fills) {
+    const row = table.locator(`tbody tr[data-fill="${f.fillId}"]`);
+    const quote = f.symbol.split('-')[1];
+    const expectedTotal = decimal(mulHalfUp(f.price, f.amount));
+    const order = orderById.get(f.venueClientOrderId.toLowerCase());
+    const typeWord = ORDER_TYPE_WORD[order.type] ?? order.type;
+    await expect(row, `fill ${f.fillId}`).toHaveCount(1);
+    await expect(row.locator('[data-cell="type"]')).toHaveText(typeWord);
+    await expect(row.locator('[data-cell="price"]')).toHaveText(shown(f.price));
+    await expect(row.locator('[data-cell="amount"]')).toHaveText(shown(f.amount));
+    await expect(row.locator('[data-cell="total"]')).toHaveText(`${shown(expectedTotal)} ${quote}`);
+    await expect(row.locator('[data-cell="venue-fee"]')).toHaveText(venueFeeText(f.venueFee));
+    await expect(row.locator('[data-cell="builder-fee"]')).toHaveText(f.builderFee);
+  }
+
+  // Partial fills of the multi-fill order sit grouped immediately under one order row naming its order type and fill count.
+  const multiRecord = orderById.get(multiOrder.toLowerCase());
+  const multiType = ORDER_TYPE_WORD[multiRecord.type] ?? multiRecord.type;
+  const orderRow = table.locator(`tbody tr[data-part="order"][data-order="${multiOrder}"]`);
+  await expect(orderRow).toHaveCount(1);
+  await expect(orderRow.locator('[data-cell="type"]')).toHaveText(`${multiType} order · ${ofMulti.length} fills`);
+  const multiAmountUnits = ofMulti.reduce((sum, f) => sum + units(f.amount), 0n);
+  const multiTotalUnits = ofMulti.reduce((sum, f) => sum + mulHalfUp(f.price, f.amount), 0n);
+  const multiAvg = decimal(divHalfUp(multiTotalUnits, multiAmountUnits));
+  const multiVenueFee = decimal(ofMulti.reduce((sum, f) => sum + units(f.venueFee), 0n));
+  const multiBuilderFee = decimal(ofMulti.reduce((sum, f) => sum + units(f.builderFee), 0n));
+  const multiQuote = ofMulti[0].symbol.split('-')[1];
+  await expect(orderRow.locator('[data-cell="amount"]')).toHaveText(shown(decimal(multiAmountUnits)));
+  await expect(orderRow.locator('[data-cell="total"]')).toHaveText(`${shown(decimal(multiTotalUnits))} ${multiQuote}`);
+  await expect(orderRow.locator('[data-cell="price"]')).toHaveText(shown(multiAvg));
+  await expect(orderRow.locator('[data-cell="venue-fee"]')).toHaveText(venueFeeText(multiVenueFee));
+  await expect(orderRow.locator('[data-cell="builder-fee"]')).toHaveText(multiBuilderFee);
+
+  const groupedFills = table.locator(`tbody tr[data-fill][data-of="${multiOrder}"]`);
+  await expect(groupedFills).toHaveCount(ofMulti.length);
+  // Contiguous in the table body: the header row is followed directly by its fill rows.
+  const orderTrace = await table.locator('tbody tr').evaluateAll((trs) =>
+    trs.map((tr) => ({
+      part: tr.getAttribute('data-part'),
+      order: tr.getAttribute('data-order'),
+      of: tr.getAttribute('data-of'),
+      fill: tr.getAttribute('data-fill'),
+    })),
+  );
+  const headAt = orderTrace.findIndex((r) => r.part === 'order' && r.order === multiOrder);
+  expect(headAt).toBeGreaterThanOrEqual(0);
+  const under = orderTrace.slice(headAt + 1, headAt + 1 + ofMulti.length);
+  expect(under.every((r) => r.part === 'fill' && r.of === multiOrder)).toBe(true);
+  expect(under.map((r) => r.fill).sort()).toEqual(ofMulti.map((f) => f.fillId).sort());
+
+  await stepPicture();
 });
 
 test.afterAll(async () => {

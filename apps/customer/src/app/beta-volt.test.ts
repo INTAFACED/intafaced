@@ -42,6 +42,16 @@ describe("the beta's menus", () => {
     }
   });
 
+  it("keep Trade's Orders row, whose room (/money/activity) counts in Volt (#10708)", () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
+    expect(state.get('/money/activity')).toBe('volt');
+    for (const mode of ['simple', 'pro'] as const) {
+      const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
+      expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
+    }
+    expect(betaHides('/money/activity')).toBe(false);
+  });
+
   it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
     const betaList = betaRoomList(count.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
