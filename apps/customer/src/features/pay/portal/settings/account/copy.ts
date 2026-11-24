@@ -55,6 +55,10 @@ const en = {
   startHere: 'Start with step 1, your business details.',
   ownerSetsUpTitle: 'Your business is set up by its owner',
   ownerSetsUpBody: 'The account owner makes the business details, verification and payout destination. Ask them if something is missing.',
+  twoStepFirstTitle: 'First, turn on two-step sign-in',
+  twoStepFirstBody:
+    'Opening a business account needs two-step sign-in on your own account. Turn it on, then sign out and sign in again, and setup starts here with your business details.',
+  twoStepFirstAction: 'Turn on two-step sign-in',
   overviewLeftTitle: 'What is left',
   overviewLeftBody: 'Everything between you and live payments, in order.',
   leftBusiness: 'Tell us about your business (step 1).',

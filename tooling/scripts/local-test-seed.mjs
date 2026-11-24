@@ -247,7 +247,9 @@ function databaseUrl(role, secrets, marker) {
     throw new GuardError(`refusing: database port ${dbPort} is not the marker postgres port ${markerPort}`);
   }
   if (typeof name !== 'string' || !/^[A-Za-z0-9_]+$/.test(name)) throw new GuardError('refusing: marker database name is missing');
-  const password = secrets?.pgService;
+  // A tester compose stack's roles keep compose's own LOCAL TEST passwords (each role's name, tooling/infra/postgres-init);
+  // its marker's stack id, not a password, says the database is this stack's (assertComposeOwnership).
+  const password = marker?.runtime === 'compose' ? role : secrets?.pgService;
   if (typeof password !== 'string' || password.length === 0) {
     throw new GuardError('refusing: secrets.json has no pgService password');
   }
@@ -312,7 +314,11 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   }
   // The custody switch the running svc-ledger was started with (its process record, local-test-state.mjs).
   const recordsPath = path.join(stateDir, 'run', 'processes.json');
-  const custodyLayer = custodyLayerOf(io.existsSync(recordsPath) ? readJson(io, recordsPath, 'run/processes.json') : {});
+  // A tester compose stack has no process records: its marker says the switch its svc-ledger was started with.
+  const custodyLayer =
+    marker.runtime === 'compose'
+      ? custodyLayerOf({ ledger: { custodyLayer: marker.custodyLayer } })
+      : custodyLayerOf(io.existsSync(recordsPath) ? readJson(io, recordsPath, 'run/processes.json') : {});
   return { stateDir, marker, bankUrl, p2pUrl, ledgerUrl, internal: secrets.internal, custodyLayer };
 }
 

@@ -477,7 +477,7 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     const rows = [...html.matchAll(row(''))].map((m) => ({ id: m[1], body: m[2] }));
     // The open order once (its open record wins), the filled one once; a non-filled read-back is never listed here.
     expect(rows.map((r) => r.id)).toEqual(['0xopen', '0xdone']);
-    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
+    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*><bdi>Filled<\/bdi>/);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
   });

@@ -117,6 +117,8 @@ async function restElsewhere(walletKey, tag) {
 
 const ticket = (page) => page.getByTestId('venue-ticket');
 const blotter = (page) => page.getByTestId('venue-blotter');
+/** A figure the page shows (`1,234.5 USDC`), in scaled units. */
+const shownUnits = (text) => toUnits(text.replace(/,/g, '').trim().split(/\s+/)[0]);
 const rowOf = (page, cloid) => page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${cloid}"]`);
 
 async function ordersTab(page) {
@@ -218,6 +220,11 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   expect(toUnits(amended.locked)).toBeLessThan(toUnits(before.locked));
   expect(door.of('prepare').at(-1).body.intent).toMatchObject({ kind: 'amend_order', symbol: PERP, venueClientOrderId: a });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  // The row reads the amended order before it is edited again, as the person sees it: Edit opens on the order the row
+  // shows, so pressed before the desk re-reads, it would offer the old amount.
+  await expect
+    .poll(async () => shownUnits(await rowOf(page, a).locator('[data-cell=locked]').innerText()), { timeout: 20_000 })
+    .toBe(toUnits(amended.locked));
 
   // A new price is a reviewed cancel-and-replace: reviewed first with nothing sent, then one signature for both.
   await rowOf(page, a)

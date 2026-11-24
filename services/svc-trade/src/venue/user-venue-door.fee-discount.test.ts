@@ -7,6 +7,7 @@ import type { StepUpCheck } from '@intafaced/contracts';
 import { add, div, mul, parseAmount } from '@intafaced/ledger-client/money';
 import type { PlaceUserOrderIntent, PreparedVenueAction } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { parseBuilderFees } from './builder-fee-versions.js';
 import { FixedFeeSaver } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
@@ -106,6 +107,30 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
     clientOrderKey: `order:${USER}:fee-discount:${++n}`,
     builderFee: null,
     ...over,
+  });
+
+  it('#10657: a version with a perp rate and a spot rate prices a perp order and a spot sell each at its own', async () => {
+    const book = parseBuilderFees({
+      [sim.venue.id]: { defaultGroup: 'spot', kindGroups: { perpetual: 'perps' }, groups: { spot: '0.4', perps: '0.3' } },
+    });
+    const d = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: allowAll,
+      builder: BUILDER,
+      builderFeesAt: async () => book,
+      slippageCapBps: null,
+      now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+    });
+    expect(await d.builderFeeFor('BTC-PERP', 'buy')).toEqual({ carries: true, feeBps: a('0.3') });
+    expect(await d.builderFeeFor('BTC-PERP', 'sell')).toEqual({ carries: true, feeBps: a('0.3') });
+    expect(await d.builderFeeFor('BTC-USDC', 'sell')).toEqual({ carries: true, feeBps: a('0.4') });
+    expect(await d.builderFeeFor('BTC-USDC', 'buy')).toEqual({ carries: false });
+    // The spot sell is prepared for signing at the spot rate.
+    const prepared = await d.prepare(principal, { owner, signer, intent: sell() });
+    expect(prepared.prepared.builderFee).toEqual({ builder: BUILDER.address, feeBps: a('0.4') });
   });
 
   it('a coupon that beats the rank is taken once and the order is signed at its rate; a replay takes nothing more', async () => {

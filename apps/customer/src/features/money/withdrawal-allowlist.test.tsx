@@ -71,7 +71,9 @@ beforeEach(() => {
 describe('the withdrawal address list room', () => {
   it('shows the mode, listed addresses, the one-time setting and the changes', () => {
     const html = page();
-    expect(html).toContain('Withdrawal address list');
+    expect(html).toContain('Approved address list');
+    expect(html).toContain('The addresses you save for quick sends are under Withdrawal addresses.');
+    expect(html).not.toContain('shown · up to');
     expect(html).toContain('On: withdrawals to an address that is not on your list are refused.');
     expect(html).toContain('Cold');
     expect(html).toContain('Off: nothing can be sent to an unlisted address.');

@@ -343,37 +343,45 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const legend = focus ? legendValues(focus, tickSize, language) : null;
 
   return (
-    <div className="pc-root" role="img" aria-label={labels.chart}>
-      <div ref={host} data-testid="pc-host" className="pc-host" />
-      {legend && focus ? (
-        <div data-testid="pc-legend" className="pc-legend" aria-hidden="true">
-          <span className="pc-time">{formatTime(Math.floor(focus.t / 1000))}</span>
-          <span className="pc-ohlc">
-            {labels.open} <b>{legend.open}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.high} <b>{legend.high}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.low} <b>{legend.low}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.close} <b>{legend.close}</b>
-          </span>
-          <span className="pc-change" data-direction={legend.direction}>
-            {labels.change} {legend.change}
-          </span>
-          {mode === 'candles' ? (
-            <span className="pc-ma">
-              {MA_PERIODS.map((p, i) => (
-                <span key={p} className={`pc-ma-${i + 1}`}>
-                  MA({p})
-                </span>
-              ))}
+    <div className="lt-stack-tight lt-tight">
+      {/* The named picture is the legend's strip; the plot stays outside it, because the engine draws the attribution
+          link the licence asks for inside the plot, and an image may hold no link (axe nested-interactive). */}
+      <div role="img" aria-label={labels.chart}>
+        {legend && focus ? (
+          <div data-testid="pc-legend" className="lt-row lt-note lt-num" aria-hidden="true">
+            <span>{formatTime(Math.floor(focus.t / 1000))}</span>
+            <span data-testid="pc-ohlc">
+              {labels.open} <b>{legend.open}</b>
             </span>
-          ) : null}
-        </div>
-      ) : null}
+            <span data-testid="pc-ohlc">
+              {labels.high} <b>{legend.high}</b>
+            </span>
+            <span data-testid="pc-ohlc">
+              {labels.low} <b>{legend.low}</b>
+            </span>
+            <span data-testid="pc-ohlc">
+              {labels.close} <b>{legend.close}</b>
+            </span>
+            <span className="lt-signed" data-direction={legend.direction}>
+              {labels.change} {legend.change}
+            </span>
+            {mode === 'candles' ? (
+              <span className="lt-line-key">
+                {MA_PERIODS.map((p, i) => (
+                  <span key={p} data-line={i + 1}>
+                    MA({p})
+                  </span>
+                ))}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {/* The plot's own positioned box: the order marks drawn over it (VenueChartOrders, portalled into the host's parent)
+          take their coordinates from the plot's top, not from above the legend strip. */}
+      <div className="lt-canvas">
+        <div ref={host} data-testid="pc-host" className="lt-chart-host" />
+      </div>
     </div>
   );
 }
